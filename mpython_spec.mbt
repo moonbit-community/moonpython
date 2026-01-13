@@ -1,0 +1,359 @@
+///|
+/// mpython interpreter specification
+///
+/// This file defines the public API contract for a MoonBit-based
+/// Python interpreter. Implementations should live in separate files
+/// and satisfy the behavior expressed in the spec-driven tests.
+
+///|
+/// Source span for errors and diagnostics
+pub(all) struct Span {
+  start : Int
+  end : Int
+  line : Int
+  column : Int
+} derive(ToJson)
+
+///|
+/// Literal values that appear in source code
+pub enum Literal {
+  None
+  Bool(Bool)
+  Int(Int64)
+  Float(Double)
+  Str(String)
+} derive(ToJson)
+
+///|
+/// Unary operators
+pub enum UnaryOp {
+  Pos
+  Neg
+  Not
+} derive(ToJson)
+
+///|
+/// Binary operators
+pub enum BinaryOp {
+  Add
+  Sub
+  Mul
+  Div
+  FloorDiv
+  Mod
+  Pow
+} derive(ToJson)
+
+///|
+/// Boolean operators
+pub enum BoolOp {
+  And
+  Or
+} derive(ToJson)
+
+///|
+/// Comparison operators
+pub enum CompareOp {
+  Eq
+  NotEq
+  Lt
+  Lte
+  Gt
+  Gte
+  In
+  NotIn
+  Is
+  IsNot
+} derive(ToJson)
+
+///|
+/// Expression nodes
+pub enum Expr {
+  Literal(Literal)
+  Name(String)
+  Tuple(Array[Expr])
+  List(Array[Expr])
+  Dict(Array[(Expr, Expr)])
+  Attribute(value~ : Expr, attr~ : String)
+  Subscript(value~ : Expr, index~ : Expr)
+  Call(callee~ : Expr, args~ : Array[Expr])
+  Unary(op~ : UnaryOp, expr~ : Expr)
+  Binary(op~ : BinaryOp, left~ : Expr, right~ : Expr)
+  BoolOp(op~ : BoolOp, values~ : Array[Expr])
+  Compare(left~ : Expr, ops~ : Array[CompareOp], comparators~ : Array[Expr])
+} derive(ToJson)
+
+///|
+/// Assignment targets
+pub enum Target {
+  Name(String)
+  Attribute(value~ : Expr, attr~ : String)
+  Subscript(value~ : Expr, index~ : Expr)
+} derive(ToJson)
+
+///|
+/// Statement nodes
+pub enum Stmt {
+  ExprStmt(Expr)
+  Assign(target~ : Target, value~ : Expr)
+  Return(Expr?)
+  If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  While(condition~ : Expr, body~ : Array[Stmt])
+  Function(name~ : String, params~ : Array[String], body~ : Array[Stmt])
+} derive(ToJson)
+
+///|
+/// Parsed module
+pub struct Module {
+  body : Array[Stmt]
+} derive(ToJson)
+
+///|
+/// Parse error categories
+pub(all) enum ParseErrorKind {
+  Syntax
+  Indentation
+  UnexpectedToken
+  UnexpectedEof
+} derive(ToJson)
+
+///|
+/// Parse error details
+pub(all) struct ParseError {
+  kind : ParseErrorKind
+  message : String
+  span : Span
+} derive(ToJson)
+
+///|
+/// Runtime error categories
+pub(all) enum RuntimeErrorKind {
+  Name
+  Type
+  Attribute
+  Index
+  Key
+  ZeroDivision
+  NotImplemented
+  Runtime
+} derive(ToJson)
+
+///|
+/// Runtime error details
+pub(all) struct RuntimeError {
+  kind : RuntimeErrorKind
+  message : String
+  span : Span?
+} derive(ToJson)
+
+///|
+/// Interpreter configuration
+pub struct Config {
+  max_recursion : Int
+  traceback_limit : Int
+  track_spans : Bool
+} derive(ToJson)
+
+///|
+/// Runtime values
+pub struct FunctionValue {
+  name : String
+  params : Array[String]
+  body : Array[Stmt]
+} derive(ToJson)
+
+///|
+/// Runtime values available to user code
+pub enum Value {
+  None
+  Bool(Bool)
+  Int(Int64)
+  Float(Double)
+  Str(String)
+  List(Array[Value])
+  Dict(Array[(Value, Value)])
+  Function(FunctionValue)
+} derive(ToJson)
+
+///|
+/// Results produced after executing code
+pub struct RunResult {
+  value : Value
+  stdout : String
+  stderr : String
+  globals : Array[(String, Value)]
+} derive(ToJson)
+
+///|
+/// In-memory IO buffers for testing
+pub struct MockIO {
+  stdin : Array[String]
+  stdin_pos : Ref[Int]
+  stdout : StringBuilder
+  stderr : StringBuilder
+}
+
+///|
+/// Stateful interpreter
+pub struct Interpreter {
+  config : Config
+  globals : Array[(String, Value)]
+  builtins : Array[(String, Value)]
+  io : MockIO
+}
+
+///|
+/// Build a default configuration
+#declaration_only
+pub fn Config::default() -> Config {
+  ...
+}
+
+///|
+/// Create a new interpreter with default configuration
+#declaration_only
+pub fn Interpreter::new() -> Interpreter {
+  ...
+}
+
+///|
+/// Create a new interpreter with custom configuration
+#declaration_only
+pub fn Interpreter::with_config(config : Config) -> Interpreter {
+  ...
+}
+
+///|
+/// Create a new interpreter with builtins
+#declaration_only
+pub fn Interpreter::with_builtins(
+  builtins : Array[(String, Value)],
+  config : Config,
+) -> Interpreter {
+  ...
+}
+
+///|
+/// Create a new interpreter with explicit IO
+#declaration_only
+pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
+  ...
+}
+
+///|
+/// Create mock IO buffers
+#declaration_only
+pub fn MockIO::new(stdin : Array[String]) -> MockIO {
+  ...
+}
+
+///|
+/// Read a line from stdin (without newline)
+#declaration_only
+pub fn MockIO::read_line(self : MockIO) -> String? {
+  ...
+}
+
+///|
+/// Write to stdout
+#declaration_only
+pub fn MockIO::write_stdout(self : MockIO, text : String) -> Unit {
+  ...
+}
+
+///|
+/// Write to stderr
+#declaration_only
+pub fn MockIO::write_stderr(self : MockIO, text : String) -> Unit {
+  ...
+}
+
+///|
+/// Retrieve stdout contents
+#declaration_only
+pub fn MockIO::take_stdout(self : MockIO) -> String {
+  ...
+}
+
+///|
+/// Retrieve stderr contents
+#declaration_only
+pub fn MockIO::take_stderr(self : MockIO) -> String {
+  ...
+}
+
+///|
+/// Parse a full module from source
+#declaration_only
+pub fn parse(source : String) -> Result[Module, ParseError] {
+  ...
+}
+
+///|
+/// Parse a single expression from source
+#declaration_only
+pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
+  ...
+}
+
+///|
+/// Execute a parsed module
+#declaration_only
+pub fn Interpreter::exec(
+  self : Interpreter,
+  program : Module,
+) -> Result[RunResult, RuntimeError] {
+  ...
+}
+
+///|
+/// Execute source text directly
+#declaration_only
+pub fn Interpreter::exec_source(
+  self : Interpreter,
+  source : String,
+) -> Result[RunResult, RuntimeError] {
+  ...
+}
+
+///|
+/// Evaluate a single expression
+#declaration_only
+pub fn Interpreter::eval(
+  self : Interpreter,
+  expr : Expr,
+) -> Result[Value, RuntimeError] {
+  ...
+}
+
+///|
+/// Retrieve a global variable
+#declaration_only
+pub fn Interpreter::get_global(self : Interpreter, name : String) -> Value? {
+  ...
+}
+
+///|
+/// Set a global variable
+#declaration_only
+pub fn Interpreter::set_global(
+  self : Interpreter,
+  name : String,
+  value : Value,
+) -> Unit {
+  ...
+}
+
+///|
+/// Render a parse error for diagnostics
+#declaration_only
+pub fn format_parse_error(error : ParseError) -> String {
+  ...
+}
+
+///|
+/// Render a runtime error for diagnostics
+#declaration_only
+pub fn format_runtime_error(error : RuntimeError) -> String {
+  ...
+}
