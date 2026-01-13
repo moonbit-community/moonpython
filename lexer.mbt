@@ -1,0 +1,742 @@
+///|
+/// Lexer for the mpython interpreter.
+
+///|
+priv enum TokenKind {
+  IntLit(Int64)
+  FloatLit(Double)
+  StrLit(String)
+  FStrLit(String)
+  BoolLit(Bool)
+  NoneLit
+  Ident(String)
+  LParen
+  RParen
+  LBracket
+  RBracket
+  LBrace
+  RBrace
+  Comma
+  Colon
+  Dot
+  Plus
+  Minus
+  Star
+  Slash
+  SlashSlash
+  Percent
+  StarStar
+  BitAnd
+  BitOr
+  BitXor
+  ShiftLeft
+  ShiftRight
+  Tilde
+  EqEq
+  NotEq
+  Lt
+  Lte
+  Gt
+  Gte
+  Assign
+  And
+  Or
+  Not
+  In
+  Is
+  If
+  Else
+  Def
+  Return
+  Lambda
+  Eof
+} derive(Eq)
+
+///|
+priv struct Token {
+  kind : TokenKind
+  start : Int
+  end : Int
+  line : Int
+  column : Int
+}
+
+///|
+fn make_parse_error(
+  kind : ParseErrorKind,
+  message : String,
+  token : Token,
+) -> ParseError {
+  ParseError::{
+    kind,
+    message,
+    span: Span::{
+      start: token.start,
+      end: token.end,
+      line: token.line,
+      column: token.column,
+    },
+  }
+}
+
+///|
+fn token_text(token : Token) -> String {
+  match token.kind {
+    TokenKind::IntLit(value) => value.to_string()
+    TokenKind::FloatLit(value) => value.to_string()
+    TokenKind::StrLit(value) => "\"" + value + "\""
+    TokenKind::FStrLit(value) => "f\"" + value + "\""
+    TokenKind::BoolLit(value) => if value { "True" } else { "False" }
+    TokenKind::NoneLit => "None"
+    TokenKind::Ident(name) => name
+    TokenKind::LParen => "("
+    TokenKind::RParen => ")"
+    TokenKind::LBracket => "["
+    TokenKind::RBracket => "]"
+    TokenKind::LBrace => "{"
+    TokenKind::RBrace => "}"
+    TokenKind::Comma => ","
+    TokenKind::Colon => ":"
+    TokenKind::Dot => "."
+    TokenKind::Plus => "+"
+    TokenKind::Minus => "-"
+    TokenKind::Star => "*"
+    TokenKind::Slash => "/"
+    TokenKind::SlashSlash => "//"
+    TokenKind::Percent => "%"
+    TokenKind::StarStar => "**"
+    TokenKind::BitAnd => "&"
+    TokenKind::BitOr => "|"
+    TokenKind::BitXor => "^"
+    TokenKind::ShiftLeft => "<<"
+    TokenKind::ShiftRight => ">>"
+    TokenKind::Tilde => "~"
+    TokenKind::EqEq => "=="
+    TokenKind::NotEq => "!="
+    TokenKind::Lt => "<"
+    TokenKind::Lte => "<="
+    TokenKind::Gt => ">"
+    TokenKind::Gte => ">="
+    TokenKind::Assign => "="
+    TokenKind::And => "and"
+    TokenKind::Or => "or"
+    TokenKind::Not => "not"
+    TokenKind::In => "in"
+    TokenKind::Is => "is"
+    TokenKind::If => "if"
+    TokenKind::Else => "else"
+    TokenKind::Def => "def"
+    TokenKind::Return => "return"
+    TokenKind::Lambda => "lambda"
+    TokenKind::Eof => "EOF"
+  }
+}
+
+///|
+fn unexpected_token_error(token : Token) -> ParseError {
+  make_parse_error(
+    ParseErrorKind::UnexpectedToken,
+    "unexpected token '" + token_text(token) + "'",
+    token,
+  )
+}
+
+///|
+fn substring_chars(chars : Array[Char], start : Int, end : Int) -> String {
+  let buf = StringBuilder::new()
+  let safe_start = if start < 0 { 0 } else { start }
+  let safe_end = if end > chars.length() { chars.length() } else { end }
+  if safe_end <= safe_start {
+    return ""
+  }
+  for i = safe_start; i < safe_end; i = i + 1 {
+    buf.write_char(chars[i])
+  }
+  buf.to_string()
+}
+
+///|
+fn substring(source : String, start : Int, end : Int) -> String {
+  substring_chars(source.to_array(), start, end)
+}
+
+///|
+fn find_char(source : String, target : Char) -> Int? {
+  let chars = source.to_array()
+  for i = 0; i < chars.length(); i = i + 1 {
+    if chars[i] == target {
+      return Some(i)
+    }
+  }
+  None
+}
+
+///|
+fn find_last_char(source : String, target : Char) -> Int? {
+  let chars = source.to_array()
+  let mut idx = chars.length() - 1
+  while idx >= 0 {
+    if chars[idx] == target {
+      return Some(idx)
+    }
+    if idx == 0 {
+      break
+    }
+    idx -= 1
+  }
+  None
+}
+
+///|
+fn is_alpha(c : Char) -> Bool {
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+///|
+fn is_digit(c : Char) -> Bool {
+  c >= '0' && c <= '9'
+}
+
+///|
+fn is_alnum(c : Char) -> Bool {
+  is_alpha(c) || is_digit(c)
+}
+
+///|
+fn strip_underscores(text : String) -> String {
+  let buf = StringBuilder::new()
+  for c in text.to_array() {
+    if c != '_' {
+      buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn digit_value(c : Char) -> Int? {
+  if c >= '0' && c <= '9' {
+    Some(c.to_int() - 48)
+  } else if c >= 'a' && c <= 'f' {
+    Some(c.to_int() - 'a'.to_int() + 10)
+  } else if c >= 'A' && c <= 'F' {
+    Some(c.to_int() - 'A'.to_int() + 10)
+  } else {
+    None
+  }
+}
+
+///|
+fn parse_int_literal(text : String) -> Int64 {
+  let cleaned = strip_underscores(text)
+  let chars = cleaned.to_array()
+  let mut start = 0
+  let mut base = 10
+  if chars.length() >= 2 && chars[0] == '0' {
+    match chars[1] {
+      'x' | 'X' => {
+        base = 16
+        start = 2
+      }
+      'o' | 'O' => {
+        base = 8
+        start = 2
+      }
+      'b' | 'B' => {
+        base = 2
+        start = 2
+      }
+      _ => {
+        base = 10
+        start = 0
+      }
+    }
+  }
+  let mut value = 0L
+  for i = start; i < chars.length(); i = i + 1 {
+    let d = digit_value(chars[i])
+    if d is Some(d) {
+      if d >= base {
+        break
+      }
+      value = value * base.to_int64() + d.to_int64()
+    } else {
+      break
+    }
+  }
+  value
+}
+
+///|
+fn pow10(exp : Int) -> Double {
+  let mut result = 1.0
+  let count = if exp < 0 { -exp } else { exp }
+  for i = 0; i < count; i = i + 1 {
+    result = result * 10.0
+  }
+  if exp < 0 {
+    1.0 / result
+  } else {
+    result
+  }
+}
+
+///|
+fn parse_float_literal(text : String) -> Double {
+  let cleaned = strip_underscores(text)
+  let chars = cleaned.to_array()
+  let mut value = 0.0
+  let mut seen_dot = false
+  let mut factor = 0.1
+  let mut exp_index : Int? = None
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    if c == 'e' || c == 'E' {
+      exp_index = Some(i)
+      break
+    }
+    if c == '.' {
+      seen_dot = true
+    } else if is_digit(c) {
+      if seen_dot {
+        value = value + (c.to_int() - 48).to_double() * factor
+        factor = factor / 10.0
+      } else {
+        value = value * 10.0 + (c.to_int() - 48).to_double()
+      }
+    }
+  }
+  let mut exp = 0
+  if exp_index is Some(index) {
+    let mut pos = index + 1
+    let mut sign = 1
+    if pos < chars.length() {
+      if chars[pos] == '+' {
+        pos += 1
+      } else if chars[pos] == '-' {
+        sign = -1
+        pos += 1
+      }
+    }
+    let mut exp_value = 0
+    for i = pos; i < chars.length(); i = i + 1 {
+      let c = chars[i]
+      if is_digit(c) {
+        exp_value = exp_value * 10 + (c.to_int() - 48)
+      } else {
+        break
+      }
+    }
+    exp = exp_value * sign
+  }
+  value * pow10(exp)
+}
+
+///|
+fn slice_tokens(tokens : Array[Token], start : Int, end : Int) -> Array[Token] {
+  let result : Array[Token] = []
+  for i = start; i < end; i = i + 1 {
+    result.push(tokens[i])
+  }
+  result
+}
+
+///|
+fn char_to_string(c : Char) -> String {
+  let buf = StringBuilder::new()
+  buf.write_char(c)
+  buf.to_string()
+}
+
+///|
+fn parse_hex_sequence(
+  chars : Array[Char],
+  start : Int,
+  count : Int,
+) -> (Int, Int)? {
+  let mut value = 0
+  let mut idx = start
+  for i = 0; i < count; i = i + 1 {
+    if idx >= chars.length() {
+      return None
+    }
+    let d = digit_value(chars[idx])
+    if d is Some(d) {
+      value = value * 16 + d
+      idx += 1
+    } else {
+      return None
+    }
+  }
+  Some((value, idx))
+}
+
+///|
+fn is_valid_codepoint(value : Int) -> Bool {
+  value >= 0 &&
+  value <= 0x10FFFF &&
+  !(value >= 0xD800 && value <= 0xDFFF)
+}
+
+///|
+fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int) {
+  if pos >= chars.length() {
+    return ("\\", pos)
+  }
+  let c = chars[pos]
+  match c {
+    'n' => ("\n", pos + 1)
+    't' => ("\t", pos + 1)
+    'r' => ("\r", pos + 1)
+    '\\' => ("\\", pos + 1)
+    '\'' => ("'", pos + 1)
+    '"' => ("\"", pos + 1)
+    'x' => {
+      let seq = parse_hex_sequence(chars, pos + 1, 2)
+      if seq is Some((value, next)) {
+        (char_to_string(Int::unsafe_to_char(value)), next)
+      } else {
+        ("\\x", pos + 1)
+      }
+    }
+    'u' => {
+      let seq = parse_hex_sequence(chars, pos + 1, 4)
+      if seq is Some((value, next)) {
+        if is_valid_codepoint(value) {
+          (char_to_string(Int::unsafe_to_char(value)), next)
+        } else {
+          (substring_chars(chars, pos - 1, next), next)
+        }
+      } else {
+        ("\\u", pos + 1)
+      }
+    }
+    'U' => {
+      let seq = parse_hex_sequence(chars, pos + 1, 8)
+      if seq is Some((value, next)) {
+        if is_valid_codepoint(value) {
+          (char_to_string(Int::unsafe_to_char(value)), next)
+        } else {
+          (substring_chars(chars, pos - 1, next), next)
+        }
+      } else {
+        ("\\U", pos + 1)
+      }
+    }
+    _ =>
+      if c >= '0' && c <= '7' {
+        let mut value = c.to_int() - 48
+        let mut idx = pos + 1
+        for i = 0; i < 2; i = i + 1 {
+          if idx < chars.length() && chars[idx] >= '0' && chars[idx] <= '7' {
+            value = value * 8 + (chars[idx].to_int() - 48)
+            idx += 1
+          } else {
+            break
+          }
+        }
+        (char_to_string(Int::unsafe_to_char(value)), idx)
+      } else {
+        ("\\" + c.to_string(), pos + 1)
+      }
+  }
+}
+
+///|
+fn parse_string_literal(
+  chars : Array[Char],
+  start : Int,
+  raw : Bool,
+) -> (String, Int) {
+  let quote = chars[start]
+  let triple = start + 2 < chars.length() &&
+    chars[start + 1] == quote &&
+    chars[start + 2] == quote
+  let mut i = if triple { start + 3 } else { start + 1 }
+  let buf = StringBuilder::new()
+  while i < chars.length() {
+    let c = chars[i]
+    if !raw && c == '\\' {
+      let (segment, next_i) = parse_escape(chars, i + 1)
+      buf.write_string(segment)
+      i = next_i
+      continue
+    }
+    if c == quote {
+      if triple {
+        if i + 2 < chars.length() &&
+          chars[i + 1] == quote &&
+          chars[i + 2] == quote {
+          i += 3
+          return (buf.to_string(), i)
+        }
+      } else {
+        i += 1
+        return (buf.to_string(), i)
+      }
+    }
+    buf.write_char(c)
+    i += 1
+  }
+  (buf.to_string(), i)
+}
+
+///|
+fn tokenize_expr(
+  source : String,
+  line : Int,
+  base_offset : Int,
+) -> Result[Array[Token], ParseError] {
+  let chars = source.to_array()
+  let mut i = 0
+  let tokens : Array[Token] = []
+  let len = chars.length()
+  while i < len {
+    let c = chars[i]
+    if c == ' ' || c == '\t' {
+      i += 1
+    } else if is_digit(c) || (c == '.' && i + 1 < len && is_digit(chars[i + 1])) {
+      let start = i
+      let mut has_dot = false
+      let mut has_exp = false
+      let mut is_prefixed = false
+      if c == '0' && i + 1 < len {
+        let next = chars[i + 1]
+        if next == 'x' ||
+          next == 'X' ||
+          next == 'o' ||
+          next == 'O' ||
+          next == 'b' ||
+          next == 'B' {
+          is_prefixed = true
+          i += 2
+          while i < len {
+            let d = chars[i]
+            if d == '_' {
+              i += 1
+            } else if digit_value(d) is Some(_) {
+              i += 1
+            } else {
+              break
+            }
+          }
+        }
+      }
+      if !is_prefixed {
+        if c == '.' {
+          has_dot = true
+          i += 1
+        }
+        while i < len {
+          let d = chars[i]
+          if d == '_' {
+            i += 1
+          } else if is_digit(d) {
+            i += 1
+          } else if d == '.' && !has_dot && !has_exp {
+            has_dot = true
+            i += 1
+          } else if (d == 'e' || d == 'E') && !has_exp {
+            let mut exp_index = i + 1
+            if exp_index < len &&
+              (chars[exp_index] == '+' || chars[exp_index] == '-') {
+              exp_index += 1
+            }
+            if exp_index < len && is_digit(chars[exp_index]) {
+              has_exp = true
+              i = exp_index
+            } else {
+              break
+            }
+          } else {
+            break
+          }
+        }
+      }
+      let text = substring(source, start, i)
+      let kind = if is_prefixed {
+        IntLit(parse_int_literal(text))
+      } else if has_dot || has_exp {
+        FloatLit(parse_float_literal(text))
+      } else {
+        IntLit(parse_int_literal(text))
+      }
+      tokens.push({
+        kind,
+        start: base_offset + start,
+        end: base_offset + i,
+        line,
+        column: start + 1,
+      })
+    } else if c == '"' || c == '\'' {
+      let start = i
+      let (value, next_i) = parse_string_literal(chars, i, false)
+      i = next_i
+      let kind = StrLit(value)
+      tokens.push({
+        kind,
+        start: base_offset + start,
+        end: base_offset + i,
+        line,
+        column: start + 1,
+      })
+    } else if is_alpha(c) || c == '_' {
+      let start = i
+      let mut raw_prefix = false
+      let mut f_prefix = false
+      let mut j = i
+      while j < len {
+        let d = chars[j]
+        if d == 'r' || d == 'R' {
+          raw_prefix = true
+          j += 1
+        } else if d == 'f' || d == 'F' {
+          f_prefix = true
+          j += 1
+        } else if d == 'u' || d == 'U' || d == 'b' || d == 'B' {
+          j += 1
+        } else {
+          break
+        }
+      }
+      if j > i && j < len && (chars[j] == '"' || chars[j] == '\'') {
+        let (value, next_i) = parse_string_literal(chars, j, raw_prefix)
+        i = next_i
+        let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }
+        tokens.push({
+          kind,
+          start: base_offset + start,
+          end: base_offset + i,
+          line,
+          column: start + 1,
+        })
+      } else {
+        while i < len {
+          let d = chars[i]
+          if is_alnum(d) || d == '_' {
+            i += 1
+          } else {
+            break
+          }
+        }
+        let ident = substring(source, start, i)
+        let kind = match ident {
+          "True" => BoolLit(true)
+          "False" => BoolLit(false)
+          "None" => NoneLit
+          "and" => And
+          "or" => Or
+          "not" => Not
+          "in" => In
+          "is" => Is
+          "if" => If
+          "else" => Else
+          "def" => Def
+          "return" => Return
+          "lambda" => Lambda
+          _ => Ident(ident)
+        }
+        tokens.push({
+          kind,
+          start: base_offset + start,
+          end: base_offset + i,
+          line,
+          column: start + 1,
+        })
+      }
+    } else {
+      let start = i
+      let (kind, consumed) = match c {
+        '(' => (LParen, 1)
+        ')' => (RParen, 1)
+        '[' => (LBracket, 1)
+        ']' => (RBracket, 1)
+        '{' => (LBrace, 1)
+        '}' => (RBrace, 1)
+        ',' => (Comma, 1)
+        ':' => (Colon, 1)
+        '.' => (Dot, 1)
+        '+' => (Plus, 1)
+        '-' => (Minus, 1)
+        '*' =>
+          if i + 1 < len && chars[i + 1] == '*' {
+            (StarStar, 2)
+          } else {
+            (Star, 1)
+          }
+        '/' =>
+          if i + 1 < len && chars[i + 1] == '/' {
+            (SlashSlash, 2)
+          } else {
+            (Slash, 1)
+          }
+        '%' => (Percent, 1)
+        '&' => (BitAnd, 1)
+        '|' => (BitOr, 1)
+        '^' => (BitXor, 1)
+        '<' =>
+          if i + 1 < len && chars[i + 1] == '<' {
+            (ShiftLeft, 2)
+          } else if i + 1 < len && chars[i + 1] == '=' {
+            (Lte, 2)
+          } else {
+            (Lt, 1)
+          }
+        '>' =>
+          if i + 1 < len && chars[i + 1] == '>' {
+            (ShiftRight, 2)
+          } else if i + 1 < len && chars[i + 1] == '=' {
+            (Gte, 2)
+          } else {
+            (Gt, 1)
+          }
+        '~' => (Tilde, 1)
+        '=' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (EqEq, 2)
+          } else {
+            (Assign, 1)
+          }
+        '!' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (NotEq, 2)
+          } else {
+            let token = {
+              kind: Eof,
+              start: base_offset + start,
+              end: base_offset + start + 1,
+              line,
+              column: start + 1,
+            }
+            return Err(unexpected_token_error(token))
+          }
+        _ => {
+          let token = {
+            kind: Eof,
+            start: base_offset + start,
+            end: base_offset + start + 1,
+            line,
+            column: start + 1,
+          }
+          return Err(unexpected_token_error(token))
+        }
+      }
+      tokens.push({
+        kind,
+        start: base_offset + start,
+        end: base_offset + start + consumed,
+        line,
+        column: start + 1,
+      })
+      i += consumed
+    }
+  }
+  tokens.push({
+    kind: Eof,
+    start: base_offset + len,
+    end: base_offset + len,
+    line,
+    column: len + 1,
+  })
+  Ok(tokens)
+}

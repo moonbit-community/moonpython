@@ -30,6 +30,7 @@ pub enum UnaryOp {
   Pos
   Neg
   Not
+  Invert
 } derive(ToJson)
 
 ///|
@@ -74,6 +75,10 @@ pub enum Expr {
   Tuple(Array[Expr])
   List(Array[Expr])
   Dict(Array[(Expr, Expr)])
+  Lambda(params~ : Array[String], body~ : Expr)
+  IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
+  FString(String)
+  Slice(start~ : Expr?, end~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
   Call(callee~ : Expr, args~ : Array[Expr])
@@ -171,6 +176,7 @@ pub enum Value {
   Float(Double)
   Str(String)
   List(Array[Value])
+  Tuple(Array[Value])
   Dict(Array[(Value, Value)])
   Function(FunctionValue)
 } derive(ToJson)
