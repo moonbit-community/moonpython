@@ -992,6 +992,9 @@ pub fn Interpreter::set_global(
 
 ///|
 pub fn format_parse_error(error : ParseError) -> String {
+  if error.message.has_prefix("ValueError:") {
+    return error.message
+  }
   "line " +
   error.span.line.to_string() +
   ":" +

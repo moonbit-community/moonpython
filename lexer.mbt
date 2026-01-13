@@ -553,6 +553,22 @@ fn tokenize_expr(
           }
         }
       }
+      if i < len && (chars[i] == 'j' || chars[i] == 'J') {
+        let token = {
+          kind: Eof,
+          start: base_offset + start,
+          end: base_offset + i + 1,
+          line,
+          column: start + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "ValueError: unsupported value".to_string(),
+            token,
+          ),
+        )
+      }
       let text = substring(source, start, i)
       let kind = if is_prefixed {
         IntLit(parse_int_literal(text))

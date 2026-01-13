@@ -348,7 +348,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         let _ = self.advance()
         Expr::Tuple([])
       } else {
-        let first = match self.parse_expr() {
+        let first = match self.parse_conditional() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -360,7 +360,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             if self.current().kind == RParen {
               break
             }
-            let value = match self.parse_expr() {
+            let value = match self.parse_conditional() {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -751,14 +751,22 @@ fn LineParser::parse_block(
       Err(err) => return Err(err)
     }
     let mut assign_index : Int? = None
+    let mut depth = 0
     for idx = 0; idx < tokens.length(); idx = idx + 1 {
-      if tokens[idx].kind == Assign {
+      let kind = tokens[idx].kind
+      if kind == LParen || kind == LBracket || kind == LBrace {
+        depth += 1
+      } else if kind == RParen || kind == RBracket || kind == RBrace {
+        if depth > 0 {
+          depth -= 1
+        }
+      } else if kind == Assign && depth == 0 {
         assign_index = Some(idx)
         break
       }
     }
     if assign_index is Some(idx) {
-      if idx == 0 {
+      if idx != 1 {
         let token = tokens[0]
         return Err(
           make_parse_error(

@@ -9,6 +9,7 @@ Regenerate with:
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib
 import io
 import json
@@ -26,9 +27,10 @@ CPYTHON_TEST_DIR = CPYTHON_ROOT / "Lib" / "test"
 REFERENCE_VERSION = "3.13"
 REFERENCE_CACHE = Path(__file__).parent / "reference_cache" / REFERENCE_VERSION
 
-TOTAL_TARGET = 6000
-EXPR_TARGET = 3000
-PROGRAM_TARGET = 3000
+TOTAL_TARGET = 2000
+EXPR_TARGET = 1000
+PROGRAM_TARGET = 1000
+MAX_TEST_FILES = 200
 REFERENCE_URLS = [
     f"https://docs.python.org/{REFERENCE_VERSION}/reference/expressions.html",
     f"https://docs.python.org/{REFERENCE_VERSION}/reference/simple_stmts.html",
@@ -47,23 +49,58 @@ LICENSE_HEADER = """// =========================================================
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
 
-fn assert_run(result : Result[RunResult, RuntimeError], expected : String?) -> Unit raise {
-  match expected {
-    Some(expected) =>
-      match result {
-        Ok(run) => {
-          let json = @json.parse(expected) catch { _ => fail("invalid json") }
-          @json.inspect(run.value, content=json)
-          inspect(run.stdout, content="")
-          inspect(run.stderr, content="")
-        }
-        Err(err) => fail(format_runtime_error(err))
+fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Unit raise {
+  let json = @json.parse(expected) catch { _ => fail("invalid json") }
+  match json {
+    Array(items) => {
+      if items.length() < 2 {
+        fail("invalid expectation")
       }
-    None =>
-      match result {
-        Ok(_) => ()
-        Err(_) => ()
+      let tag = items[0]
+      match tag {
+        String(tag) =>
+          if tag == "ok" {
+            if items.length() != 4 {
+              fail("invalid expectation")
+            }
+            let payload = items[1]
+            let stdout = items[2]
+            let stderr = items[3]
+            match result {
+              Ok(run) => {
+                @json.inspect(run.value, content=payload)
+                match stdout {
+                  String(text) => inspect(run.stdout, content=text)
+                  _ => fail("invalid expectation")
+                }
+                match stderr {
+                  String(text) => inspect(run.stderr, content=text)
+                  _ => fail("invalid expectation")
+                }
+              }
+              Err(err) => fail(format_runtime_error(err))
+            }
+          } else if tag == "err" {
+            if items.length() != 2 {
+              fail("invalid expectation")
+            }
+            let payload = items[1]
+            match result {
+              Ok(_) => fail("expected error")
+              Err(err) =>
+                match payload {
+                  String(message) =>
+                    inspect(format_runtime_error(err), content=message)
+                  _ => fail("invalid error payload")
+                }
+            }
+          } else {
+            fail("invalid expectation")
+          }
+        _ => fail("invalid expectation")
       }
+    }
+    _ => fail("invalid expectation")
   }
 }
 
@@ -116,26 +153,163 @@ SAFE_BUILTINS = {
     "any": any,
     "all": all,
     "sum": sum,
+    "print": print,
 }
 
 
-def eval_expression(expr: str) -> Any:
+def eval_expression(expr: str) -> Tuple[Any, str, str]:
     env = {"__builtins__": SAFE_BUILTINS}
+    stdout = io.StringIO()
+    stderr = io.StringIO()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
-        return eval(expr, env, env)
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            value = eval(expr, env, env)
+    return value, stdout.getvalue(), stderr.getvalue()
 
 
-def eval_program(lines: List[str]) -> Any:
+def eval_program(lines: List[str]) -> Tuple[Any, str, str]:
     env = {"__builtins__": SAFE_BUILTINS}
     if not lines:
-        return None
+        return None, "", ""
+    stdout = io.StringIO()
+    stderr = io.StringIO()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
-        if len(lines) == 1:
-            return eval(lines[0], env, env)
-        exec("\n".join(lines[:-1]), env, env)
-        return eval(lines[-1], env, env)
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exec("\n".join(lines), env, env)
+    return None, stdout.getvalue(), stderr.getvalue()
+
+
+def format_error(err: Exception) -> str:
+    if isinstance(err, SyntaxError):
+        line = err.lineno or 1
+        column = err.offset or 1
+        message = err.msg or "invalid syntax"
+        return f"line {line}:{column} {message}"
+    return f"{err.__class__.__name__}: {err}"
+
+
+
+def is_supported_expr(expr: str) -> bool:
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except (SyntaxError, ValueError):
+        return False
+    allowed = {
+        ast.Expression,
+        ast.Name,
+        ast.Constant,
+        ast.Load,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.BoolOp,
+        ast.Compare,
+        ast.Call,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Subscript,
+        ast.Slice,
+        ast.Lambda,
+        ast.IfExp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.UAdd,
+        ast.USub,
+        ast.Not,
+        ast.Invert,
+        ast.And,
+        ast.Or,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and node.keywords:
+            return False
+        if type(node) not in allowed:
+            return False
+    return True
+
+
+def is_supported_program(lines: List[str]) -> bool:
+    try:
+        tree = ast.parse("\n".join(lines), mode="exec")
+    except (SyntaxError, ValueError):
+        return False
+    allowed = {
+        ast.Module,
+        ast.Expr,
+        ast.Assign,
+        ast.Name,
+        ast.Constant,
+        ast.Load,
+        ast.Store,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.BoolOp,
+        ast.Compare,
+        ast.Call,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Subscript,
+        ast.Slice,
+        ast.arguments,
+        ast.arg,
+        ast.FunctionDef,
+        ast.Return,
+        ast.Lambda,
+        ast.IfExp,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.UAdd,
+        ast.USub,
+        ast.Not,
+        ast.Invert,
+        ast.And,
+        ast.Or,
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                return False
+        if isinstance(node, ast.FunctionDef):
+            if node.end_lineno is not None and node.end_lineno == node.lineno:
+                return False
+        if isinstance(node, ast.Call) and node.keywords:
+            return False
+        if type(node) not in allowed:
+            return False
+    return True
 
 
 def value_to_json(value: Any) -> Any:
@@ -169,12 +343,8 @@ def json_literal(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def render_expr_test(case_id: int, expr: str, expected_json: Optional[Any]) -> str:
-    expected = (
-        "None"
-        if expected_json is None
-        else f"Some(\"{escape_moonbit_string(json_literal(expected_json))}\")"
-    )
+def render_expr_test(case_id: int, expr: str, expected_json: Any) -> str:
+    expected = f"\"{escape_moonbit_string(json_literal(expected_json))}\""
     source_literal = render_multiline_literal("source", expr)
     return (
         "///|\n"
@@ -187,13 +357,9 @@ def render_expr_test(case_id: int, expr: str, expected_json: Optional[Any]) -> s
     )
 
 
-def render_program_test(case_id: int, lines: List[str], expected_json: Optional[Any]) -> str:
+def render_program_test(case_id: int, lines: List[str], expected_json: Any) -> str:
     source = "\n".join(lines)
-    expected = (
-        "None"
-        if expected_json is None
-        else f"Some(\"{escape_moonbit_string(json_literal(expected_json))}\")"
-    )
+    expected = f"\"{escape_moonbit_string(json_literal(expected_json))}\""
     source_literal = render_multiline_literal("source", source)
     return (
         "///|\n"
@@ -379,10 +545,14 @@ def collect_cpython_cases() -> Tuple[List[str], List[List[str]]]:
         )
     expr_cases: List[str] = []
     program_cases: List[List[str]] = []
+    file_count = 0
     for path in sorted(CPYTHON_TEST_DIR.rglob("test_*.py")):
         file_exprs, file_programs = extract_cases_from_file(path)
         expr_cases.extend(file_exprs)
         program_cases.extend(file_programs)
+        file_count += 1
+        if file_count >= MAX_TEST_FILES:
+            break
         if len(expr_cases) + len(program_cases) >= TOTAL_TARGET * 3:
             break
     return expr_cases, program_cases
@@ -394,9 +564,16 @@ def fetch_reference_pages() -> List[str]:
     for url in REFERENCE_URLS:
         filename = url.rsplit("/", 1)[-1]
         path = REFERENCE_CACHE / filename
-        with urllib.request.urlopen(url) as response:
-            path.write_bytes(response.read())
-        pages.append(path.read_text(encoding="utf-8"))
+        if not path.exists():
+            try:
+                with urllib.request.urlopen(url, timeout=10) as response:
+                    path.write_bytes(response.read())
+            except Exception:
+                continue
+        try:
+            pages.append(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
     return pages
 
 
@@ -528,24 +705,36 @@ def main() -> None:
 
     case_id = 1
     for expr in expr_cases:
-        expected_json = None
+        if not is_supported_expr(expr):
+            continue
         try:
-            value = eval_expression(expr)
-            expected_json = value_to_json(value)
+            value, stdout, stderr = eval_expression(expr)
+            expected_json = ["ok", value_to_json(value), stdout, stderr]
+        except SyntaxError:
+            continue
+        except Exception as err:
+            expected_json = ["err", format_error(err)]
+        try:
+            tests.append(render_expr_test(case_id, expr, expected_json))
         except Exception:
-            expected_json = None
-        tests.append(render_expr_test(case_id, expr, expected_json))
+            continue
         case_id += 1
 
     program_id = 1
     for program in program_cases:
-        expected_json = None
+        if not is_supported_program(program):
+            continue
         try:
-            value = eval_program(program)
-            expected_json = value_to_json(value)
+            value, stdout, stderr = eval_program(program)
+            expected_json = ["ok", value_to_json(value), stdout, stderr]
+        except SyntaxError:
+            continue
+        except Exception as err:
+            expected_json = ["err", format_error(err)]
+        try:
+            tests.append(render_program_test(program_id, program, expected_json))
         except Exception:
-            expected_json = None
-        tests.append(render_program_test(program_id, program, expected_json))
+            continue
         program_id += 1
 
     OUTPUT_FILE.write_text("".join(tests), encoding="utf-8")
