@@ -75,6 +75,7 @@ pub enum Expr {
   Tuple(Array[Expr])
   List(Array[Expr])
   Dict(Array[(Expr, Expr)])
+  Set(Array[Expr])
   Lambda(params~ : Array[String], body~ : Expr)
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)
@@ -105,6 +106,11 @@ pub enum Stmt {
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   While(condition~ : Expr, body~ : Array[Stmt])
   Function(name~ : String, params~ : Array[String], body~ : Array[Stmt])
+  Pass
+  Global(Array[String])
+  Assert(condition~ : Expr, message~ : Expr?)
+  Raise(Expr?)
+  Del(Array[String])
 } derive(ToJson)
 
 ///|
@@ -316,6 +322,16 @@ pub fn Interpreter::exec(
 /// Execute source text directly
 #declaration_only
 pub fn Interpreter::exec_source(
+  self : Interpreter,
+  source : String,
+) -> Result[RunResult, RuntimeError] {
+  ...
+}
+
+///|
+/// Evaluate a single expression source
+#declaration_only
+pub fn Interpreter::eval_source(
   self : Interpreter,
   source : String,
 ) -> Result[RunResult, RuntimeError] {

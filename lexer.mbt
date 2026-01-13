@@ -49,6 +49,7 @@ priv enum TokenKind {
   Def
   Return
   Lambda
+  Assert
   Eof
 } derive(Eq)
 
@@ -128,17 +129,19 @@ fn token_text(token : Token) -> String {
     TokenKind::Def => "def"
     TokenKind::Return => "return"
     TokenKind::Lambda => "lambda"
+    TokenKind::Assert => "assert"
     TokenKind::Eof => "EOF"
   }
 }
 
 ///|
 fn unexpected_token_error(token : Token) -> ParseError {
-  make_parse_error(
-    ParseErrorKind::UnexpectedToken,
-    "unexpected token '" + token_text(token) + "'",
-    token,
-  )
+  let message = if token.kind == Eof {
+    "unexpected EOF while parsing"
+  } else {
+    "invalid syntax"
+  }
+  make_parse_error(ParseErrorKind::UnexpectedToken, message.to_string(), token)
 }
 
 ///|
@@ -189,7 +192,7 @@ fn find_last_char(source : String, target : Char) -> Int? {
 
 ///|
 fn is_alpha(c : Char) -> Bool {
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c.to_int() >= 128
 }
 
 ///|
@@ -373,9 +376,7 @@ fn parse_hex_sequence(
 
 ///|
 fn is_valid_codepoint(value : Int) -> Bool {
-  value >= 0 &&
-  value <= 0x10FFFF &&
-  !(value >= 0xD800 && value <= 0xDFFF)
+  value >= 0 && value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)
 }
 
 ///|
@@ -447,7 +448,7 @@ fn parse_string_literal(
   chars : Array[Char],
   start : Int,
   raw : Bool,
-) -> (String, Int) {
+) -> (String, Int, Bool) {
   let quote = chars[start]
   let triple = start + 2 < chars.length() &&
     chars[start + 1] == quote &&
@@ -468,17 +469,17 @@ fn parse_string_literal(
           chars[i + 1] == quote &&
           chars[i + 2] == quote {
           i += 3
-          return (buf.to_string(), i)
+          return (buf.to_string(), i, true)
         }
       } else {
         i += 1
-        return (buf.to_string(), i)
+        return (buf.to_string(), i, true)
       }
     }
     buf.write_char(c)
     i += 1
   }
-  (buf.to_string(), i)
+  (buf.to_string(), i, false)
 }
 
 ///|
@@ -491,10 +492,62 @@ fn tokenize_expr(
   let mut i = 0
   let tokens : Array[Token] = []
   let len = chars.length()
+  let mut current_line = line
+  let mut line_start = 0
   while i < len {
     let c = chars[i]
+    if c == '\n' {
+      current_line += 1
+      i += 1
+      line_start = i
+      continue
+    }
+    if c.to_int() == 0 {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "ValueError: source code string cannot contain null bytes".to_string(),
+          token,
+        ),
+      )
+    }
+    if c == '\\' && i + 1 == len {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 2,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::UnexpectedEof,
+          "unexpected EOF while parsing".to_string(),
+          token,
+        ),
+      )
+    }
     if c == ' ' || c == '\t' {
       i += 1
+    } else if c == '.' &&
+      i + 2 < len &&
+      chars[i + 1] == '.' &&
+      chars[i + 2] == '.' {
+      tokens.push({
+        kind: NoneLit,
+        start: base_offset + i,
+        end: base_offset + i + 3,
+        line: current_line,
+        column: i - line_start + 1,
+      })
+      i += 3
     } else if is_digit(c) || (c == '.' && i + 1 < len && is_digit(chars[i + 1])) {
       let start = i
       let mut has_dot = false
@@ -509,16 +562,68 @@ fn tokenize_expr(
           next == 'b' ||
           next == 'B' {
           is_prefixed = true
+          let base = if next == 'x' || next == 'X' {
+            16
+          } else if next == 'o' || next == 'O' {
+            8
+          } else {
+            2
+          }
+          let label = if base == 16 {
+            "hexadecimal"
+          } else if base == 8 {
+            "octal"
+          } else {
+            "binary"
+          }
           i += 2
+          let mut digit_count = 0
           while i < len {
             let d = chars[i]
             if d == '_' {
               i += 1
-            } else if digit_value(d) is Some(_) {
+            } else if digit_value(d) is Some(value) {
+              if value >= base {
+                let token = {
+                  kind: Eof,
+                  start: base_offset + i,
+                  end: base_offset + i + 1,
+                  line: current_line,
+                  column: i - line_start + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid digit '" +
+                    d.to_string() +
+                    "' in " +
+                    label +
+                    " literal",
+                    token,
+                  ),
+                )
+              }
+              digit_count += 1
               i += 1
             } else {
               break
             }
+          }
+          if digit_count == 0 {
+            let token = {
+              kind: Eof,
+              start: base_offset + start + 1,
+              end: base_offset + start + 2,
+              line: current_line,
+              column: start - line_start + 2,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid " + label + " literal",
+                token,
+              ),
+            )
           }
         }
       }
@@ -537,16 +642,42 @@ fn tokenize_expr(
             has_dot = true
             i += 1
           } else if (d == 'e' || d == 'E') && !has_exp {
+            if d == 'e' &&
+              i + 3 < len &&
+              chars[i + 1] == 'l' &&
+              chars[i + 2] == 's' &&
+              chars[i + 3] == 'e' {
+              break
+            }
             let mut exp_index = i + 1
+            let mut sign_pos : Int? = None
             if exp_index < len &&
               (chars[exp_index] == '+' || chars[exp_index] == '-') {
+              sign_pos = Some(exp_index)
               exp_index += 1
             }
             if exp_index < len && is_digit(chars[exp_index]) {
               has_exp = true
               i = exp_index
             } else {
-              break
+              let error_pos = match sign_pos {
+                Some(pos) => pos
+                None => start
+              }
+              let token = {
+                kind: Eof,
+                start: base_offset + error_pos,
+                end: base_offset + error_pos + 1,
+                line: current_line,
+                column: error_pos - line_start + 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid decimal literal".to_string(),
+                  token,
+                ),
+              )
             }
           } else {
             break
@@ -558,8 +689,8 @@ fn tokenize_expr(
           kind: Eof,
           start: base_offset + start,
           end: base_offset + i + 1,
-          line,
-          column: start + 1,
+          line: current_line,
+          column: start - line_start + 1,
         }
         return Err(
           make_parse_error(
@@ -581,20 +712,46 @@ fn tokenize_expr(
         kind,
         start: base_offset + start,
         end: base_offset + i,
-        line,
-        column: start + 1,
+        line: current_line,
+        column: start - line_start + 1,
       })
     } else if c == '"' || c == '\'' {
       let start = i
-      let (value, next_i) = parse_string_literal(chars, i, false)
+      let triple = start + 2 < chars.length() &&
+        chars[start + 1] == chars[start] &&
+        chars[start + 2] == chars[start]
+      let (value, next_i, closed) = parse_string_literal(chars, i, false)
+      if !closed {
+        let mut detected_line = current_line
+        for ch in substring_chars(chars, start, chars.length()).to_array() {
+          if ch == '\n' {
+            detected_line += 1
+          }
+        }
+        let message = if triple {
+          "unterminated triple-quoted string literal (detected at line " +
+          detected_line.to_string() +
+          ")"
+        } else {
+          "unterminated string literal".to_string()
+        }
+        let token = {
+          kind: Eof,
+          start: base_offset + start,
+          end: base_offset + start + 1,
+          line: current_line,
+          column: start - line_start + 1,
+        }
+        return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+      }
       i = next_i
       let kind = StrLit(value)
       tokens.push({
         kind,
         start: base_offset + start,
         end: base_offset + i,
-        line,
-        column: start + 1,
+        line: current_line,
+        column: start - line_start + 1,
       })
     } else if is_alpha(c) || c == '_' {
       let start = i
@@ -616,15 +773,41 @@ fn tokenize_expr(
         }
       }
       if j > i && j < len && (chars[j] == '"' || chars[j] == '\'') {
-        let (value, next_i) = parse_string_literal(chars, j, raw_prefix)
+        let triple = j + 2 < chars.length() &&
+          chars[j + 1] == chars[j] &&
+          chars[j + 2] == chars[j]
+        let (value, next_i, closed) = parse_string_literal(chars, j, raw_prefix)
+        if !closed {
+          let mut detected_line = current_line
+          for ch in substring_chars(chars, start, chars.length()).to_array() {
+            if ch == '\n' {
+              detected_line += 1
+            }
+          }
+          let message = if triple {
+            "unterminated triple-quoted string literal (detected at line " +
+            detected_line.to_string() +
+            ")"
+          } else {
+            "unterminated string literal".to_string()
+          }
+          let token = {
+            kind: Eof,
+            start: base_offset + start,
+            end: base_offset + start + 1,
+            line: current_line,
+            column: start - line_start + 1,
+          }
+          return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+        }
         i = next_i
         let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }
         tokens.push({
           kind,
           start: base_offset + start,
           end: base_offset + i,
-          line,
-          column: start + 1,
+          line: current_line,
+          column: start - line_start + 1,
         })
       } else {
         while i < len {
@@ -650,14 +833,15 @@ fn tokenize_expr(
           "def" => Def
           "return" => Return
           "lambda" => Lambda
+          "assert" => Assert
           _ => Ident(ident)
         }
         tokens.push({
           kind,
           start: base_offset + start,
           end: base_offset + i,
-          line,
-          column: start + 1,
+          line: current_line,
+          column: start - line_start + 1,
         })
       }
     } else {
@@ -672,27 +856,73 @@ fn tokenize_expr(
         ',' => (Comma, 1)
         ':' => (Colon, 1)
         '.' => (Dot, 1)
-        '+' => (Plus, 1)
-        '-' => (Minus, 1)
+        '+' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (Plus, 1)
+          }
+        '-' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (Minus, 1)
+          }
         '*' =>
           if i + 1 < len && chars[i + 1] == '*' {
-            (StarStar, 2)
+            if i + 2 < len && chars[i + 2] == '=' {
+              (Assign, 3)
+            } else {
+              (StarStar, 2)
+            }
+          } else if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
           } else {
             (Star, 1)
           }
         '/' =>
           if i + 1 < len && chars[i + 1] == '/' {
-            (SlashSlash, 2)
+            if i + 2 < len && chars[i + 2] == '=' {
+              (Assign, 3)
+            } else {
+              (SlashSlash, 2)
+            }
+          } else if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
           } else {
             (Slash, 1)
           }
-        '%' => (Percent, 1)
-        '&' => (BitAnd, 1)
-        '|' => (BitOr, 1)
-        '^' => (BitXor, 1)
+        '%' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (Percent, 1)
+          }
+        '&' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (BitAnd, 1)
+          }
+        '|' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (BitOr, 1)
+          }
+        '^' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (Assign, 2)
+          } else {
+            (BitXor, 1)
+          }
         '<' =>
           if i + 1 < len && chars[i + 1] == '<' {
-            (ShiftLeft, 2)
+            if i + 2 < len && chars[i + 2] == '=' {
+              (Assign, 3)
+            } else {
+              (ShiftLeft, 2)
+            }
           } else if i + 1 < len && chars[i + 1] == '=' {
             (Lte, 2)
           } else {
@@ -700,7 +930,11 @@ fn tokenize_expr(
           }
         '>' =>
           if i + 1 < len && chars[i + 1] == '>' {
-            (ShiftRight, 2)
+            if i + 2 < len && chars[i + 2] == '=' {
+              (Assign, 3)
+            } else {
+              (ShiftRight, 2)
+            }
           } else if i + 1 < len && chars[i + 1] == '=' {
             (Gte, 2)
           } else {
@@ -721,8 +955,8 @@ fn tokenize_expr(
               kind: Eof,
               start: base_offset + start,
               end: base_offset + start + 1,
-              line,
-              column: start + 1,
+              line: current_line,
+              column: start - line_start + 1,
             }
             return Err(unexpected_token_error(token))
           }
@@ -731,8 +965,8 @@ fn tokenize_expr(
             kind: Eof,
             start: base_offset + start,
             end: base_offset + start + 1,
-            line,
-            column: start + 1,
+            line: current_line,
+            column: start - line_start + 1,
           }
           return Err(unexpected_token_error(token))
         }
@@ -740,9 +974,9 @@ fn tokenize_expr(
       tokens.push({
         kind,
         start: base_offset + start,
-        end: base_offset + start + consumed,
-        line,
-        column: start + 1,
+        end: base_offset + i,
+        line: current_line,
+        column: start - line_start + 1,
       })
       i += consumed
     }
@@ -751,8 +985,8 @@ fn tokenize_expr(
     kind: Eof,
     start: base_offset + len,
     end: base_offset + len,
-    line,
-    column: len + 1,
+    line: current_line,
+    column: len - line_start + 1,
   })
   Ok(tokens)
 }

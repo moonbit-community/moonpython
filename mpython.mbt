@@ -133,7 +133,10 @@ fn index_from_value(value : Value, default : Int) -> Result[Int, RuntimeError] {
     Value::Int(v) => Ok(v.to_int())
     Value::Bool(v) => Ok(if v { 1 } else { 0 })
     Value::Float(v) => Ok(v.to_int())
-    _ => Err(make_runtime_error(RuntimeErrorKind::Type, "invalid index".to_string()))
+    _ =>
+      Err(
+        make_runtime_error(RuntimeErrorKind::Type, "invalid index".to_string()),
+      )
   }
 }
 
@@ -143,10 +146,18 @@ fn slice_values(values : Array[Value], start : Int, end : Int) -> Array[Value] {
   let len = values.length()
   let mut s = normalize_index(start, len)
   let mut e = normalize_index(end, len)
-  if s < 0 { s = 0 }
-  if e < 0 { e = 0 }
-  if s > len { s = len }
-  if e > len { e = len }
+  if s < 0 {
+    s = 0
+  }
+  if e < 0 {
+    e = 0
+  }
+  if s > len {
+    s = len
+  }
+  if e > len {
+    e = len
+  }
   for i = s; i < e; i = i + 1 {
     result.push(values[i])
   }
@@ -158,10 +169,18 @@ fn slice_string(chars : Array[Char], start : Int, end : Int) -> String {
   let len = chars.length()
   let mut s = normalize_index(start, len)
   let mut e = normalize_index(end, len)
-  if s < 0 { s = 0 }
-  if e < 0 { e = 0 }
-  if s > len { s = len }
-  if e > len { e = len }
+  if s < 0 {
+    s = 0
+  }
+  if e < 0 {
+    e = 0
+  }
+  if s > len {
+    s = len
+  }
+  if e > len {
+    e = len
+  }
   let buf = StringBuilder::new()
   for i = s; i < e; i = i + 1 {
     buf.write_char(chars[i])
@@ -246,7 +265,11 @@ fn eval_expr_with_env(
         let prefix = substring(text, 0, open)
         let inner = substring(text, open + 1, close)
         let suffix = substring(text, close + 1, text.length())
-        let expr = match parse_expr(inner) {
+        let expr_text = match find_char(inner, ':') {
+          Some(pos) => substring(inner, 0, pos)
+          None => inner
+        }
+        let expr = match parse_expr(expr_text) {
           Ok(value) => value
           Err(_) => return Ok(Value::Str(text))
         }
@@ -272,6 +295,35 @@ fn eval_expr_with_env(
       }
       Ok(Value::List(values))
     }
+    Expr::Dict(items) => {
+      let values : Array[(Value, Value)] = []
+      for item in items {
+        let key = match
+          eval_expr_with_env(item.0, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let value = match
+          eval_expr_with_env(item.1, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        values.push((key, value))
+      }
+      Ok(Value::Dict(values))
+    }
+    Expr::Set(items) => {
+      let values : Array[Value] = []
+      for item in items {
+        let value = match
+          eval_expr_with_env(item, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        values.push(value)
+      }
+      Ok(Value::List(values))
+    }
     Expr::Tuple(items) => {
       let values : Array[Value] = []
       for item in items {
@@ -286,12 +338,27 @@ fn eval_expr_with_env(
     }
     Expr::Lambda(params~, body~) => {
       let func_body : Array[Stmt] = [Stmt::Return(Some(body))]
-      Ok(Value::Function(FunctionValue::{ name: "<lambda>", params, body: func_body }))
+      Ok(
+        Value::Function(FunctionValue::{
+          name: "<lambda>",
+          params,
+          body: func_body,
+        }),
+      )
     }
     Expr::Attribute(value~, attr~) => {
-      let target = match eval_expr_with_env(value, locals, globals, builtins, io) {
+      let target = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
+      }
+      if attr == "__class__" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: unsupported value".to_string(),
+          ),
+        )
       }
       match (target, attr) {
         (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
@@ -305,7 +372,8 @@ fn eval_expr_with_env(
       }
     }
     Expr::Subscript(value~, index~) => {
-      let target = match eval_expr_with_env(value, locals, globals, builtins, io) {
+      let target = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -364,42 +432,75 @@ fn eval_expr_with_env(
           }
         }
         _ => {
-          let idx_value = match eval_expr_with_env(index, locals, globals, builtins, io) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let idx = match index_from_value(idx_value, 0) {
+          let idx_value = match
+            eval_expr_with_env(index, locals, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
           match target {
-            Value::List(values) =>
-              if idx >= 0 && idx < values.length() {
-                Ok(values[idx])
-              } else {
-                Err(make_runtime_error(RuntimeErrorKind::Index, "index out of range".to_string()))
+            Value::Dict(values) => {
+              for pair in values {
+                if eq_value(pair.0, idx_value) {
+                  return Ok(pair.1)
+                }
               }
-            Value::Tuple(values) =>
-              if idx >= 0 && idx < values.length() {
-                Ok(values[idx])
-              } else {
-                Err(make_runtime_error(RuntimeErrorKind::Index, "index out of range".to_string()))
-              }
-            Value::Str(text) => {
-              let chars = text.to_array()
-              if idx >= 0 && idx < chars.length() {
-                Ok(Value::Str(char_to_string(chars[idx])))
-              } else {
-                Err(make_runtime_error(RuntimeErrorKind::Index, "index out of range".to_string()))
-              }
-            }
-            _ =>
               Err(
                 make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "subscript requires sequence".to_string(),
+                  RuntimeErrorKind::Key,
+                  "key not found".to_string(),
                 ),
               )
+            }
+            _ => {
+              let idx = match index_from_value(idx_value, 0) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              match target {
+                Value::List(values) =>
+                  if idx >= 0 && idx < values.length() {
+                    Ok(values[idx])
+                  } else {
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "index out of range".to_string(),
+                      ),
+                    )
+                  }
+                Value::Tuple(values) =>
+                  if idx >= 0 && idx < values.length() {
+                    Ok(values[idx])
+                  } else {
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "index out of range".to_string(),
+                      ),
+                    )
+                  }
+                Value::Str(text) => {
+                  let chars = text.to_array()
+                  if idx >= 0 && idx < chars.length() {
+                    Ok(Value::Str(char_to_string(chars[idx])))
+                  } else {
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "index out of range".to_string(),
+                      ),
+                    )
+                  }
+                }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "subscript requires sequence".to_string(),
+                    ),
+                  )
+              }
+            }
           }
         }
       }
@@ -666,20 +767,20 @@ fn eval_expr_with_env(
       }
       Ok(Value::Bool(true))
     }
-    Expr::Call(callee~, args~) => {
-      let arg_values : Array[Value] = []
-      for arg in args {
-        let value = match
-          eval_expr_with_env(arg, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        arg_values.push(value)
-      }
+    Expr::Call(callee~, args~) =>
       match callee {
         Expr::Name(name) =>
           match name {
             "print" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
               let buf = StringBuilder::new()
               for i = 0; i < arg_values.length(); i = i + 1 {
                 if i > 0 {
@@ -692,6 +793,15 @@ fn eval_expr_with_env(
               Ok(Value::None)
             }
             "input" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
               if arg_values.length() > 0 {
                 io.write_stdout(value_to_string(arg_values[0]))
               }
@@ -707,18 +817,38 @@ fn eval_expr_with_env(
                 )
               }
             }
-            "str" =>
+            "str" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
               if arg_values.length() == 0 {
                 Ok(Value::Str(""))
               } else {
                 Ok(Value::Str(value_to_string(arg_values[0])))
               }
+            }
             _ => {
               let value = get_from_env(name, locals, globals, builtins)
               if value is Some(value) {
                 match value {
-                  Value::Function(func) =>
+                  Value::Function(func) => {
+                    let arg_values : Array[Value] = []
+                    for arg in args {
+                      let value = match
+                        eval_expr_with_env(arg, locals, globals, builtins, io) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                      arg_values.push(value)
+                    }
                     eval_function(func, arg_values, globals, builtins, io)
+                  }
                   _ =>
                     Err(
                       make_runtime_error(
@@ -743,6 +873,15 @@ fn eval_expr_with_env(
             Ok(value) => value
             Err(err) => return Err(err)
           }
+          let arg_values : Array[Value] = []
+          for arg in args {
+            let value = match
+              eval_expr_with_env(arg, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            arg_values.push(value)
+          }
           match callee_value {
             Value::Function(func) =>
               eval_function(func, arg_values, globals, builtins, io)
@@ -756,7 +895,6 @@ fn eval_expr_with_env(
           }
         }
       }
-    }
     _ =>
       Err(
         make_runtime_error(
@@ -798,11 +936,13 @@ fn eval_block(
   let mut last = Value::None
   for stmt in body {
     match stmt {
-      Stmt::ExprStmt(expr) =>
-        last = match eval_expr_with_env(expr, locals, globals, builtins, io) {
+      Stmt::ExprStmt(expr) => {
+        let _ = match eval_expr_with_env(expr, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
+        last = Value::None
+      }
       Stmt::Assign(target~, value~) => {
         let eval_value = match
           eval_expr_with_env(value, locals, globals, builtins, io) {
@@ -835,6 +975,88 @@ fn eval_block(
       Stmt::Function(name~, params~, body~) => {
         let func = FunctionValue::{ name, params, body }
         set_global_value(globals, name, Value::Function(func))
+        last = Value::None
+      }
+      Stmt::Pass => last = Value::None
+      Stmt::Global(_) => last = Value::None
+      Stmt::Assert(condition~, message~) => {
+        let value = match
+          eval_expr_with_env(condition, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        if !bool_from_value(value) {
+          let text = match message {
+            Some(expr) => {
+              let msg_value = match
+                eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              "AssertionError: " + value_to_string(msg_value)
+            }
+            None => "AssertionError".to_string()
+          }
+          return Err(make_runtime_error(RuntimeErrorKind::Runtime, text))
+        }
+        last = Value::None
+      }
+      Stmt::Raise(expr) => {
+        if expr is Some(expr) {
+          let _ = match
+            eval_expr_with_env(expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        }
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "RuntimeError: raised".to_string(),
+          ),
+        )
+      }
+      Stmt::Del(names) => {
+        for name in names {
+          let mut found = false
+          for idx = 0; idx < globals.length(); idx = idx + 1 {
+            if globals[idx].0 == name {
+              let _ = globals.remove(idx)
+              found = true
+              break
+            }
+          }
+          if !found {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Name,
+                "name '" + name + "' is not defined",
+              ),
+            )
+          }
+        }
+        last = Value::None
+      }
+      Stmt::If(condition~, body~, else_body~) => {
+        let cond_value = match
+          eval_expr_with_env(condition, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        if bool_from_value(cond_value) {
+          let _ = match eval_block(body, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        } else {
+          let _ = match eval_block(else_body, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        }
         last = Value::None
       }
       _ =>
@@ -938,6 +1160,16 @@ pub fn Interpreter::exec(
     Ok(value) => value
     Err(err) => return Err(err)
   }
+  match value {
+    Value::Function(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: unsupported value".to_string(),
+        ),
+      )
+    _ => ()
+  }
   Ok(RunResult::{
     value,
     stdout: self.io.take_stdout(),
@@ -961,6 +1193,43 @@ pub fn Interpreter::exec_source(
       })
   }
   self.exec(program)
+}
+
+///|
+pub fn Interpreter::eval_source(
+  self : Interpreter,
+  source : String,
+) -> Result[RunResult, RuntimeError] {
+  let expr = match parse_expr(source) {
+    Ok(value) => value
+    Err(err) =>
+      return Err(RuntimeError::{
+        kind: RuntimeErrorKind::Runtime,
+        message: format_parse_error(err),
+        span: None,
+      })
+  }
+  let value = match
+    eval_expr_with_env(expr, [], self.globals, self.builtins, self.io) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  match value {
+    Value::Function(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: unsupported value".to_string(),
+        ),
+      )
+    _ => ()
+  }
+  Ok(RunResult::{
+    value,
+    stdout: self.io.take_stdout(),
+    stderr: self.io.take_stderr(),
+    globals: self.globals,
+  })
 }
 
 ///|
@@ -992,7 +1261,10 @@ pub fn Interpreter::set_global(
 
 ///|
 pub fn format_parse_error(error : ParseError) -> String {
-  if error.message.has_prefix("ValueError:") {
+  if error.message.has_prefix("ValueError:") ||
+    error.message.has_prefix("ImportError:") ||
+    error.message.has_prefix("NameError:") ||
+    error.message.has_prefix("AssertionError:") {
     return error.message
   }
   "line " +

@@ -30,7 +30,7 @@ REFERENCE_CACHE = Path(__file__).parent / "reference_cache" / REFERENCE_VERSION
 TOTAL_TARGET = 2000
 EXPR_TARGET = 1000
 PROGRAM_TARGET = 1000
-MAX_TEST_FILES = 200
+MAX_TEST_FILES = 500
 REFERENCE_URLS = [
     f"https://docs.python.org/{REFERENCE_VERSION}/reference/expressions.html",
     f"https://docs.python.org/{REFERENCE_VERSION}/reference/simple_stmts.html",
@@ -158,7 +158,7 @@ SAFE_BUILTINS = {
 
 
 def eval_expression(expr: str) -> Tuple[Any, str, str]:
-    env = {"__builtins__": SAFE_BUILTINS}
+    env = {"__builtins__": SAFE_BUILTINS.copy()}
     stdout = io.StringIO()
     stderr = io.StringIO()
     with warnings.catch_warnings():
@@ -169,7 +169,7 @@ def eval_expression(expr: str) -> Tuple[Any, str, str]:
 
 
 def eval_program(lines: List[str]) -> Tuple[Any, str, str]:
-    env = {"__builtins__": SAFE_BUILTINS}
+    env = {"__builtins__": SAFE_BUILTINS.copy()}
     if not lines:
         return None, "", ""
     stdout = io.StringIO()
@@ -192,123 +192,10 @@ def format_error(err: Exception) -> str:
 
 
 def is_supported_expr(expr: str) -> bool:
-    try:
-        tree = ast.parse(expr, mode="eval")
-    except (SyntaxError, ValueError):
-        return False
-    allowed = {
-        ast.Expression,
-        ast.Name,
-        ast.Constant,
-        ast.Load,
-        ast.BinOp,
-        ast.UnaryOp,
-        ast.BoolOp,
-        ast.Compare,
-        ast.Call,
-        ast.List,
-        ast.Tuple,
-        ast.Dict,
-        ast.Subscript,
-        ast.Slice,
-        ast.Lambda,
-        ast.IfExp,
-        ast.Add,
-        ast.Sub,
-        ast.Mult,
-        ast.Div,
-        ast.FloorDiv,
-        ast.Mod,
-        ast.Pow,
-        ast.UAdd,
-        ast.USub,
-        ast.Not,
-        ast.Invert,
-        ast.And,
-        ast.Or,
-        ast.Eq,
-        ast.NotEq,
-        ast.Lt,
-        ast.LtE,
-        ast.Gt,
-        ast.GtE,
-        ast.Is,
-        ast.IsNot,
-        ast.In,
-        ast.NotIn,
-    }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and node.keywords:
-            return False
-        if type(node) not in allowed:
-            return False
     return True
 
 
 def is_supported_program(lines: List[str]) -> bool:
-    try:
-        tree = ast.parse("\n".join(lines), mode="exec")
-    except (SyntaxError, ValueError):
-        return False
-    allowed = {
-        ast.Module,
-        ast.Expr,
-        ast.Assign,
-        ast.Name,
-        ast.Constant,
-        ast.Load,
-        ast.Store,
-        ast.BinOp,
-        ast.UnaryOp,
-        ast.BoolOp,
-        ast.Compare,
-        ast.Call,
-        ast.List,
-        ast.Tuple,
-        ast.Dict,
-        ast.Subscript,
-        ast.Slice,
-        ast.arguments,
-        ast.arg,
-        ast.FunctionDef,
-        ast.Return,
-        ast.Lambda,
-        ast.IfExp,
-        ast.Add,
-        ast.Sub,
-        ast.Mult,
-        ast.Div,
-        ast.FloorDiv,
-        ast.Mod,
-        ast.Pow,
-        ast.UAdd,
-        ast.USub,
-        ast.Not,
-        ast.Invert,
-        ast.And,
-        ast.Or,
-        ast.Eq,
-        ast.NotEq,
-        ast.Lt,
-        ast.LtE,
-        ast.Gt,
-        ast.GtE,
-        ast.Is,
-        ast.IsNot,
-        ast.In,
-        ast.NotIn,
-    }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-                return False
-        if isinstance(node, ast.FunctionDef):
-            if node.end_lineno is not None and node.end_lineno == node.lineno:
-                return False
-        if isinstance(node, ast.Call) and node.keywords:
-            return False
-        if type(node) not in allowed:
-            return False
     return True
 
 
@@ -350,7 +237,7 @@ def render_expr_test(case_id: int, expr: str, expected_json: Any) -> str:
         "///|\n"
         f"test \"generated/expr/{case_id:04d}\" {{\n"
         f"{source_literal}\n"
-        "  let result = Interpreter::new().exec_source(source)\n"
+        "  let result = Interpreter::new().eval_source(source)\n"
         f"  let expected = {expected}\n"
         "  assert_run(result, expected)\n"
         "}\n\n"
@@ -705,13 +592,11 @@ def main() -> None:
 
     case_id = 1
     for expr in expr_cases:
-        if not is_supported_expr(expr):
-            continue
         try:
             value, stdout, stderr = eval_expression(expr)
             expected_json = ["ok", value_to_json(value), stdout, stderr]
-        except SyntaxError:
-            continue
+        except SyntaxError as err:
+            expected_json = ["err", format_error(err)]
         except Exception as err:
             expected_json = ["err", format_error(err)]
         try:
@@ -722,13 +607,11 @@ def main() -> None:
 
     program_id = 1
     for program in program_cases:
-        if not is_supported_program(program):
-            continue
         try:
             value, stdout, stderr = eval_program(program)
             expected_json = ["ok", value_to_json(value), stdout, stderr]
-        except SyntaxError:
-            continue
+        except SyntaxError as err:
+            expected_json = ["err", format_error(err)]
         except Exception as err:
             expected_json = ["err", format_error(err)]
         try:

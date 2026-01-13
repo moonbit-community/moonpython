@@ -41,10 +41,14 @@ fn value_to_string(value : @mpython.Value) -> String {
 ///|
 fn print_run(run : @mpython.RunResult) -> Unit {
   if run.stdout.length() > 0 {
-    @fs.write_string_to_file("/dev/stdout", run.stdout) catch { _ => () }
+    @fs.write_string_to_file("/dev/stdout", run.stdout) catch {
+      _ => ()
+    }
   }
   if run.stderr.length() > 0 {
-    @fs.write_string_to_file("/dev/stderr", run.stderr) catch { _ => () }
+    @fs.write_string_to_file("/dev/stderr", run.stderr) catch {
+      _ => ()
+    }
   }
   match run.value {
     @mpython.Value::None => ()

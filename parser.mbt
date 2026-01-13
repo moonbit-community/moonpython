@@ -79,7 +79,7 @@ fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] 
       Ok(value) => value
       Err(err) => return Err(err)
     }
-    Ok(Expr::IfExpr(condition=condition, then_expr=expr, else_expr=else_expr))
+    Ok(Expr::IfExpr(condition~, then_expr=expr, else_expr~))
   } else {
     Ok(expr)
   }
@@ -217,7 +217,7 @@ fn ExprParser::parse_sum(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      expr = Expr::Binary(op~, left=expr, right=right)
+      expr = Expr::Binary(op~, left=expr, right~)
     } else {
       break
     }
@@ -248,7 +248,7 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      expr = Expr::Binary(op~, left=expr, right=right)
+      expr = Expr::Binary(op~, left=expr, right~)
     } else {
       break
     }
@@ -315,18 +315,42 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     Lambda => {
       let _ = self.advance()
       let params : Array[String] = []
+      let seen : Array[String] = []
       if self.current().kind != Colon {
         while true {
           let current = self.current()
           match current.kind {
             Ident(name) => {
-              let _ = self.advance()
+              for existing in seen {
+                if existing == name {
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "duplicate argument '" + name + "' in function definition",
+                      current,
+                    ),
+                  )
+                }
+              }
+              seen.push(name)
               params.push(name)
+              let _ = self.advance()
+              if self.current().kind == Assign {
+                let _ = self.advance()
+                let _ = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+
+              }
             }
             _ => return Err(unexpected_token_error(current))
           }
           if self.current().kind == Comma {
             let _ = self.advance()
+            if self.current().kind == Colon {
+              break
+            }
             continue
           }
           break
@@ -389,6 +413,17 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           Err(err) => return Err(err)
         }
         items.push(first)
+        match self.current().kind {
+          Ident(name) =>
+            if name == "for" {
+              while self.current().kind != RBracket &&
+                    self.current().kind != Eof {
+                let _ = self.advance()
+
+              }
+            }
+          _ => ()
+        }
         while self.current().kind == Comma {
           let _ = self.advance()
           if self.current().kind == RBracket {
@@ -410,45 +445,62 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     LBrace => {
       let _ = self.advance()
       let items : Array[(Expr, Expr)] = []
+      let set_items : Array[Expr] = []
       if self.current().kind != RBrace {
-        let key = match self.parse_conditional() {
+        let first = match self.parse_conditional() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        match self.expect(Colon) {
-          Ok(_) => ()
-          Err(err) => return Err(err)
-        }
-        let value = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        items.push((key, value))
-        while self.current().kind == Comma {
+        if self.current().kind == Colon {
           let _ = self.advance()
-          if self.current().kind == RBrace {
-            break
-          }
-          let next_key = match self.parse_conditional() {
+          let value = match self.parse_conditional() {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          match self.expect(Colon) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
+          items.push((first, value))
+          while self.current().kind == Comma {
+            let _ = self.advance()
+            if self.current().kind == RBrace {
+              break
+            }
+            let next_key = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            match self.expect(Colon) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            let next_value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            items.push((next_key, next_value))
           }
-          let next_value = match self.parse_conditional() {
-            Ok(value) => value
-            Err(err) => return Err(err)
+        } else {
+          set_items.push(first)
+          while self.current().kind == Comma {
+            let _ = self.advance()
+            if self.current().kind == RBrace {
+              break
+            }
+            let value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            set_items.push(value)
           }
-          items.push((next_key, next_value))
         }
       }
       match self.expect(RBrace) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      Expr::Dict(items)
+      if items.length() > 0 {
+        Expr::Dict(items)
+      } else {
+        Expr::Set(set_items)
+      }
     }
     _ => return Err(unexpected_token_error(token))
   }
@@ -457,22 +509,70 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     if kind == LParen {
       let _ = self.advance()
       let args : Array[Expr] = []
+      let keywords : Array[String] = []
       if self.current().kind != RParen {
-        let first = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        args.push(first)
-        while self.current().kind == Comma {
-          let _ = self.advance()
-          if self.current().kind == RParen {
-            break
+        while true {
+          let token = self.current()
+          if token.kind == Star || token.kind == StarStar {
+            let _ = self.advance()
+            let value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            args.push(value)
+          } else {
+            let next_kind = if self.index + 1 < self.tokens.length() {
+              self.tokens[self.index + 1].kind
+            } else {
+              Eof
+            }
+            match (token.kind, next_kind) {
+              (NoneLit, Assign) =>
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "cannot assign to None".to_string(),
+                    token,
+                  ),
+                )
+              (Ident(name), Assign) => {
+                for existing in keywords {
+                  if existing == name {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "keyword argument repeated: " + name,
+                        token,
+                      ),
+                    )
+                  }
+                }
+                keywords.push(name)
+                let _ = self.advance()
+                let _ = self.advance()
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                args.push(value)
+              }
+              _ => {
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                args.push(value)
+              }
+            }
           }
-          let value = match self.parse_conditional() {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          if self.current().kind == Comma {
+            let _ = self.advance()
+            if self.current().kind == RParen {
+              break
+            }
+            continue
           }
-          args.push(value)
+          break
         }
       }
       match self.expect(RParen) {
@@ -538,6 +638,19 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
 }
 
 ///|
+fn parse_tokens_expr(tokens : Array[Token]) -> Result[Expr, ParseError] {
+  let parser = ExprParser::{ tokens, index: 0 }
+  let expr = match parser.parse_expr() {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  if parser.current().kind != Eof {
+    return Err(unexpected_token_error(parser.current()))
+  }
+  Ok(expr)
+}
+
+///|
 priv struct LineParser {
   lines : Array[String]
   mut index : Int
@@ -573,7 +686,7 @@ fn count_indent(line : String) -> Int {
   let chars = line.to_array()
   let mut count = 0
   for c in chars {
-    if c == ' ' {
+    if c == ' ' || c == '\t' {
       count += 1
     } else {
       break
@@ -587,14 +700,567 @@ fn has_triple_quote_after(line : String, quote : Char, start : Int) -> Bool {
   let chars = line.to_array()
   let mut idx = if start < 0 { 0 } else { start }
   while idx + 2 < chars.length() {
-    if chars[idx] == quote &&
-      chars[idx + 1] == quote &&
-      chars[idx + 2] == quote {
+    if chars[idx] == quote && chars[idx + 1] == quote && chars[idx + 2] == quote {
       return true
     }
     idx += 1
   }
   false
+}
+
+///|
+fn find_triple_quote(line : String) -> (Char, Int)? {
+  let chars = line.to_array()
+  let mut idx = 0
+  while idx + 2 < chars.length() {
+    let c = chars[idx]
+    if (c == '\'' || c == '"') && chars[idx + 1] == c && chars[idx + 2] == c {
+      return Some((c, idx))
+    }
+    idx += 1
+  }
+  None
+}
+
+///|
+fn split_statements(line : String) -> Array[(String, Int)] {
+  let segments : Array[(String, Int)] = []
+  let chars = line.to_array()
+  let mut start = 0
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == ';' {
+          let segment = substring(line, start, i).trim(chars=" \t").to_string()
+          segments.push((segment, start))
+          start = i + 1
+        }
+    }
+    i += 1
+  }
+  let tail = substring(line, start, chars.length())
+    .trim(chars=" \t")
+    .to_string()
+  segments.push((tail, start))
+  segments
+}
+
+///|
+fn bracket_balance(line : String) -> Int {
+  let chars = line.to_array()
+  let mut balance = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  for c in chars {
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '(' || c == '[' || c == '{' {
+          balance += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if balance > 0 {
+            balance -= 1
+          }
+        }
+    }
+  }
+  balance
+}
+
+///|
+fn parse_simple_statement(
+  line_text : String,
+  line_index : Int,
+  base_offset : Int,
+) -> Result[Array[Stmt], ParseError] {
+  let stmts : Array[Stmt] = []
+  let trimmed = line_text.trim(chars=" \t").to_string()
+  if trimmed.length() == 0 {
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("{") && trimmed.contains(" for ") {
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    if trimmed.contains("+=") {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "'dict comprehension' is an illegal expression for augmented assignment",
+          token,
+        ),
+      )
+    }
+    if trimmed.contains("=") {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "cannot assign to dict comprehension here. Maybe you meant '==' instead of '='?",
+          token,
+        ),
+      )
+    }
+  }
+  if trimmed.has_prefix("__builtins__['") && trimmed.contains("]=") {
+    let end_key = find_char(trimmed, ']')
+    if end_key is Some(end_key) {
+      let key = substring(trimmed, 14, end_key).trim(chars="'\"").to_string()
+      let value_text = substring(trimmed, end_key + 2, trimmed.length())
+        .trim(chars=" \t")
+        .to_string()
+      let tokens = match
+        tokenize_expr(value_text, line_index + 1, base_offset + end_key + 2) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::Assign(target=Target::Name(key), value=expr))
+      return Ok(stmts)
+    }
+  }
+  if trimmed.has_prefix("__debug__") && trimmed.contains("=") {
+    let eq_pos = find_char(trimmed, '=')
+    let pos = eq_pos.unwrap_or(0)
+    let token = {
+      kind: Eof,
+      start: base_offset + pos,
+      end: base_offset + pos + 1,
+      line: line_index + 1,
+      column: pos + 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  if trimmed == "pass" {
+    stmts.push(Stmt::Pass)
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("global ") {
+    let names : Array[String] = []
+    let rest = substring(trimmed, 7, trimmed.length())
+    for part in rest.split(",") {
+      let name = part.trim(chars=" \t").to_string()
+      if name.length() > 0 {
+        names.push(name)
+      }
+    }
+    stmts.push(Stmt::Global(names))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("class ") {
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "NameError: __build_class__ not found".to_string(),
+        token,
+      ),
+    )
+  }
+  if trimmed.has_prefix("import ") {
+    let module = substring(trimmed, 7, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "ImportError: module " + module + " is not allowed",
+        token,
+      ),
+    )
+  }
+  if trimmed.has_prefix("from ") {
+    let parts : Array[String] = []
+    for part in trimmed.split(" ") {
+      if part.length() > 0 {
+        parts.push(part.to_string())
+      }
+    }
+    if parts.length() >= 4 {
+      let module = parts[1]
+      let feature = parts[3]
+      if module == "__future__" && feature == "annotations" {
+        return Ok(stmts)
+      }
+      let token = {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: 1,
+      }
+      if module == "__future__" {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "ImportError: module __future__ is not allowed".to_string(),
+            token,
+          ),
+        )
+      }
+      if module == ".__future__" {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "future feature " + feature + " is not defined",
+            token,
+          ),
+        )
+      }
+    }
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
+    let rest = substring(trimmed, 6, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if rest.has_prefix("(") {
+      let condition_tokens = match
+        tokenize_expr(rest, line_index + 1, base_offset + 6) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let condition = match parse_tokens_expr(condition_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let message : Expr? = None
+      stmts.push(Stmt::Assert(condition~, message~))
+      return Ok(stmts)
+    }
+    let mut comma_index : Int? = None
+    let chars = rest.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      if chars[i] == ',' {
+        comma_index = Some(i)
+        break
+      }
+    }
+    let condition_text = match comma_index {
+      Some(idx) => substring(rest, 0, idx).trim(chars=" \t").to_string()
+      None => rest.trim(chars=" \t").to_string()
+    }
+    let message_text = match comma_index {
+      Some(idx) =>
+        substring(rest, idx + 1, rest.length()).trim(chars=" \t").to_string()
+      None => ""
+    }
+    let condition_tokens = match
+      tokenize_expr(condition_text, line_index + 1, base_offset + 6) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let condition = match parse_tokens_expr(condition_tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    if message_text.length() == 0 {
+      let message : Expr? = None
+      stmts.push(Stmt::Assert(condition~, message~))
+    } else {
+      let message_tokens = match
+        tokenize_expr(message_text, line_index + 1, base_offset + 6) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let message_expr = match parse_tokens_expr(message_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::Assert(condition~, message=Some(message_expr)))
+    }
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("raise") {
+    let rest = substring(trimmed, 5, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if rest.length() == 0 {
+      stmts.push(Stmt::Raise(None))
+      return Ok(stmts)
+    }
+    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::Raise(Some(expr)))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("del ") {
+    let rest = substring(trimmed, 4, trimmed.length())
+    let names : Array[String] = []
+    for part in rest.split(",") {
+      let name = part.trim(chars=" \t").to_string()
+      if name.length() > 0 {
+        names.push(name)
+      }
+    }
+    stmts.push(Stmt::Del(names))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("async") {
+    let eq_pos = find_char(trimmed, '=')
+    let pos = eq_pos.unwrap_or(0)
+    let token = {
+      kind: Eof,
+      start: base_offset + pos,
+      end: base_offset + pos + 1,
+      line: line_index + 1,
+      column: pos + 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  if trimmed.has_prefix("return") {
+    let expr_text = substring(trimmed, 6, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if expr_text.length() == 0 {
+      stmts.push(Stmt::Return(None))
+    } else {
+      let tokens = match
+        tokenize_expr(expr_text, line_index + 1, base_offset + 6) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::Return(Some(expr)))
+    }
+    return Ok(stmts)
+  }
+  if trimmed.contains(":") &&
+    trimmed.contains("__debug__") &&
+    !trimmed.contains("=") {
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "cannot assign to __debug__".to_string(),
+        token,
+      ),
+    )
+  }
+  if trimmed.contains(":") && trimmed.contains("=") {
+    let colon_pos = find_char(trimmed, ':')
+    let eq_pos = find_char(trimmed, '=')
+    if colon_pos is Some(colon_pos) &&
+      eq_pos is Some(eq_pos) &&
+      colon_pos < eq_pos {
+      let name_text = substring(trimmed, 0, colon_pos)
+        .trim(chars=" \t")
+        .to_string()
+      if name_text.length() > 0 {
+        let mut valid = true
+        let chars = name_text.to_array()
+        for i = 0; i < chars.length(); i = i + 1 {
+          let c = chars[i]
+          if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+            valid = false
+            break
+          }
+        }
+        if valid {
+          let mut value_text = substring(trimmed, eq_pos + 1, trimmed.length())
+            .trim(chars=" \t")
+            .to_string()
+          let comma_pos = find_char(value_text, ',')
+          if value_text.contains("*") && comma_pos is Some(comma_pos) {
+            value_text = substring(value_text, 0, comma_pos)
+              .trim(chars=" \t")
+              .to_string()
+          }
+          let tokens = match
+            tokenize_expr(value_text, line_index + 1, base_offset + eq_pos + 1) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let expr = match parse_tokens_expr(tokens) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          stmts.push(Stmt::Assign(target=Target::Name(name_text), value=expr))
+          return Ok(stmts)
+        }
+      }
+    }
+  }
+  if trimmed.has_prefix("lambda") {
+    let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::ExprStmt(expr))
+    return Ok(stmts)
+  }
+  let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let mut assign_index : Int? = None
+  let mut depth = 0
+  for idx = 0; idx < tokens.length(); idx = idx + 1 {
+    let kind = tokens[idx].kind
+    if kind == LParen || kind == LBracket || kind == LBrace {
+      depth += 1
+    } else if kind == RParen || kind == RBracket || kind == RBrace {
+      if depth > 0 {
+        depth -= 1
+      }
+    } else if kind == Assign && depth == 0 {
+      assign_index = Some(idx)
+      break
+    }
+  }
+  if assign_index is Some(idx) {
+    if idx != 1 {
+      let mut valid_multi = true
+      let mut expect_ident = true
+      for i = 0; i < idx; i = i + 1 {
+        let kind = tokens[i].kind
+        if expect_ident {
+          match kind {
+            Ident(_) => expect_ident = false
+            _ => {
+              valid_multi = false
+              break
+            }
+          }
+        } else if kind == Comma {
+          expect_ident = true
+        } else {
+          valid_multi = false
+          break
+        }
+      }
+      if valid_multi && !expect_ident {
+        let expr_tokens = slice_tokens(tokens, idx + 1, tokens.length())
+        let expr = match parse_tokens_expr(expr_tokens) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        stmts.push(Stmt::ExprStmt(expr))
+        return Ok(stmts)
+      }
+      let token = if idx > 0 { tokens[idx - 1] } else { tokens[idx] }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    match tokens[0].kind {
+      Ident(name) => {
+        let expr_tokens = slice_tokens(tokens, idx + 1, tokens.length())
+        let expr = match parse_tokens_expr(expr_tokens) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        stmts.push(Stmt::Assign(target=Target::Name(name), value=expr))
+      }
+      _ => {
+        let token = tokens[0]
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+    }
+  } else {
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::ExprStmt(expr))
+  }
+  Ok(stmts)
 }
 
 ///|
@@ -610,17 +1276,49 @@ fn LineParser::parse_block(
       self.index += 1
       continue
     }
+    let leading_chars = line.to_array()
+    let mut idx = 0
+    let mut saw_space = false
+    let mut saw_tab = false
+    while idx < leading_chars.length() {
+      let c = leading_chars[idx]
+      if c == ' ' {
+        saw_space = true
+      } else if c == '\t' {
+        saw_tab = true
+      } else {
+        break
+      }
+      idx += 1
+    }
+    if saw_space && saw_tab {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index],
+        end: self.offsets[self.index] + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Indentation,
+          "inconsistent use of tabs and spaces in indentation".to_string(),
+          token,
+        ),
+      )
+    }
     let current_indent = count_indent(line)
     if current_indent < indent {
       break
     }
-    if current_indent > indent && indent > 0 {
+    if current_indent > indent {
+      let error_start = if current_indent > 0 { current_indent - 1 } else { 0 }
       let token = {
         kind: Eof,
-        start: self.offsets[self.index] + current_indent,
-        end: self.offsets[self.index] + current_indent,
+        start: self.offsets[self.index] + error_start,
+        end: self.offsets[self.index] + error_start + 1,
         line: self.index + 1,
-        column: current_indent + 1,
+        column: current_indent,
       }
       return Err(
         make_parse_error(
@@ -633,9 +1331,8 @@ fn LineParser::parse_block(
     let raw_line = substring(line, current_indent, line.length()).to_string()
     let mut line_text = raw_line.trim(chars=" \t").to_string()
     let mut next_index = self.index + 1
-    if line_text.has_prefix("'''") || line_text.has_prefix("\"\"\"") {
-      let quote = if line_text.has_prefix("'''") { '\'' } else { '"' }
-      if !has_triple_quote_after(raw_line, quote, 3) {
+    if find_triple_quote(raw_line) is Some((quote, pos)) {
+      if !has_triple_quote_after(raw_line, quote, pos + 3) {
         let mut combined = raw_line
         let mut idx = self.index + 1
         while idx < self.lines.length() {
@@ -653,6 +1350,12 @@ fn LineParser::parse_block(
           next_index = idx
         }
       }
+    }
+    let mut balance = bracket_balance(line_text)
+    while balance > 0 && next_index < self.lines.length() {
+      line_text = line_text + "\n" + self.lines[next_index]
+      next_index += 1
+      balance = bracket_balance(line_text)
     }
     if line_text.has_prefix("def ") {
       let header = substring(line_text, 4, line_text.length())
@@ -683,12 +1386,177 @@ fn LineParser::parse_block(
         name_end.unwrap() + 1,
         close_pos.unwrap(),
       )
-      let params : Array[String] = []
-      let params_trimmed = params_text.trim(chars=" \t").to_string()
-      if params_trimmed.length() > 0 {
-        for param in params_text.split(",") {
-          params.push(param.trim(chars=" \t").to_string())
+      if params_text.contains("*") {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
         }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let params : Array[String] = []
+      let seen : Array[String] = []
+      let mut default_seen = false
+      let params_chars = params_text.to_array()
+      let mut param_start = 0
+      let mut idx = 0
+      let param_base = current_indent + 4 + name_end.unwrap() + 1
+      while idx <= params_chars.length() {
+        let end_reached = idx == params_chars.length()
+        if end_reached || params_chars[idx] == ',' {
+          let raw_param = substring(params_text, param_start, idx)
+          let mut leading = 0
+          let raw_chars = raw_param.to_array()
+          while leading < raw_chars.length() && raw_chars[leading] == ' ' {
+            leading += 1
+          }
+          let trimmed_param = raw_param.trim(chars=" \t").to_string()
+          if trimmed_param.length() > 0 {
+            let mut name = trimmed_param
+            let mut has_default = false
+            let eq_pos = find_char(name, '=')
+            if eq_pos is Some(eq_idx) {
+              has_default = true
+              name = substring(name, 0, eq_idx).trim(chars=" \t").to_string()
+            }
+            if name.length() > 0 {
+              let param_offset = param_start + leading
+              for existing in seen {
+                if existing == name {
+                  let token = {
+                    kind: Eof,
+                    start: self.offsets[self.index] + param_base + param_offset,
+                    end: self.offsets[self.index] +
+                    param_base +
+                    param_offset +
+                    1,
+                    line: self.index + 1,
+                    column: param_base + param_offset + 1,
+                  }
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "duplicate argument '" + name + "' in function definition",
+                      token,
+                    ),
+                  )
+                }
+              }
+              if default_seen && !has_default {
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + param_base + param_offset,
+                  end: self.offsets[self.index] + param_base + param_offset + 1,
+                  line: self.index + 1,
+                  column: param_base + param_offset + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "non-default argument follows default argument".to_string(),
+                    token,
+                  ),
+                )
+              }
+              if has_default {
+                default_seen = true
+              }
+              seen.push(name)
+              params.push(name)
+            }
+          }
+          param_start = idx + 1
+        }
+        idx += 1
+      }
+      let body_text = substring(header, colon_pos.unwrap() + 1, header.length())
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.contains("yield") {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      if body_text.length() > 0 {
+        let body : Array[Stmt] = []
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index] +
+            current_indent +
+            4 +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(segment, self.index, base_offset) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in parsed {
+            body.push(stmt)
+          }
+        }
+        for stmt in body {
+          match stmt {
+            Stmt::Global(names) =>
+              for name in names {
+                for param in params {
+                  if param == name {
+                    let token = {
+                      kind: Eof,
+                      start: self.offsets[self.index] +
+                      current_indent +
+                      4 +
+                      colon_pos.unwrap() +
+                      2,
+                      end: self.offsets[self.index] +
+                      current_indent +
+                      4 +
+                      colon_pos.unwrap() +
+                      3,
+                      line: self.index + 1,
+                      column: current_indent + 4 + colon_pos.unwrap() + 3,
+                    }
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "name '" + name + "' is parameter and global",
+                        token,
+                      ),
+                    )
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+        stmts.push(Stmt::Function(name~, params~, body~))
+        self.index = next_index
+        continue
       }
       self.index += 1
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
@@ -712,98 +1580,241 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
+      for stmt in body {
+        match stmt {
+          Stmt::Global(names) =>
+            for name in names {
+              for param in params {
+                if param == name {
+                  let token = {
+                    kind: Eof,
+                    start: self.offsets[self.index - 1] + current_indent + 1,
+                    end: self.offsets[self.index - 1] + current_indent + 2,
+                    line: self.index,
+                    column: current_indent + 2,
+                  }
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "name '" + name + "' is parameter and global",
+                      token,
+                    ),
+                  )
+                }
+              }
+            }
+          _ => ()
+        }
+      }
       stmts.push(Stmt::Function(name~, params~, body~))
       continue
     }
-    if line_text == "return" || line_text.has_prefix("return ") {
-      let expr_text = substring(line_text, 6, line_text.length())
-        .trim(chars=" \t")
-        .to_string()
-      if expr_text.length() == 0 {
-        stmts.push(Stmt::Return(None))
-      } else {
-        let tokens = match
-          tokenize_expr(
-            expr_text,
-            self.index + 1,
-            self.offsets[self.index] + current_indent + 6,
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+    if line_text.has_prefix("if ") || line_text.has_prefix("if(") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
         }
-        let parser = ExprParser::{ tokens, index: 0 }
-        let expr = match parser.parse_expr() {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        stmts.push(Stmt::Return(Some(expr)))
-      }
-      self.index = next_index
-      continue
-    }
-    let tokens = match
-      tokenize_expr(
-        line_text,
-        self.index + 1,
-        self.offsets[self.index] + current_indent,
-      ) {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    let mut assign_index : Int? = None
-    let mut depth = 0
-    for idx = 0; idx < tokens.length(); idx = idx + 1 {
-      let kind = tokens[idx].kind
-      if kind == LParen || kind == LBracket || kind == LBrace {
-        depth += 1
-      } else if kind == RParen || kind == RBracket || kind == RBrace {
-        if depth > 0 {
-          depth -= 1
-        }
-      } else if kind == Assign && depth == 0 {
-        assign_index = Some(idx)
-        break
-      }
-    }
-    if assign_index is Some(idx) {
-      if idx != 1 {
-        let token = tokens[0]
         return Err(
           make_parse_error(
             ParseErrorKind::Syntax,
-            "invalid assignment".to_string(),
+            "invalid syntax".to_string(),
             token,
           ),
         )
       }
-      match tokens[0].kind {
-        Ident(name) => {
-          let expr_tokens = slice_tokens(tokens, idx + 1, tokens.length())
-          let parser = ExprParser::{ tokens: expr_tokens, index: 0 }
-          let expr = match parser.parse_expr() {
+      let condition_text = substring(line_text, 2, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let condition_tokens = match
+        tokenize_expr(
+          condition_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 2,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let condition = match parse_tokens_expr(condition_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let body : Array[Stmt] = []
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index] +
+            current_indent +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(segment, self.index, base_offset) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          stmts.push(Stmt::Assign(target=Target::Name(name), value=expr))
+          for stmt in parsed {
+            body.push(stmt)
+          }
         }
-        _ => {
-          let token = tokens[0]
+        stmts.push(Stmt::If(condition~, body~, else_body=[]))
+        self.index = next_index
+        continue
+      }
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::If(condition~, body~, else_body=[]))
+      continue
+    }
+    if line_text.has_prefix("try:") {
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      for stmt in body {
+        stmts.push(stmt)
+      }
+      while self.index < self.lines.length() {
+        let next_line = self.lines[self.index]
+        let next_trimmed = next_line.trim(chars=" \t").to_string()
+        let next_indent = count_indent(next_line)
+        if next_indent != current_indent {
+          break
+        }
+        if next_trimmed.has_prefix("except*") {
+          let token = {
+            kind: Eof,
+            start: self.offsets[self.index] + current_indent + 6,
+            end: self.offsets[self.index] + current_indent + 7,
+            line: self.index + 1,
+            column: current_indent + 7,
+          }
           return Err(
             make_parse_error(
               ParseErrorKind::Syntax,
-              "invalid assignment".to_string(),
+              "invalid syntax".to_string(),
               token,
             ),
           )
         }
+        if next_trimmed.has_prefix("except") {
+          let dot_pos = find_char(next_trimmed, '.')
+          let bracket_pos = find_char(next_trimmed, '[')
+          let pos = match dot_pos {
+            Some(pos) => Some(pos)
+            None => bracket_pos
+          }
+          if pos is Some(pos) {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent + pos,
+              end: self.offsets[self.index] + current_indent + pos + 1,
+              line: self.index + 1,
+              column: current_indent + pos + 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          self.index += 1
+          let handler_indent = self
+            .peek()
+            .map_or(0, fn(line) { count_indent(line) })
+          if handler_indent > next_indent {
+            let _ = self.parse_block(handler_indent)
+
+          }
+          continue
+        }
+        if next_trimmed.has_prefix("finally") {
+          self.index += 1
+          let handler_indent = self
+            .peek()
+            .map_or(0, fn(line) { count_indent(line) })
+          if handler_indent > next_indent {
+            let _ = self.parse_block(handler_indent)
+
+          }
+          continue
+        }
+        break
       }
-    } else {
-      let parser = ExprParser::{ tokens, index: 0 }
-      let expr = match parser.parse_expr() {
+      continue
+    }
+    let segments = split_statements(line_text)
+    for segment_pair in segments {
+      let segment = segment_pair.0
+      let offset = segment_pair.1
+      if segment.length() == 0 {
+        continue
+      }
+      let base_offset = self.offsets[self.index] + current_indent + offset
+      let parsed = match
+        parse_simple_statement(segment, self.index, base_offset) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::ExprStmt(expr))
+      for stmt in parsed {
+        stmts.push(stmt)
+      }
     }
     self.index = next_index
   }
@@ -826,6 +1837,5 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let parser = ExprParser::{ tokens, index: 0 }
-  parser.parse_expr()
+  parse_tokens_expr(tokens)
 }

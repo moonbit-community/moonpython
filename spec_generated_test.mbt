@@ -6,8 +6,10 @@
 
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
-
-fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Unit raise {
+fn assert_run(
+  result : Result[RunResult, RuntimeError],
+  expected : String,
+) -> Unit raise {
   let json = @json.parse(expected) catch { _ => fail("invalid json") }
   match json {
     Array(items) => {
@@ -66,7 +68,7 @@ fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Un
 test "generated/expr/0001" {
   let source =
     #|3.14
-  let result = Interpreter::new().exec_source(source)
+  let result = Interpreter::new().eval_source(source)
   let expected = "[\"ok\", [\"Float\", 3.14], \"\", \"\"]"
   assert_run(result, expected)
 }
@@ -74,98 +76,99 @@ test "generated/expr/0001" {
 ///|
 test "generated/expr/0002" {
   let source =
-    #|1/2
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 0.5], \"\", \"\"]"
+    #|x, b += 3
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:6 invalid syntax\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0003" {
   let source =
-    #|~False
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"-1\"], \"\", \"\"]"
+    #|1/2
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 0.5], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0004" {
   let source =
-    #|~True
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"-2\"], \"\", \"\"]"
+    #|~False
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"-1\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0005" {
   let source =
-    #|1+1
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"2\"], \"\", \"\"]"
+    #|~True
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"-2\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0006" {
   let source =
-    #|a
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+    #|1+1
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"2\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0007" {
   let source =
-    #|b
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'b' is not defined\"]"
+    #| 1+1
+    #|
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"2\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0008" {
   let source =
-    #|c
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'c' is not defined\"]"
+    #|a
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0009" {
   let source =
-    #|"å"
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Str\", \"å\"], \"\", \"\"]"
+    #|b
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'b' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0010" {
   let source =
-    #|globals()['A_GLOBAL_VALUE']
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'globals' is not defined\"]"
+    #|c
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'c' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0011" {
   let source =
-    #|dir()
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'dir' is not defined\"]"
+    #|"å"
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Str\", \"å\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0012" {
   let source =
-    #|globals()
-  let result = Interpreter::new().exec_source(source)
+    #|globals()['A_GLOBAL_VALUE']
+  let result = Interpreter::new().eval_source(source)
   let expected = "[\"err\", \"NameError: name 'globals' is not defined\"]"
   assert_run(result, expected)
 }
@@ -173,53 +176,53 @@ test "generated/expr/0012" {
 ///|
 test "generated/expr/0013" {
   let source =
-    #|locals()
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'locals' is not defined\"]"
+    #|dir()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'dir' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0014" {
   let source =
-    #|superglobal
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'superglobal' is not defined\"]"
+    #|globals()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'globals' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0015" {
   let source =
-    #|None
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+    #|locals()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'locals' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0016" {
   let source =
-    #|42
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"42\"], \"\", \"\"]"
+    #|[locals() for i in (2,3)]
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'locals' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0017" {
   let source =
-    #|x is x
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+    #|superglobal
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'superglobal' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0018" {
   let source =
-    #|x in x
-  let result = Interpreter::new().exec_source(source)
+    #|x.__reduce__()
+  let result = Interpreter::new().eval_source(source)
   let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
   assert_run(result, expected)
 }
@@ -227,216 +230,614 @@ test "generated/expr/0018" {
 ///|
 test "generated/expr/0019" {
   let source =
-    #|0xff
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"255\"], \"\", \"\"]"
+    #|None
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0020" {
   let source =
-    #|0777.
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
+    #|42
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"42\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0021" {
   let source =
-    #|0777.0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
+    #|x is x
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0022" {
   let source =
-    #|000000000000000000000000000000000000000000000000000777e0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
+    #|x in x
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0023" {
   let source =
-    #|0777e1
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 7770.0], \"\", \"\"]"
+    #|lambda:42
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0024" {
   let source =
-    #|0e0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+    #|__debug__ = 1
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:11 invalid syntax\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0025" {
   let source =
-    #|0000e-012
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+    #|lambda a,a:0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:10 duplicate argument 'a' in function definition\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0026" {
   let source =
-    #|09.5
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 9.5], \"\", \"\"]"
+    #|lambda a,a=1:0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:10 duplicate argument 'a' in function definition\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0027" {
   let source =
-    #|0777j
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+    #|lambda a=1,a=1:0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:12 duplicate argument 'a' in function definition\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0028" {
   let source =
-    #|000
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"0\"], \"\", \"\"]"
+    #|1+*3
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:3 invalid syntax\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0029" {
   let source =
-    #|00j
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+    #|f(None=1)
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:3 cannot assign to None\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0030" {
   let source =
-    #|00.0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+    #|2e
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid decimal literal\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0031" {
   let source =
-    #|0e3
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+    #|2.0e+
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:5 invalid decimal literal\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0032" {
   let source =
-    #|090000000000000.
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+    #|1e-
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:3 invalid decimal literal\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0033" {
   let source =
-    #|090000000000000.0000000000000000000000
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+    #|3-4e/21
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:3 invalid decimal literal\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0034" {
   let source =
-    #|090000000000000e0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+    #|0xff
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"255\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0035" {
   let source =
-    #|090000000000000e-0
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+    #|0777.
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0036" {
   let source =
-    #|090000000000000j
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+    #|0777.0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0037" {
   let source =
-    #|000000000000008.
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 8.0], \"\", \"\"]"
+    #|000000000000000000000000000000000000000000000000000777e0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 777.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0038" {
   let source =
-    #|000000000000009.
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Float\", 9.0], \"\", \"\"]"
+    #|0777e1
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 7770.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0039" {
   let source =
-    #|0b101010
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"42\"], \"\", \"\"]"
+    #|0e0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0040" {
   let source =
-    #|-0b000000000010
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"-2\"], \"\", \"\"]"
+    #|0000e-012
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0041" {
   let source =
-    #|0o777
-  let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", [\"Int\", \"511\"], \"\", \"\"]"
+    #|09.5
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 9.5], \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/expr/0042" {
   let source =
+    #|0777j
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0043" {
+  let source =
+    #|000
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"0\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0044" {
+  let source =
+    #|00j
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0045" {
+  let source =
+    #|00.0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0046" {
+  let source =
+    #|0e3
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 0.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0047" {
+  let source =
+    #|090000000000000.
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0048" {
+  let source =
+    #|090000000000000.0000000000000000000000
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0049" {
+  let source =
+    #|090000000000000e0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0050" {
+  let source =
+    #|090000000000000e-0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 90000000000000.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0051" {
+  let source =
+    #|090000000000000j
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0052" {
+  let source =
+    #|000000000000008.
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 8.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0053" {
+  let source =
+    #|000000000000009.
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Float\", 9.0], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0054" {
+  let source =
+    #|0b101010
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"42\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0055" {
+  let source =
+    #|-0b000000000010
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"-2\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0056" {
+  let source =
+    #|0o777
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"511\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0057" {
+  let source =
     #|-0o0000010
-  let result = Interpreter::new().exec_source(source)
+  let result = Interpreter::new().eval_source(source)
   let expected = "[\"ok\", [\"Int\", \"-8\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0058" {
+  let source =
+    #|123 
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: source code string cannot contain null bytes\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0059" {
+  let source =
+    #|Decimal(10) < E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0060" {
+  let source =
+    #|Decimal(10) > E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0061" {
+  let source =
+    #|Decimal(10) <= E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0062" {
+  let source =
+    #|Decimal(10) >= E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0063" {
+  let source =
+    #|Decimal(10) == E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0064" {
+  let source =
+    #|Decimal(10) != E()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'Decimal' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0065" {
+  let source =
+    #|'a'.__class__
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0066" {
+  let source =
+    #|str(1)
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Str\", \"1\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0067" {
+  let source =
+    #|lambda: len([])
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0068" {
+  let source =
+    #|foo()
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'foo' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0069" {
+  let source =
+    #|ä = '''thîs is 
+    #|a 
+    #|test
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:5 unterminated triple-quoted string literal (detected at line 3)\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0070" {
+  let source =
+    #|f'xx{value:{bad_format_spec}}yy'
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'value' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0071" {
+  let source =
+    #|a + b
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0072" {
+  let source =
+    #|0x
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:2 invalid hexadecimal literal\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0073" {
+  let source =
+    #|1 if 1else 0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"1\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0074" {
+  let source =
+    #|1 if 0else 0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Int\", \"0\"], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0075" {
+  let source =
+    #|0 if 1Else 0
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:6 invalid decimal literal\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0076" {
+  let source =
+    #|0b12
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:4 invalid digit '2' in binary literal\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0077" {
+  let source =
+    #|.. .
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0078" {
+  let source =
+    #|1, 0 or 1
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"ok\", [\"Tuple\", [[\"Int\", \"1\"], [\"Int\", \"1\"]]], \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0079" {
+  let source =
+    #|def f(*): pass
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0080" {
+  let source =
+    #|def f(*,): pass
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0081" {
+  let source =
+    #|def f(*, **kwds): pass
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0082" {
+  let source =
+    #|f(1, x=2, *(3,4), x=5)
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:19 keyword argument repeated: x\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0083" {
+  let source =
+    #|def g(): [(yield x) for x in ()]
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0084" {
+  let source =
+    #|assert(x, "msg")
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0085" {
+  let source =
+    #|assert(False, "msg")
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/expr/0086" {
+  let source =
+    #|assert(False,)
+  let result = Interpreter::new().eval_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
   assert_run(result, expected)
 }
 
@@ -488,16 +889,17 @@ test "generated/program/0005" {
 ///|
 test "generated/program/0006" {
   let source =
-    #|print('Hello World!')
+    #|global a; a = 1; b = 2
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"Hello World!\\n\", \"\"]"
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0007" {
   let source =
-    #|x=1
+    #|global z
+    #|z = 1
   let result = Interpreter::new().exec_source(source)
   let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
@@ -506,34 +908,34 @@ test "generated/program/0007" {
 ///|
 test "generated/program/0008" {
   let source =
-    #|globalname
+    #|print('Hello World!')
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'globalname' is not defined\"]"
+  let expected = "[\"ok\", \"None\", \"Hello World!\\n\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0009" {
   let source =
-    #|superglobal
+    #|__builtins__['superglobal']=2; print(superglobal)
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'superglobal' is not defined\"]"
+  let expected = "[\"ok\", \"None\", \"2\\n\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0010" {
   let source =
-    #|a
+    #|class A: pass
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+  let expected = "[\"err\", \"NameError: __build_class__ not found\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0011" {
   let source =
-    #|attr = 1
+    #|x=1
   let result = Interpreter::new().exec_source(source)
   let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
@@ -542,52 +944,52 @@ test "generated/program/0011" {
 ///|
 test "generated/program/0012" {
   let source =
-    #|res = "str_value"
+    #|globalname
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  let expected = "[\"err\", \"NameError: name 'globalname' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0013" {
   let source =
-    #|res = ("str_value",)
+    #|superglobal
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  let expected = "[\"err\", \"NameError: name 'superglobal' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0014" {
   let source =
-    #|res = "str\0value!"
+    #|import foo.bar
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  let expected = "[\"err\", \"ImportError: module foo.bar is not allowed\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0015" {
   let source =
-    #|a = 1
+    #|a
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0016" {
   let source =
-    #|hi
+    #|pass
   let result = Interpreter::new().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'hi' is not defined\"]"
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
 }
 
 ///|
 test "generated/program/0017" {
   let source =
-    #|
+    #|attr = 1
   let result = Interpreter::new().exec_source(source)
   let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
@@ -596,6 +998,166 @@ test "generated/program/0017" {
 ///|
 test "generated/program/0018" {
   let source =
+    #|        try:
+    #|            1/0
+    #|        except Exception as e:
+    #|            exc = e
+    #|        
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:8 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0019" {
+  let source =
+    #|res = "str_value"
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0020" {
+  let source =
+    #|res = ("str_value",)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0021" {
+  let source =
+    #|res = a in {"str_value"}
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0022" {
+  let source =
+    #|res = "str\0value!"
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0023" {
+  let source =
+    #|
+    #|            def func1():
+    #|                return (0.0, (1, 2, "hello"))
+    #|        
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0024" {
+  let source =
+    #|
+    #|            def func2():
+    #|                return (0.0, (1, 2, "hello"))
+    #|        
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0025" {
+  let source =
+    #|a = 1
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0026" {
+  let source =
+    #|def f(): pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0027" {
+  let source =
+    #|hi
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'hi' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0028" {
+  let source =
+    #|
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0029" {
+  let source =
+    #|hi
+    #|stuff
+    #|def f():
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'hi' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0030" {
+  let source =
+    #|this_is
+    #|really_old_mac
+    #|def f():
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'this_is' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0031" {
+  let source =
+    #|def f(a, a): pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:10 duplicate argument 'a' in function definition\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0032" {
+  let source =
+    #|def f(a = 0, a = 1): pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:14 duplicate argument 'a' in function definition\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0033" {
+  let source =
+    #|def f(a): global a; a = 1
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:11 name 'a' is parameter and global\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0034" {
+  let source =
     #|z = a
   let result = Interpreter::new().exec_source(source)
   let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
@@ -603,7 +1165,7 @@ test "generated/program/0018" {
 }
 
 ///|
-test "generated/program/0019" {
+test "generated/program/0035" {
   let source =
     #|z = dir()
   let result = Interpreter::new().exec_source(source)
@@ -612,7 +1174,7 @@ test "generated/program/0019" {
 }
 
 ///|
-test "generated/program/0020" {
+test "generated/program/0036" {
   let source =
     #|z = globals()
   let result = Interpreter::new().exec_source(source)
@@ -621,7 +1183,7 @@ test "generated/program/0020" {
 }
 
 ///|
-test "generated/program/0021" {
+test "generated/program/0037" {
   let source =
     #|z = locals()
   let result = Interpreter::new().exec_source(source)
@@ -630,7 +1192,67 @@ test "generated/program/0021" {
 }
 
 ///|
-test "generated/program/0022" {
+test "generated/program/0038" {
+  let source =
+    #|def f(a=1, b): pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:12 non-default argument follows default argument\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0039" {
+  let source =
+    #|if (5 if 5 else T): 0
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0040" {
+  let source =
+    #|
+    #|                if None:
+    #|                    with CM:
+    #|                        x = 1
+    #|                else:
+    #|                    x = 2
+    #|               
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:16 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0041" {
+  let source =
+    #|
+    #|            name_1, name_2, name_3 = 1, 2, 3
+    #|            while name_3 <= name_2 > name_1:
+    #|                try:
+    #|                    raise
+    #|                except:
+    #|                    pass
+    #|                finally:
+    #|                    pass
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0042" {
+  let source =
+    #|def foo(): return a
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0043" {
   let source =
     #|z = b
   let result = Interpreter::new().exec_source(source)
@@ -638,3 +1260,640 @@ test "generated/program/0022" {
   assert_run(result, expected)
 }
 
+///|
+test "generated/program/0044" {
+  let source =
+    #|async = 1
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:7 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0045" {
+  let source =
+    #|
+    #|try:
+    #|    raise Exception
+    #|except Exception as exc:
+    #|    TRACEBACK = exc.__traceback__
+    #|    FRAME = TRACEBACK.tb_frame
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'Exception' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0046" {
+  let source =
+    #|if True:
+    #|            try:
+    #|                raise Exception
+    #|            except Exception as exc:
+    #|                TRACEBACK = exc.__traceback__
+    #|                FRAME = TRACEBACK.tb_frame
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'Exception' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0047" {
+  let source =
+    #|{x: y for y, x in ((1, 2), (3, 4))} = 5
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:1 cannot assign to dict comprehension here. Maybe you meant '==' instead of '='?\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0048" {
+  let source =
+    #|{x: y for y, x in ((1, 2), (3, 4))} += 5
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:1 'dict comprehension' is an illegal expression for augmented assignment\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0049" {
+  let source =
+    #|f(
+    #|  x, y, z
+    #|)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'f' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0050" {
+  let source =
+    #|x, y, z
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0051" {
+  let source =
+    #|x = foo()
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'foo' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0052" {
+  let source =
+    #|"\Xhh" \
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:9 unexpected EOF while parsing\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0053" {
+  let source =
+    #|ä = 5\
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:7 unexpected EOF while parsing\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0054" {
+  let source =
+    #|\
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:2 unexpected EOF while parsing\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0055" {
+  let source =
+    #|/
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:1 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0056" {
+  let source =
+    #|try:
+    #|	1/0
+    #|    	1/0
+    #|finally:
+    #| pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:1 inconsistent use of tabs and spaces in indentation\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0057" {
+  let source =
+    #|from __future__ import unicode_literals; x = ''
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"ImportError: module __future__ is not allowed\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0058" {
+  let source =
+    #|from .__future__ import spam
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 1:1 future feature spam is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0059" {
+  let source =
+    #|from __future__ import annotations
+    #|object.__debug__: int
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:1 cannot assign to __debug__\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0060" {
+  let source =
+    #|
+    #|            def gen():
+    #|                try:
+    #|                    yield
+    #|                except:
+    #|                    resurrected.append(g)
+    #|
+    #|            g = gen()
+    #|            next(g)
+    #|        
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0061" {
+  let source =
+    #|snapshot, live_locals = next(g())
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'next' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0062" {
+  let source =
+    #|'docstring'
+    #|x: int = 5
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0063" {
+  let source =
+    #|x: tuple = 1, 2
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0064" {
+  let source =
+    #|x: Tuple[int, ...] = a,*b,c
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0065" {
+  let source =
+    #|del a, (b[0].c, (d.e, f.g[1:2])), [h.i.j], ()
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'a' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0066" {
+  let source =
+    #|assert x, "msg"
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0067" {
+  let source =
+    #|assert False, "msg"
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"AssertionError: msg\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0068" {
+  let source =
+    #|assert x, "msg" 
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0069" {
+  let source =
+    #|assert(x, "msg")
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0070" {
+  let source =
+    #|assert(False, "msg")
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0071" {
+  let source =
+    #|assert(False,)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0072" {
+  let source =
+    #|try:
+    #|    pass
+    #|except Exception as a.b:
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:22 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0073" {
+  let source =
+    #|try:
+    #|    pass
+    #|except Exception as a[b]:
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:22 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0074" {
+  let source =
+    #|try:
+    #|    pass
+    #|except* Exception as a.b:
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:7 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0075" {
+  let source =
+    #|try:
+    #|    pass
+    #|except* Exception as a[b]:
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:7 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0076" {
+  let source =
+    #|try:
+    #|    pass
+    #|except*:
+    #|    pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 3:7 invalid syntax\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0077" {
+  let source =
+    #|x is None
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0078" {
+  let source =
+    #|x is False
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0079" {
+  let source =
+    #|x is True
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0080" {
+  let source =
+    #|x is ...
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0081" {
+  let source =
+    #|None is x
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0082" {
+  let source =
+    #|False is x
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0083" {
+  let source =
+    #|True is x
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0084" {
+  let source =
+    #|... is x
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0085" {
+  let source =
+    #|[(lambda x, y: x) (3, 4)]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0086" {
+  let source =
+    #|[[1, 2] [i]]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'i' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0087" {
+  let source =
+    #|[[1, 2] [0]]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0088" {
+  let source =
+    #|[[1, 2] [True]]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0089" {
+  let source =
+    #|[[1, 2] [1:2]]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0090" {
+  let source =
+    #|[{(1, 2): 3} [i, j]]
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'i' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0091" {
+  let source =
+    #|def x(): pass
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0092" {
+  let source =
+    #|t.join()
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 't' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0093" {
+  let source =
+    #|assert spam is True
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'spam' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0094" {
+  let source =
+    #|spam = True
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0095" {
+  let source =
+    #|assert spam == 42, repr(spam)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'spam' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0096" {
+  let source =
+    #|print(foo)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'foo' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0097" {
+  let source =
+    #|print(spam)
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'spam' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0098" {
+  let source =
+    #|raise Exception
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'Exception' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0099" {
+  let source =
+    #|print("spam")
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"ok\", \"None\", \"spam\\n\", \"\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0100" {
+  let source =
+    #|raise Exception("it worked!")
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'Exception' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0101" {
+  let source =
+    #|
+    #|            rch2 = rch.recv()
+    #|            sch2 = rch.recv()
+    #|            assert rch2 == rch
+    #|            assert sch2 == sch
+    #|
+    #|            sch.send_nowait(rch2)
+    #|            sch.send_nowait(sch2)
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0102" {
+  let source =
+    #|
+    #|            from test.support import channels
+    #|            r, s = channels.create()
+    #|            orig = b'spam'
+    #|            s.send_nowait(orig)
+    #|            obj = r.recv()
+    #|            assert obj == orig, 'expected: obj == orig'
+    #|            assert obj is not orig, 'expected: obj is not orig'
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0103" {
+  let source =
+    #|
+    #|            from test.support import channels
+    #|            r, s = channels.create()
+    #|            orig = b'spam'
+    #|            s.send_nowait(orig)
+    #|            obj = r.recv_nowait()
+    #|            assert obj == orig, 'expected: obj == orig'
+    #|            # When going back to the same interpreter we get the same object.
+    #|            assert obj is not orig, 'expected: obj is not orig'
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0104" {
+  let source =
+    #|
+    #|            from concurrent.interpreters import _queues as queues
+    #|            queue = queues.create()
+    #|            
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"line 2:12 unexpected indent\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0105" {
+  let source =
+    #|x
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'x' is not defined\"]"
+  assert_run(result, expected)
+}
+
+///|
+test "generated/program/0106" {
+  let source =
+    #|y
+  let result = Interpreter::new().exec_source(source)
+  let expected = "[\"err\", \"NameError: name 'y' is not defined\"]"
+  assert_run(result, expected)
+}
