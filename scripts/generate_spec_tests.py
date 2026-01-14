@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import html
 import importlib
 import io
 import json
 import math
 import re
+import signal
+import textwrap
 import tokenize
 import urllib.request
 import warnings
@@ -27,8 +30,8 @@ CPYTHON_TEST_DIR = CPYTHON_ROOT / "Lib" / "test"
 REFERENCE_VERSION = "3.13"
 REFERENCE_CACHE = Path(__file__).parent / "reference_cache" / REFERENCE_VERSION
 
-TOTAL_TARGET = 2000
-EXPR_TARGET = 1000
+TOTAL_TARGET = 3000
+EXPR_TARGET = 2000
 PROGRAM_TARGET = 1000
 MAX_TEST_FILES = 500
 REFERENCE_URLS = [
@@ -157,14 +160,36 @@ SAFE_BUILTINS = {
 }
 
 
+class EvalTimeout(Exception):
+    pass
+
+
+EVAL_TIMEOUT_SEC = 0.25
+
+
+@contextlib.contextmanager
+def time_limit(seconds: float) -> Any:
+    def handler(signum: int, frame: Any) -> None:
+        raise EvalTimeout()
+
+    old = signal.signal(signal.SIGALRM, handler)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+
+
 def eval_expression(expr: str) -> Tuple[Any, str, str]:
     env = {"__builtins__": SAFE_BUILTINS.copy()}
     stdout = io.StringIO()
     stderr = io.StringIO()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            value = eval(expr, env, env)
+    with time_limit(EVAL_TIMEOUT_SEC):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                value = eval(expr, env, env)
     return value, stdout.getvalue(), stderr.getvalue()
 
 
@@ -174,10 +199,11 @@ def eval_program(lines: List[str]) -> Tuple[Any, str, str]:
         return None, "", ""
     stdout = io.StringIO()
     stderr = io.StringIO()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SyntaxWarning)
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            exec("\n".join(lines), env, env)
+    with time_limit(EVAL_TIMEOUT_SEC):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exec("\n".join(lines), env, env)
     return None, stdout.getvalue(), stderr.getvalue()
 
 
@@ -265,6 +291,75 @@ def call_name(node: ast.AST) -> str:
     if isinstance(node, ast.Attribute):
         return node.attr
     return ""
+
+
+def normalize_snippet(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if "\x00" in text:
+        return ""
+    for ch in text:
+        code = ord(ch)
+        if 0xD800 <= code <= 0xDFFF:
+            return ""
+    text = textwrap.dedent(text)
+    text = text.strip("\n")
+    return text
+
+
+def looks_like_code(text: str) -> bool:
+    text = text.strip()
+    if not text:
+        return False
+    # Avoid obvious non-code payloads.
+    if len(text) > 800:
+        return False
+    if "http://" in text or "https://" in text:
+        return False
+
+    # Must contain at least one "code-ish" character.
+    if not re.search(r"[\[\]{}()=:+\-*/%<>,.;]", text):
+        return False
+
+    # Heuristic: either multi-line, or has keywords/operators.
+    if "\n" in text:
+        return True
+
+    if re.search(r"\b(def|class|if|else|elif|for|while|try|except|finally|with|return|yield|lambda|assert|import|from|raise|del|global|nonlocal)\b", text):
+        return True
+
+    # Expression-ish patterns.
+    if re.search(r"\b(and|or|not|is|in)\b", text):
+        return True
+
+    return False
+
+
+def classify_snippet(text: str) -> Tuple[str, str]:
+    """Return (kind, normalized_text) where kind is 'expr' or 'program'."""
+    snippet = normalize_snippet(text)
+    if not looks_like_code(snippet):
+        return "", ""
+
+    # Multi-line snippets are overwhelmingly statements/blocks.
+    if "\n" in snippet:
+        try:
+            ast.parse(snippet, mode="exec")
+            return "program", snippet
+        except (SyntaxError, ValueError, UnicodeError):
+            return "program", snippet
+
+    # Single-line: try expression first.
+    try:
+        ast.parse(snippet, mode="eval")
+        return "expr", snippet
+    except (SyntaxError, ValueError, UnicodeError):
+        pass
+
+    try:
+        ast.parse(snippet, mode="exec")
+        return "program", snippet
+    except (SyntaxError, ValueError, UnicodeError):
+        return "expr", snippet
 
 
 def extract_code_literal(node: ast.AST) -> Optional[str]:
@@ -392,6 +487,7 @@ def extract_cases_from_file(path: Path) -> Tuple[List[str], List[List[str]]]:
     except SyntaxError:
         return extract_cases_from_tokens(source)
 
+    # 1) Structured extraction from common test helpers (high signal).
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             name = call_name(node.func)
@@ -422,6 +518,24 @@ def extract_cases_from_file(path: Path) -> Tuple[List[str], List[List[str]]]:
                         expr_cases.append(code)
                     elif target == "exec":
                         program_cases.append(code.splitlines())
+
+    # 2) Broad harvesting: scan string literals for code-like snippets.
+    # Keep a per-file cap to avoid spending too long in huge modules.
+    literal_added = 0
+    LITERAL_LIMIT = 200
+    for node in ast.walk(tree):
+        if literal_added >= LITERAL_LIMIT:
+            break
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            kind, snippet = classify_snippet(node.value)
+            if not kind:
+                continue
+            if kind == "expr":
+                expr_cases.append(snippet)
+            else:
+                program_cases.append(snippet.splitlines())
+            literal_added += 1
+
     return expr_cases, program_cases
 
 
@@ -440,7 +554,7 @@ def collect_cpython_cases() -> Tuple[List[str], List[List[str]]]:
         file_count += 1
         if file_count >= MAX_TEST_FILES:
             break
-        if len(expr_cases) + len(program_cases) >= TOTAL_TARGET * 3:
+        if len(expr_cases) + len(program_cases) >= TOTAL_TARGET * 2:
             break
     return expr_cases, program_cases
 
@@ -465,6 +579,19 @@ def fetch_reference_pages() -> List[str]:
 
 
 def extract_code_blocks(text: str) -> List[str]:
+    # python.org reference pages are HTML; try a lightweight HTML <pre> extractor first.
+    lowered = text.lower()
+    if "<html" in lowered and "<pre" in lowered:
+        blocks: List[str] = []
+        for raw in re.findall(r"<pre[^>]*>(.*?)</pre>", text, flags=re.IGNORECASE | re.DOTALL):
+            cleaned = html.unescape(raw)
+            cleaned = re.sub(r"<[^>]+>", "", cleaned)
+            cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+            cleaned = cleaned.strip("\n")
+            if cleaned:
+                blocks.append(cleaned)
+        return blocks
+
     blocks: List[str] = []
     lines = text.splitlines()
     idx = 0
@@ -582,43 +709,175 @@ def main() -> None:
     expr_cases, program_cases = collect_cpython_cases()
     ref_expr_cases, ref_program_cases = collect_reference_cases()
 
-    expr_cases = dedupe_expr(ref_expr_cases + expr_cases)
-    program_cases = dedupe_programs(ref_program_cases + program_cases)
-
-    expr_cases = expr_cases[:EXPR_TARGET]
-    program_cases = program_cases[:PROGRAM_TARGET]
+    expr_pool = dedupe_expr(ref_expr_cases + expr_cases)
+    program_pool = dedupe_programs(ref_program_cases + program_cases)
 
     tests: List[str] = [LICENSE_HEADER]
 
-    case_id = 1
-    for expr in expr_cases:
+    # Prefer tests that have a meaningful value/output.
+    # Many programs are valid but have no visible side effects (so they return None),
+    # so we cap those to keep the suite interesting.
+
+    expr_ok_good: List[Tuple[str, Any]] = []
+    expr_ok_none: List[Tuple[str, Any]] = []
+    expr_err: List[Tuple[str, Any]] = []
+
+    for expr in expr_pool:
         try:
             value, stdout, stderr = eval_expression(expr)
             expected_json = ["ok", value_to_json(value), stdout, stderr]
+        except EvalTimeout:
+            continue
         except SyntaxError as err:
             expected_json = ["err", format_error(err)]
         except Exception as err:
             expected_json = ["err", format_error(err)]
+
+        if expected_json[0] == "err":
+            expr_err.append((expr, expected_json))
+            continue
+
+        payload, out, err_out = expected_json[1], expected_json[2], expected_json[3]
+        if payload == "None" and out == "" and err_out == "":
+            expr_ok_none.append((expr, expected_json))
+        else:
+            expr_ok_good.append((expr, expected_json))
+
+        if len(expr_ok_good) >= EXPR_TARGET and len(expr_ok_none) >= EXPR_TARGET // 4:
+            break
+
+    expr_ok_none_cap = EXPR_TARGET // 4
+    expr_err_cap = EXPR_TARGET // 3
+
+    case_id = 1
+    for expr, expected_json in expr_ok_good:
+        if case_id > EXPR_TARGET:
+            break
         try:
             tests.append(render_expr_test(case_id, expr, expected_json))
+            case_id += 1
         except Exception:
             continue
-        case_id += 1
 
-    program_id = 1
-    for program in program_cases:
+    for expr, expected_json in expr_ok_none:
+        if case_id > EXPR_TARGET:
+            break
+        if expr_ok_none_cap <= 0:
+            break
+        try:
+            tests.append(render_expr_test(case_id, expr, expected_json))
+            case_id += 1
+            expr_ok_none_cap -= 1
+        except Exception:
+            continue
+
+    for expr, expected_json in expr_err:
+        if case_id > EXPR_TARGET:
+            break
+        if expr_err_cap <= 0:
+            break
+        try:
+            tests.append(render_expr_test(case_id, expr, expected_json))
+            case_id += 1
+            expr_err_cap -= 1
+        except Exception:
+            continue
+
+    # If we still haven't reached EXPR_TARGET, fill with remaining ok-none then errors.
+    if case_id <= EXPR_TARGET:
+        for expr, expected_json in expr_ok_none:
+            if case_id > EXPR_TARGET:
+                break
+            try:
+                tests.append(render_expr_test(case_id, expr, expected_json))
+                case_id += 1
+            except Exception:
+                continue
+
+    if case_id <= EXPR_TARGET:
+        for expr, expected_json in expr_err:
+            if case_id > EXPR_TARGET:
+                break
+            try:
+                tests.append(render_expr_test(case_id, expr, expected_json))
+                case_id += 1
+            except Exception:
+                continue
+
+    prog_ok_output: List[Tuple[List[str], Any]] = []
+    prog_ok_quiet: List[Tuple[List[str], Any]] = []
+    prog_err: List[Tuple[List[str], Any]] = []
+
+    for program in program_pool:
         try:
             value, stdout, stderr = eval_program(program)
             expected_json = ["ok", value_to_json(value), stdout, stderr]
+        except EvalTimeout:
+            continue
         except SyntaxError as err:
             expected_json = ["err", format_error(err)]
         except Exception as err:
             expected_json = ["err", format_error(err)]
+
+        if expected_json[0] == "err":
+            prog_err.append((program, expected_json))
+            continue
+
+        out, err_out = expected_json[2], expected_json[3]
+        if out == "" and err_out == "":
+            prog_ok_quiet.append((program, expected_json))
+        else:
+            prog_ok_output.append((program, expected_json))
+
+        if len(prog_ok_output) >= PROGRAM_TARGET and len(prog_ok_quiet) >= PROGRAM_TARGET // 4:
+            break
+
+    prog_ok_quiet_cap = PROGRAM_TARGET // 4
+    prog_err_cap = PROGRAM_TARGET
+
+    program_id = 1
+    for program, expected_json in prog_ok_output:
+        if program_id > PROGRAM_TARGET:
+            break
         try:
             tests.append(render_program_test(program_id, program, expected_json))
+            program_id += 1
         except Exception:
             continue
-        program_id += 1
+
+    for program, expected_json in prog_ok_quiet:
+        if program_id > PROGRAM_TARGET:
+            break
+        if prog_ok_quiet_cap <= 0:
+            break
+        try:
+            tests.append(render_program_test(program_id, program, expected_json))
+            program_id += 1
+            prog_ok_quiet_cap -= 1
+        except Exception:
+            continue
+
+    for program, expected_json in prog_err:
+        if program_id > PROGRAM_TARGET:
+            break
+        if prog_err_cap <= 0:
+            break
+        try:
+            tests.append(render_program_test(program_id, program, expected_json))
+            program_id += 1
+            prog_err_cap -= 1
+        except Exception:
+            continue
+
+    if program_id <= PROGRAM_TARGET:
+        for program, expected_json in prog_err:
+            if program_id > PROGRAM_TARGET:
+                break
+            try:
+                tests.append(render_program_test(program_id, program, expected_json))
+                program_id += 1
+            except Exception:
+                continue
 
     OUTPUT_FILE.write_text("".join(tests), encoding="utf-8")
 
