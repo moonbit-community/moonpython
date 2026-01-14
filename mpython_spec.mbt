@@ -111,6 +111,8 @@ pub enum Expr {
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
   Call(callee~ : Expr, args~ : Array[Expr])
+  Keyword(name~ : String, value~ : Expr)
+  Starred(value~ : Expr)
   Unary(op~ : UnaryOp, expr~ : Expr)
   Binary(op~ : BinaryOp, left~ : Expr, right~ : Expr)
   BoolOp(op~ : BoolOp, values~ : Array[Expr])
@@ -121,8 +123,19 @@ pub enum Expr {
 /// Assignment targets
 pub enum Target {
   Name(String)
+  Tuple(Array[Target])
+  List(Array[Target])
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
+} derive(ToJson)
+
+///|
+/// Match statement patterns (minimal)
+pub enum Pattern {
+  Wildcard
+  Literal(Literal)
+  Name(String)
+  Tuple(Array[Pattern])
 } derive(ToJson)
 
 ///|
@@ -132,6 +145,7 @@ pub enum Stmt {
   Assign(target~ : Target, value~ : Expr)
   Return(Expr?)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
   While(condition~ : Expr, body~ : Array[Stmt])
   For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
   Break

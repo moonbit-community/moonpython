@@ -5,6 +5,7 @@
 priv enum TokenKind {
   IntLit(Int64)
   FloatLit(Double)
+  ComplexLit
   StrLit(String)
   FStrLit(String)
   BoolLit(Bool)
@@ -101,6 +102,7 @@ fn token_text(token : Token) -> String {
   match token.kind {
     TokenKind::IntLit(value) => value.to_string()
     TokenKind::FloatLit(value) => value.to_string()
+    TokenKind::ComplexLit => "<complex>"
     TokenKind::StrLit(value) => "\"" + value + "\""
     TokenKind::FStrLit(value) => "f\"" + value + "\""
     TokenKind::BoolLit(value) => if value { "True" } else { "False" }
@@ -232,7 +234,10 @@ fn find_last_char(source : String, target : Char) -> Int? {
 fn is_alpha(c : Char) -> Bool {
   (c >= 'a' && c <= 'z') ||
   (c >= 'A' && c <= 'Z') ||
-  (c.to_int() >= 128 && c.to_int() != 0xA0 && c.to_int() != 0xFFFD)
+  (c.to_int() >= 128 &&
+    c.to_int() != 0xA0 &&
+    c.to_int() != 0xA4 &&
+    c.to_int() != 0xFFFD)
 }
 
 ///|
@@ -579,6 +584,22 @@ fn tokenize_expr(
         ),
       )
     }
+    if c.to_int() == 0xA4 {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid character '¤' (U+00A4)".to_string(),
+          token,
+        ),
+      )
+    }
     if c.to_int() == 0xFFFD {
       let token = {
         kind: Eof,
@@ -791,34 +812,26 @@ fn tokenize_expr(
           }
         }
       }
+      let mut is_complex = false
       if i < len && (chars[i] == 'j' || chars[i] == 'J') {
-        let token = {
-          kind: Eof,
-          start: base_offset + start,
-          end: base_offset + i + 1,
-          line: current_line,
-          column: start - line_start + 1,
-        }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "ValueError: unsupported value".to_string(),
-            token,
-          ),
-        )
+        is_complex = true
       }
       let text = substring(source, start, i)
-      let kind = if is_prefixed {
+      let kind = if is_complex {
+        ComplexLit
+      } else if is_prefixed {
         IntLit(parse_int_literal(text))
       } else if has_dot || has_exp {
         FloatLit(parse_float_literal(text))
       } else {
         IntLit(parse_int_literal(text))
       }
+      let end_pos = if is_complex { i + 1 } else { i }
+      i = end_pos
       tokens.push({
         kind,
         start: base_offset + start,
-        end: base_offset + i,
+        end: base_offset + end_pos,
         line: current_line,
         column: start - line_start + 1,
       })
@@ -910,6 +923,34 @@ fn tokenize_expr(
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
         }
         i = next_i
+        if f_prefix && value.contains("{}") {
+          let mut err_line = current_line
+          let mut err_col = start - line_start + 1
+          let mut k = start
+          while k < i {
+            if chars[k] == '\n' {
+              err_line += 1
+              err_col = 1
+            } else {
+              err_col += 1
+            }
+            k += 1
+          }
+          let token = {
+            kind: Eof,
+            start: base_offset + i - 1,
+            end: base_offset + i,
+            line: err_line,
+            column: err_col,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "f-string: empty expression not allowed".to_string(),
+              token,
+            ),
+          )
+        }
         let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }
         tokens.push({
           kind,

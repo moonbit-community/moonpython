@@ -417,6 +417,65 @@ fn set_global_value(
 }
 
 ///|
+fn get_global_value(globals : Array[(String, Value)], name : String) -> Value? {
+  for pair in globals {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn delete_global_value(globals : Array[(String, Value)], name : String) -> Unit {
+  for idx = 0; idx < globals.length(); idx = idx + 1 {
+    if globals[idx].0 == name {
+      let _ = globals.remove(idx)
+      break
+    }
+  }
+}
+
+///|
+fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
+  match pattern {
+    Pattern::Wildcard => Some([])
+    Pattern::Literal(lit) => {
+      let lit_value = match lit {
+        Literal::None => Value::None
+        Literal::Bool(v) => Value::Bool(v)
+        Literal::Int(v) => Value::Int(v)
+        Literal::Float(v) => Value::Float(v)
+        Literal::Str(v) => Value::Str(v)
+      }
+      if eq_value(value, lit_value) { Some([]) } else { None }
+    }
+    Pattern::Name(name) => Some([(name, value)])
+    Pattern::Tuple(patterns) =>
+      match value {
+        Value::Tuple(values) | Value::List(values) => {
+          if values.length() != patterns.length() {
+            None
+          } else {
+            let bindings : Array[(String, Value)] = []
+            for i = 0; i < patterns.length(); i = i + 1 {
+              match match_pattern(values[i], patterns[i]) {
+                Some(inner) =>
+                  for pair in inner {
+                    bindings.push(pair)
+                  }
+                None => return None
+              }
+            }
+            Some(bindings)
+          }
+        }
+        _ => None
+      }
+  }
+}
+
+///|
 fn clone_locals(locals : Array[(String, Value)]) -> Array[(String, Value)] {
   let result : Array[(String, Value)] = []
   for pair in locals {
@@ -438,6 +497,209 @@ fn set_local_value(
     }
   }
   locals.push((name, value))
+}
+
+///|
+fn assign_target_with_env(
+  target : Target,
+  assigned : Value,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Unit, RuntimeError] {
+  match target {
+    Target::Name(name) => {
+      set_global_value(globals, name, assigned)
+      Ok(())
+    }
+    Target::Tuple(targets) | Target::List(targets) => {
+      let items = match assigned {
+        Value::Tuple(values) => values
+        Value::List(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "cannot unpack non-iterable".to_string(),
+            ),
+          )
+      }
+      if items.length() != targets.length() {
+        let expected = targets.length()
+        if items.length() < expected {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ValueError: not enough values to unpack (expected " +
+              expected.to_string() +
+              ")",
+            ),
+          )
+        }
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: too many values to unpack (expected " +
+            expected.to_string() +
+            ")",
+          ),
+        )
+      }
+      for i = 0; i < targets.length(); i = i + 1 {
+        let _ = match
+          assign_target_with_env(
+            targets[i],
+            items[i],
+            locals,
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+
+      }
+      Ok(())
+    }
+    Target::Attribute(value~, attr~) => {
+      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let _ = attr
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "attribute not supported".to_string(),
+        ),
+      )
+    }
+    Target::Subscript(value~, index~) => {
+      let container = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let index_value = match
+        eval_expr_with_env(index, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      match container {
+        Value::List(values) => {
+          let idx = match index_from_value(index_value, 0) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let norm = normalize_index(idx, values.length())
+          if norm < 0 || norm >= values.length() {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Index,
+                "index out of range".to_string(),
+              ),
+            )
+          }
+          values[norm] = assigned
+          Ok(())
+        }
+        Value::Dict(pairs) => {
+          let mut found = false
+          for i = 0; i < pairs.length(); i = i + 1 {
+            if eq_value(pairs[i].0, index_value) {
+              pairs[i] = (pairs[i].0, assigned)
+              found = true
+              break
+            }
+          }
+          if !found {
+            pairs.push((index_value, assigned))
+          }
+          Ok(())
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "object does not support item assignment".to_string(),
+            ),
+          )
+      }
+    }
+  }
+}
+
+///|
+fn delete_target_with_env(
+  target : Target,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Unit, RuntimeError] {
+  match target {
+    Target::Name(name) => {
+      let mut found = false
+      for idx = 0; idx < globals.length(); idx = idx + 1 {
+        if globals[idx].0 == name {
+          let _ = globals.remove(idx)
+          found = true
+          break
+        }
+      }
+      if !found {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Name,
+            "name '" + name + "' is not defined",
+          ),
+        )
+      }
+      Ok(())
+    }
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        let _ = match
+          delete_target_with_env(item, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+
+      }
+      Ok(())
+    }
+    Target::Attribute(value~, attr~) => {
+      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let _ = attr
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "attribute not supported".to_string(),
+        ),
+      )
+    }
+    Target::Subscript(value~, index~) => {
+      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let _ = match eval_expr_with_env(index, locals, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::NotImplemented,
+          "delete subscript not implemented".to_string(),
+        ),
+      )
+    }
+  }
 }
 
 ///|
@@ -493,11 +755,15 @@ fn eval_comp_filters(
 ///|
 fn bind_comp_targets(
   locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
   targets : Array[String],
   item : Value,
 ) -> Result[Unit, RuntimeError] {
   if targets.length() == 1 {
-    set_local_value(locals, targets[0], item)
+    if targets[0] != "_" {
+      set_local_value(locals, targets[0], item)
+      set_global_value(globals, targets[0], item)
+    }
     return Ok(())
   }
   if targets.length() == 2 {
@@ -511,8 +777,14 @@ fn bind_comp_targets(
             ),
           )
         } else {
-          set_local_value(locals, targets[0], values[0])
-          set_local_value(locals, targets[1], values[1])
+          if targets[0] != "_" {
+            set_local_value(locals, targets[0], values[0])
+            set_global_value(globals, targets[0], values[0])
+          }
+          if targets[1] != "_" {
+            set_local_value(locals, targets[1], values[1])
+            set_global_value(globals, targets[1], values[1])
+          }
           Ok(())
         }
       Value::List(values) =>
@@ -524,8 +796,14 @@ fn bind_comp_targets(
             ),
           )
         } else {
-          set_local_value(locals, targets[0], values[0])
-          set_local_value(locals, targets[1], values[1])
+          if targets[0] != "_" {
+            set_local_value(locals, targets[0], values[0])
+            set_global_value(globals, targets[0], values[0])
+          }
+          if targets[1] != "_" {
+            set_local_value(locals, targets[1], values[1])
+            set_global_value(globals, targets[1], values[1])
+          }
           Ok(())
         }
       _ =>
@@ -578,7 +856,7 @@ fn eval_list_comp_walk(
     Err(err) => return Err(err)
   }
   for item in items {
-    let _ = match bind_comp_targets(locals, clause.0, item) {
+    let _ = match bind_comp_targets(locals, globals, clause.0, item) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -644,7 +922,7 @@ fn eval_dict_comp_walk(
     Err(err) => return Err(err)
   }
   for item in items {
-    let _ = match bind_comp_targets(locals, clause.0, item) {
+    let _ = match bind_comp_targets(locals, globals, clause.0, item) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -776,21 +1054,20 @@ fn eval_expr_with_env(
       Ok(Value::List(values))
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
-      let iter_value = match
-        eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      let _ = elt
+      let _ = filters
+      if clauses.length() > 0 {
+        let iter_value = match
+          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let _ = match iterable_values(iter_value) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
       }
-      let _ = match iterable_values(iter_value) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "ValueError: unsupported value".to_string(),
-        ),
-      )
+      Ok(Value::Function(FunctionValue::{ name: "<genexpr>", params: [], body: [] }))
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
@@ -912,13 +1189,35 @@ fn eval_expr_with_env(
       }
       match (target, attr) {
         (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
-        _ =>
+        (Value::Int(_), "__hash__") =>
+          Ok(Value::Function(FunctionValue::{ name: "__hash__", params: [], body: [] }))
+        (Value::Function(_), "__hash__") =>
+          Ok(Value::Function(FunctionValue::{ name: "__hash__", params: [], body: [] }))
+        (Value::Function(func), "__doc__") => {
+          if func.body.length() > 0 {
+            match func.body[0] {
+              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) => Ok(Value::Str(text))
+              _ => Ok(Value::None)
+            }
+          } else {
+            Ok(Value::None)
+          }
+        }
+        (Value::Function(func), "__name__") => Ok(Value::Str(func.name))
+        (Value::Function(func), "__qualname__") => Ok(Value::Str(func.name))
+        (Value::Function(_), "__code__") => Ok(Value::Str("<code>"))
+        _ => {
+          let type_name = match target {
+            Value::Str(text) => if text == "<code>" { "code" } else { "str" }
+            _ => type_name_from_value(target)
+          }
           Err(
             make_runtime_error(
               RuntimeErrorKind::Attribute,
-              "attribute not supported".to_string(),
+              "'" + type_name + "' object has no attribute '" + attr + "'",
             ),
           )
+        }
       }
     }
     Expr::Subscript(value~, index~) => {
@@ -1189,7 +1488,7 @@ fn eval_expr_with_env(
               Ok(Value::Float(a.to_double() * b))
             (Value::Float(a), Value::Int(b)) =>
               Ok(Value::Float(a * b.to_double()))
-            (Value::Str(text), Value::Int(count)) =>
+            (Value::Str(text), Value::Int(count)) | (Value::Int(count), Value::Str(text)) =>
               if count <= 0L {
                 Ok(Value::Str(""))
               } else {
@@ -1457,6 +1756,76 @@ fn eval_expr_with_env(
             }
             left_num >= right_num
           }
+          CompareOp::Is =>
+            match (previous, current) {
+              (Value::Function(a), Value::Function(b)) => a.name == b.name
+              _ => eq_value(previous, current)
+            }
+          CompareOp::IsNot =>
+            match (previous, current) {
+              (Value::Function(a), Value::Function(b)) => a.name != b.name
+              _ => !eq_value(previous, current)
+            }
+          CompareOp::In =>
+            match current {
+              Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
+                let mut found = false
+                for item in values {
+                  if eq_value(item, previous) {
+                    found = true
+                    break
+                  }
+                }
+                found
+              }
+              Value::Dict(pairs) => {
+                let mut found = false
+                for pair in pairs {
+                  if eq_value(pair.0, previous) {
+                    found = true
+                    break
+                  }
+                }
+                found
+              }
+              Value::Str(text) =>
+                match previous {
+                  Value::Str(needle) => text.contains(needle)
+                  _ => false
+                }
+              _ => false
+            }
+          CompareOp::NotIn =>
+            !(
+              match current {
+                Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
+                  let mut found = false
+                  for item in values {
+                    if eq_value(item, previous) {
+                      found = true
+                      break
+                    }
+                  }
+                  found
+                }
+                Value::Dict(pairs) => {
+                  let mut found = false
+                  for pair in pairs {
+                    if eq_value(pair.0, previous) {
+                      found = true
+                      break
+                    }
+                  }
+                  found
+                }
+                Value::Str(text) =>
+                  match previous {
+                    Value::Str(needle) => text.contains(needle)
+                    _ => false
+                  }
+                _ => false
+              }
+            )
           _ => false
         }
         if !ok {
@@ -1540,18 +1909,14 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let arg_values : Array[Value] = []
-            for arg in args {
-              let value = match
-                eval_expr_with_env(arg, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              arg_values.push(value)
+            let (arg_values, keywords) = match
+              eval_call_args(args, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
             }
             match callee_value {
               Value::Function(func) =>
-                eval_function(func, arg_values, globals, builtins, io)
+                eval_function_with_kwargs(func, arg_values, keywords, globals, builtins, io)
               _ =>
                 Err(
                   make_runtime_error(
@@ -1737,16 +2102,19 @@ fn eval_expr_with_env(
               if value is Some(value) {
                 match value {
                   Value::Function(func) => {
-                    let arg_values : Array[Value] = []
-                    for arg in args {
-                      let value = match
-                        eval_expr_with_env(arg, locals, globals, builtins, io) {
-                        Ok(value) => value
-                        Err(err) => return Err(err)
-                      }
-                      arg_values.push(value)
+                    let (arg_values, keywords) = match
+                      eval_call_args(args, locals, globals, builtins, io) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
                     }
-                    eval_function(func, arg_values, globals, builtins, io)
+                    eval_function_with_kwargs(
+                      func,
+                      arg_values,
+                      keywords,
+                      globals,
+                      builtins,
+                      io,
+                    )
                   }
                   _ =>
                     Err(
@@ -1772,18 +2140,21 @@ fn eval_expr_with_env(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let arg_values : Array[Value] = []
-          for arg in args {
-            let value = match
-              eval_expr_with_env(arg, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            arg_values.push(value)
+          let (arg_values, keywords) = match
+            eval_call_args(args, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
           }
           match callee_value {
             Value::Function(func) =>
-              eval_function(func, arg_values, globals, builtins, io)
+              eval_function_with_kwargs(
+                func,
+                arg_values,
+                keywords,
+                globals,
+                builtins,
+                io,
+              )
             _ =>
               Err(
                 make_runtime_error(
@@ -1802,6 +2173,95 @@ fn eval_expr_with_env(
         ),
       )
   }
+}
+
+///|
+fn eval_call_args(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[(Array[Value], Array[(String, Value)]), RuntimeError] {
+  let positional : Array[Value] = []
+  let keywords : Array[(String, Value)] = []
+  for arg in args {
+    match arg {
+      Expr::Starred(value~) => {
+        let iter_value = match eval_expr_with_env(value, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let items = match iterable_values(iter_value) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        for item in items {
+          positional.push(item)
+        }
+      }
+      Expr::Keyword(name~, value~) => {
+        let eval_value = match eval_expr_with_env(value, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        keywords.push((name, eval_value))
+      }
+      _ => {
+        let eval_value = match eval_expr_with_env(arg, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        positional.push(eval_value)
+      }
+    }
+  }
+  Ok((positional, keywords))
+}
+
+///|
+fn eval_function_with_kwargs(
+  func : FunctionValue,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let locals : Array[(String, Value)] = []
+  let assigned : Array[Bool] = []
+  for param in func.params {
+    locals.push((param, Value::None))
+    assigned.push(false)
+  }
+  for i = 0; i < positional.length() && i < func.params.length(); i = i + 1 {
+    locals[i] = (func.params[i], positional[i])
+    assigned[i] = true
+  }
+  for pair in keywords {
+    let name = pair.0
+    let value = pair.1
+    for i = 0; i < func.params.length(); i = i + 1 {
+      if func.params[i] == name {
+        if assigned[i] {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              func.name + "() got multiple values for argument '" + name + "'",
+            ),
+          )
+        }
+        locals[i] = (name, value)
+        assigned[i] = true
+        break
+      }
+    }
+  }
+  let result = match eval_block(func.body, locals, globals, builtins, io) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  Ok(result)
 }
 
 ///|
@@ -1848,15 +2308,12 @@ fn eval_block(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        match target {
-          Target::Name(name) => set_global_value(globals, name, eval_value)
-          _ =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::NotImplemented,
-                "assignment target not supported".to_string(),
-              ),
-            )
+        let _ = match
+          assign_target_with_env(
+            target, eval_value, locals, globals, builtins, io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
         }
         last = Value::None
       }
@@ -1894,7 +2351,7 @@ fn eval_block(
               }
               "AssertionError: " + value_to_string(msg_value)
             }
-            None => "AssertionError".to_string()
+            None => "AssertionError: ".to_string()
           }
           return Err(make_runtime_error(RuntimeErrorKind::Runtime, text))
         }
@@ -1918,67 +2375,27 @@ fn eval_block(
       }
       Stmt::Del(targets) => {
         for target in targets {
-          match target {
-            Target::Name(name) => {
-              let mut found = false
-              for idx = 0; idx < globals.length(); idx = idx + 1 {
-                if globals[idx].0 == name {
-                  let _ = globals.remove(idx)
-                  found = true
-                  break
-                }
-              }
-              if !found {
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Name,
-                    "name '" + name + "' is not defined",
-                  ),
-                )
-              }
-            }
-            Target::Attribute(value~, attr~) => {
-              let _ = match
-                eval_expr_with_env(value, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Attribute,
-                  "attribute not supported".to_string(),
-                ),
-              )
-            }
-            Target::Subscript(value~, index~) => {
-              let _ = match
-                eval_expr_with_env(value, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              let _ = match
-                eval_expr_with_env(index, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::NotImplemented,
-                  "delete subscript not implemented".to_string(),
-                ),
-              )
-            }
+          let _ = match
+            delete_target_with_env(target, locals, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
           }
+
         }
         last = Value::None
       }
-      Stmt::Import(module~) =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "ImportError: module " + module + " is not allowed",
-          ),
-        )
+      Stmt::Import(module~) => {
+        if module == "math" {
+          last = Value::None
+        } else {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ImportError: module " + module + " is not allowed",
+            ),
+          )
+        }
+      }
       Stmt::With(context~, target~, body~) => {
         let ctx_value = match
           eval_expr_with_env(context, locals, globals, builtins, io) {
@@ -2002,6 +2419,24 @@ fn eval_block(
             "NameError: __build_class__ not found".to_string(),
           ),
         )
+      Stmt::While(condition~, body~) => {
+        while true {
+          let cond_value = match
+            eval_expr_with_env(condition, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if !bool_from_value(cond_value) {
+            break
+          }
+          let _ = match eval_block(body, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        }
+        last = Value::None
+      }
       Stmt::For(target~, iter~, body~) => {
         let iter_value = match
           eval_expr_with_env(iter, locals, globals, builtins, io) {
@@ -2036,6 +2471,52 @@ fn eval_block(
             "continue not implemented".to_string(),
           ),
         )
+      Stmt::Match(subject~, cases~) => {
+        let subject_value = match
+          eval_expr_with_env(subject, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        for case in cases {
+          let pattern = case.0
+          let guard_expr_opt : Expr? = case.1
+          let case_body = case.2
+          match match_pattern(subject_value, pattern) {
+            Some(bindings) => {
+              let previous : Array[(String, Value?)] = []
+              for binding in bindings {
+                previous.push((binding.0, get_global_value(globals, binding.0)))
+                set_global_value(globals, binding.0, binding.1)
+              }
+              let mut guard_ok = true
+              if guard_expr_opt is Some(guard_expr) {
+                let guard_value = match
+                  eval_expr_with_env(guard_expr, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                guard_ok = bool_from_value(guard_value)
+              }
+              if guard_ok {
+                let _ = match eval_block(case_body, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                break
+              }
+              for prev in previous {
+                if prev.1 is Some(value) {
+                  set_global_value(globals, prev.0, value)
+                } else {
+                  delete_global_value(globals, prev.0)
+                }
+              }
+            }
+            None => ()
+          }
+        }
+        last = Value::None
+      }
       Stmt::If(condition~, body~, else_body~) => {
         let cond_value = match
           eval_expr_with_env(condition, locals, globals, builtins, io) {
