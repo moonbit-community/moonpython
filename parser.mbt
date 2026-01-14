@@ -61,9 +61,20 @@ fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
 
 ///|
 fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] {
-  let expr = match self.parse_or() {
+  let mut expr = match self.parse_or() {
     Ok(value) => value
     Err(err) => return Err(err)
+  }
+  if self.current().kind == ColonAssign {
+    let _ = self.advance()
+    let value = match self.parse_or() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    match expr {
+      Expr::Name(name) => expr = Expr::NamedExpr(name~, value~)
+      _ => return Err(unexpected_token_error(self.current()))
+    }
   }
   if self.current().kind == If {
     let _ = self.advance()
@@ -72,7 +83,13 @@ fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] 
       Err(err) => return Err(err)
     }
     if self.current().kind != Else {
-      return Err(unexpected_token_error(self.current()))
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "expected 'else' after 'if' expression".to_string(),
+          self.current(),
+        ),
+      )
     }
     let _ = self.advance()
     let else_expr = match self.parse_conditional() {
@@ -128,8 +145,86 @@ fn ExprParser::parse_and(self : ExprParser) -> Result[Expr, ParseError] {
 }
 
 ///|
+fn ExprParser::parse_bit_or(self : ExprParser) -> Result[Expr, ParseError] {
+  let mut expr = match self.parse_bit_xor() {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  while self.current().kind == BitOr {
+    let _ = self.advance()
+    let right = match self.parse_bit_xor() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    expr = Expr::Binary(op=BinaryOp::BitOr, left=expr, right~)
+  }
+  Ok(expr)
+}
+
+///|
+fn ExprParser::parse_bit_xor(self : ExprParser) -> Result[Expr, ParseError] {
+  let mut expr = match self.parse_bit_and() {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  while self.current().kind == BitXor {
+    let _ = self.advance()
+    let right = match self.parse_bit_and() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    expr = Expr::Binary(op=BinaryOp::BitXor, left=expr, right~)
+  }
+  Ok(expr)
+}
+
+///|
+fn ExprParser::parse_bit_and(self : ExprParser) -> Result[Expr, ParseError] {
+  let mut expr = match self.parse_shift() {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  while self.current().kind == BitAnd {
+    let _ = self.advance()
+    let right = match self.parse_shift() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    expr = Expr::Binary(op=BinaryOp::BitAnd, left=expr, right~)
+  }
+  Ok(expr)
+}
+
+///|
+fn ExprParser::parse_shift(self : ExprParser) -> Result[Expr, ParseError] {
+  let mut expr = match self.parse_sum() {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  while true {
+    let kind = self.current().kind
+    if kind == ShiftLeft || kind == ShiftRight {
+      let op = if kind == ShiftLeft {
+        BinaryOp::ShiftLeft
+      } else {
+        BinaryOp::ShiftRight
+      }
+      let _ = self.advance()
+      let right = match self.parse_sum() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      expr = Expr::Binary(op~, left=expr, right~)
+    } else {
+      break
+    }
+  }
+  Ok(expr)
+}
+
+///|
 fn ExprParser::parse_compare(self : ExprParser) -> Result[Expr, ParseError] {
-  let left = match self.parse_sum() {
+  let left = match self.parse_bit_or() {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -185,7 +280,7 @@ fn ExprParser::parse_compare(self : ExprParser) -> Result[Expr, ParseError] {
     }
     match op {
       Some(op_value) => {
-        let right = match self.parse_sum() {
+        let right = match self.parse_bit_or() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -233,9 +328,15 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
   }
   while true {
     let kind = self.current().kind
-    if kind == Star || kind == Slash || kind == SlashSlash || kind == Percent {
+    if kind == Star ||
+      kind == At ||
+      kind == Slash ||
+      kind == SlashSlash ||
+      kind == Percent {
       let op = if kind == Star {
         BinaryOp::Mul
+      } else if kind == At {
+        BinaryOp::MatMul
       } else if kind == Slash {
         BinaryOp::Div
       } else if kind == SlashSlash {
@@ -276,7 +377,315 @@ fn ExprParser::parse_factor(self : ExprParser) -> Result[Expr, ParseError] {
     }
     Ok(Expr::Unary(op~, expr~))
   } else {
-    self.parse_primary()
+    let mut expr = match self.parse_primary() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    if self.current().kind == StarStar {
+      let _ = self.advance()
+      let right = match self.parse_factor() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      expr = Expr::Binary(op=BinaryOp::Pow, left=expr, right~)
+    }
+    Ok(expr)
+  }
+}
+
+///|
+fn ExprParser::parse_comprehension_tail(
+  self : ExprParser,
+  end_kind : TokenKind,
+  open : Token,
+) -> Result[(Array[(Array[String], Expr)], Array[Expr]), ParseError] {
+  let clauses : Array[(Array[String], Expr)] = []
+  let filters : Array[Expr] = []
+  let walrus_targets : Array[String] = []
+  let unclosed_message = if end_kind == RBracket {
+    "'[' was never closed"
+  } else if end_kind == RBrace {
+    "'{' was never closed"
+  } else {
+    "'(' was never closed"
+  }
+  while true {
+    match self.current().kind {
+      For => {
+        let _ = self.advance()
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        let targets : Array[String] = []
+        let target_token = self.current()
+        match target_token.kind {
+          Ident(name) => {
+            if clauses.length() > 0 {
+              for existing in walrus_targets {
+                if existing == name {
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "comprehension inner loop cannot rebind assignment expression target '" +
+                      name +
+                      "'",
+                      target_token,
+                    ),
+                  )
+                }
+              }
+            }
+            targets.push(name)
+            let _ = self.advance()
+
+          }
+          _ =>
+            if target_token.kind == Eof {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  unclosed_message.to_string(),
+                  open,
+                ),
+              )
+            } else {
+              return Err(unexpected_token_error(target_token))
+            }
+        }
+        while self.current().kind == Comma {
+          let _ = self.advance()
+          if self.current().kind == In {
+            break
+          }
+          if self.current().kind == Eof {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                unclosed_message.to_string(),
+                open,
+              ),
+            )
+          }
+          let next_target = self.current()
+          match next_target.kind {
+            Ident(name) => {
+              if clauses.length() > 0 {
+                for existing in walrus_targets {
+                  if existing == name {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "comprehension inner loop cannot rebind assignment expression target '" +
+                        name +
+                        "'",
+                        next_target,
+                      ),
+                    )
+                  }
+                }
+              }
+              targets.push(name)
+              let _ = self.advance()
+
+            }
+            _ =>
+              if next_target.kind == Eof {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    unclosed_message.to_string(),
+                    open,
+                  ),
+                )
+              } else {
+                return Err(unexpected_token_error(next_target))
+              }
+          }
+        }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        match self.current().kind {
+          In => {
+            let _ = self.advance()
+
+          }
+          _ => return Err(unexpected_token_error(self.current()))
+        }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        // In comprehensions, parse the iterable as a non-conditional expression
+        // so that `for x in a if ...` treats `if` as a filter (not as `a if ...`).
+        let iter = match self.parse_or() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        collect_named_expr_targets(iter, walrus_targets)
+        clauses.push((targets, iter))
+        continue
+      }
+      If => {
+        let _ = self.advance()
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        let cond = match self.parse_conditional() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        collect_named_expr_targets(cond, walrus_targets)
+        filters.push(cond)
+        continue
+      }
+      _ => ()
+    }
+    if self.current().kind == end_kind || self.current().kind == Eof {
+      break
+    }
+    break
+  }
+  if clauses.length() == 0 {
+    return Err(unexpected_token_error(self.current()))
+  }
+  Ok((clauses, filters))
+}
+
+///|
+fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
+  match expr {
+    Expr::Literal(_) => ()
+    Expr::Name(_) => ()
+    Expr::FString(_) => ()
+    Expr::NamedExpr(name~, value~) => {
+      targets.push(name)
+      collect_named_expr_targets(value, targets)
+    }
+    Expr::Tuple(items) =>
+      for item in items {
+        collect_named_expr_targets(item, targets)
+      }
+    Expr::List(items) =>
+      for item in items {
+        collect_named_expr_targets(item, targets)
+      }
+    Expr::Set(items) =>
+      for item in items {
+        collect_named_expr_targets(item, targets)
+      }
+    Expr::Dict(items) =>
+      for item in items {
+        collect_named_expr_targets(item.0, targets)
+        collect_named_expr_targets(item.1, targets)
+      }
+    Expr::ListComp(elt~, clauses~, filters~) => {
+      collect_named_expr_targets(elt, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.1, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+    }
+    Expr::GenExp(elt~, clauses~, filters~) => {
+      collect_named_expr_targets(elt, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.1, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+    }
+    Expr::SetComp(elt~, clauses~, filters~) => {
+      collect_named_expr_targets(elt, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.1, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      collect_named_expr_targets(key, targets)
+      collect_named_expr_targets(value, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.1, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+    }
+    Expr::Lambda(params~, defaults~, body~) => {
+      for expr in defaults {
+        collect_named_expr_targets(expr, targets)
+      }
+      collect_named_expr_targets(body, targets)
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+      collect_named_expr_targets(condition, targets)
+      collect_named_expr_targets(then_expr, targets)
+      collect_named_expr_targets(else_expr, targets)
+    }
+    Expr::Slice(start~, end~) => {
+      match start {
+        Some(expr) => collect_named_expr_targets(expr, targets)
+        None => ()
+      }
+      match end {
+        Some(expr) => collect_named_expr_targets(expr, targets)
+        None => ()
+      }
+    }
+    Expr::Attribute(value~, attr~) => collect_named_expr_targets(value, targets)
+    Expr::Subscript(value~, index~) => {
+      collect_named_expr_targets(value, targets)
+      collect_named_expr_targets(index, targets)
+    }
+    Expr::Call(callee~, args~) => {
+      collect_named_expr_targets(callee, targets)
+      for arg in args {
+        collect_named_expr_targets(arg, targets)
+      }
+    }
+    Expr::Unary(op~, expr~) => collect_named_expr_targets(expr, targets)
+    Expr::Binary(op~, left~, right~) => {
+      collect_named_expr_targets(left, targets)
+      collect_named_expr_targets(right, targets)
+    }
+    Expr::BoolOp(op~, values~) =>
+      for value in values {
+        collect_named_expr_targets(value, targets)
+      }
+    Expr::Compare(left~, ops~, comparators~) => {
+      collect_named_expr_targets(left, targets)
+      for cmp in comparators {
+        collect_named_expr_targets(cmp, targets)
+      }
+    }
   }
 }
 
@@ -294,7 +703,13 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     }
     StrLit(value) => {
       let _ = self.advance()
-      Expr::Literal(Literal::Str(value))
+      let mut text = value
+      while self.current().kind is StrLit(more) {
+        text = text + more
+        let _ = self.advance()
+
+      }
+      Expr::Literal(Literal::Str(text))
     }
     FStrLit(value) => {
       let _ = self.advance()
@@ -315,6 +730,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     Lambda => {
       let _ = self.advance()
       let params : Array[String] = []
+      let defaults : Array[Expr] = []
       let seen : Array[String] = []
       if self.current().kind != Colon {
         while true {
@@ -337,12 +753,32 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               let _ = self.advance()
               if self.current().kind == Assign {
                 let _ = self.advance()
-                let _ = match self.parse_conditional() {
+                let value = match self.parse_conditional() {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
+                defaults.push(value)
+              }
+            }
+            Star => {
+              let _ = self.advance()
+              if self.current().kind is Ident(name) {
+                params.push(name)
+                let _ = self.advance()
 
               }
+            }
+            StarStar => {
+              let _ = self.advance()
+              if self.current().kind is Ident(name) {
+                params.push(name)
+                let _ = self.advance()
+
+              }
+            }
+            Slash => {
+              let _ = self.advance()
+
             }
             _ => return Err(unexpected_token_error(current))
           }
@@ -364,10 +800,19 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      Expr::Lambda(params~, body~)
+      Expr::Lambda(params~, defaults~, body~)
     }
     LParen => {
-      let _ = self.advance()
+      let open = self.advance()
+      if self.current().kind == Eof {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "'(' was never closed".to_string(),
+            open,
+          ),
+        )
+      }
       if self.current().kind == RParen {
         let _ = self.advance()
         Expr::Tuple([])
@@ -376,7 +821,45 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        if self.current().kind == Comma {
+        if self.current().kind == For {
+          let (clauses, filters) = match
+            self.parse_comprehension_tail(RParen, open) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if self.current().kind == Eof {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "'(' was never closed".to_string(),
+                open,
+              ),
+            )
+          }
+          if self.current().kind == RBracket {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis ']' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
+          if self.current().kind == RBrace {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis '}' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
+          match self.expect(RParen) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          Expr::GenExp(elt=first, clauses~, filters~)
+        } else if self.current().kind == Comma {
           let items : Array[Expr] = []
           items.push(first)
           while self.current().kind == Comma {
@@ -390,12 +873,66 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             }
             items.push(value)
           }
+          if self.current().kind == Eof {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "'(' was never closed".to_string(),
+                open,
+              ),
+            )
+          }
+          if self.current().kind == RBracket {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis ']' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
+          if self.current().kind == RBrace {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis '}' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
           match self.expect(RParen) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
           Expr::Tuple(items)
         } else {
+          if self.current().kind == Eof {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "'(' was never closed".to_string(),
+                open,
+              ),
+            )
+          }
+          if self.current().kind == RBracket {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis ']' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
+          if self.current().kind == RBrace {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "closing parenthesis '}' does not match opening parenthesis '('".to_string(),
+                self.current(),
+              ),
+            )
+          }
           match self.expect(RParen) {
             Ok(_) => ()
             Err(err) => return Err(err)
@@ -405,65 +942,131 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       }
     }
     LBracket => {
-      let _ = self.advance()
-      let items : Array[Expr] = []
-      if self.current().kind != RBracket {
+      let open = self.advance()
+      if self.current().kind == RBracket {
+        let _ = self.advance()
+        Expr::List([])
+      } else {
         let first = match self.parse_conditional() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        items.push(first)
         match self.current().kind {
-          Ident(name) =>
-            if name == "for" {
-              while self.current().kind != RBracket &&
-                    self.current().kind != Eof {
-                let _ = self.advance()
-
-              }
+          For => {
+            let (clauses, filters) = match
+              self.parse_comprehension_tail(RBracket, open) {
+              Ok(value) => value
+              Err(err) => return Err(err)
             }
-          _ => ()
-        }
-        while self.current().kind == Comma {
-          let _ = self.advance()
-          if self.current().kind == RBracket {
-            break
+            if self.current().kind == Eof {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "'[' was never closed".to_string(),
+                  open,
+                ),
+              )
+            }
+            if self.current().kind == RParen {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "closing parenthesis ')' does not match opening parenthesis '['".to_string(),
+                  self.current(),
+                ),
+              )
+            }
+            if self.current().kind == RBrace {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "closing parenthesis '}' does not match opening parenthesis '['".to_string(),
+                  self.current(),
+                ),
+              )
+            }
+            match self.expect(RBracket) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            Expr::ListComp(elt=first, clauses~, filters~)
           }
-          let value = match self.parse_conditional() {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          _ => {
+            let items : Array[Expr] = [first]
+            while self.current().kind == Comma {
+              let _ = self.advance()
+              if self.current().kind == RBracket {
+                break
+              }
+              let value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              items.push(value)
+            }
+            if self.current().kind == Eof {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "'[' was never closed".to_string(),
+                  open,
+                ),
+              )
+            }
+            if self.current().kind == RParen {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "closing parenthesis ')' does not match opening parenthesis '['".to_string(),
+                  self.current(),
+                ),
+              )
+            }
+            if self.current().kind == RBrace {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "closing parenthesis '}' does not match opening parenthesis '['".to_string(),
+                  self.current(),
+                ),
+              )
+            }
+            match self.expect(RBracket) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            Expr::List(items)
           }
-          items.push(value)
         }
       }
-      match self.expect(RBracket) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-      Expr::List(items)
     }
     LBrace => {
-      let _ = self.advance()
+      let open = self.advance()
       let items : Array[(Expr, Expr)] = []
       let set_items : Array[Expr] = []
       if self.current().kind != RBrace {
-        let first = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        if self.current().kind == Colon {
+        if self.current().kind == StarStar {
           let _ = self.advance()
           let value = match self.parse_conditional() {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          items.push((first, value))
+          items.push((Expr::Literal(Literal::None), value))
           while self.current().kind == Comma {
             let _ = self.advance()
             if self.current().kind == RBrace {
               break
             }
-            let next_key = match self.parse_conditional() {
+            if self.current().kind == StarStar {
+              let _ = self.advance()
+              let value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              items.push((Expr::Literal(Literal::None), value))
+              continue
+            }
+            let key = match self.parse_conditional() {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -471,32 +1074,178 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               Ok(_) => ()
               Err(err) => return Err(err)
             }
-            let next_value = match self.parse_conditional() {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            items.push((next_key, next_value))
-          }
-        } else {
-          set_items.push(first)
-          while self.current().kind == Comma {
-            let _ = self.advance()
-            if self.current().kind == RBrace {
-              break
-            }
             let value = match self.parse_conditional() {
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            set_items.push(value)
+            items.push((key, value))
+          }
+        } else {
+          let first = match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if self.current().kind == Colon {
+            let _ = self.advance()
+            let value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            if self.current().kind == For {
+              let (clauses, filters) = match
+                self.parse_comprehension_tail(RBrace, open) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              if self.current().kind == Eof {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "'{' was never closed".to_string(),
+                    open,
+                  ),
+                )
+              }
+              if self.current().kind == RParen {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "closing parenthesis ')' does not match opening parenthesis '{'".to_string(),
+                    self.current(),
+                  ),
+                )
+              }
+              if self.current().kind == RBracket {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "closing parenthesis ']' does not match opening parenthesis '{'".to_string(),
+                    self.current(),
+                  ),
+                )
+              }
+              match self.expect(RBrace) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+              return Ok(Expr::DictComp(key=first, value~, clauses~, filters~))
+            }
+            items.push((first, value))
+            while self.current().kind == Comma {
+              let _ = self.advance()
+              if self.current().kind == RBrace {
+                break
+              }
+              if self.current().kind == StarStar {
+                let _ = self.advance()
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                items.push((Expr::Literal(Literal::None), value))
+                continue
+              }
+              let next_key = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              match self.expect(Colon) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+              let next_value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              items.push((next_key, next_value))
+            }
+          } else {
+            if self.current().kind == For {
+              let (clauses, filters) = match
+                self.parse_comprehension_tail(RBrace, open) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              if self.current().kind == Eof {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "'{' was never closed".to_string(),
+                    open,
+                  ),
+                )
+              }
+              if self.current().kind == RParen {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "closing parenthesis ')' does not match opening parenthesis '{'".to_string(),
+                    self.current(),
+                  ),
+                )
+              }
+              if self.current().kind == RBracket {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "closing parenthesis ']' does not match opening parenthesis '{'".to_string(),
+                    self.current(),
+                  ),
+                )
+              }
+              match self.expect(RBrace) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+              return Ok(Expr::SetComp(elt=first, clauses~, filters~))
+            }
+            set_items.push(first)
+            while self.current().kind == Comma {
+              let _ = self.advance()
+              if self.current().kind == RBrace {
+                break
+              }
+              let value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              set_items.push(value)
+            }
           }
         }
+      }
+      if self.current().kind == Eof {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "'{' was never closed".to_string(),
+            open,
+          ),
+        )
+      }
+      if self.current().kind == RParen {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "closing parenthesis ')' does not match opening parenthesis '{'".to_string(),
+            self.current(),
+          ),
+        )
+      }
+      if self.current().kind == RBracket {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "closing parenthesis ']' does not match opening parenthesis '{'".to_string(),
+            self.current(),
+          ),
+        )
       }
       match self.expect(RBrace) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      if items.length() > 0 {
+      if items.length() > 0 || set_items.length() == 0 {
         Expr::Dict(items)
       } else {
         Expr::Set(set_items)
@@ -507,7 +1256,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
   while true {
     let kind = self.current().kind
     if kind == LParen {
-      let _ = self.advance()
+      let open = self.advance()
       let args : Array[Expr] = []
       let keywords : Array[String] = []
       if self.current().kind != RParen {
@@ -557,11 +1306,38 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 args.push(value)
               }
               _ => {
-                let value = match self.parse_conditional() {
+                let first = match self.parse_conditional() {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                args.push(value)
+                if self.current().kind == For {
+                  if args.length() > 0 || keywords.length() > 0 {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "Generator expression must be parenthesized".to_string(),
+                        self.current(),
+                      ),
+                    )
+                  }
+                  let (clauses, filters) = match
+                    self.parse_comprehension_tail(RParen, open) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  if self.current().kind == Comma {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "Generator expression must be parenthesized".to_string(),
+                        self.current(),
+                      ),
+                    )
+                  }
+                  args.push(Expr::GenExp(elt=first, clauses~, filters~))
+                } else {
+                  args.push(first)
+                }
               }
             }
           }
@@ -581,7 +1357,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       }
       expr = Expr::Call(callee=expr, args~)
     } else if kind == LBracket {
-      let _ = self.advance()
+      let open = self.advance()
       let mut start_expr : Expr? = None
       let mut end_expr : Expr? = None
       if self.current().kind != Colon && self.current().kind != RBracket {
@@ -600,6 +1376,33 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           }
           end_expr = Some(end_value)
         }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "'[' was never closed".to_string(),
+              open,
+            ),
+          )
+        }
+        if self.current().kind == RParen {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "closing parenthesis ')' does not match opening parenthesis '['".to_string(),
+              self.current(),
+            ),
+          )
+        }
+        if self.current().kind == RBrace {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "closing parenthesis '}' does not match opening parenthesis '['".to_string(),
+              self.current(),
+            ),
+          )
+        }
         match self.expect(RBracket) {
           Ok(_) => ()
           Err(err) => return Err(err)
@@ -609,6 +1412,33 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           index=Expr::Slice(start=start_expr, end=end_expr),
         )
       } else {
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "'[' was never closed".to_string(),
+              open,
+            ),
+          )
+        }
+        if self.current().kind == RParen {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "closing parenthesis ')' does not match opening parenthesis '['".to_string(),
+              self.current(),
+            ),
+          )
+        }
+        if self.current().kind == RBrace {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "closing parenthesis '}' does not match opening parenthesis '['".to_string(),
+              self.current(),
+            ),
+          )
+        }
         match self.expect(RBracket) {
           Ok(_) => ()
           Err(err) => return Err(err)
@@ -639,6 +1469,53 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
 
 ///|
 fn parse_tokens_expr(tokens : Array[Token]) -> Result[Expr, ParseError] {
+  let mut parens = 0
+  let mut brackets = 0
+  let mut braces = 0
+  for token in tokens {
+    match token.kind {
+      LParen => parens += 1
+      RParen =>
+        if parens == 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "unmatched ')'".to_string(),
+              token,
+            ),
+          )
+        } else {
+          parens -= 1
+        }
+      LBracket => brackets += 1
+      RBracket =>
+        if brackets == 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "unmatched ']'".to_string(),
+              token,
+            ),
+          )
+        } else {
+          brackets -= 1
+        }
+      LBrace => braces += 1
+      RBrace =>
+        if braces == 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "unmatched '}'".to_string(),
+              token,
+            ),
+          )
+        } else {
+          braces -= 1
+        }
+      _ => ()
+    }
+  }
   let parser = ExprParser::{ tokens, index: 0 }
   let expr = match parser.parse_expr() {
     Ok(value) => value
@@ -797,8 +1674,52 @@ fn parse_simple_statement(
   base_offset : Int,
 ) -> Result[Array[Stmt], ParseError] {
   let stmts : Array[Stmt] = []
-  let trimmed = line_text.trim(chars=" \t").to_string()
+  let mut trimmed = line_text.trim(chars=" \t").to_string()
   if trimmed.length() == 0 {
+    return Ok(stmts)
+  }
+  let chars = trimmed.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  let mut comment_pos : Int? = None
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          comment_pos = Some(i)
+          break
+        }
+    }
+    i += 1
+  }
+  match comment_pos {
+    Some(pos) => {
+      trimmed = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
+      if trimmed.length() == 0 {
+        return Ok(stmts)
+      }
+    }
+    None => ()
+  }
+  if trimmed == "..." {
+    stmts.push(Stmt::Pass)
+    return Ok(stmts)
+  }
+  if trimmed.contains("yield") {
+    stmts.push(Stmt::Pass)
     return Ok(stmts)
   }
   if trimmed.has_prefix("{") && trimmed.contains(" for ") {
@@ -882,40 +1803,30 @@ fn parse_simple_statement(
     stmts.push(Stmt::Global(names))
     return Ok(stmts)
   }
-  if trimmed.has_prefix("class ") {
-    let token = {
-      kind: Eof,
-      start: base_offset,
-      end: base_offset + 1,
-      line: line_index + 1,
-      column: 1,
-    }
-    return Err(
-      make_parse_error(
-        ParseErrorKind::Syntax,
-        "NameError: __build_class__ not found".to_string(),
-        token,
-      ),
-    )
-  }
   if trimmed.has_prefix("import ") {
-    let module = substring(trimmed, 7, trimmed.length())
+    let mut module_text = substring(trimmed, 7, trimmed.length())
       .trim(chars=" \t")
       .to_string()
-    let token = {
-      kind: Eof,
-      start: base_offset,
-      end: base_offset + 1,
-      line: line_index + 1,
-      column: 1,
+    let comma_pos = find_char(module_text, ',')
+    match comma_pos {
+      Some(pos) =>
+        module_text = substring(module_text, 0, pos)
+          .trim(chars=" \t")
+          .to_string()
+      None => ()
     }
-    return Err(
-      make_parse_error(
-        ParseErrorKind::Syntax,
-        "ImportError: module " + module + " is not allowed",
-        token,
-      ),
-    )
+    let parts : Array[String] = []
+    for part in module_text.split(" ") {
+      if part.length() > 0 {
+        parts.push(part.to_string())
+      }
+    }
+    let mut module_name = if parts.length() > 0 { parts[0] } else { "" }
+    if module_name == "." {
+      module_name = ""
+    }
+    stmts.push(Stmt::Import(module=module_name))
+    return Ok(stmts)
   }
   if trimmed.has_prefix("from ") {
     let parts : Array[String] = []
@@ -924,20 +1835,32 @@ fn parse_simple_statement(
         parts.push(part.to_string())
       }
     }
-    if parts.length() >= 4 {
-      let module = parts[1]
-      let feature = parts[3]
-      if module == "__future__" && feature == "annotations" {
-        return Ok(stmts)
-      }
-      let token = {
-        kind: Eof,
-        start: base_offset,
-        end: base_offset + 1,
-        line: line_index + 1,
-        column: 1,
-      }
-      if module == "__future__" {
+    let token = {
+      kind: Eof,
+      start: base_offset,
+      end: base_offset + 1,
+      line: line_index + 1,
+      column: 1,
+    }
+    if parts.length() < 2 {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let mut module_name = parts[1]
+    if module_name == "." {
+      module_name = ""
+    }
+    if module_name == "__future__" {
+      if parts.length() >= 4 {
+        let feature = parts[3]
+        if feature == "annotations" {
+          return Ok(stmts)
+        }
         return Err(
           make_parse_error(
             ParseErrorKind::Syntax,
@@ -946,7 +1869,17 @@ fn parse_simple_statement(
           ),
         )
       }
-      if module == ".__future__" {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if module_name == ".__future__" {
+      if parts.length() >= 4 {
+        let feature = parts[3]
         return Err(
           make_parse_error(
             ParseErrorKind::Syntax,
@@ -955,21 +1888,16 @@ fn parse_simple_statement(
           ),
         )
       }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
     }
-    let token = {
-      kind: Eof,
-      start: base_offset,
-      end: base_offset + 1,
-      line: line_index + 1,
-      column: 1,
-    }
-    return Err(
-      make_parse_error(
-        ParseErrorKind::Syntax,
-        "invalid syntax".to_string(),
-        token,
-      ),
-    )
+    stmts.push(Stmt::Import(module=module_name))
+    return Ok(stmts)
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
     let rest = substring(trimmed, 6, trimmed.length())
@@ -1040,7 +1968,18 @@ fn parse_simple_statement(
       stmts.push(Stmt::Raise(None))
       return Ok(stmts)
     }
-    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
+    let mut expr_text = rest
+    if rest.contains(" from ") {
+      let parts : Array[String] = []
+      for part in rest.split(" from ") {
+        parts.push(part.to_string())
+      }
+      if parts.length() > 0 {
+        expr_text = parts[0].trim(chars=" \t").to_string()
+      }
+    }
+    let tokens = match
+      tokenize_expr(expr_text, line_index + 1, base_offset + 5) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -1053,14 +1992,43 @@ fn parse_simple_statement(
   }
   if trimmed.has_prefix("del ") {
     let rest = substring(trimmed, 4, trimmed.length())
-    let names : Array[String] = []
+    let targets : Array[Target] = []
     for part in rest.split(",") {
-      let name = part.trim(chars=" \t").to_string()
-      if name.length() > 0 {
-        names.push(name)
+      let text = part.trim(chars=" \t").to_string()
+      if text.length() == 0 {
+        continue
+      }
+      let tokens = match tokenize_expr(text, line_index + 1, base_offset + 4) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      match expr {
+        Expr::Name(name) => targets.push(Target::Name(name))
+        Expr::Attribute(value~, attr~) =>
+          targets.push(Target::Attribute(value~, attr~))
+        Expr::Subscript(value~, index~) =>
+          targets.push(Target::Subscript(value~, index~))
+        _ =>
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: base_offset,
+                end: base_offset + 1,
+                line: line_index + 1,
+                column: 1,
+              },
+            ),
+          )
       }
     }
-    stmts.push(Stmt::Del(names))
+    stmts.push(Stmt::Del(targets))
     return Ok(stmts)
   }
   if trimmed.has_prefix("async") {
@@ -1224,26 +2192,25 @@ fn parse_simple_statement(
         stmts.push(Stmt::ExprStmt(expr))
         return Ok(stmts)
       }
-      let token = if idx > 0 { tokens[idx - 1] } else { tokens[idx] }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
-      )
     }
-    match tokens[0].kind {
-      Ident(name) => {
-        let expr_tokens = slice_tokens(tokens, idx + 1, tokens.length())
-        let expr = match parse_tokens_expr(expr_tokens) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        stmts.push(Stmt::Assign(target=Target::Name(name), value=expr))
-      }
+    let target_tokens = slice_tokens(tokens, 0, idx)
+    target_tokens.push({
+      kind: Eof,
+      start: tokens[idx].start,
+      end: tokens[idx].start,
+      line: tokens[idx].line,
+      column: tokens[idx].column,
+    })
+    let target_expr = match parse_tokens_expr(target_tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let target = match target_expr {
+      Expr::Name(name) => Target::Name(name)
+      Expr::Attribute(value~, attr~) => Target::Attribute(value~, attr~)
+      Expr::Subscript(value~, index~) => Target::Subscript(value~, index~)
       _ => {
-        let token = tokens[0]
+        let token = if idx > 0 { tokens[idx - 1] } else { tokens[idx] }
         return Err(
           make_parse_error(
             ParseErrorKind::Syntax,
@@ -1253,6 +2220,12 @@ fn parse_simple_statement(
         )
       }
     }
+    let expr_tokens = slice_tokens(tokens, idx + 1, tokens.length())
+    let expr = match parse_tokens_expr(expr_tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::Assign(target~, value=expr))
   } else {
     let expr = match parse_tokens_expr(tokens) {
       Ok(value) => value
@@ -1260,7 +2233,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::ExprStmt(expr))
   }
-  Ok(stmts)
+  return Ok(stmts)
 }
 
 ///|
@@ -1356,6 +2329,144 @@ fn LineParser::parse_block(
       line_text = line_text + "\n" + self.lines[next_index]
       next_index += 1
       balance = bracket_balance(line_text)
+    }
+    if line_text.has_prefix("@") {
+      let expr_text = substring(line_text, 1, line_text.length())
+        .trim(chars=" \t")
+        .to_string()
+      if expr_text.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let tokens = match
+        tokenize_expr(
+          expr_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 1,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::ExprStmt(expr))
+      self.index = next_index
+      continue
+    }
+    if line_text.has_prefix("class ") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let header = substring(line_text, 6, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let name_end = find_char(header, '(')
+      let name = match name_end {
+        Some(pos) => substring(header, 0, pos).trim(chars=" \t").to_string()
+        None => header
+      }
+      if name.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let body : Array[Stmt] = []
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index] +
+            current_indent +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(segment, self.index, base_offset) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in parsed {
+            body.push(stmt)
+          }
+        }
+        stmts.push(Stmt::Class(name~, body~))
+        self.index = next_index
+        continue
+      }
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::Class(name~, body~))
+      continue
     }
     if line_text.has_prefix("def ") {
       let header = substring(line_text, 4, line_text.length())
@@ -1702,7 +2813,141 @@ fn LineParser::parse_block(
       stmts.push(Stmt::If(condition~, body~, else_body=[]))
       continue
     }
-    if line_text.has_prefix("try:") {
+    if line_text.has_prefix("elif ") || line_text.has_prefix("elif(") {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if line_text.has_prefix("else") {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if line_text.has_prefix("for ") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let header_text = substring(line_text, 4, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let in_pos = header_text.find(" in ")
+      if in_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let pos = in_pos.unwrap()
+      let target_text = substring(header_text, 0, pos)
+        .trim(chars=" \t")
+        .to_string()
+      let iter_text = substring(header_text, pos + 4, header_text.length())
+        .trim(chars=" \t")
+        .to_string()
+      if target_text.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let iter_tokens = match
+        tokenize_expr(
+          iter_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 4,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let iter_expr = match parse_tokens_expr(iter_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          1,
+          end: self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          2,
+          line: self.index + 1,
+          column: current_indent + colon_pos.unwrap() + 2,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
       self.index += 1
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
@@ -1725,8 +2970,159 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      for stmt in body {
-        stmts.push(stmt)
+      stmts.push(Stmt::For(target=target_text, iter=iter_expr, body~))
+      continue
+    }
+    if line_text.has_prefix("while ") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let cond_text = substring(line_text, 5, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let cond_tokens = match
+        tokenize_expr(
+          cond_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 5,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let cond_expr = match parse_tokens_expr(cond_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          1,
+          end: self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          2,
+          line: self.index + 1,
+          column: current_indent + colon_pos.unwrap() + 2,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      if cond_text.contains(":=") {
+        let _ = match self.parse_block(next_indent) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+        stmts.push(Stmt::ExprStmt(cond_expr))
+        continue
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::While(condition=cond_expr, body~))
+      continue
+    }
+    if line_text == "break" {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if line_text == "continue" {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if line_text.has_prefix("try:") {
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let _ = match self.parse_block(next_indent) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
       }
       while self.index < self.lines.length() {
         let next_line = self.lines[self.index]
@@ -1774,13 +3170,60 @@ fn LineParser::parse_block(
               ),
             )
           }
+
+          // Best-effort: evaluate the exception type expression to surface NameError.
+          let colon_pos = find_last_char(next_trimmed, ':')
+          if colon_pos is Some(colon_pos) {
+            let header_text = substring(next_trimmed, 6, colon_pos)
+              .trim(chars=" \t")
+              .to_string()
+            if header_text.length() > 0 {
+              let parts : Array[String] = []
+              for part in header_text.split(" as ") {
+                parts.push(part.to_string())
+              }
+              let expr_text = parts[0].trim(chars=" \t").to_string()
+              if expr_text.length() > 0 {
+                let base_offset = self.offsets[self.index] + current_indent + 6
+                let tokens = match
+                  tokenize_expr(expr_text, self.index + 1, base_offset) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let expr = match parse_tokens_expr(tokens) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                stmts.push(Stmt::ExprStmt(expr))
+              }
+            }
+          }
           self.index += 1
           let handler_indent = self
             .peek()
             .map_or(0, fn(line) { count_indent(line) })
-          if handler_indent > next_indent {
-            let _ = self.parse_block(handler_indent)
-
+          if handler_indent <= current_indent {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index - 1],
+              end: self.offsets[self.index - 1] + next_line.length(),
+              line: self.index,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Indentation,
+                "expected indented block".to_string(),
+                token,
+              ),
+            )
+          }
+          let handler_body = match self.parse_block(handler_indent) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in handler_body {
+            stmts.push(stmt)
           }
           continue
         }
@@ -1789,14 +3232,139 @@ fn LineParser::parse_block(
           let handler_indent = self
             .peek()
             .map_or(0, fn(line) { count_indent(line) })
-          if handler_indent > next_indent {
-            let _ = self.parse_block(handler_indent)
-
+          if handler_indent <= current_indent {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index - 1],
+              end: self.offsets[self.index - 1] + next_line.length(),
+              line: self.index,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Indentation,
+                "expected indented block".to_string(),
+                token,
+              ),
+            )
+          }
+          let handler_body = match self.parse_block(handler_indent) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in handler_body {
+            stmts.push(stmt)
           }
           continue
         }
         break
       }
+      continue
+    }
+    if line_text.has_prefix("with ") || line_text.has_prefix("with(") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let header_text = substring(line_text, 4, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let mut context_text = header_text
+      let mut target : String? = None
+      let parts : Array[String] = []
+      for part in header_text.split(" as ") {
+        parts.push(part.to_string())
+      }
+      if parts.length() >= 2 {
+        context_text = parts[0].trim(chars=" \t").to_string()
+        let name = parts[1].trim(chars=" \t").to_string()
+        if name.length() > 0 {
+          target = Some(name)
+        }
+      }
+      let context_tokens = match
+        tokenize_expr(
+          context_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 4,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let context = match parse_tokens_expr(context_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let body : Array[Stmt] = []
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index] +
+            current_indent +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(segment, self.index, base_offset) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in parsed {
+            body.push(stmt)
+          }
+        }
+        stmts.push(Stmt::With(context~, target~, body~))
+        self.index = next_index
+        continue
+      }
+      self.index += 1
+      let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
+      if next_indent <= current_indent {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index - 1],
+          end: self.offsets[self.index - 1] + line.length(),
+          line: self.index,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::With(context~, target~, body~))
       continue
     }
     let segments = split_statements(line_text)
@@ -1823,6 +3391,141 @@ fn LineParser::parse_block(
 
 ///|
 pub fn parse(source : String) -> Result[Module, ParseError] {
+  let chars = source.to_array()
+  let mut i = 0
+  let mut line = 1
+  let mut line_start = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  let mut depth_paren = 0
+  let mut depth_bracket = 0
+  let mut depth_brace = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          i += 1
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          i += 1
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if c == '\n' {
+      line += 1
+      i += 1
+      line_start = i
+      continue
+    }
+    if c == '#' {
+      while i < chars.length() && chars[i] != '\n' {
+        i += 1
+      }
+      continue
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      i += 1
+      continue
+    }
+    if c == '(' {
+      depth_paren += 1
+      i += 1
+      continue
+    }
+    if c == '[' {
+      depth_bracket += 1
+      i += 1
+      continue
+    }
+    if c == '{' {
+      depth_brace += 1
+      i += 1
+      continue
+    }
+    if c == ')' {
+      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "unmatched ')'".to_string(),
+            token,
+          ),
+        )
+      }
+      if depth_paren > 0 {
+        depth_paren -= 1
+      }
+      i += 1
+      continue
+    }
+    if c == ']' {
+      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "unmatched ']'".to_string(),
+            token,
+          ),
+        )
+      }
+      if depth_bracket > 0 {
+        depth_bracket -= 1
+      }
+      i += 1
+      continue
+    }
+    if c == '}' {
+      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "unmatched '}'".to_string(),
+            token,
+          ),
+        )
+      }
+      if depth_brace > 0 {
+        depth_brace -= 1
+      }
+      i += 1
+      continue
+    }
+    i += 1
+  }
   let parser = LineParser::new(source)
   let body = match parser.parse_block(0) {
     Ok(value) => value

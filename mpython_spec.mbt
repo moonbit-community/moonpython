@@ -39,10 +39,16 @@ pub enum BinaryOp {
   Add
   Sub
   Mul
+  MatMul
   Div
   FloorDiv
   Mod
   Pow
+  ShiftLeft
+  ShiftRight
+  BitAnd
+  BitXor
+  BitOr
 } derive(ToJson)
 
 ///|
@@ -74,11 +80,33 @@ pub enum Expr {
   Name(String)
   Tuple(Array[Expr])
   List(Array[Expr])
+  ListComp(
+    elt~ : Expr,
+    clauses~ : Array[(Array[String], Expr)],
+    filters~ : Array[Expr]
+  )
+  GenExp(
+    elt~ : Expr,
+    clauses~ : Array[(Array[String], Expr)],
+    filters~ : Array[Expr]
+  )
   Dict(Array[(Expr, Expr)])
+  DictComp(
+    key~ : Expr,
+    value~ : Expr,
+    clauses~ : Array[(Array[String], Expr)],
+    filters~ : Array[Expr]
+  )
   Set(Array[Expr])
-  Lambda(params~ : Array[String], body~ : Expr)
+  SetComp(
+    elt~ : Expr,
+    clauses~ : Array[(Array[String], Expr)],
+    filters~ : Array[Expr]
+  )
+  Lambda(params~ : Array[String], defaults~ : Array[Expr], body~ : Expr)
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)
+  NamedExpr(name~ : String, value~ : Expr)
   Slice(start~ : Expr?, end~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
@@ -105,12 +133,18 @@ pub enum Stmt {
   Return(Expr?)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   While(condition~ : Expr, body~ : Array[Stmt])
+  For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
+  Break
+  Continue
   Function(name~ : String, params~ : Array[String], body~ : Array[Stmt])
   Pass
   Global(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
   Raise(Expr?)
-  Del(Array[String])
+  Del(Array[Target])
+  Import(module~ : String)
+  With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
+  Class(name~ : String, body~ : Array[Stmt])
 } derive(ToJson)
 
 ///|
@@ -184,6 +218,7 @@ pub enum Value {
   List(Array[Value])
   Tuple(Array[Value])
   Dict(Array[(Value, Value)])
+  Set(Array[Value])
   Function(FunctionValue)
 } derive(ToJson)
 

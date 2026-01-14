@@ -18,10 +18,12 @@ priv enum TokenKind {
   RBrace
   Comma
   Colon
+  ColonAssign
   Dot
   Plus
   Minus
   Star
+  At
   Slash
   SlashSlash
   Percent
@@ -46,10 +48,24 @@ priv enum TokenKind {
   Is
   If
   Else
+  For
   Def
   Return
   Lambda
   Assert
+  Import
+  From
+  Del
+  Global
+  Nonlocal
+  Raise
+  Try
+  Except
+  Finally
+  Class
+  Pass
+  Break
+  Continue
   Eof
 } derive(Eq)
 
@@ -98,10 +114,12 @@ fn token_text(token : Token) -> String {
     TokenKind::RBrace => "}"
     TokenKind::Comma => ","
     TokenKind::Colon => ":"
+    TokenKind::ColonAssign => ":="
     TokenKind::Dot => "."
     TokenKind::Plus => "+"
     TokenKind::Minus => "-"
     TokenKind::Star => "*"
+    TokenKind::At => "@"
     TokenKind::Slash => "/"
     TokenKind::SlashSlash => "//"
     TokenKind::Percent => "%"
@@ -126,10 +144,24 @@ fn token_text(token : Token) -> String {
     TokenKind::Is => "is"
     TokenKind::If => "if"
     TokenKind::Else => "else"
+    TokenKind::For => "for"
     TokenKind::Def => "def"
     TokenKind::Return => "return"
     TokenKind::Lambda => "lambda"
     TokenKind::Assert => "assert"
+    TokenKind::Import => "import"
+    TokenKind::From => "from"
+    TokenKind::Del => "del"
+    TokenKind::Global => "global"
+    TokenKind::Nonlocal => "nonlocal"
+    TokenKind::Raise => "raise"
+    TokenKind::Try => "try"
+    TokenKind::Except => "except"
+    TokenKind::Finally => "finally"
+    TokenKind::Class => "class"
+    TokenKind::Pass => "pass"
+    TokenKind::Break => "break"
+    TokenKind::Continue => "continue"
     TokenKind::Eof => "EOF"
   }
 }
@@ -137,7 +169,13 @@ fn token_text(token : Token) -> String {
 ///|
 fn unexpected_token_error(token : Token) -> ParseError {
   let message = if token.kind == Eof {
-    "unexpected EOF while parsing"
+    "invalid syntax"
+  } else if token.kind == RParen {
+    "unmatched ')'"
+  } else if token.kind == RBracket {
+    "unmatched ']'"
+  } else if token.kind == RBrace {
+    "unmatched '}'"
   } else {
     "invalid syntax"
   }
@@ -192,7 +230,9 @@ fn find_last_char(source : String, target : Char) -> Int? {
 
 ///|
 fn is_alpha(c : Char) -> Bool {
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c.to_int() >= 128
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  (c.to_int() >= 128 && c.to_int() != 0xA0 && c.to_int() != 0xFFFD)
 }
 
 ///|
@@ -458,6 +498,11 @@ fn parse_string_literal(
   while i < chars.length() {
     let c = chars[i]
     if !raw && c == '\\' {
+      if i + 1 < chars.length() && chars[i + 1] == '\n' {
+        // Line continuation inside string literal
+        i += 2
+        continue
+      }
       let (segment, next_i) = parse_escape(chars, i + 1)
       buf.write_string(segment)
       i = next_i
@@ -518,21 +563,83 @@ fn tokenize_expr(
         ),
       )
     }
-    if c == '\\' && i + 1 == len {
+    if c.to_int() == 0xA0 {
       let token = {
         kind: Eof,
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid non-printable character U+00A0".to_string(),
+          token,
+        ),
+      )
+    }
+    if c.to_int() == 0xFFFD {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid character '�' (U+FFFD)".to_string(),
+          token,
+        ),
+      )
+    }
+    if c == '\\' {
+      if i + 1 < len && chars[i + 1] == '\n' {
+        // Line continuation
+        i += 2
+        current_line += 1
+        line_start = i
+        continue
+      }
+      if i + 1 == len {
+        let token = {
+          kind: Eof,
+          start: base_offset + i,
+          end: base_offset + i + 1,
+          line: current_line,
+          column: i - line_start + 2,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::UnexpectedEof,
+            "unexpected EOF while parsing".to_string(),
+            token,
+          ),
+        )
+      }
+      let token = {
+        kind: Eof,
+        start: base_offset + i + 1,
+        end: base_offset + i + 2,
+        line: current_line,
         column: i - line_start + 2,
       }
       return Err(
         make_parse_error(
-          ParseErrorKind::UnexpectedEof,
-          "unexpected EOF while parsing".to_string(),
+          ParseErrorKind::Syntax,
+          "unexpected character after line continuation character".to_string(),
           token,
         ),
       )
+    }
+    if c == '#' {
+      // Comment until end of line
+      while i < len && chars[i] != '\n' {
+        i += 1
+      }
+      continue
     }
     if c == ' ' || c == '\t' {
       i += 1
@@ -733,7 +840,9 @@ fn tokenize_expr(
           detected_line.to_string() +
           ")"
         } else {
-          "unterminated string literal".to_string()
+          "unterminated string literal (detected at line " +
+          detected_line.to_string() +
+          ")"
         }
         let token = {
           kind: Eof,
@@ -830,10 +939,24 @@ fn tokenize_expr(
           "is" => Is
           "if" => If
           "else" => Else
+          "for" => For
           "def" => Def
           "return" => Return
           "lambda" => Lambda
           "assert" => Assert
+          "import" => Import
+          "from" => From
+          "del" => Del
+          "global" => Global
+          "nonlocal" => Nonlocal
+          "raise" => Raise
+          "try" => Try
+          "except" => Except
+          "finally" => Finally
+          "class" => Class
+          "pass" => Pass
+          "break" => Break
+          "continue" => Continue
           _ => Ident(ident)
         }
         tokens.push({
@@ -854,7 +977,12 @@ fn tokenize_expr(
         '{' => (LBrace, 1)
         '}' => (RBrace, 1)
         ',' => (Comma, 1)
-        ':' => (Colon, 1)
+        ':' =>
+          if i + 1 < len && chars[i + 1] == '=' {
+            (ColonAssign, 2)
+          } else {
+            (Colon, 1)
+          }
         '.' => (Dot, 1)
         '+' =>
           if i + 1 < len && chars[i + 1] == '=' {
@@ -880,6 +1008,7 @@ fn tokenize_expr(
           } else {
             (Star, 1)
           }
+        '@' => (At, 1)
         '/' =>
           if i + 1 < len && chars[i + 1] == '/' {
             if i + 2 < len && chars[i + 2] == '=' {

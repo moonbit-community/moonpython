@@ -34,6 +34,18 @@ fn value_to_string(value : @mpython.Value) -> String {
       buf.to_string()
     }
     @mpython.Value::Dict(_) => "{}"
+    @mpython.Value::Set(values) => {
+      let buf = StringBuilder::new()
+      buf.write_char('{')
+      for i = 0; i < values.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        buf.write_string(value_to_string(values[i]))
+      }
+      buf.write_char('}')
+      buf.to_string()
+    }
     @mpython.Value::Function(func) => "<function " + func.name + ">"
   }
 }

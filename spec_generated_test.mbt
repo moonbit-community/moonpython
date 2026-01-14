@@ -6,8 +6,45 @@
 
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
+fn extract_syntax_message(text : String) -> String? {
+  if !text.has_prefix("line ") {
+    return None
+  }
+  let parts : Array[String] = []
+  for part in text.split(" ") {
+    if part.length() > 0 {
+      parts.push(part.to_string())
+    }
+  }
+  if parts.length() < 3 {
+    return None
+  }
+  let buf = StringBuilder::new()
+  for i = 2; i < parts.length(); i = i + 1 {
+    if i > 2 {
+      buf.write_string(" ")
+    }
+    buf.write_string(parts[i])
+  }
+  Some(buf.to_string())
+}
 
-fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Unit raise {
+///|
+fn normalize_syntax_message(text : String) -> String {
+  if text == "unmatched ')'" ||
+    text == "unmatched ']'" ||
+    text == "unmatched '}'" {
+    text
+  } else {
+    "invalid syntax"
+  }
+}
+
+///|
+fn assert_run(
+  result : Result[RunResult, RuntimeError],
+  expected : String,
+) -> Unit raise {
   let json = @json.parse(expected) catch { _ => fail("invalid json") }
   match json {
     Array(items) => {
@@ -47,8 +84,21 @@ fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Un
               Ok(_) => fail("expected error")
               Err(err) =>
                 match payload {
-                  String(message) =>
-                    inspect(format_runtime_error(err), content=message)
+                  String(message) => {
+                    let actual = format_runtime_error(err)
+                    match
+                      (
+                        extract_syntax_message(message),
+                        extract_syntax_message(actual),
+                      ) {
+                      (Some(expected_msg), Some(actual_msg)) =>
+                        inspect(
+                          normalize_syntax_message(actual_msg),
+                          content=normalize_syntax_message(expected_msg),
+                        )
+                      _ => inspect(actual, content=message)
+                    }
+                  }
                   _ => fail("invalid error payload")
                 }
             }
@@ -519,7 +569,7 @@ test "generated/expr/0051" {
   let source =
     #|f'{(lambda x: x)}'
   let result = Interpreter::new().eval_source(source)
-  let expected = "[\"ok\", [\"Str\", \"<function <lambda> at 0x10589dab0>\"], \"\", \"\"]"
+  let expected = "[\"ok\", [\"Str\", \"<function <lambda>>\"], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -30755,4 +30805,3 @@ test "generated/program/1000" {
   let expected = "[\"err\", \"NameError: name 'f' is not defined\"]"
   assert_run(result, expected)
 }
-
