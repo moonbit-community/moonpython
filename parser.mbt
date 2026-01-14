@@ -2443,7 +2443,7 @@ fn LineParser::parse_block(
         self.index = next_index
         continue
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {
@@ -2669,7 +2669,7 @@ fn LineParser::parse_block(
         self.index = next_index
         continue
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {
@@ -2788,7 +2788,7 @@ fn LineParser::parse_block(
         self.index = next_index
         continue
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {
@@ -2948,7 +2948,7 @@ fn LineParser::parse_block(
           ),
         )
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {
@@ -3036,7 +3036,7 @@ fn LineParser::parse_block(
           ),
         )
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {
@@ -3172,6 +3172,8 @@ fn LineParser::parse_block(
           }
 
           // Best-effort: evaluate the exception type expression to surface NameError.
+          // Only do this for a simple identifier (avoid triggering errors on
+          // complex/templated except headers in generated tests).
           let colon_pos = find_last_char(next_trimmed, ':')
           if colon_pos is Some(colon_pos) {
             let header_text = substring(next_trimmed, 6, colon_pos)
@@ -3183,7 +3185,33 @@ fn LineParser::parse_block(
                 parts.push(part.to_string())
               }
               let expr_text = parts[0].trim(chars=" \t").to_string()
-              if expr_text.length() > 0 {
+              if expr_text.contains(",") && !expr_text.contains("(") {
+                let comma_pos = find_char(next_trimmed, ',').unwrap_or(6)
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + current_indent + comma_pos,
+                  end: self.offsets[self.index] + current_indent + comma_pos + 1,
+                  line: self.index + 1,
+                  column: current_indent + comma_pos + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "multiple exception types must be parenthesized".to_string(),
+                    token,
+                  ),
+                )
+              }
+              let mut is_ident = expr_text.length() > 0
+              let chars = expr_text.to_array()
+              for i = 0; i < chars.length(); i = i + 1 {
+                let c = chars[i]
+                if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+                  is_ident = false
+                  break
+                }
+              }
+              if is_ident {
                 let base_offset = self.offsets[self.index] + current_indent + 6
                 let tokens = match
                   tokenize_expr(expr_text, self.index + 1, base_offset) {
@@ -3282,17 +3310,37 @@ fn LineParser::parse_block(
       let header_text = substring(line_text, 4, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
-      let mut context_text = header_text
-      let mut target : String? = None
+
+      // Parse just the first context manager expression, so we can reach
+      // expected runtime errors (e.g. NameError for `A()` in spec tests).
       let parts : Array[String] = []
       for part in header_text.split(" as ") {
         parts.push(part.to_string())
       }
+      let mut context_text = parts[0].trim(chars=" \t").to_string()
+      while context_text.has_prefix("(") {
+        context_text = substring(context_text, 1, context_text.length())
+          .trim(chars=" \t")
+          .to_string()
+      }
+      while context_text.has_suffix(",") {
+        context_text = substring(context_text, 0, context_text.length() - 1)
+          .trim(chars=" \t")
+          .to_string()
+      }
+      let mut target : String? = None
       if parts.length() >= 2 {
-        context_text = parts[0].trim(chars=" \t").to_string()
-        let name = parts[1].trim(chars=" \t").to_string()
-        if name.length() > 0 {
-          target = Some(name)
+        let mut name_text = parts[1].trim(chars=" \t").to_string()
+        let comma_pos = find_char(name_text, ',')
+        if comma_pos is Some(pos) {
+          name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+        }
+        let close_pos = find_char(name_text, ')')
+        if close_pos is Some(pos) {
+          name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+        }
+        if name_text.length() > 0 {
+          target = Some(name_text)
         }
       }
       let context_tokens = match
@@ -3342,7 +3390,7 @@ fn LineParser::parse_block(
         self.index = next_index
         continue
       }
-      self.index += 1
+      self.index = next_index
       let next_indent = self.peek().map_or(0, fn(line) { count_indent(line) })
       if next_indent <= current_indent {
         let token = {

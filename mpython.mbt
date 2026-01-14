@@ -160,6 +160,51 @@ fn find_top_level_format_colon(inner : String) -> Int? {
 }
 
 ///|
+fn find_fstring_expr_close(after_open : String) -> Int? {
+  let chars = after_open.to_array()
+  let mut depth_brace = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        continue
+      }
+      None => ()
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      continue
+    }
+    if c == '{' {
+      depth_brace += 1
+      continue
+    }
+    if c == '}' {
+      if depth_brace == 0 {
+        return Some(i)
+      }
+      depth_brace -= 1
+      continue
+    }
+  }
+  None
+}
+
+///|
 fn eq_value(a : Value, b : Value) -> Bool {
   match (a, b) {
     (Value::None, Value::None) => true
@@ -655,12 +700,24 @@ fn eval_expr_with_env(
       }
     }
     Expr::FString(text) => {
-      let open = find_char(text, '{')
-      let close = find_last_char(text, '}')
-      if open is Some(open) && close is Some(close) && close > open {
-        let prefix = substring(text, 0, open)
-        let inner = substring(text, open + 1, close)
-        let suffix = substring(text, close + 1, text.length())
+      let buf = StringBuilder::new()
+      let mut rest = text
+      while true {
+        let open = find_char(rest, '{')
+        if open is None {
+          buf.write_string(rest)
+          break
+        }
+        let open = open.unwrap()
+        buf.write_string(substring(rest, 0, open))
+        let after_open = substring(rest, open + 1, rest.length())
+        let close = find_fstring_expr_close(after_open)
+        if close is None {
+          return Ok(Value::Str(text))
+        }
+        let close = close.unwrap()
+        let inner = substring(after_open, 0, close)
+        let remaining = substring(after_open, close + 1, after_open.length())
         let expr = match parse_expr(inner) {
           Ok(value) => value
           Err(_) =>
@@ -680,10 +737,10 @@ fn eval_expr_with_env(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        Ok(Value::Str(prefix + value_to_string(value) + suffix))
-      } else {
-        Ok(Value::Str(text))
+        buf.write_string(value_to_string(value))
+        rest = remaining
       }
+      Ok(Value::Str(buf.to_string()))
     }
     Expr::NamedExpr(name~, value~) => {
       let evaluated = match
