@@ -2,23 +2,32 @@
 
 A small Python parser + interpreter implemented in MoonBit.
 
-## Run a Python program
-
-This repo currently exposes an **mpython REPL** that reads Python code from stdin.
+## Run a Python program (file)
 
 From the `aaom-mpython/` directory:
 
 ```bash
-# Run a file
-moon run cmd/main < path/to/program.py
+moon run cmd/main -- path/to/program.py
+```
 
-# Or run a snippet
-printf 'print("hello")\n' | moon run cmd/main
+Example:
+
+```bash
+moon run cmd/main -- examples/tasks.py
+```
+
+## REPL / stdin runner
+
+Use `cmd/repl` to execute code from stdin (line-by-line):
+
+```bash
+printf 'print("hello")\n' | moon run cmd/repl
 ```
 
 Notes:
-- `cmd/main` reads all stdin and executes it as a single program.
-- The executable currently expects input via stdin redirection/pipe.
+- `cmd/main` runs a file path argument.
+- `cmd/repl` reads stdin, splits by lines, and executes each line.
+- In `cmd/repl`, use `:quit` / `:exit` to stop early.
 
 ## Library usage
 
