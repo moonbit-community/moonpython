@@ -289,34 +289,42 @@ fn number_value(value : Value) -> Result[(Bool, Double), RuntimeError] {
     Value::Float(v) => Ok((true, v))
     Value::Bool(v) => Ok((false, if v { 1.0 } else { 0.0 }))
     _ =>
-      Err(make_runtime_error(RuntimeErrorKind::Type, "expected number".to_string()))
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
   }
 }
 
 ///|
-fn runtime_error_exc(kind : RuntimeErrorKind, message : String) -> (String, Array[String]) {
+fn runtime_error_exc(
+  kind : RuntimeErrorKind,
+  message : String,
+) -> (String, Array[String]) {
   match kind {
-    RuntimeErrorKind::ZeroDivision => ("ZeroDivisionError".to_string(), [message])
+    RuntimeErrorKind::ZeroDivision =>
+      ("ZeroDivisionError".to_string(), [message])
     RuntimeErrorKind::Name => ("NameError".to_string(), [message])
     RuntimeErrorKind::Type => ("TypeError".to_string(), [message])
     RuntimeErrorKind::Attribute => ("AttributeError".to_string(), [message])
     RuntimeErrorKind::Index => ("IndexError".to_string(), [message])
     RuntimeErrorKind::Key => ("KeyError".to_string(), [message])
-    RuntimeErrorKind::NotImplemented => ("NotImplementedError".to_string(), [message])
+    RuntimeErrorKind::NotImplemented =>
+      ("NotImplementedError".to_string(), [message])
     RuntimeErrorKind::Runtime => {
       let prefixes : Array[String] = [
-        "ValueError:",
-        "ImportError:",
-        "AssertionError:",
-        "RuntimeError:",
-        "EOFError:",
-        "SyntaxError:",
-        "IndentationError:",
+        "ValueError:", "ImportError:", "AssertionError:", "RuntimeError:", "EOFError:",
+        "SyntaxError:", "IndentationError:",
       ]
       for prefix in prefixes {
         if message.has_prefix(prefix) {
           let type_name = prefix.substring(start=0, end=prefix.length() - 1)
-          let mut rest = message.substring(start=prefix.length(), end=message.length())
+          let mut rest = message.substring(
+            start=prefix.length(),
+            end=message.length(),
+          )
           if rest.has_prefix(" ") {
             rest = rest.substring(start=1, end=rest.length())
           }
@@ -484,12 +492,16 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
         Literal::Float(v) => Value::Float(v)
         Literal::Str(v) => Value::Str(v)
       }
-      if eq_value(value, lit_value) { Some([]) } else { None }
+      if eq_value(value, lit_value) {
+        Some([])
+      } else {
+        None
+      }
     }
     Pattern::Name(name) => Some([(name, value)])
     Pattern::Tuple(patterns) =>
       match value {
-        Value::Tuple(values) | Value::List(values) => {
+        Value::Tuple(values) | Value::List(values) =>
           if values.length() != patterns.length() {
             None
           } else {
@@ -505,7 +517,6 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
             }
             Some(bindings)
           }
-        }
         _ => None
       }
   }
@@ -1102,8 +1113,15 @@ fn eval_expr_with_env(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
+
       }
-      Ok(Value::Function(FunctionValue::{ name: "<genexpr>", params: [], body: [] }))
+      Ok(
+        Value::Function(FunctionValue::{
+          name: "<genexpr>",
+          params: [],
+          body: [],
+        }),
+      )
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
@@ -1226,19 +1244,31 @@ fn eval_expr_with_env(
       match (target, attr) {
         (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
         (Value::Int(_), "__hash__") =>
-          Ok(Value::Function(FunctionValue::{ name: "__hash__", params: [], body: [] }))
+          Ok(
+            Value::Function(FunctionValue::{
+              name: "__hash__",
+              params: [],
+              body: [],
+            }),
+          )
         (Value::Function(_), "__hash__") =>
-          Ok(Value::Function(FunctionValue::{ name: "__hash__", params: [], body: [] }))
-        (Value::Function(func), "__doc__") => {
+          Ok(
+            Value::Function(FunctionValue::{
+              name: "__hash__",
+              params: [],
+              body: [],
+            }),
+          )
+        (Value::Function(func), "__doc__") =>
           if func.body.length() > 0 {
             match func.body[0] {
-              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) => Ok(Value::Str(text))
+              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
+                Ok(Value::Str(text))
               _ => Ok(Value::None)
             }
           } else {
             Ok(Value::None)
           }
-        }
         (Value::Function(func), "__name__") => Ok(Value::Str(func.name))
         (Value::Function(func), "__qualname__") => Ok(Value::Str(func.name))
         (Value::Function(_), "__code__") => Ok(Value::Str("<code>"))
@@ -1524,7 +1554,8 @@ fn eval_expr_with_env(
               Ok(Value::Float(a.to_double() * b))
             (Value::Float(a), Value::Int(b)) =>
               Ok(Value::Float(a * b.to_double()))
-            (Value::Str(text), Value::Int(count)) | (Value::Int(count), Value::Str(text)) =>
+            (Value::Str(text), Value::Int(count))
+            | (Value::Int(count), Value::Str(text)) =>
               if count <= 0L {
                 Ok(Value::Str(""))
               } else {
@@ -1832,36 +1863,34 @@ fn eval_expr_with_env(
               _ => false
             }
           CompareOp::NotIn =>
-            !(
-              match current {
-                Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
-                  let mut found = false
-                  for item in values {
-                    if eq_value(item, previous) {
-                      found = true
-                      break
-                    }
+            !(match current {
+              Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
+                let mut found = false
+                for item in values {
+                  if eq_value(item, previous) {
+                    found = true
+                    break
                   }
-                  found
                 }
-                Value::Dict(pairs) => {
-                  let mut found = false
-                  for pair in pairs {
-                    if eq_value(pair.0, previous) {
-                      found = true
-                      break
-                    }
-                  }
-                  found
-                }
-                Value::Str(text) =>
-                  match previous {
-                    Value::Str(needle) => text.contains(needle)
-                    _ => false
-                  }
-                _ => false
+                found
               }
-            )
+              Value::Dict(pairs) => {
+                let mut found = false
+                for pair in pairs {
+                  if eq_value(pair.0, previous) {
+                    found = true
+                    break
+                  }
+                }
+                found
+              }
+              Value::Str(text) =>
+                match previous {
+                  Value::Str(needle) => text.contains(needle)
+                  _ => false
+                }
+              _ => false
+            })
           _ => false
         }
         if !ok {
@@ -1952,7 +1981,9 @@ fn eval_expr_with_env(
             }
             match callee_value {
               Value::Function(func) =>
-                eval_function_with_kwargs(func, arg_values, keywords, globals, builtins, io)
+                eval_function_with_kwargs(
+                  func, arg_values, keywords, globals, builtins, io,
+                )
               _ =>
                 Err(
                   make_runtime_error(
@@ -2144,12 +2175,7 @@ fn eval_expr_with_env(
                       Err(err) => return Err(err)
                     }
                     eval_function_with_kwargs(
-                      func,
-                      arg_values,
-                      keywords,
-                      globals,
-                      builtins,
-                      io,
+                      func, arg_values, keywords, globals, builtins, io,
                     )
                   }
                   _ =>
@@ -2184,12 +2210,7 @@ fn eval_expr_with_env(
           match callee_value {
             Value::Function(func) =>
               eval_function_with_kwargs(
-                func,
-                arg_values,
-                keywords,
-                globals,
-                builtins,
-                io,
+                func, arg_values, keywords, globals, builtins, io,
               )
             _ =>
               Err(
@@ -2224,7 +2245,8 @@ fn eval_call_args(
   for arg in args {
     match arg {
       Expr::Starred(value~) => {
-        let iter_value = match eval_expr_with_env(value, locals, globals, builtins, io) {
+        let iter_value = match
+          eval_expr_with_env(value, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -2237,14 +2259,16 @@ fn eval_call_args(
         }
       }
       Expr::Keyword(name~, value~) => {
-        let eval_value = match eval_expr_with_env(value, locals, globals, builtins, io) {
+        let eval_value = match
+          eval_expr_with_env(value, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
         keywords.push((name, eval_value))
       }
       _ => {
-        let eval_value = match eval_expr_with_env(arg, locals, globals, builtins, io) {
+        let eval_value = match
+          eval_expr_with_env(arg, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -2420,7 +2444,7 @@ fn eval_block(
         }
         last = Value::None
       }
-      Stmt::Import(module~) => {
+      Stmt::Import(module~) =>
         if module == "math" {
           last = Value::None
         } else {
@@ -2431,7 +2455,6 @@ fn eval_block(
             ),
           )
         }
-      }
       Stmt::With(context~, target~, body~) => {
         let ctx_value = match
           eval_expr_with_env(context, locals, globals, builtins, io) {
@@ -2534,7 +2557,8 @@ fn eval_block(
                 guard_ok = bool_from_value(guard_value)
               }
               if guard_ok {
-                let _ = match eval_block(case_body, locals, globals, builtins, io) {
+                let _ = match
+                  eval_block(case_body, locals, globals, builtins, io) {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }

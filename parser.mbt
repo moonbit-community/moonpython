@@ -4,19 +4,46 @@
 ///|
 priv struct ExprParser {
   tokens : Array[Token]
-  mut index : Int
+  mut view : ArrayView[Token]
+}
+
+///|
+fn ExprParser::new(tokens : Array[Token]) -> ExprParser {
+  ExprParser::{ tokens, view: tokens[:] }
+}
+
+///|
+fn ExprParser::view(self : ExprParser) -> ArrayView[Token] {
+  self.view
+}
+
+///|
+fn ExprParser::update_view(self : ExprParser, view : ArrayView[Token]) -> Unit {
+  self.view = view
+}
+
+///|
+fn ExprParser::index(self : ExprParser) -> Int {
+  self.tokens.length() - self.view.length()
 }
 
 ///|
 fn ExprParser::current(self : ExprParser) -> Token {
-  self.tokens[self.index]
+  match self.view {
+    [token, ..] => token
+    [] => self.tokens[self.tokens.length() - 1]
+  }
 }
 
 ///|
 fn ExprParser::advance(self : ExprParser) -> Token {
-  let token = self.tokens[self.index]
-  self.index += 1
-  token
+  match self.view {
+    [token, .. rest] => {
+      self.view = rest
+      token
+    }
+    [] => self.tokens[self.tokens.length() - 1]
+  }
 }
 
 ///|
@@ -26,7 +53,7 @@ fn ExprParser::expect(
 ) -> Result[Token, ParseError] {
   let token = self.current()
   if token.kind == kind {
-    self.index += 1
+    let _ = self.advance()
     Ok(token)
   } else {
     Err(unexpected_token_error(token))
@@ -39,23 +66,24 @@ fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  if self.current().kind == Comma {
-    let items : Array[Expr] = []
-    items.push(expr)
-    while self.current().kind == Comma {
-      let _ = self.advance()
-      if self.current().kind == Eof {
-        break
+  match self.view() {
+    [{ kind: Comma, .. }, ..] => {
+      let items : Array[Expr] = []
+      items.push(expr)
+      while self.view() is [{ kind: Comma, .. }, .. rest] {
+        self.update_view(rest)
+        if self.view() is [{ kind: Eof, .. }, ..] {
+          break
+        }
+        let next = match self.parse_conditional() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        items.push(next)
       }
-      let next = match self.parse_conditional() {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      items.push(next)
+      Ok(Expr::Tuple(items))
     }
-    Ok(Expr::Tuple(items))
-  } else {
-    Ok(expr)
+    _ => Ok(expr)
   }
 }
 
@@ -65,8 +93,8 @@ fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] 
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  if self.current().kind == ColonAssign {
-    let _ = self.advance()
+  if self.view() is [{ kind: ColonAssign, .. }, .. rest] {
+    self.update_view(rest)
     let value = match self.parse_or() {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -76,29 +104,31 @@ fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] 
       _ => return Err(unexpected_token_error(self.current()))
     }
   }
-  if self.current().kind == If {
-    let _ = self.advance()
-    let condition = match self.parse_or() {
-      Ok(value) => value
-      Err(err) => return Err(err)
+  match self.view() {
+    [{ kind: If, .. }, .. rest] => {
+      self.update_view(rest)
+      let condition = match self.parse_or() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      match self.view() {
+        [{ kind: Else, .. }, .. rest2] => self.update_view(rest2)
+        _ =>
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "expected 'else' after 'if' expression".to_string(),
+              self.current(),
+            ),
+          )
+      }
+      let else_expr = match self.parse_conditional() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Expr::IfExpr(condition~, then_expr=expr, else_expr~))
     }
-    if self.current().kind != Else {
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "expected 'else' after 'if' expression".to_string(),
-          self.current(),
-        ),
-      )
-    }
-    let _ = self.advance()
-    let else_expr = match self.parse_conditional() {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    Ok(Expr::IfExpr(condition~, then_expr=expr, else_expr~))
-  } else {
-    Ok(expr)
+    _ => Ok(expr)
   }
 }
 
@@ -109,8 +139,8 @@ fn ExprParser::parse_or(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(first) => values.push(first)
     Err(err) => return Err(err)
   }
-  while self.current().kind == Or {
-    let _ = self.advance()
+  while self.view() is [{ kind: Or, .. }, .. rest] {
+    self.update_view(rest)
     match self.parse_and() {
       Ok(next) => values.push(next)
       Err(err) => return Err(err)
@@ -130,8 +160,8 @@ fn ExprParser::parse_and(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(first) => values.push(first)
     Err(err) => return Err(err)
   }
-  while self.current().kind == And {
-    let _ = self.advance()
+  while self.view() is [{ kind: And, .. }, .. rest] {
+    self.update_view(rest)
     match self.parse_compare() {
       Ok(next) => values.push(next)
       Err(err) => return Err(err)
@@ -150,8 +180,8 @@ fn ExprParser::parse_bit_or(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  while self.current().kind == BitOr {
-    let _ = self.advance()
+  while self.view() is [{ kind: BitOr, .. }, .. rest] {
+    self.update_view(rest)
     let right = match self.parse_bit_xor() {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -167,8 +197,8 @@ fn ExprParser::parse_bit_xor(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  while self.current().kind == BitXor {
-    let _ = self.advance()
+  while self.view() is [{ kind: BitXor, .. }, .. rest] {
+    self.update_view(rest)
     let right = match self.parse_bit_and() {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -184,8 +214,8 @@ fn ExprParser::parse_bit_and(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  while self.current().kind == BitAnd {
-    let _ = self.advance()
+  while self.view() is [{ kind: BitAnd, .. }, .. rest] {
+    self.update_view(rest)
     let right = match self.parse_shift() {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -202,21 +232,24 @@ fn ExprParser::parse_shift(self : ExprParser) -> Result[Expr, ParseError] {
     Err(err) => return Err(err)
   }
   while true {
-    let kind = self.current().kind
-    if kind == ShiftLeft || kind == ShiftRight {
-      let op = if kind == ShiftLeft {
-        BinaryOp::ShiftLeft
-      } else {
-        BinaryOp::ShiftRight
+    match self.view() {
+      [{ kind: ShiftLeft, .. }, .. rest] => {
+        self.update_view(rest)
+        let right = match self.parse_sum() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=BinaryOp::ShiftLeft, left=expr, right~)
       }
-      let _ = self.advance()
-      let right = match self.parse_sum() {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      [{ kind: ShiftRight, .. }, .. rest] => {
+        self.update_view(rest)
+        let right = match self.parse_sum() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=BinaryOp::ShiftRight, left=expr, right~)
       }
-      expr = Expr::Binary(op~, left=expr, right~)
-    } else {
-      break
+      _ => break
     }
   }
   Ok(expr)
@@ -231,52 +264,56 @@ fn ExprParser::parse_compare(self : ExprParser) -> Result[Expr, ParseError] {
   let ops : Array[CompareOp] = []
   let comparators : Array[Expr] = []
   while true {
-    let mut op : CompareOp? = None
-    let kind = self.current().kind
-    if kind == EqEq {
-      op = Some(CompareOp::Eq)
-      let _ = self.advance()
-
-    } else if kind == NotEq {
-      op = Some(CompareOp::NotEq)
-      let _ = self.advance()
-
-    } else if kind == Lt {
-      op = Some(CompareOp::Lt)
-      let _ = self.advance()
-
-    } else if kind == Lte {
-      op = Some(CompareOp::Lte)
-      let _ = self.advance()
-
-    } else if kind == Gt {
-      op = Some(CompareOp::Gt)
-      let _ = self.advance()
-
-    } else if kind == Gte {
-      op = Some(CompareOp::Gte)
-      let _ = self.advance()
-
-    } else if kind == In {
-      op = Some(CompareOp::In)
-      let _ = self.advance()
-
-    } else if kind == Is {
-      let _ = self.advance()
-      if self.current().kind == Not {
-        let _ = self.advance()
-        op = Some(CompareOp::IsNot)
-      } else {
-        op = Some(CompareOp::Is)
+    let op = match self.view() {
+      [{ kind: EqEq, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::Eq)
       }
-    } else if kind == Not {
-      let _ = self.advance()
-      if self.current().kind == In {
-        let _ = self.advance()
-        op = Some(CompareOp::NotIn)
-      } else {
-        return Err(unexpected_token_error(self.current()))
+      [{ kind: NotEq, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::NotEq)
       }
+      [{ kind: Lt, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::Lt)
+      }
+      [{ kind: Lte, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::Lte)
+      }
+      [{ kind: Gt, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::Gt)
+      }
+      [{ kind: Gte, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::Gte)
+      }
+      [{ kind: In, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(CompareOp::In)
+      }
+      [{ kind: Is, .. }, .. rest] => {
+        self.update_view(rest)
+        match self.view() {
+          [{ kind: Not, .. }, .. rest2] => {
+            self.update_view(rest2)
+            Some(CompareOp::IsNot)
+          }
+          _ => Some(CompareOp::Is)
+        }
+      }
+      [{ kind: Not, .. }, .. rest] => {
+        self.update_view(rest)
+        match self.view() {
+          [{ kind: In, .. }, .. rest2] => {
+            self.update_view(rest2)
+            Some(CompareOp::NotIn)
+          }
+          _ => return Err(unexpected_token_error(self.current()))
+        }
+      }
+      _ => None
     }
     match op {
       Some(op_value) => {
@@ -304,17 +341,24 @@ fn ExprParser::parse_sum(self : ExprParser) -> Result[Expr, ParseError] {
     Err(err) => return Err(err)
   }
   while true {
-    let kind = self.current().kind
-    if kind == Plus || kind == Minus {
-      let op = if kind == Plus { BinaryOp::Add } else { BinaryOp::Sub }
-      let _ = self.advance()
-      let right = match self.parse_term() {
-        Ok(value) => value
-        Err(err) => return Err(err)
+    match self.view() {
+      [{ kind: Plus, .. }, .. rest] => {
+        self.update_view(rest)
+        let right = match self.parse_term() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=BinaryOp::Add, left=expr, right~)
       }
-      expr = Expr::Binary(op~, left=expr, right~)
-    } else {
-      break
+      [{ kind: Minus, .. }, .. rest] => {
+        self.update_view(rest)
+        let right = match self.parse_term() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=BinaryOp::Sub, left=expr, right~)
+      }
+      _ => break
     }
   }
   Ok(expr)
@@ -327,31 +371,38 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
     Err(err) => return Err(err)
   }
   while true {
-    let kind = self.current().kind
-    if kind == Star ||
-      kind == At ||
-      kind == Slash ||
-      kind == SlashSlash ||
-      kind == Percent {
-      let op = if kind == Star {
-        BinaryOp::Mul
-      } else if kind == At {
-        BinaryOp::MatMul
-      } else if kind == Slash {
-        BinaryOp::Div
-      } else if kind == SlashSlash {
-        BinaryOp::FloorDiv
-      } else {
-        BinaryOp::Mod
+    let op = match self.view() {
+      [{ kind: Star, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(BinaryOp::Mul)
       }
-      let _ = self.advance()
-      let right = match self.parse_factor() {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      [{ kind: At, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(BinaryOp::MatMul)
       }
-      expr = Expr::Binary(op~, left=expr, right~)
-    } else {
-      break
+      [{ kind: Slash, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(BinaryOp::Div)
+      }
+      [{ kind: SlashSlash, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(BinaryOp::FloorDiv)
+      }
+      [{ kind: Percent, .. }, .. rest] => {
+        self.update_view(rest)
+        Some(BinaryOp::Mod)
+      }
+      _ => None
+    }
+    match op {
+      Some(op_value) => {
+        let right = match self.parse_factor() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=op_value, left=expr, right~)
+      }
+      None => break
     }
   }
   Ok(expr)
@@ -359,37 +410,54 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
 
 ///|
 fn ExprParser::parse_factor(self : ExprParser) -> Result[Expr, ParseError] {
-  let kind = self.current().kind
-  if kind == Plus || kind == Minus || kind == Not || kind == Tilde {
-    let op = if kind == Plus {
-      UnaryOp::Pos
-    } else if kind == Minus {
-      UnaryOp::Neg
-    } else if kind == Not {
-      UnaryOp::Not
-    } else {
-      UnaryOp::Invert
-    }
-    let _ = self.advance()
-    let expr = match self.parse_factor() {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    Ok(Expr::Unary(op~, expr~))
-  } else {
-    let mut expr = match self.parse_primary() {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    if self.current().kind == StarStar {
-      let _ = self.advance()
-      let right = match self.parse_factor() {
+  match self.view() {
+    [{ kind: Plus, .. }, .. rest] => {
+      self.update_view(rest)
+      let expr = match self.parse_factor() {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      expr = Expr::Binary(op=BinaryOp::Pow, left=expr, right~)
+      Ok(Expr::Unary(op=UnaryOp::Pos, expr~))
     }
-    Ok(expr)
+    [{ kind: Minus, .. }, .. rest] => {
+      self.update_view(rest)
+      let expr = match self.parse_factor() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Expr::Unary(op=UnaryOp::Neg, expr~))
+    }
+    [{ kind: Not, .. }, .. rest] => {
+      self.update_view(rest)
+      let expr = match self.parse_factor() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Expr::Unary(op=UnaryOp::Not, expr~))
+    }
+    [{ kind: Tilde, .. }, .. rest] => {
+      self.update_view(rest)
+      let expr = match self.parse_factor() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Expr::Unary(op=UnaryOp::Invert, expr~))
+    }
+    _ => {
+      let mut expr = match self.parse_primary() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if self.view() is [{ kind: StarStar, .. }, .. rest] {
+        self.update_view(rest)
+        let right = match self.parse_factor() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        expr = Expr::Binary(op=BinaryOp::Pow, left=expr, right~)
+      }
+      Ok(expr)
+    }
   }
 }
 
@@ -410,9 +478,9 @@ fn ExprParser::parse_comprehension_tail(
     "'(' was never closed"
   }
   while true {
-    match self.current().kind {
-      For => {
-        let _ = self.advance()
+    match self.view() {
+      [{ kind: For, .. }, .. rest] => {
+        self.update_view(rest)
         if self.current().kind == Eof {
           return Err(
             make_parse_error(
@@ -422,28 +490,104 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        let targets = match
-          self.parse_comp_targets(
-            open,
-            unclosed_message.to_string(),
-            walrus_targets,
-            clauses.length() > 0,
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        if self.current().kind == Eof {
-          return Err(
-            make_parse_error(
-              ParseErrorKind::Syntax,
-              unclosed_message.to_string(),
-              open,
-            ),
-          )
-        }
-        match self.current().kind {
-          In => {
+        let targets : Array[String] = []
+        let target_token = self.current()
+        match target_token.kind {
+          Ident(name) => {
+            if clauses.length() > 0 {
+              for existing in walrus_targets {
+                if existing == name {
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "comprehension inner loop cannot rebind assignment expression target '" +
+                      name +
+                      "'",
+                      target_token,
+                    ),
+                  )
+                }
+              }
+            }
+            targets.push(name)
             let _ = self.advance()
+
+          }
+          _ =>
+            if target_token.kind == Eof {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  unclosed_message.to_string(),
+                  open,
+                ),
+              )
+            } else {
+              return Err(unexpected_token_error(target_token))
+            }
+        }
+        while self.view() is [{ kind: Comma, .. }, .. rest2] {
+          self.update_view(rest2)
+          if self.current().kind == In {
+            break
+          }
+          if self.current().kind == Eof {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                unclosed_message.to_string(),
+                open,
+              ),
+            )
+          }
+          let next_target = self.current()
+          match next_target.kind {
+            Ident(name) => {
+              if clauses.length() > 0 {
+                for existing in walrus_targets {
+                  if existing == name {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "comprehension inner loop cannot rebind assignment expression target '" +
+                        name +
+                        "'",
+                        next_target,
+                      ),
+                    )
+                  }
+                }
+              }
+              targets.push(name)
+              let _ = self.advance()
+
+            }
+            _ =>
+              if next_target.kind == Eof {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    unclosed_message.to_string(),
+                    open,
+                  ),
+                )
+              } else {
+                return Err(unexpected_token_error(next_target))
+              }
+          }
+        }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        match self.view() {
+          [{ kind: In, .. }, .. rest2] => {
+            self.update_view(rest2)
 
           }
           _ => return Err(unexpected_token_error(self.current()))
@@ -467,8 +611,8 @@ fn ExprParser::parse_comprehension_tail(
         clauses.push((targets, iter))
         continue
       }
-      If => {
-        let _ = self.advance()
+      [{ kind: If, .. }, .. rest] => {
+        self.update_view(rest)
         if self.current().kind == Eof {
           return Err(
             make_parse_error(
@@ -542,7 +686,7 @@ fn ExprParser::parse_comp_target_group(
   has_previous_clause : Bool,
 ) -> Result[Array[String], ParseError] {
   let targets : Array[String] = []
-  let mut element_start = self.index
+  let mut element_start = self.index()
   let mut depth = 0
   while true {
     let token = self.current()
@@ -556,7 +700,7 @@ fn ExprParser::parse_comp_target_group(
       )
     }
     if depth == 0 && (token.kind == Comma || token.kind == close_kind) {
-      let element_end = self.index
+      let element_end = self.index()
       if element_end > element_start {
         if element_end == element_start + 1 {
           match self.tokens[element_start].kind {
@@ -586,7 +730,7 @@ fn ExprParser::parse_comp_target_group(
       }
       if token.kind == Comma {
         let _ = self.advance()
-        element_start = self.index
+        element_start = self.index()
         continue
       }
       let _ = self.advance()
@@ -610,7 +754,7 @@ fn ExprParser::looks_like_destructuring_list(self : ExprParser) -> Bool {
   if self.current().kind != LBracket {
     return false
   }
-  let mut idx = self.index + 1
+  let mut idx = self.index() + 1
   let mut depth = 1
   let mut saw_for = false
   while idx < self.tokens.length() {
@@ -1467,8 +1611,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             let _ = kind
             args.push(Expr::Starred(value=value))
           } else {
-            let next_kind = if self.index + 1 < self.tokens.length() {
-              self.tokens[self.index + 1].kind
+            let idx = self.index()
+            let next_kind = if idx + 1 < self.tokens.length() {
+              self.tokens[idx + 1].kind
             } else {
               Eof
             }
@@ -1712,7 +1857,7 @@ fn parse_tokens_expr(tokens : Array[Token]) -> Result[Expr, ParseError] {
       _ => ()
     }
   }
-  let parser = ExprParser::{ tokens, index: 0 }
+  let parser = ExprParser::new(tokens)
   let expr = match parser.parse_expr() {
     Ok(value) => value
     Err(err) => return Err(err)

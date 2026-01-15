@@ -234,10 +234,12 @@ fn find_last_char(source : String, target : Char) -> Int? {
 fn is_alpha(c : Char) -> Bool {
   (c >= 'a' && c <= 'z') ||
   (c >= 'A' && c <= 'Z') ||
-  (c.to_int() >= 128 &&
+  (
+    c.to_int() >= 128 &&
     c.to_int() != 0xA0 &&
     c.to_int() != 0xA4 &&
-    c.to_int() != 0xFFFD)
+    c.to_int() != 0xFFFD
+  )
 }
 
 ///|
