@@ -69,26 +69,18 @@ fn print_run(run : @mpython.RunResult) -> Unit {
 }
 
 ///|
-fn run_line(interpreter : @mpython.Interpreter, line : String) -> Unit {
-  let trimmed = line.trim(chars=" \t").to_string()
-  if trimmed.length() == 0 {
-    return
-  }
-  if trimmed == ":quit" || trimmed == ":exit" {
-    @sys.exit(0)
-  }
-  match interpreter.exec_source(line) {
-    Ok(run) => print_run(run)
-    Err(err) => println(@mpython.format_runtime_error(err))
-  }
-}
-
-///|
 fn main {
-  println("mpython REPL (Ctrl-D to exit)")
   let source = @fs.read_file_to_string("/dev/stdin") catch { _ => "" }
+  if source.trim(chars=" \t\n\r").length() == 0 {
+    println("usage: moon run cmd/main < program.py")
+    @sys.exit(1)
+  }
   let interpreter = @mpython.Interpreter::new()
-  for line in source.split("\n") {
-    run_line(interpreter, line.to_string())
+  match interpreter.exec_source(source) {
+    Ok(run) => print_run(run)
+    Err(err) => {
+      println(@mpython.format_runtime_error(err))
+      @sys.exit(1)
+    }
   }
 }
