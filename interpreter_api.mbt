@@ -67,6 +67,22 @@ pub fn Interpreter::with_builtins(
 
 ///|
 pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
+  let object_class = ClassValue::{ name: "object", bases: [], dict: [] }
+  let base_exception_class = ClassValue::{
+    name: "BaseException",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let exception_class = ClassValue::{
+    name: "Exception",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let runtime_error_class = ClassValue::{
+    name: "RuntimeError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = [
     (
       "print",
@@ -90,9 +106,29 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{ name: "dict", params: [], body: [] }),
     ),
     (
+      "list",
+      Value::Function(FunctionValue::{ name: "list", params: [], body: [] }),
+    ),
+    (
+      "tuple",
+      Value::Function(FunctionValue::{ name: "tuple", params: [], body: [] }),
+    ),
+    (
+      "set",
+      Value::Function(FunctionValue::{ name: "set", params: [], body: [] }),
+    ),
+    (
       "int",
       Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
     ),
+    (
+      "float",
+      Value::Function(FunctionValue::{ name: "float", params: [], body: [] }),
+    ),
+    ("object", Value::Class(object_class)),
+    ("BaseException", Value::Class(base_exception_class)),
+    ("Exception", Value::Class(exception_class)),
+    ("RuntimeError", Value::Class(runtime_error_class)),
   ]
   Interpreter::{ config, globals: [], builtins, io }
 }

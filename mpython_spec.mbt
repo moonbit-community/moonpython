@@ -158,7 +158,13 @@ pub enum Stmt {
   Del(Array[Target])
   Import(module~ : String)
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
-  Class(name~ : String, body~ : Array[Stmt])
+  Try(
+    body~ : Array[Stmt],
+    handlers~ : Array[(Expr?, String?, Array[Stmt])],
+    else_body~ : Array[Stmt],
+    finally_body~ : Array[Stmt]
+  )
+  Class(name~ : String, bases~ : Array[Expr], body~ : Array[Stmt])
 } derive(ToJson)
 
 ///|
@@ -224,6 +230,30 @@ pub struct FunctionValue {
 } derive(ToJson)
 
 ///|
+/// A Python class object (minimal)
+///
+/// `dict` is the class namespace holding methods and attributes.
+pub struct ClassValue {
+  name : String
+  bases : Array[Value]
+  dict : Array[(String, Value)]
+} derive(ToJson)
+
+///|
+/// A Python instance object (minimal)
+pub struct InstanceValue {
+  class : ClassValue
+  dict : Array[(String, Value)]
+} derive(ToJson)
+
+///|
+/// A bound method (minimal descriptor result)
+pub struct BoundMethodValue {
+  function : FunctionValue
+  self : Value
+} derive(ToJson)
+
+///|
 /// Runtime values available to user code
 pub enum Value {
   None
@@ -236,6 +266,9 @@ pub enum Value {
   Dict(Array[(Value, Value)])
   Set(Array[Value])
   Function(FunctionValue)
+  Class(ClassValue)
+  Instance(InstanceValue)
+  BoundMethod(BoundMethodValue)
 } derive(ToJson)
 
 ///|

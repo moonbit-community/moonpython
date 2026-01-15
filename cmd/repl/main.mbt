@@ -47,6 +47,10 @@ fn value_to_string(value : @mpython.Value) -> String {
       buf.to_string()
     }
     @mpython.Value::Function(func) => "<function " + func.name + ">"
+    @mpython.Value::Class(klass) => "<class '" + klass.name + "'>"
+    @mpython.Value::Instance(inst) => "<" + inst.class.name + " object>"
+    @mpython.Value::BoundMethod(method) =>
+      "<bound method " + method.function.name + ">"
   }
 }
 

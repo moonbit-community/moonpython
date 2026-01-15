@@ -14,6 +14,9 @@ fn bool_from_value(value : Value) -> Bool {
     Value::Dict(v) => v.length() > 0
     Value::Set(v) => v.length() > 0
     Value::Function(_) => true
+    Value::Class(_) => true
+    Value::Instance(_) => true
+    Value::BoundMethod(_) => true
   }
 }
 
@@ -30,6 +33,9 @@ fn type_name_from_value(value : Value) -> String {
     Value::Dict(_) => "dict"
     Value::Set(_) => "set"
     Value::Function(_) => "function"
+    Value::Class(_) => "type"
+    Value::Instance(inst) => inst.class.name
+    Value::BoundMethod(_) => "method"
   }
 }
 
@@ -73,7 +79,20 @@ fn value_to_string(value : Value) -> String {
       buf.write_char(')')
       buf.to_string()
     }
-    Value::Dict(_) => "{}"
+    Value::Dict(pairs) => {
+      let buf = StringBuilder::new()
+      buf.write_char('{')
+      for i = 0; i < pairs.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        buf.write_string(value_to_string(pairs[i].0))
+        buf.write_string(": ")
+        buf.write_string(value_to_string(pairs[i].1))
+      }
+      buf.write_char('}')
+      buf.to_string()
+    }
     Value::Set(values) => {
       let buf = StringBuilder::new()
       buf.write_char('{')
@@ -87,6 +106,9 @@ fn value_to_string(value : Value) -> String {
       buf.to_string()
     }
     Value::Function(func) => "<function " + func.name + ">"
+    Value::Class(klass) => "<class '" + klass.name + "'>"
+    Value::Instance(inst) => "<" + inst.class.name + " object>"
+    Value::BoundMethod(method) => "<bound method " + method.function.name + ">"
   }
 }
 
@@ -278,6 +300,8 @@ fn eq_value(a : Value, b : Value) -> Bool {
         }
         equal
       }
+    (Value::Class(a), Value::Class(b)) => a.name == b.name
+    (Value::Instance(a), Value::Instance(b)) => a.class.name == b.class.name
     _ => false
   }
 }

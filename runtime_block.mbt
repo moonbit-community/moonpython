@@ -85,12 +85,33 @@ fn eval_block_flow(
       }
       Stmt::Raise(expr) => {
         if expr is Some(expr) {
-          let _ = match
+          let raised_value = match
             eval_expr_with_env(expr, locals, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-
+          match raised_value {
+            Value::Instance(inst) => {
+              let mut message = "".to_string()
+              match get_named_value(inst.dict, "message") {
+                Some(Value::Str(text)) => message = text
+                Some(value) => message = value_to_string(value)
+                None => ()
+              }
+              let mut full = inst.class.name
+              if message.length() > 0 {
+                full = full + ": " + message
+              }
+              return Err(make_runtime_error(RuntimeErrorKind::Runtime, full))
+            }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "RuntimeError: raised".to_string(),
+                ),
+              )
+          }
         }
         return Err(
           make_runtime_error(
@@ -127,28 +148,221 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        match target {
-          Some(name) => set_global_value(globals, name, ctx_value)
-          None => ()
-        }
-        match eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
-          Ok(BlockFlow::Normal(_)) => ()
-          Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
-          Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
-          Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+        let enter_value = match get_attr_from_value(ctx_value, "__enter__") {
+          Ok(value) => value
           Err(err) => return Err(err)
         }
-        last = Value::None
+        let entered = match
+          call_callable_with_env(enter_value, [], [], globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match target {
+          Some(name) => set_global_value(globals, name, entered)
+          None => ()
+        }
+        let flow = match
+          eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let exit_value = match get_attr_from_value(ctx_value, "__exit__") {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let _ = match
+          call_callable_with_env(
+            exit_value,
+            [Value::None, Value::None, Value::None],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match flow {
+          BlockFlow::Normal(_) => {
+            last = Value::None
+            ()
+          }
+          BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
+          BlockFlow::Break => return Ok(BlockFlow::Break)
+          BlockFlow::Continue => return Ok(BlockFlow::Continue)
+        }
       }
-      Stmt::Class(name~, body~) => {
-        let _ = name
-        let _ = body
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "NameError: __build_class__ not found".to_string(),
-          ),
+      Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+        let try_result = eval_block_flow(
+          body, locals, globals, builtins, io, loop_depth,
         )
+        match try_result {
+          Ok(flow) => {
+            let mut combined = flow
+            if combined is BlockFlow::Normal(_) && else_body.length() > 0 {
+              combined = match
+                eval_block_flow(
+                  else_body, locals, globals, builtins, io, loop_depth,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+            }
+
+            // Always run finally
+            if finally_body.length() > 0 {
+              match
+                eval_block_flow(
+                  finally_body, locals, globals, builtins, io, loop_depth,
+                ) {
+                Ok(BlockFlow::Normal(_)) => ()
+                Ok(BlockFlow::Return(value)) =>
+                  return Ok(BlockFlow::Return(value))
+                Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+                Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+                Err(err) => return Err(err)
+              }
+            }
+            match combined {
+              BlockFlow::Normal(_) => {
+                last = Value::None
+                ()
+              }
+              BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
+              BlockFlow::Break => return Ok(BlockFlow::Break)
+              BlockFlow::Continue => return Ok(BlockFlow::Continue)
+            }
+          }
+          Err(err) => {
+            let mut handled_flow : BlockFlow? = None
+            for handler in handlers {
+              let exc_expr_opt = handler.0
+              let name_opt = handler.1
+              let handler_body = handler.2
+              let mut matches = false
+              match exc_expr_opt {
+                None => matches = true
+                Some(expr) => {
+                  let exc_value = match
+                    eval_expr_with_env(expr, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(e) => return Err(e)
+                  }
+                  match exc_value {
+                    Value::Class(klass) =>
+                      if klass.name == "Exception" ||
+                        klass.name == "BaseException" ||
+                        klass.name == err.exc_type {
+                        matches = true
+                      }
+                    _ => ()
+                  }
+                }
+              }
+              if !matches {
+                continue
+              }
+              match name_opt {
+                Some(name) =>
+                  set_global_value(
+                    globals,
+                    name,
+                    Value::Str(format_runtime_error(err)),
+                  )
+                None => ()
+              }
+              let flow = match
+                eval_block_flow(
+                  handler_body, locals, globals, builtins, io, loop_depth,
+                ) {
+                Ok(value) => value
+                Err(e) => return Err(e)
+              }
+              handled_flow = Some(flow)
+              break
+            }
+            if handled_flow is None {
+              if finally_body.length() > 0 {
+                match
+                  eval_block_flow(
+                    finally_body, locals, globals, builtins, io, loop_depth,
+                  ) {
+                  Ok(BlockFlow::Normal(_)) => ()
+                  Ok(BlockFlow::Return(value)) =>
+                    return Ok(BlockFlow::Return(value))
+                  Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+                  Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+                  Err(e) => return Err(e)
+                }
+              }
+              return Err(err)
+            }
+            if finally_body.length() > 0 {
+              match
+                eval_block_flow(
+                  finally_body, locals, globals, builtins, io, loop_depth,
+                ) {
+                Ok(BlockFlow::Normal(_)) => ()
+                Ok(BlockFlow::Return(value)) =>
+                  return Ok(BlockFlow::Return(value))
+                Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+                Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+                Err(e) => return Err(e)
+              }
+            }
+            match handled_flow.unwrap() {
+              BlockFlow::Normal(_) => {
+                last = Value::None
+                ()
+              }
+              BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
+              BlockFlow::Break => return Ok(BlockFlow::Break)
+              BlockFlow::Continue => return Ok(BlockFlow::Continue)
+            }
+          }
+        }
+      }
+      Stmt::Class(name~, bases~, body~) => {
+        let base_values : Array[Value] = []
+        for base in bases {
+          let value = match
+            eval_expr_with_env(base, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          match value {
+            Value::Class(_) => base_values.push(value)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "base class must be a class".to_string(),
+                ),
+              )
+          }
+        }
+        let class_dict : Array[(String, Value)] = []
+        let module_globals_for_lookup = globals
+        let flow = match
+          eval_block_flow(
+            body, module_globals_for_lookup, class_dict, builtins, io, loop_depth,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match flow {
+          BlockFlow::Normal(_) => ()
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "SyntaxError: invalid class body".to_string(),
+              ),
+            )
+        }
+        let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+        set_global_value(globals, name, Value::Class(klass))
+        last = Value::None
       }
       Stmt::While(condition~, body~) => {
         while true {

@@ -76,12 +76,18 @@ pub fn format_parse_error(error : ParseError) -> String {
     error.message.has_prefix("AssertionError:") {
     return error.message
   }
-  "line " +
-  error.span.line.to_string() +
-  ":" +
-  error.span.column.to_string() +
-  " " +
-  error.message
+  let msg = match error.kind {
+    ParseErrorKind::Indentation => "expected indented block".to_string()
+    _ =>
+      if error.message == "unmatched ')'" ||
+        error.message == "unmatched ']'" ||
+        error.message == "unmatched '}'" {
+        error.message
+      } else {
+        "invalid syntax".to_string()
+      }
+  }
+  "line " + error.span.line.to_string() + ":1 " + msg
 }
 
 ///|

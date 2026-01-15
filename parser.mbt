@@ -1919,6 +1919,46 @@ fn find_triple_quote(line : String) -> (Char, Int)? {
 }
 
 ///|
+fn split_top_level_commas(text : String) -> Array[String] {
+  let parts : Array[String] = []
+  let chars = text.to_array()
+  let mut start = 0
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  let mut depth = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if c == ',' && depth == 0 {
+          parts.push(substring(text, start, i))
+          start = i + 1
+        }
+    }
+    i += 1
+  }
+  parts.push(substring(text, start, chars.length()))
+  parts
+}
+
+///|
 fn split_statements(line : String) -> Array[(String, Int)] {
   let segments : Array[(String, Int)] = []
   let chars = line.to_array()
@@ -3463,9 +3503,46 @@ fn LineParser::parse_block(
         .trim(chars=" \t")
         .to_string()
       let name_end = find_char(header, '(')
+      let close_paren = find_last_char(header, ')')
       let name = match name_end {
         Some(pos) => substring(header, 0, pos).trim(chars=" \t").to_string()
         None => header
+      }
+      let bases : Array[Expr] = []
+      if name_end is Some(open_pos) &&
+        close_paren is Some(close_pos) &&
+        close_pos > open_pos {
+        let bases_text = substring(header, open_pos + 1, close_pos)
+          .trim(chars=" \t")
+          .to_string()
+        if bases_text.length() > 0 {
+          let base_parts = split_top_level_commas(bases_text)
+          for part in base_parts {
+            let expr_text = part.trim(chars=" \t").to_string()
+            if expr_text.length() == 0 {
+              continue
+            }
+            match parse_expr(expr_text) {
+              Ok(expr) => bases.push(expr)
+              Err(_) => {
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + current_indent + 6,
+                  end: self.offsets[self.index] + current_indent + 7,
+                  line: self.index + 1,
+                  column: 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    token,
+                  ),
+                )
+              }
+            }
+          }
+        }
       }
       if name.length() == 0 {
         let token = {
@@ -3511,7 +3588,7 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(Stmt::Class(name~, body~))
+        stmts.push(Stmt::Class(name~, bases~, body~))
         self.index = next_index
         continue
       }
@@ -3537,7 +3614,7 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::Class(name~, body~))
+      stmts.push(Stmt::Class(name~, bases~, body~))
       continue
     }
     let mut is_async_def = false
@@ -4593,6 +4670,7 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("try:") {
+      let try_body : Array[Stmt] = []
       let body_text = strip_inline_comment(
           substring(line_text, 4, line_text.length()).to_string(),
         )
@@ -4615,8 +4693,9 @@ fn LineParser::parse_block(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let _ = parsed
-
+          for stmt in parsed {
+            try_body.push(stmt)
+          }
         }
         self.index = next_index
       } else {
@@ -4638,12 +4717,17 @@ fn LineParser::parse_block(
             ),
           )
         }
-        let _ = match self.parse_block(next_indent) {
-          Ok(_) => ()
+        let body = match self.parse_block(next_indent) {
+          Ok(value) => value
           Err(err) => return Err(err)
         }
-
+        for stmt in body {
+          try_body.push(stmt)
+        }
       }
+      let handlers : Array[(Expr?, String?, Array[Stmt])] = []
+      let else_body : Array[Stmt] = []
+      let finally_body : Array[Stmt] = []
       while self.index < self.lines.length() {
         let next_line = self.lines[self.index]
         let next_trimmed = next_line.trim(chars=" \t").to_string()
@@ -4651,71 +4735,14 @@ fn LineParser::parse_block(
         if next_indent != current_indent {
           break
         }
-        if next_trimmed.has_prefix("except*") {
-          let token = {
-            kind: Eof,
-            start: self.offsets[self.index] + current_indent + 6,
-            end: self.offsets[self.index] + current_indent + 7,
-            line: self.index + 1,
-            column: current_indent + 7,
-          }
-          return Err(
-            make_parse_error(
-              ParseErrorKind::Syntax,
-              "invalid syntax".to_string(),
-              token,
-            ),
-          )
-        }
         if next_trimmed.has_prefix("except") {
-          if next_trimmed.has_prefix("except{") {
-            let chars = next_trimmed.to_array()
-            let mut pos = 6
-            let mut allow = false
-            while pos < chars.length() {
-              let c = chars[pos]
-              if c == '(' {
-                allow = true
-                break
-              }
-              if is_alpha(c) || c == '_' {
-                break
-              }
-              pos += 1
-            }
-            if !allow {
-              if pos >= chars.length() {
-                pos = 6
-              }
-              let token = {
-                kind: Eof,
-                start: self.offsets[self.index] + current_indent + pos,
-                end: self.offsets[self.index] + current_indent + pos + 1,
-                line: self.index + 1,
-                column: current_indent + pos + 1,
-              }
-              return Err(
-                make_parse_error(
-                  ParseErrorKind::Syntax,
-                  "invalid syntax".to_string(),
-                  token,
-                ),
-              )
-            }
-          }
-          let dot_pos = find_char(next_trimmed, '.')
-          let bracket_pos = find_char(next_trimmed, '[')
-          let pos = match dot_pos {
-            Some(pos) => Some(pos)
-            None => bracket_pos
-          }
-          if pos is Some(pos) {
+          if next_trimmed.has_prefix("except*") {
             let token = {
               kind: Eof,
-              start: self.offsets[self.index] + current_indent + pos,
-              end: self.offsets[self.index] + current_indent + pos + 1,
+              start: self.offsets[self.index] + current_indent + 6,
+              end: self.offsets[self.index] + current_indent + 7,
               line: self.index + 1,
-              column: current_indent + pos + 1,
+              column: current_indent + 7,
             }
             return Err(
               make_parse_error(
@@ -4725,62 +4752,106 @@ fn LineParser::parse_block(
               ),
             )
           }
-
-          // Best-effort: evaluate the exception type expression to surface NameError.
-          // Only do this for a simple identifier (avoid triggering errors on
-          // complex/templated except headers in generated tests).
           let colon_pos = find_last_char(next_trimmed, ':')
-          if colon_pos is Some(colon_pos) {
-            let header_text = substring(next_trimmed, 6, colon_pos)
-              .trim(chars=" \t")
-              .to_string()
-            if header_text.length() > 0 {
-              let parts : Array[String] = []
-              for part in header_text.split(" as ") {
-                parts.push(part.to_string())
+          let header_text = match colon_pos {
+            Some(pos) =>
+              substring(next_trimmed, 6, pos).trim(chars=" \t").to_string()
+            None => "".to_string()
+          }
+          let mut exc_expr_opt : Expr? = None
+          let mut name_opt : String? = None
+          if header_text.length() > 0 {
+            let parts : Array[String] = []
+            for part in header_text.split(" as ") {
+              parts.push(part.to_string())
+            }
+            let expr_text = parts[0].trim(chars=" \t").to_string()
+            if expr_text.length() > 0 {
+              let base_offset = self.offsets[self.index] + current_indent + 6
+              let tokens = match
+                tokenize_expr(expr_text, self.index + 1, base_offset) {
+                Ok(value) => value
+                Err(err) => return Err(err)
               }
-              let expr_text = parts[0].trim(chars=" \t").to_string()
-              if expr_text.contains(",") && !expr_text.contains("(") {
-                let comma_pos = find_char(next_trimmed, ',').unwrap_or(6)
-                let token = {
-                  kind: Eof,
-                  start: self.offsets[self.index] + current_indent + comma_pos,
-                  end: self.offsets[self.index] + current_indent + comma_pos + 1,
-                  line: self.index + 1,
-                  column: current_indent + comma_pos + 1,
-                }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "multiple exception types must be parenthesized".to_string(),
-                    token,
-                  ),
-                )
+              let expr = match parse_tokens_expr(tokens) {
+                Ok(value) => value
+                Err(err) => return Err(err)
               }
-              let mut is_ident = expr_text.length() > 0
-              let chars = expr_text.to_array()
-              for i = 0; i < chars.length(); i = i + 1 {
-                let c = chars[i]
-                if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
-                  is_ident = false
-                  break
-                }
-              }
-              if is_ident {
-                let base_offset = self.offsets[self.index] + current_indent + 6
-                let tokens = match
-                  tokenize_expr(expr_text, self.index + 1, base_offset) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                let expr = match parse_tokens_expr(tokens) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                stmts.push(Stmt::ExprStmt(expr))
+              exc_expr_opt = Some(expr)
+            }
+            if parts.length() > 1 {
+              let raw_name = parts[1].trim(chars=" \t").to_string()
+              if raw_name.length() > 0 {
+                name_opt = Some(raw_name)
               }
             }
           }
+          let inline_text = match colon_pos {
+            Some(pos) =>
+              strip_inline_comment(
+                substring(next_trimmed, pos + 1, next_trimmed.length()).to_string(),
+              )
+              .trim(chars=" \t")
+              .to_string()
+            None => ""
+          }
+          self.index += 1
+          let handler_body : Array[Stmt] = []
+          if inline_text.length() > 0 {
+            let segments = split_statements(inline_text)
+            for segment_pair in segments {
+              let segment = segment_pair.0
+              let offset = segment_pair.1
+              if segment.length() == 0 {
+                continue
+              }
+              let base_offset = self.offsets[self.index - 1] +
+                current_indent +
+                colon_pos.unwrap_or(6) +
+                1 +
+                offset
+              let parsed = match
+                parse_simple_statement(segment, self.index - 1, base_offset) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              for stmt in parsed {
+                handler_body.push(stmt)
+              }
+            }
+          } else {
+            let handler_indent = self
+              .peek()
+              .map_or(0, fn(line) { count_indent(line) })
+            if handler_indent <= current_indent {
+              let token = {
+                kind: Eof,
+                start: self.offsets[self.index - 1],
+                end: self.offsets[self.index - 1] + next_line.length(),
+                line: self.index,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Indentation,
+                  "expected indented block".to_string(),
+                  token,
+                ),
+              )
+            }
+            let body = match self.parse_block(handler_indent) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            for stmt in body {
+              handler_body.push(stmt)
+            }
+          }
+          handlers.push((exc_expr_opt, name_opt, handler_body))
+          continue
+        }
+        if next_trimmed.has_prefix("else") {
+          let colon_pos = find_last_char(next_trimmed, ':')
           let inline_text = match colon_pos {
             Some(pos) =>
               strip_inline_comment(
@@ -4801,7 +4872,7 @@ fn LineParser::parse_block(
               }
               let base_offset = self.offsets[self.index - 1] +
                 current_indent +
-                colon_pos.unwrap() +
+                colon_pos.unwrap_or(4) +
                 1 +
                 offset
               let parsed = match
@@ -4810,96 +4881,37 @@ fn LineParser::parse_block(
                 Err(err) => return Err(err)
               }
               for stmt in parsed {
-                stmts.push(stmt)
+                else_body.push(stmt)
               }
             }
-            continue
-          }
-          let handler_indent = self
-            .peek()
-            .map_or(0, fn(line) { count_indent(line) })
-          if handler_indent <= current_indent {
-            let token = {
-              kind: Eof,
-              start: self.offsets[self.index - 1],
-              end: self.offsets[self.index - 1] + next_line.length(),
-              line: self.index,
-              column: 1,
-            }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Indentation,
-                "expected indented block".to_string(),
-                token,
-              ),
-            )
-          }
-          let handler_body = match self.parse_block(handler_indent) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          for stmt in handler_body {
-            stmts.push(stmt)
-          }
-          continue
-        }
-        if next_trimmed.has_prefix("else") {
-          let colon_pos = find_last_char(next_trimmed, ':')
-          let inline_text = match colon_pos {
-            Some(pos) =>
-              strip_inline_comment(
-                substring(next_trimmed, pos + 1, next_trimmed.length()).to_string(),
+          } else {
+            let handler_indent = self
+              .peek()
+              .map_or(0, fn(line) { count_indent(line) })
+            if handler_indent <= current_indent {
+              let token = {
+                kind: Eof,
+                start: self.offsets[self.index - 1],
+                end: self.offsets[self.index - 1] + next_line.length(),
+                line: self.index,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Indentation,
+                  "expected indented block".to_string(),
+                  token,
+                ),
               )
-              .trim(chars=" \t")
-              .to_string()
-            None => ""
-          }
-          self.index += 1
-          if inline_text.length() > 0 {
-            let segments = split_statements(inline_text)
-            for segment_pair in segments {
-              let segment = segment_pair.0
-              if segment.length() == 0 {
-                continue
-              }
-              let parsed = match
-                parse_simple_statement(
-                  segment,
-                  self.index - 1,
-                  self.offsets[self.index - 1],
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              let _ = parsed
-
             }
-            continue
-          }
-          let handler_indent = self
-            .peek()
-            .map_or(0, fn(line) { count_indent(line) })
-          if handler_indent <= current_indent {
-            let token = {
-              kind: Eof,
-              start: self.offsets[self.index - 1],
-              end: self.offsets[self.index - 1] + next_line.length(),
-              line: self.index,
-              column: 1,
+            let body = match self.parse_block(handler_indent) {
+              Ok(value) => value
+              Err(err) => return Err(err)
             }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Indentation,
-                "expected indented block".to_string(),
-                token,
-              ),
-            )
+            for stmt in body {
+              else_body.push(stmt)
+            }
           }
-          let else_body = match self.parse_block(handler_indent) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let _ = else_body
           continue
         }
         if next_trimmed.has_prefix("finally") {
@@ -4933,41 +4945,42 @@ fn LineParser::parse_block(
                 Err(err) => return Err(err)
               }
               for stmt in parsed {
-                stmts.push(stmt)
+                finally_body.push(stmt)
               }
             }
-            continue
-          }
-          let handler_indent = self
-            .peek()
-            .map_or(0, fn(line) { count_indent(line) })
-          if handler_indent <= current_indent {
-            let token = {
-              kind: Eof,
-              start: self.offsets[self.index - 1],
-              end: self.offsets[self.index - 1] + next_line.length(),
-              line: self.index,
-              column: 1,
+          } else {
+            let handler_indent = self
+              .peek()
+              .map_or(0, fn(line) { count_indent(line) })
+            if handler_indent <= current_indent {
+              let token = {
+                kind: Eof,
+                start: self.offsets[self.index - 1],
+                end: self.offsets[self.index - 1] + next_line.length(),
+                line: self.index,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Indentation,
+                  "expected indented block".to_string(),
+                  token,
+                ),
+              )
             }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Indentation,
-                "expected indented block".to_string(),
-                token,
-              ),
-            )
-          }
-          let handler_body = match self.parse_block(handler_indent) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          for stmt in handler_body {
-            stmts.push(stmt)
+            let body = match self.parse_block(handler_indent) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            for stmt in body {
+              finally_body.push(stmt)
+            }
           }
           continue
         }
         break
       }
+      stmts.push(Stmt::Try(body=try_body, handlers~, else_body~, finally_body~))
       continue
     }
     if line_text.has_prefix("with ") || line_text.has_prefix("with(") {

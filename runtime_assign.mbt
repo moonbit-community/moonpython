@@ -66,17 +66,15 @@ fn assign_target_with_env(
       Ok(())
     }
     Target::Attribute(value~, attr~) => {
-      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+      let target_value = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let _ = attr
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Attribute,
-          "attribute not supported".to_string(),
-        ),
-      )
+      match set_attr_on_value(target_value, attr, assigned) {
+        Ok(_) => Ok(())
+        Err(err) => Err(err)
+      }
     }
     Target::Subscript(value~, index~) => {
       let container = match
@@ -173,17 +171,34 @@ fn delete_target_with_env(
       Ok(())
     }
     Target::Attribute(value~, attr~) => {
-      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+      let target_value = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      let _ = attr
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Attribute,
-          "attribute not supported".to_string(),
-        ),
-      )
+      match target_value {
+        Value::Instance(inst) => {
+          for i = 0; i < inst.dict.length(); i = i + 1 {
+            if inst.dict[i].0 == attr {
+              let _ = inst.dict.remove(i)
+              return Ok(())
+            }
+          }
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Attribute,
+              "attribute not found".to_string(),
+            ),
+          )
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Attribute,
+              "attribute not supported".to_string(),
+            ),
+          )
+      }
     }
     Target::Subscript(value~, index~) => {
       let container = match

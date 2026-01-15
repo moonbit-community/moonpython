@@ -12,6 +12,30 @@
 /// - interpreter_api.mbt
 
 ///|
+fn stringify_value_with_env(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[String, RuntimeError] {
+  match value {
+    Value::Instance(inst) => {
+      let instance = Value::Instance(inst)
+      match get_attr_from_value(instance, "__str__") {
+        Ok(method) =>
+          match call_callable_with_env(method, [], [], globals, builtins, io) {
+            Ok(Value::Str(text)) => Ok(text)
+            Ok(other) => Ok(value_to_string(other))
+            Err(_) => Ok(value_to_string(instance))
+          }
+        Err(_) => Ok(value_to_string(instance))
+      }
+    }
+    _ => Ok(value_to_string(value))
+  }
+}
+
+///|
 fn eval_expr_with_env(
   expr : Expr,
   locals : Array[(String, Value)],
@@ -79,7 +103,12 @@ fn eval_expr_with_env(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        buf.write_string(value_to_string(value))
+        let text = match
+          stringify_value_with_env(value, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        buf.write_string(text)
         rest = remaining
       }
       Ok(Value::Str(buf.to_string()))
@@ -258,49 +287,59 @@ fn eval_expr_with_env(
           ),
         )
       }
-      match (target, attr) {
-        (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
-        (Value::Int(_), "__hash__") =>
-          Ok(
-            Value::Function(FunctionValue::{
-              name: "__hash__",
-              params: [],
-              body: [],
-            }),
-          )
-        (Value::Function(_), "__hash__") =>
-          Ok(
-            Value::Function(FunctionValue::{
-              name: "__hash__",
-              params: [],
-              body: [],
-            }),
-          )
-        (Value::Function(func), "__doc__") =>
-          if func.body.length() > 0 {
-            match func.body[0] {
-              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
-                Ok(Value::Str(text))
-              _ => Ok(Value::None)
+      match target {
+        Value::Instance(_) | Value::Class(_) =>
+          get_attr_from_value(target, attr)
+        _ =>
+          match (target, attr) {
+            (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
+            (Value::Int(_), "__hash__") =>
+              Ok(
+                Value::Function(FunctionValue::{
+                  name: "__hash__",
+                  params: [],
+                  body: [],
+                }),
+              )
+            (Value::Function(_), "__hash__") =>
+              Ok(
+                Value::Function(FunctionValue::{
+                  name: "__hash__",
+                  params: [],
+                  body: [],
+                }),
+              )
+            (Value::Function(func), "__doc__") =>
+              if func.body.length() > 0 {
+                match func.body[0] {
+                  Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
+                    Ok(Value::Str(text))
+                  _ => Ok(Value::None)
+                }
+              } else {
+                Ok(Value::None)
+              }
+            (Value::Function(func), "__name__") => Ok(Value::Str(func.name))
+            (Value::Function(func), "__qualname__") => Ok(Value::Str(func.name))
+            (Value::Function(_), "__code__") => Ok(Value::Str("<code>"))
+            _ => {
+              let type_name = match target {
+                Value::Str(text) =>
+                  if text == "<code>" {
+                    "code"
+                  } else {
+                    "str"
+                  }
+                _ => type_name_from_value(target)
+              }
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Attribute,
+                  "'" + type_name + "' object has no attribute '" + attr + "'",
+                ),
+              )
             }
-          } else {
-            Ok(Value::None)
           }
-        (Value::Function(func), "__name__") => Ok(Value::Str(func.name))
-        (Value::Function(func), "__qualname__") => Ok(Value::Str(func.name))
-        (Value::Function(_), "__code__") => Ok(Value::Str("<code>"))
-        _ => {
-          let type_name = match target {
-            Value::Str(text) => if text == "<code>" { "code" } else { "str" }
-            _ => type_name_from_value(target)
-          }
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Attribute,
-              "'" + type_name + "' object has no attribute '" + attr + "'",
-            ),
-          )
-        }
       }
     }
     Expr::Subscript(value~, index~) => {
@@ -539,13 +578,42 @@ fn eval_expr_with_env(
               }
               Ok(Value::List(merged))
             }
-            _ =>
+            _ => {
+              if left_val is Value::Instance(_) {
+                match get_attr_from_value(left_val, "__add__") {
+                  Ok(method) =>
+                    return call_callable_with_env(
+                      method,
+                      [right_val],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    )
+                  Err(_) => ()
+                }
+              }
+              if right_val is Value::Instance(_) {
+                match get_attr_from_value(right_val, "__radd__") {
+                  Ok(method) =>
+                    return call_callable_with_env(
+                      method,
+                      [left_val],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    )
+                  Err(_) => ()
+                }
+              }
               Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
                   "unsupported operand type for +".to_string(),
                 ),
               )
+            }
           }
         BinaryOp::Sub => {
           let (left_is_float, left_num) = match number_value(left_val) {
@@ -996,19 +1064,9 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            match callee_value {
-              Value::Function(func) =>
-                eval_function_with_kwargs(
-                  func, arg_values, keywords, globals, builtins, io,
-                )
-              _ =>
-                Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    not_callable_message(callee_value),
-                  ),
-                )
-            }
+            call_callable_with_env(
+              callee_value, arg_values, keywords, globals, builtins, io,
+            )
           }
         Expr::Name(name) =>
           match name {
@@ -1027,7 +1085,12 @@ fn eval_expr_with_env(
                 if i > 0 {
                   buf.write_string(" ")
                 }
-                buf.write_string(value_to_string(arg_values[i]))
+                let text = match
+                  stringify_value_with_env(arg_values[i], globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                buf.write_string(text)
               }
               buf.write_string("\n")
               io.write_stdout(buf.to_string())
@@ -1071,7 +1134,214 @@ fn eval_expr_with_env(
               if arg_values.length() == 0 {
                 Ok(Value::Str(""))
               } else {
-                Ok(Value::Str(value_to_string(arg_values[0])))
+                let text = match
+                  stringify_value_with_env(arg_values[0], globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(Value::Str(text))
+              }
+            }
+            "int" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::Int(0L))
+              } else {
+                match arg_values[0] {
+                  Value::Int(v) => Ok(Value::Int(v))
+                  Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+                  Value::Float(v) => Ok(Value::Int(v.to_int64()))
+                  Value::Str(text) => {
+                    let parsed = @strconv.parse_int(text) catch {
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "ValueError: invalid literal for int()".to_string(),
+                          ),
+                        )
+                    }
+                    Ok(Value::Int(parsed.to_int64()))
+                  }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "int() argument must be a string or a number".to_string(),
+                      ),
+                    )
+                }
+              }
+            }
+            "float" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::Float(0.0))
+              } else {
+                match arg_values[0] {
+                  Value::Float(v) => Ok(Value::Float(v))
+                  Value::Int(v) => Ok(Value::Float(v.to_double()))
+                  Value::Bool(v) => Ok(Value::Float(if v { 1.0 } else { 0.0 }))
+                  Value::Str(text) => {
+                    let parsed = @strconv.parse_double(text) catch {
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "ValueError: could not convert string to float".to_string(),
+                          ),
+                        )
+                    }
+                    Ok(Value::Float(parsed))
+                  }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "float() argument must be a string or a number".to_string(),
+                      ),
+                    )
+                }
+              }
+            }
+            "list" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::List([]))
+              } else {
+                let items = match iterable_values(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(Value::List(items))
+              }
+            }
+            "tuple" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::Tuple([]))
+              } else {
+                let items = match iterable_values(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(Value::Tuple(items))
+              }
+            }
+            "set" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::Set([]))
+              } else {
+                let items = match iterable_values(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let unique : Array[Value] = []
+                for item in items {
+                  let mut exists = false
+                  for existing in unique {
+                    if eq_value(existing, item) {
+                      exists = true
+                      break
+                    }
+                  }
+                  if !exists {
+                    unique.push(item)
+                  }
+                }
+                Ok(Value::Set(unique))
+              }
+            }
+            "dict" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                Ok(Value::Dict([]))
+              } else {
+                match arg_values[0] {
+                  Value::Dict(pairs) => Ok(Value::Dict(pairs))
+                  Value::List(items) | Value::Tuple(items) => {
+                    let pairs : Array[(Value, Value)] = []
+                    for item in items {
+                      match item {
+                        Value::Tuple(values) | Value::List(values) =>
+                          if values.length() == 2 {
+                            pairs.push((values[0], values[1]))
+                          } else {
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "ValueError: dictionary update sequence element has wrong length".to_string(),
+                              ),
+                            )
+                          }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "cannot convert to dict".to_string(),
+                            ),
+                          )
+                      }
+                    }
+                    Ok(Value::Dict(pairs))
+                  }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "cannot convert to dict".to_string(),
+                      ),
+                    )
+                }
               }
             }
             "len" => {
@@ -1184,25 +1454,14 @@ fn eval_expr_with_env(
             _ => {
               let value = get_from_env(name, locals, globals, builtins)
               if value is Some(value) {
-                match value {
-                  Value::Function(func) => {
-                    let (arg_values, keywords) = match
-                      eval_call_args(args, locals, globals, builtins, io) {
-                      Ok(value) => value
-                      Err(err) => return Err(err)
-                    }
-                    eval_function_with_kwargs(
-                      func, arg_values, keywords, globals, builtins, io,
-                    )
-                  }
-                  _ =>
-                    Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Type,
-                        not_callable_message(value),
-                      ),
-                    )
+                let (arg_values, keywords) = match
+                  eval_call_args(args, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
                 }
+                call_callable_with_env(
+                  value, arg_values, keywords, globals, builtins, io,
+                )
               } else {
                 Err(
                   make_runtime_error(
@@ -1224,19 +1483,9 @@ fn eval_expr_with_env(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          match callee_value {
-            Value::Function(func) =>
-              eval_function_with_kwargs(
-                func, arg_values, keywords, globals, builtins, io,
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  not_callable_message(callee_value),
-                ),
-              )
-          }
+          call_callable_with_env(
+            callee_value, arg_values, keywords, globals, builtins, io,
+          )
         }
       }
     _ =>

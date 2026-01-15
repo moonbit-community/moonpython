@@ -63,11 +63,50 @@ while True:
 
 print("after loop:", summarize(tasks))
 
-# With: parsed as a statement and executed by the interpreter.
-# Note: CPython expects __enter__/__exit__ for real context managers;
-# mpython currently treats this as a minimal binding + block execution.
-with "=>" as prefix:
+class PrefixContext:
+    def __init__(self, prefix):
+        self.prefix = prefix
+
+    def __enter__(self):
+        return self.prefix
+
+    def __exit__(self, exc_type, exc, tb):
+        # ignore exceptions for now
+        return None
+
+
+# Real context manager protocol (__enter__/__exit__)
+with PrefixContext("=>") as prefix:
     print(prefix, summarize(tasks))
+
+
+class Task:
+    def __init__(self, title):
+        self.title = title
+
+    def __str__(self):
+        return f"Task({self.title})"
+
+    # operator overloading
+    def __add__(self, other):
+        return Task(self.title + "+" + other.title)
+
+
+class TimedTask(Task):
+    def __init__(self, title, minutes):
+        # call base initializer explicitly (no super() support yet)
+        Task.__init__(self, title)
+        self.minutes = minutes
+
+    def __str__(self):
+        return f"TimedTask({self.title}, {self.minutes}m)"
+
+
+a = Task("write")
+b = Task("docs")
+print("add:", a + b)
+
+print("inherit:", TimedTask("ship", 15))
 
 # Some data crunching
 squares = [x * x for x in range(8)]
@@ -79,32 +118,4 @@ print("pairs:", pairs)
 # A dict comprehension (useful in real scripts)
 index = {t: i for i, t in pairs}
 print("index:", index)
-
-# --- Not executed yet (future interpreter features) ---
-if False:
-    class Task:
-        def __init__(self, title):
-            self.title = title
-
-        def __str__(self):
-            return f"Task({self.title})"
-
-        # operator overloading
-        def __add__(self, other):
-            return Task(self.title + "+" + other.title)
-
-    class TimedTask(Task):
-        def __init__(self, title, minutes):
-            super().__init__(title)
-            self.minutes = minutes
-
-        def __str__(self):
-            return f"TimedTask({self.title}, {self.minutes}m)"
-
-    a = Task("write")
-    b = Task("docs")
-    print(a + b)
-
-    t = TimedTask("ship", 15)
-    print(t)
 

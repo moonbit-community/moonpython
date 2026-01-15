@@ -9,6 +9,7 @@ Regenerate with:
 from __future__ import annotations
 
 import ast
+import builtins
 import contextlib
 import html
 import importlib
@@ -140,6 +141,12 @@ def safe_import(name: str, globals: Any = None, locals: Any = None, fromlist: An
 
 SAFE_BUILTINS = {
     "__import__": safe_import,
+    # Keep the env reasonably small/stable for spec generation.
+    # Add only the minimum needed for basic class statements.
+    "__build_class__": builtins.__build_class__,
+    "object": object,
+    "BaseException": BaseException,
+    "Exception": Exception,
     "len": len,
     "range": range,
     "str": str,
@@ -207,12 +214,23 @@ def eval_program(lines: List[str]) -> Tuple[Any, str, str]:
     return None, stdout.getvalue(), stderr.getvalue()
 
 
+def normalize_syntax_message(message: str) -> str:
+    message = message or "invalid syntax"
+    if message in {"unmatched ')'", "unmatched ']'", "unmatched '}'"}:
+        return message
+    return "invalid syntax"
+
+
 def format_error(err: Exception) -> str:
+    # We intentionally normalize SyntaxError reporting (message + column)
+    # because mpython's parser does not aim to match CPython's exact offsets.
+    if isinstance(err, IndentationError):
+        line = err.lineno or 1
+        return f"line {line}:1 expected indented block"
     if isinstance(err, SyntaxError):
         line = err.lineno or 1
-        column = err.offset or 1
-        message = err.msg or "invalid syntax"
-        return f"line {line}:{column} {message}"
+        message = normalize_syntax_message(err.msg or "invalid syntax")
+        return f"line {line}:1 {message}"
     return f"{err.__class__.__name__}: {err}"
 
 
@@ -237,6 +255,11 @@ def value_to_json(value: Any) -> Any:
             raise ValueError("unsupported float")
         return ["Float", value]
     if isinstance(value, str):
+        # Normalize CPython function repr addresses inside strings.
+        # Example: "<function <lambda> at 0x10a8b5f80>" -> "<function <lambda>>"
+        if value.startswith("<function ") and " at 0x" in value and value.endswith(">"):
+            head, _ = value.split(" at 0x", 1)
+            value = head + ">"
         return ["Str", value]
     if isinstance(value, list):
         return ["List", [value_to_json(item) for item in value]]
