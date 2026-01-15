@@ -731,20 +731,56 @@ fn delete_target_with_env(
       )
     }
     Target::Subscript(value~, index~) => {
-      let _ = match eval_expr_with_env(value, locals, globals, builtins, io) {
+      let container = match
+        eval_expr_with_env(value, locals, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      let _ = match eval_expr_with_env(index, locals, globals, builtins, io) {
+      let index_value = match
+        eval_expr_with_env(index, locals, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::NotImplemented,
-          "delete subscript not implemented".to_string(),
-        ),
-      )
+      match container {
+        Value::List(values) => {
+          let idx = match index_from_value(index_value, 0) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let norm = normalize_index(idx, values.length())
+          if norm < 0 || norm >= values.length() {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Index,
+                "index out of range".to_string(),
+              ),
+            )
+          }
+          let _ = values.remove(norm)
+          Ok(())
+        }
+        Value::Dict(pairs) => {
+          for i = 0; i < pairs.length(); i = i + 1 {
+            if eq_value(pairs[i].0, index_value) {
+              let _ = pairs.remove(i)
+              return Ok(())
+            }
+          }
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Key,
+              "key not found".to_string(),
+            ),
+          )
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "object does not support item deletion".to_string(),
+            ),
+          )
+      }
     }
   }
 }
@@ -2345,13 +2381,22 @@ fn eval_function(
 }
 
 ///|
-fn eval_block(
+priv enum BlockFlow {
+  Normal(Value)
+  Return(Value)
+  Break
+  Continue
+}
+
+///|
+fn eval_block_flow(
   body : Array[Stmt],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Value, RuntimeError] {
+  loop_depth : Int,
+) -> Result[BlockFlow, RuntimeError] {
   let mut last = Value::None
   for stmt in body {
     match stmt {
@@ -2384,9 +2429,9 @@ fn eval_block(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          return Ok(value)
+          return Ok(BlockFlow::Return(value))
         }
-        return Ok(Value::None)
+        return Ok(BlockFlow::Return(Value::None))
       }
       Stmt::Function(name~, params~, body~) => {
         let func = FunctionValue::{ name, params, body }
@@ -2465,19 +2510,25 @@ fn eval_block(
           Some(name) => set_global_value(globals, name, ctx_value)
           None => ()
         }
-        let _ = match eval_block(body, locals, globals, builtins, io) {
-          Ok(value) => value
+        match eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+          Ok(BlockFlow::Normal(_)) => ()
+          Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+          Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+          Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
           Err(err) => return Err(err)
         }
         last = Value::None
       }
-      Stmt::Class(name~, body~) =>
+      Stmt::Class(name~, body~) => {
+        let _ = name
+        let _ = body
         return Err(
           make_runtime_error(
             RuntimeErrorKind::Runtime,
             "NameError: __build_class__ not found".to_string(),
           ),
         )
+      }
       Stmt::While(condition~, body~) => {
         while true {
           let cond_value = match
@@ -2488,11 +2539,14 @@ fn eval_block(
           if !bool_from_value(cond_value) {
             break
           }
-          let _ = match eval_block(body, locals, globals, builtins, io) {
-            Ok(value) => value
+          match
+            eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Continue) => continue
+            Ok(BlockFlow::Break) => break
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
             Err(err) => return Err(err)
           }
-
         }
         last = Value::None
       }
@@ -2508,28 +2562,39 @@ fn eval_block(
         }
         for item in items {
           set_global_value(globals, target, item)
-          let _ = match eval_block(body, locals, globals, builtins, io) {
-            Ok(value) => value
+          match
+            eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Continue) => continue
+            Ok(BlockFlow::Break) => break
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
             Err(err) => return Err(err)
           }
-
         }
         last = Value::None
       }
-      Stmt::Break =>
+      Stmt::Break => {
+        if loop_depth > 0 {
+          return Ok(BlockFlow::Break)
+        }
         return Err(
           make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "break not implemented".to_string(),
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'break' outside loop".to_string(),
           ),
         )
-      Stmt::Continue =>
+      }
+      Stmt::Continue => {
+        if loop_depth > 0 {
+          return Ok(BlockFlow::Continue)
+        }
         return Err(
           make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "continue not implemented".to_string(),
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'continue' not properly in loop".to_string(),
           ),
         )
+      }
       Stmt::Match(subject~, cases~) => {
         let subject_value = match
           eval_expr_with_env(subject, locals, globals, builtins, io) {
@@ -2557,9 +2622,15 @@ fn eval_block(
                 guard_ok = bool_from_value(guard_value)
               }
               if guard_ok {
-                let _ = match
-                  eval_block(case_body, locals, globals, builtins, io) {
-                  Ok(value) => value
+                match
+                  eval_block_flow(
+                    case_body, locals, globals, builtins, io, loop_depth,
+                  ) {
+                  Ok(BlockFlow::Normal(_)) => ()
+                  Ok(BlockFlow::Return(value)) =>
+                    return Ok(BlockFlow::Return(value))
+                  Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+                  Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
                   Err(err) => return Err(err)
                 }
                 break
@@ -2584,17 +2655,25 @@ fn eval_block(
           Err(err) => return Err(err)
         }
         if bool_from_value(cond_value) {
-          let _ = match eval_block(body, locals, globals, builtins, io) {
-            Ok(value) => value
+          match
+            eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
             Err(err) => return Err(err)
           }
-
         } else {
-          let _ = match eval_block(else_body, locals, globals, builtins, io) {
-            Ok(value) => value
+          match
+            eval_block_flow(
+              else_body, locals, globals, builtins, io, loop_depth,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
             Err(err) => return Err(err)
           }
-
         }
         last = Value::None
       }
@@ -2607,7 +2686,36 @@ fn eval_block(
         )
     }
   }
-  Ok(last)
+  Ok(BlockFlow::Normal(last))
+}
+
+///|
+fn eval_block(
+  body : Array[Stmt],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  match eval_block_flow(body, locals, globals, builtins, io, 0) {
+    Ok(BlockFlow::Normal(value)) => Ok(value)
+    Ok(BlockFlow::Return(value)) => Ok(value)
+    Ok(BlockFlow::Break) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: 'break' outside loop".to_string(),
+        ),
+      )
+    Ok(BlockFlow::Continue) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: 'continue' not properly in loop".to_string(),
+        ),
+      )
+    Err(err) => Err(err)
+  }
 }
 
 ///|
