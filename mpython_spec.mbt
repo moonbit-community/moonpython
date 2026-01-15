@@ -203,6 +203,8 @@ pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
   message : String
   span : Span?
+  exc_type : String
+  exc_args : Array[String]
 } derive(ToJson)
 
 ///|

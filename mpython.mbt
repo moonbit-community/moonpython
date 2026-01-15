@@ -289,11 +289,46 @@ fn number_value(value : Value) -> Result[(Bool, Double), RuntimeError] {
     Value::Float(v) => Ok((true, v))
     Value::Bool(v) => Ok((false, if v { 1.0 } else { 0.0 }))
     _ =>
-      Err(RuntimeError::{
-        kind: RuntimeErrorKind::Type,
-        message: "expected number".to_string(),
-        span: None,
-      })
+      Err(make_runtime_error(RuntimeErrorKind::Type, "expected number".to_string()))
+  }
+}
+
+///|
+fn runtime_error_exc(kind : RuntimeErrorKind, message : String) -> (String, Array[String]) {
+  match kind {
+    RuntimeErrorKind::ZeroDivision => ("ZeroDivisionError".to_string(), [message])
+    RuntimeErrorKind::Name => ("NameError".to_string(), [message])
+    RuntimeErrorKind::Type => ("TypeError".to_string(), [message])
+    RuntimeErrorKind::Attribute => ("AttributeError".to_string(), [message])
+    RuntimeErrorKind::Index => ("IndexError".to_string(), [message])
+    RuntimeErrorKind::Key => ("KeyError".to_string(), [message])
+    RuntimeErrorKind::NotImplemented => ("NotImplementedError".to_string(), [message])
+    RuntimeErrorKind::Runtime => {
+      let prefixes : Array[String] = [
+        "ValueError:",
+        "ImportError:",
+        "AssertionError:",
+        "RuntimeError:",
+        "EOFError:",
+        "SyntaxError:",
+        "IndentationError:",
+      ]
+      for prefix in prefixes {
+        if message.has_prefix(prefix) {
+          let type_name = prefix.substring(start=0, end=prefix.length() - 1)
+          let mut rest = message.substring(start=prefix.length(), end=message.length())
+          if rest.has_prefix(" ") {
+            rest = rest.substring(start=1, end=rest.length())
+          }
+          let args = if rest.length() == 0 { [] } else { [rest] }
+          return (type_name.to_string(), args)
+        }
+      }
+      if message.has_prefix("line ") {
+        return ("SyntaxError".to_string(), [message])
+      }
+      ("RuntimeError".to_string(), [message])
+    }
   }
 }
 
@@ -302,7 +337,8 @@ fn make_runtime_error(
   kind : RuntimeErrorKind,
   message : String,
 ) -> RuntimeError {
-  RuntimeError::{ kind, message, span: None }
+  let (exc_type, exc_args) = runtime_error_exc(kind, message)
+  RuntimeError::{ kind, message, span: None, exc_type, exc_args }
 }
 
 ///|
@@ -2681,12 +2717,7 @@ pub fn Interpreter::exec_source(
 ) -> Result[RunResult, RuntimeError] {
   let program = match parse(source) {
     Ok(value) => value
-    Err(err) =>
-      return Err(RuntimeError::{
-        kind: RuntimeErrorKind::Runtime,
-        message: format_parse_error(err),
-        span: None,
-      })
+    Err(err) => return Err(make_parse_runtime_error(err))
   }
   self.exec(program)
 }
@@ -2698,12 +2729,7 @@ pub fn Interpreter::eval_source(
 ) -> Result[RunResult, RuntimeError] {
   let expr = match parse_expr(source) {
     Ok(value) => value
-    Err(err) =>
-      return Err(RuntimeError::{
-        kind: RuntimeErrorKind::Runtime,
-        message: format_parse_error(err),
-        span: None,
-      })
+    Err(err) => return Err(make_parse_runtime_error(err))
   }
   let value = match
     eval_expr_with_env(expr, [], self.globals, self.builtins, self.io) {
@@ -2753,6 +2779,22 @@ pub fn Interpreter::set_global(
   value : Value,
 ) -> Unit {
   set_global_value(self.globals, name, value)
+}
+
+///|
+fn make_parse_runtime_error(error : ParseError) -> RuntimeError {
+  let message = format_parse_error(error)
+  let (exc_type, exc_args) = match error.kind {
+    ParseErrorKind::Indentation => ("IndentationError".to_string(), [message])
+    _ => ("SyntaxError".to_string(), [message])
+  }
+  RuntimeError::{
+    kind: RuntimeErrorKind::Runtime,
+    message,
+    span: None,
+    exc_type,
+    exc_args,
+  }
 }
 
 ///|
