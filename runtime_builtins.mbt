@@ -1136,6 +1136,900 @@ fn builtin_next(
 }
 
 ///|
+fn int_to_base_string(value_in : Int64, base : Int, prefix : String) -> String {
+  if value_in == 0L {
+    return prefix + "0"
+  }
+  let digits = if base == 2 {
+    "01"
+  } else if base == 8 {
+    "01234567"
+  } else {
+    "0123456789abcdef"
+  }
+  let mut value = value_in
+  let mut sign = ""
+  if value < 0L {
+    sign = "-"
+    value = -value
+  }
+  let chars : Array[Char] = []
+  let mut n = value
+  while n > 0L {
+    let d = (n % base.to_int64()).to_int()
+    chars.push(digits.to_array()[d])
+    n = n / base.to_int64()
+  }
+  let buf = StringBuilder::new()
+  buf.write_string(sign)
+  buf.write_string(prefix)
+  for i = chars.length() - 1; i >= 0; i = i - 1 {
+    buf.write_char(chars[i])
+    if i == 0 {
+      break
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn hash_string(text : String) -> Int64 {
+  let mut h : Int64 = 0L
+  for ch in text.to_array() {
+    h = h * 131L + ch.to_int().to_int64()
+  }
+  h
+}
+
+///|
+fn escape_string_for_repr(text : String) -> String {
+  let buf = StringBuilder::new()
+  for ch in text.to_array() {
+    if ch == '\\' {
+      buf.write_string("\\\\")
+    } else if ch == '"' {
+      buf.write_string("\\\"")
+    } else if ch == '\n' {
+      buf.write_string("\\n")
+    } else if ch == '\r' {
+      buf.write_string("\\r")
+    } else if ch == '\t' {
+      buf.write_string("\\t")
+    } else {
+      buf.write_char(ch)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn builtin_bool(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() == 0 {
+    return Ok(Value::Bool(false))
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "bool() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Bool(bool_from_value(arg_values[0])))
+}
+
+///|
+fn builtin_repr(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "repr() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match arg_values[0] {
+    Value::Str(text) =>
+      Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
+    other => Ok(Value::Str(value_to_string(other)))
+  }
+}
+
+///|
+fn builtin_abs(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "abs() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match arg_values[0] {
+    Value::Int(v) => Ok(Value::Int(if v < 0L { -v } else { v }))
+    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::Float(v) => Ok(Value::Float(if v < 0.0 { -v } else { v }))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "bad operand type for abs()".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn round_float_to_int(value : Double) -> Int64 {
+  if value >= 0.0 {
+    @math.floor(value + 0.5).to_int64()
+  } else {
+    @math.ceil(value - 0.5).to_int64()
+  }
+}
+
+///|
+fn builtin_round(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() == 0 || arg_values.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "round() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  // `ndigits` is accepted but ignored for now.
+  match arg_values[0] {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::Float(v) => Ok(Value::Int(round_float_to_int(v)))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "round() argument must be a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn pow_int(base : Int64, exp : Int64) -> Int64 {
+  let mut out = 1L
+  let mut i = 0L
+  while i < exp {
+    out = out * base
+    i = i + 1L
+  }
+  out
+}
+
+///|
+fn mod_pow_int(base : Int64, exp : Int64, modulus : Int64) -> Int64 {
+  if modulus == 1L || modulus == -1L {
+    return 0L
+  }
+  let mut result = 1L
+  let mut b = base % modulus
+  let mut e = exp
+  while e > 0L {
+    if e % 2L != 0L {
+      result = result * b % modulus
+    }
+    e = e / 2L
+    b = b * b % modulus
+  }
+  result
+}
+
+///|
+fn builtin_pow(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() < 2 || arg_values.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "pow() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let modulus_opt : Int64? = if arg_values.length() == 3 {
+    match arg_values[2] {
+      Value::Int(v) => Some(v)
+      Value::Bool(v) => Some(if v { 1L } else { 0L })
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "pow() 3rd argument must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    None
+  }
+  match (arg_values[0], arg_values[1], modulus_opt) {
+    (Value::Int(a), Value::Int(b), Some(m)) =>
+      if b < 0L {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "pow() exponent must be >= 0 when modulus is provided".to_string(),
+          ),
+        )
+      } else if m == 0L {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::ZeroDivision,
+            "integer modulo by zero".to_string(),
+          ),
+        )
+      } else {
+        Ok(Value::Int(mod_pow_int(a, b, m)))
+      }
+    (Value::Int(a), Value::Int(b), None) =>
+      if b < 0L {
+        Ok(Value::Float(@math.pow(a.to_double(), b.to_double())))
+      } else {
+        Ok(Value::Int(pow_int(a, b)))
+      }
+    _ => {
+      let (_, aa) = match number_value(arg_values[0]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let (_, bb) = match number_value(arg_values[1]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(Value::Float(@math.pow(aa, bb)))
+    }
+  }
+}
+
+///|
+fn floor_divmod_int(a : Int64, b : Int64) -> (Int64, Int64) {
+  let mut q = a / b
+  let mut r = a % b
+  if r != 0L && (r > 0L) != (b > 0L) {
+    q = q - 1L
+    r = r + b
+  }
+  (q, r)
+}
+
+///|
+fn builtin_divmod(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "divmod() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  match (arg_values[0], arg_values[1]) {
+    (Value::Int(a), Value::Int(b)) =>
+      if b == 0L {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::ZeroDivision,
+            "integer division or modulo by zero".to_string(),
+          ),
+        )
+      } else {
+        let (q, r) = floor_divmod_int(a, b)
+        Ok(Value::Tuple([Value::Int(q), Value::Int(r)]))
+      }
+    _ => {
+      let (_, aa) = match number_value(arg_values[0]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let (_, bb) = match number_value(arg_values[1]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if bb == 0.0 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::ZeroDivision,
+            "division by zero".to_string(),
+          ),
+        )
+      }
+      let q = @math.floor(aa / bb)
+      let r = aa - q * bb
+      Ok(Value::Tuple([Value::Float(q), Value::Float(r)]))
+    }
+  }
+}
+
+///|
+fn builtin_chr(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "chr() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let codepoint = match arg_values[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1L } else { 0L }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "chr() argument must be int".to_string(),
+        ),
+      )
+  }
+  if codepoint < 0L || codepoint > 0x10FFFFL {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: chr() arg not in range(0x110000)".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str(char_to_string(Char::from_int(codepoint.to_int()))))
+}
+
+///|
+fn builtin_ord(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "ord() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match arg_values[0] {
+    Value::Str(text) => {
+      let chars = text.to_array()
+      if chars.length() != 1 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "ord() expected a character".to_string(),
+          ),
+        )
+      }
+      Ok(Value::Int(chars[0].to_int().to_int64()))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "ord() expected a character".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_bin(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "bin() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let value = match arg_values[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1L } else { 0L }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "bin() argument must be int".to_string(),
+        ),
+      )
+  }
+  Ok(Value::Str(int_to_base_string(value, 2, "0b")))
+}
+
+///|
+fn builtin_oct(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "oct() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let value = match arg_values[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1L } else { 0L }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "oct() argument must be int".to_string(),
+        ),
+      )
+  }
+  Ok(Value::Str(int_to_base_string(value, 8, "0o")))
+}
+
+///|
+fn builtin_hex(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "hex() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let value = match arg_values[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1L } else { 0L }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "hex() argument must be int".to_string(),
+        ),
+      )
+  }
+  Ok(Value::Str(int_to_base_string(value, 16, "0x")))
+}
+
+///|
+fn builtin_callable(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "callable() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let value = match arg_values[0] {
+    Value::Function(_) | Value::Class(_) | Value::BoundMethod(_) => true
+    _ => false
+  }
+  Ok(Value::Bool(value))
+}
+
+///|
+fn builtin_isinstance(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "isinstance() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let obj = arg_values[0]
+  let cls = arg_values[1]
+  match cls {
+    Value::Function(func) =>
+      if func.body.length() == 0 {
+        let ok = match func.name {
+          "int" =>
+            match obj {
+              Value::Int(_) | Value::Bool(_) => true
+              _ => false
+            }
+          "bool" =>
+            match obj {
+              Value::Bool(_) => true
+              _ => false
+            }
+          "float" =>
+            match obj {
+              Value::Float(_) => true
+              _ => false
+            }
+          "str" =>
+            match obj {
+              Value::Str(_) => true
+              _ => false
+            }
+          "list" =>
+            match obj {
+              Value::List(_) => true
+              _ => false
+            }
+          "tuple" =>
+            match obj {
+              Value::Tuple(_) => true
+              _ => false
+            }
+          "dict" =>
+            match obj {
+              Value::Dict(_) => true
+              _ => false
+            }
+          "set" =>
+            match obj {
+              Value::Set(_) => true
+              _ => false
+            }
+          _ => false
+        }
+        Ok(Value::Bool(ok))
+      } else {
+        Ok(Value::Bool(false))
+      }
+    Value::Class(klass) =>
+      match obj {
+        Value::Instance(inst) => {
+          let mro = match class_mro(inst.class) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          for c in mro {
+            if c.name == klass.name {
+              return Ok(Value::Bool(true))
+            }
+          }
+          Ok(Value::Bool(false))
+        }
+        Value::Class(c) => Ok(Value::Bool(c.name == klass.name))
+        _ => Ok(Value::Bool(false))
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "isinstance() arg 2 must be a type".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_type(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "type() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str(type_name_from_value(arg_values[0])))
+}
+
+///|
+fn builtin_id(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "id() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let value = arg_values[0]
+  match value {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::Str(text) => Ok(Value::Int(hash_string(text)))
+    _ => Ok(Value::Int(hash_string(value_to_string(value))))
+  }
+}
+
+///|
+fn builtin_hash(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "hash() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match arg_values[0] {
+    Value::None => Ok(Value::Int(0L))
+    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Float(v) => Ok(Value::Int(v.to_int64()))
+    Value::Str(text) => Ok(Value::Int(hash_string(text)))
+    other =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "unhashable type: '" + type_name_from_value(other) + "'",
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_globals(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = io
+  let _ = locals
+  let _ = builtins
+  if args.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "globals() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs : Array[(Value, Value)] = []
+  for pair in globals {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+  Ok(Value::Dict(pairs))
+}
+
+///|
+fn builtin_locals(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = io
+  let _ = globals
+  let _ = builtins
+  if args.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "locals() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs : Array[(Value, Value)] = []
+  for pair in locals {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+  Ok(Value::Dict(pairs))
+}
+
+///|
+fn builtin_dir(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = io
+  if args.length() == 0 {
+    let names : Array[Value] = []
+    for pair in globals {
+      names.push(Value::Str(pair.0))
+    }
+    return Ok(Value::List(names))
+  }
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "dir() takes 0 or 1 arguments".to_string(),
+      ),
+    )
+  }
+  let value = arg_values[0]
+  let out : Array[Value] = []
+  match value {
+    Value::Dict(pairs) =>
+      for pair in pairs {
+        match pair.0 {
+          Value::Str(name) => out.push(Value::Str(name))
+          _ => ()
+        }
+      }
+    Value::Instance(inst) => {
+      for pair in inst.dict {
+        out.push(Value::Str(pair.0))
+      }
+      for pair in inst.class.dict {
+        out.push(Value::Str(pair.0))
+      }
+    }
+    Value::Class(klass) =>
+      for pair in klass.dict {
+        out.push(Value::Str(pair.0))
+      }
+    _ => ()
+  }
+  Ok(Value::List(out))
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -1181,6 +2075,25 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "dict", run: builtin_dict },
     BuiltinDef::{ name: "iter", run: builtin_iter },
     BuiltinDef::{ name: "next", run: builtin_next },
+    BuiltinDef::{ name: "bool", run: builtin_bool },
+    BuiltinDef::{ name: "repr", run: builtin_repr },
+    BuiltinDef::{ name: "abs", run: builtin_abs },
+    BuiltinDef::{ name: "round", run: builtin_round },
+    BuiltinDef::{ name: "pow", run: builtin_pow },
+    BuiltinDef::{ name: "divmod", run: builtin_divmod },
+    BuiltinDef::{ name: "chr", run: builtin_chr },
+    BuiltinDef::{ name: "ord", run: builtin_ord },
+    BuiltinDef::{ name: "bin", run: builtin_bin },
+    BuiltinDef::{ name: "oct", run: builtin_oct },
+    BuiltinDef::{ name: "hex", run: builtin_hex },
+    BuiltinDef::{ name: "callable", run: builtin_callable },
+    BuiltinDef::{ name: "isinstance", run: builtin_isinstance },
+    BuiltinDef::{ name: "type", run: builtin_type },
+    BuiltinDef::{ name: "id", run: builtin_id },
+    BuiltinDef::{ name: "hash", run: builtin_hash },
+    BuiltinDef::{ name: "globals", run: builtin_globals },
+    BuiltinDef::{ name: "locals", run: builtin_locals },
+    BuiltinDef::{ name: "dir", run: builtin_dir },
   ]
   builtin_defs_ready.val = true
 }

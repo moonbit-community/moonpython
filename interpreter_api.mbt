@@ -58,6 +58,163 @@ pub fn Interpreter::with_config(config : Config) -> Interpreter {
 }
 
 ///|
+pub fn Interpreter::new_spec() -> Interpreter {
+  let config = Config::default()
+  let object_class = ClassValue::{ name: "object", bases: [], dict: [] }
+  let base_exception_class = ClassValue::{
+    name: "BaseException",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let exception_class = ClassValue::{
+    name: "Exception",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let builtins : Array[(String, Value)] = [
+    (
+      "print",
+      Value::Function(FunctionValue::{
+        name: "print",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "len",
+      Value::Function(FunctionValue::{
+        name: "len",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "range",
+      Value::Function(FunctionValue::{
+        name: "range",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "str",
+      Value::Function(FunctionValue::{
+        name: "str",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "int",
+      Value::Function(FunctionValue::{
+        name: "int",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "float",
+      Value::Function(FunctionValue::{
+        name: "float",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "list",
+      Value::Function(FunctionValue::{
+        name: "list",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "dict",
+      Value::Function(FunctionValue::{
+        name: "dict",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "set",
+      Value::Function(FunctionValue::{
+        name: "set",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "tuple",
+      Value::Function(FunctionValue::{
+        name: "tuple",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "enumerate",
+      Value::Function(FunctionValue::{
+        name: "enumerate",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "zip",
+      Value::Function(FunctionValue::{
+        name: "zip",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "any",
+      Value::Function(FunctionValue::{
+        name: "any",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "all",
+      Value::Function(FunctionValue::{
+        name: "all",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "sum",
+      Value::Function(FunctionValue::{
+        name: "sum",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    ("object", Value::Class(object_class)),
+    ("BaseException", Value::Class(base_exception_class)),
+    ("Exception", Value::Class(exception_class)),
+  ]
+  Interpreter::with_builtins(builtins, config)
+}
+
+///|
 pub fn Interpreter::with_builtins(
   builtins : Array[(String, Value)],
   config : Config,
@@ -357,6 +514,177 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       "next",
       Value::Function(FunctionValue::{
         name: "next",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "bool",
+      Value::Function(FunctionValue::{
+        name: "bool",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "repr",
+      Value::Function(FunctionValue::{
+        name: "repr",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "abs",
+      Value::Function(FunctionValue::{
+        name: "abs",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "round",
+      Value::Function(FunctionValue::{
+        name: "round",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "pow",
+      Value::Function(FunctionValue::{
+        name: "pow",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "divmod",
+      Value::Function(FunctionValue::{
+        name: "divmod",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "chr",
+      Value::Function(FunctionValue::{
+        name: "chr",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "ord",
+      Value::Function(FunctionValue::{
+        name: "ord",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "bin",
+      Value::Function(FunctionValue::{
+        name: "bin",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "oct",
+      Value::Function(FunctionValue::{
+        name: "oct",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "hex",
+      Value::Function(FunctionValue::{
+        name: "hex",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "callable",
+      Value::Function(FunctionValue::{
+        name: "callable",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "isinstance",
+      Value::Function(FunctionValue::{
+        name: "isinstance",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "type",
+      Value::Function(FunctionValue::{
+        name: "type",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "id",
+      Value::Function(FunctionValue::{
+        name: "id",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "hash",
+      Value::Function(FunctionValue::{
+        name: "hash",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "globals",
+      Value::Function(FunctionValue::{
+        name: "globals",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "locals",
+      Value::Function(FunctionValue::{
+        name: "locals",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "dir",
+      Value::Function(FunctionValue::{
+        name: "dir",
         params: [],
         body: [],
         is_generator: false,

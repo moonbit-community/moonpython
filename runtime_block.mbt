@@ -10,6 +10,29 @@ priv enum BlockFlow {
 }
 
 ///|
+fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
+  let mut message = "".to_string()
+  match get_named_value(inst.dict, "message") {
+    Some(Value::Str(text)) => message = text
+    Some(value) => message = value_to_string(value)
+    None => ()
+  }
+  let printed = if message.length() > 0 {
+    inst.class.name + ": " + message
+  } else {
+    inst.class.name
+  }
+  let args : Array[String] = if message.length() > 0 { [message] } else { [] }
+  RuntimeError::{
+    kind: RuntimeErrorKind::Runtime,
+    message: printed,
+    span: None,
+    exc_type: inst.class.name,
+    exc_args: args,
+  }
+}
+
+///|
 fn eval_block_flow(
   body : Array[Stmt],
   locals : Array[(String, Value)],
@@ -91,24 +114,38 @@ fn eval_block_flow(
             Err(err) => return Err(err)
           }
           match raised_value {
-            Value::Instance(inst) => {
-              let mut message = "".to_string()
-              match get_named_value(inst.dict, "message") {
-                Some(Value::Str(text)) => message = text
-                Some(value) => message = value_to_string(value)
-                None => ()
+            Value::Instance(inst) =>
+              return Err(runtime_error_from_exception_instance(inst))
+            Value::Class(klass) => {
+              let inst_value = match
+                call_callable_with_env(
+                  Value::Class(klass),
+                  [],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
               }
-              let mut full = inst.class.name
-              if message.length() > 0 {
-                full = full + ": " + message
+              match inst_value {
+                Value::Instance(inst) =>
+                  return Err(runtime_error_from_exception_instance(inst))
+                _ =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "exceptions must derive from BaseException".to_string(),
+                    ),
+                  )
               }
-              return Err(make_runtime_error(RuntimeErrorKind::Runtime, full))
             }
             _ =>
               return Err(
                 make_runtime_error(
-                  RuntimeErrorKind::Runtime,
-                  "RuntimeError: raised".to_string(),
+                  RuntimeErrorKind::Type,
+                  "exceptions must derive from BaseException".to_string(),
                 ),
               )
           }

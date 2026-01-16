@@ -426,3 +426,90 @@ test "e2e/builtin_iter_next" {
     content="True\n",
   )
 }
+
+///|
+test "e2e/builtin_more_cpython" {
+  let source =
+    #|print(bool(), bool(0), bool(1), bool(""), bool("a"))
+    #|print(repr("a\"b"))
+    #|print(abs(-3), abs(-2.5))
+    #|print(round(1.2), round(1.8), round(-1.2))
+    #|print(pow(2, 3), pow(2, -1))
+    #|print(pow(2, 5, 5))
+    #|print(divmod(7, 3))
+    #|print(chr(65), ord("A"))
+    #|print(bin(10), oct(10), hex(10))
+    #|print(callable(print), callable(1))
+    #|print(isinstance(1, int), isinstance(True, int), isinstance(True, bool), isinstance([], list))
+    #|print(type(1), type("a"), type([1]))
+    #|print(id(7), id(True))
+    #|print(hash("ab"))
+    #|class C:
+    #|  pass
+    #|c = C()
+    #|c.x = 1
+    #|d = {"b": 1, "a": 2}
+    #|print(",".join(sorted(dir(c))))
+    #|print(",".join(sorted(dir(d))))
+    #|print(",".join(sorted(dir(C))))
+  inspect(
+    e2e_stdout([], source),
+    content=(
+      #|False False True False True
+      #|"a\"b"
+      #|3 2.5
+      #|1 2 -1
+      #|8 0.5
+      #|2
+      #|(2, 1)
+      #|A 65
+      #|0b1010 0o12 0xa
+      #|True False
+      #|True True True True
+      #|int str list
+      #|7 1
+      #|12805
+      #|x
+      #|a,b
+      #|
+      #|
+    ),
+  )
+  inspect(
+    test_exec_error("chr(-1)"),
+    content="ValueError: chr() arg not in range(0x110000)",
+  )
+  inspect(
+    test_exec_error("ord(\"ab\")"),
+    content="TypeError: ord() expected a character",
+  )
+  inspect(
+    test_exec_error("bin(1.2)"),
+    content="TypeError: bin() argument must be int",
+  )
+  inspect(
+    test_exec_error("pow(2, 3, 0)"),
+    content="ZeroDivisionError: integer modulo by zero",
+  )
+}
+
+///|
+test "e2e/raise_class" {
+  inspect(test_exec_error("raise ValueError"), content="ValueError")
+  inspect(
+    test_exec_error("raise 1"),
+    content="TypeError: exceptions must derive from BaseException",
+  )
+  let source =
+    #|try:
+    #|  raise ValueError
+    #|except ValueError as e:
+    #|  print("caught", e)
+  inspect(e2e_stdout([], source), content="caught ValueError\n")
+  let source2 =
+    #|try:
+    #|  raise ValueError("x")
+    #|except ValueError as e:
+    #|  print(e)
+  inspect(e2e_stdout([], source2), content="ValueError: x\n")
+}
