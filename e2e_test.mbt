@@ -296,3 +296,26 @@ test "e2e/builtin_all" {
     content="TypeError: object is not iterable",
   )
 }
+
+///|
+test "e2e/builtin_enumerate" {
+  let source =
+    #|pairs = enumerate(["a", "b"])
+    #|print(pairs[0][0], pairs[0][1])
+    #|print(pairs[1][0], pairs[1][1])
+    #|print(len(enumerate([], 10)))
+    #|print(",".join([str(i) for i, _ in enumerate(range(3), 1)]))
+  inspect(e2e_stdout([], source), content="0 a\n1 b\n0\n1,2,3\n")
+  inspect(
+    test_exec_error("enumerate()"),
+    content="TypeError: enumerate() takes 1 or 2 arguments",
+  )
+  inspect(
+    test_exec_error("enumerate(1)"),
+    content="TypeError: object is not iterable",
+  )
+  inspect(
+    test_exec_error("enumerate([], 'x')"),
+    content="TypeError: enumerate() integer argument expected",
+  )
+}

@@ -1430,6 +1430,50 @@ fn eval_expr_with_env(
               }
               Ok(Value::Bool(true))
             }
+            "enumerate" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 || arg_values.length() > 2 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "enumerate() takes 1 or 2 arguments".to_string(),
+                  ),
+                )
+              }
+              let items = match iterable_values(arg_values[0]) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let mut start = 0L
+              if arg_values.length() == 2 {
+                match arg_values[1] {
+                  Value::Int(v) => start = v
+                  Value::Bool(v) => start = if v { 1L } else { 0L }
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "enumerate() integer argument expected".to_string(),
+                      ),
+                    )
+                }
+              }
+              let pairs : Array[Value] = []
+              let mut i = start
+              for item in items {
+                pairs.push(Value::Tuple([Value::Int(i), item]))
+                i = i + 1L
+              }
+              Ok(Value::List(pairs))
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {

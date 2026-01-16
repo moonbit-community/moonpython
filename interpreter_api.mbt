@@ -211,6 +211,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{ name: "all", params: [], body: [] }),
     ),
     (
+      "enumerate",
+      Value::Function(FunctionValue::{ name: "enumerate", params: [], body: [] }),
+    ),
+    (
       "int",
       Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
     ),
