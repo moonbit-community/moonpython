@@ -248,3 +248,27 @@ test "e2e/builtin_min" {
   )
   inspect(test_exec_error("min(['x'])"), content="TypeError: expected number")
 }
+
+///|
+test "e2e/builtin_any" {
+  let source =
+    #|print(any([]))
+    #|print(any([0, False, "", None]))
+    #|print(any([0, 1, 2]))
+    #|print(any("hi"))
+    #|print(any(""))
+    #|print(any({"": 1}))
+    #|print(any({"a": 0}))
+  inspect(
+    e2e_stdout([], source),
+    content="False\nFalse\nTrue\nTrue\nFalse\nFalse\nTrue\n",
+  )
+  inspect(
+    test_exec_error("any()"),
+    content="TypeError: any() takes exactly one argument",
+  )
+  inspect(
+    test_exec_error("any(1)"),
+    content="TypeError: object is not iterable",
+  )
+}

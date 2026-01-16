@@ -203,6 +203,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{ name: "min", params: [], body: [] }),
     ),
     (
+      "any",
+      Value::Function(FunctionValue::{ name: "any", params: [], body: [] }),
+    ),
+    (
       "int",
       Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
     ),
