@@ -335,3 +335,15 @@ test "e2e/builtin_zip" {
     content="TypeError: object is not iterable",
   )
 }
+
+///|
+test "e2e/comprehension_unpack_n" {
+  let source =
+    #|print(",".join([str(a) + str(b) + str(c) for a, b, c in zip([1, 2], [3, 4], [5, 6])]))
+    #|print(",".join([str(a) for a, _, _ in zip([1], [2], [3])]))
+  inspect(e2e_stdout([], source), content="135,246\n1\n")
+  inspect(
+    test_exec_error("[a for a, b, c in [(1, 2)]]"),
+    content="TypeError: cannot unpack",
+  )
+}

@@ -65,57 +65,26 @@ fn bind_comp_targets(
     }
     return Ok(())
   }
-  if targets.length() == 2 {
-    match item {
-      Value::Tuple(values) =>
-        if values.length() != 2 {
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "cannot unpack".to_string(),
-            ),
-          )
-        } else {
-          if targets[0] != "_" {
-            set_local_value(locals, targets[0], values[0])
-            set_global_value(globals, targets[0], values[0])
-          }
-          if targets[1] != "_" {
-            set_local_value(locals, targets[1], values[1])
-            set_global_value(globals, targets[1], values[1])
-          }
-          Ok(())
-        }
-      Value::List(values) =>
-        if values.length() != 2 {
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "cannot unpack".to_string(),
-            ),
-          )
-        } else {
-          if targets[0] != "_" {
-            set_local_value(locals, targets[0], values[0])
-            set_global_value(globals, targets[0], values[0])
-          }
-          if targets[1] != "_" {
-            set_local_value(locals, targets[1], values[1])
-            set_global_value(globals, targets[1], values[1])
-          }
-          Ok(())
-        }
-      _ =>
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "cannot unpack".to_string(),
-          ),
-        )
-    }
-  } else {
-    Err(make_runtime_error(RuntimeErrorKind::Type, "cannot unpack".to_string()))
+  let values = match item {
+    Value::Tuple(values) => values
+    Value::List(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(RuntimeErrorKind::Type, "cannot unpack".to_string()),
+      )
   }
+  if values.length() != targets.length() {
+    return Err(
+      make_runtime_error(RuntimeErrorKind::Type, "cannot unpack".to_string()),
+    )
+  }
+  for i = 0; i < targets.length(); i = i + 1 {
+    if targets[i] != "_" {
+      set_local_value(locals, targets[i], values[i])
+      set_global_value(globals, targets[i], values[i])
+    }
+  }
+  Ok(())
 }
 
 ///|
