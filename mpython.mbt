@@ -1508,6 +1508,36 @@ fn eval_expr_with_env(
               }
               Ok(Value::List(result))
             }
+            "reversed" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() != 1 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "reversed() takes exactly one argument".to_string(),
+                  ),
+                )
+              }
+              let items = match iterable_values(arg_values[0]) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let reversed : Array[Value] = []
+              let mut i = items.length()
+              while i > 0 {
+                i = i - 1
+                reversed.push(items[i])
+              }
+              Ok(Value::List(reversed))
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {

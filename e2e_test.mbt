@@ -347,3 +347,20 @@ test "e2e/comprehension_unpack_n" {
     content="TypeError: cannot unpack",
   )
 }
+
+///|
+test "e2e/builtin_reversed" {
+  let source =
+    #|print(",".join([str(x) for x in reversed([1, 2, 3])]))
+    #|print(",".join([x for x in reversed("ab")]))
+    #|print(len(reversed([])))
+  inspect(e2e_stdout([], source), content="3,2,1\nb,a\n0\n")
+  inspect(
+    test_exec_error("reversed()"),
+    content="TypeError: reversed() takes exactly one argument",
+  )
+  inspect(
+    test_exec_error("reversed(1)"),
+    content="TypeError: object is not iterable",
+  )
+}
