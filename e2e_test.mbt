@@ -180,3 +180,21 @@ test "e2e/builtin_len" {
   inspect(e2e_stdout([], source), content="3\n2\n2\n")
   inspect(test_exec_error("len(1)"), content="TypeError: object has no len()")
 }
+
+///|
+test "e2e/builtin_range" {
+  let source =
+    #|xs = []
+    #|for i in range(5):
+    #|  xs = xs + [i]
+    #|ys = []
+    #|for j in range(5, 0, -2):
+    #|  ys = ys + [j]
+    #|print(",".join([str(x) for x in xs]))
+    #|print(",".join([str(y) for y in ys]))
+  inspect(e2e_stdout([], source), content="0,1,2,3,4\n5,3,1\n")
+  inspect(
+    test_exec_error("range(1, 2, 0)"),
+    content="TypeError: range() arg 3 must not be zero",
+  )
+}

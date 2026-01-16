@@ -1131,6 +1131,92 @@ fn eval_expr_with_env(
                   )
               }
             }
+            "range" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              fn to_int(value : Value) -> Result[Int64, RuntimeError] {
+                match value {
+                  Value::Int(v) => Ok(v)
+                  Value::Bool(v) => Ok(if v { 1L } else { 0L })
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "range() integer argument expected".to_string(),
+                      ),
+                    )
+                }
+              }
+
+              if arg_values.length() == 0 || arg_values.length() > 3 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "range() takes 1 to 3 arguments".to_string(),
+                  ),
+                )
+              }
+              let mut start = 0L
+              let mut stop = 0L
+              let mut step = 1L
+              if arg_values.length() == 1 {
+                stop = match to_int(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+              } else if arg_values.length() == 2 {
+                start = match to_int(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                stop = match to_int(arg_values[1]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+              } else {
+                start = match to_int(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                stop = match to_int(arg_values[1]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                step = match to_int(arg_values[2]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+              }
+              if step == 0L {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "range() arg 3 must not be zero".to_string(),
+                  ),
+                )
+              }
+              let items : Array[Value] = []
+              let mut i = start
+              if step > 0L {
+                while i < stop {
+                  items.push(Value::Int(i))
+                  i = i + step
+                }
+              } else {
+                while i > stop {
+                  items.push(Value::Int(i))
+                  i = i + step
+                }
+              }
+              Ok(Value::List(items))
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {
