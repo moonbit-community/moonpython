@@ -46,8 +46,14 @@ test "e2e/io_while_function" {
     #|    i = i + 1
     #|  return b
     #|n = int(input("n="))
-    #|print("fib", fib(n))
-  inspect(e2e_stdout(["7"], source), content="n=fib 13\n")
+    #|print("fib=", fib(n))
+  inspect(
+    e2e_stdout(["7"], source),
+    content=(
+      #|n=fib= 13
+      #|
+    ),
+  )
 }
 
 ///|
@@ -114,4 +120,53 @@ test "e2e/class_with_suppresses" {
     #|log = log + ["after"]
     #|print(",".join(log))
   inspect(e2e_stdout([], source), content="enter,v=7,exit:NameError,after\n")
+}
+
+///|
+test "e2e/inheritance_inherited_init" {
+  let source =
+    #|class A:
+    #|  def __init__(self):
+    #|    self.x = 1
+    #|class B(A):
+    #|  pass
+    #|b = B()
+    #|print(b.x)
+  inspect(e2e_stdout([], source), content="1\n")
+}
+
+///|
+test "e2e/mro_multiple_inheritance" {
+  let source =
+    #|class A:
+    #|  def f(self):
+    #|    return "A"
+    #|class B(A):
+    #|  pass
+    #|class C(A):
+    #|  def f(self):
+    #|    return "C"
+    #|class D(B, C):
+    #|  pass
+    #|print(D().f())
+  inspect(e2e_stdout([], source), content="C\n")
+}
+
+///|
+test "e2e/mro_conflict_errors" {
+  let source =
+    #|class X:
+    #|  pass
+    #|class Y:
+    #|  pass
+    #|class A(X, Y):
+    #|  pass
+    #|class B(Y, X):
+    #|  pass
+    #|class C(A, B):
+    #|  pass
+  inspect(
+    test_exec_error(source),
+    content="TypeError: cannot create a consistent method resolution order",
+  )
 }

@@ -27,23 +27,154 @@ fn set_named_value(
 }
 
 ///|
-fn lookup_class_attr(klass : ClassValue, name : String) -> Value? {
-  let direct = get_named_value(klass.dict, name)
-  if direct is Some(value) {
-    return Some(value)
+fn clone_class_list(list : Array[ClassValue]) -> Array[ClassValue] {
+  let result : Array[ClassValue] = []
+  for item in list {
+    result.push(item)
   }
+  result
+}
+
+///|
+fn class_name_in_list(
+  list : Array[ClassValue],
+  name : String,
+  start : Int,
+) -> Bool {
+  for i = start; i < list.length(); i = i + 1 {
+    if list[i].name == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn class_mro_merge(
+  seqs_in : Array[Array[ClassValue]],
+) -> Result[Array[ClassValue], RuntimeError] {
+  let seqs : Array[Array[ClassValue]] = []
+  for seq in seqs_in {
+    seqs.push(clone_class_list(seq))
+  }
+  let out : Array[ClassValue] = []
+  while true {
+    let mut all_empty = true
+    for seq in seqs {
+      if seq.length() > 0 {
+        all_empty = false
+        break
+      }
+    }
+    if all_empty {
+      return Ok(out)
+    }
+    let mut candidate : ClassValue? = None
+    for seq in seqs {
+      if seq.length() == 0 {
+        continue
+      }
+      let head = seq[0]
+      let mut blocked = false
+      for other in seqs {
+        if class_name_in_list(other, head.name, 1) {
+          blocked = true
+          break
+        }
+      }
+      if !blocked {
+        candidate = Some(head)
+        break
+      }
+    }
+    if candidate is None {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "cannot create a consistent method resolution order".to_string(),
+        ),
+      )
+    }
+    let pick = candidate.unwrap()
+    out.push(pick)
+    for seq in seqs {
+      if seq.length() > 0 && seq[0].name == pick.name {
+        let _ = seq.remove(0)
+
+      }
+    }
+  }
+  Ok(out)
+}
+
+///|
+fn class_mro_with_seen(
+  klass : ClassValue,
+  seen : Array[String],
+) -> Result[Array[ClassValue], RuntimeError] {
+  for name in seen {
+    if name == klass.name {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "cannot create a consistent method resolution order".to_string(),
+        ),
+      )
+    }
+  }
+  let next_seen : Array[String] = []
+  for name in seen {
+    next_seen.push(name)
+  }
+  next_seen.push(klass.name)
+  let seqs : Array[Array[ClassValue]] = []
+  let direct_bases : Array[ClassValue] = []
   for base in klass.bases {
     match base {
       Value::Class(base_class) => {
-        let found = lookup_class_attr(base_class, name)
-        if found is Some(value) {
-          return Some(value)
+        direct_bases.push(base_class)
+        let base_mro = match class_mro_with_seen(base_class, next_seen) {
+          Ok(value) => value
+          Err(err) => return Err(err)
         }
+        seqs.push(base_mro)
       }
       _ => ()
     }
   }
-  None
+  seqs.push(direct_bases)
+  let tail = match class_mro_merge(seqs) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let mro : Array[ClassValue] = [klass]
+  for item in tail {
+    mro.push(item)
+  }
+  Ok(mro)
+}
+
+///|
+fn class_mro(klass : ClassValue) -> Result[Array[ClassValue], RuntimeError] {
+  class_mro_with_seen(klass, [])
+}
+
+///|
+fn lookup_class_attr(
+  klass : ClassValue,
+  name : String,
+) -> Result[Value?, RuntimeError] {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  for cls in mro {
+    let direct = get_named_value(cls.dict, name)
+    if direct is Some(value) {
+      return Ok(Some(value))
+    }
+  }
+  Ok(None)
 }
 
 ///|
@@ -57,7 +188,10 @@ fn get_attr_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
-      let class_attr = lookup_class_attr(inst.class, attr)
+      let class_attr = match lookup_class_attr(inst.class, attr) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
       match class_attr {
         Some(Value::Function(func)) =>
           Ok(
@@ -78,14 +212,15 @@ fn get_attr_from_value(
     }
     Value::Class(klass) =>
       match lookup_class_attr(klass, attr) {
-        Some(value) => Ok(value)
-        None =>
+        Ok(Some(value)) => Ok(value)
+        Ok(None) =>
           Err(
             make_runtime_error(
               RuntimeErrorKind::Attribute,
               "'" + klass.name + "' object has no attribute '" + attr + "'",
             ),
           )
+        Err(err) => Err(err)
       }
     _ =>
       Err(
@@ -178,7 +313,10 @@ fn call_callable_with_env(
         }
         return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
       }
-      let init = lookup_class_attr(klass, "__init__")
+      let init = match lookup_class_attr(klass, "__init__") {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
       let inst = Value::Instance(InstanceValue::{ class: klass, dict: [] })
       match init {
         Some(Value::Function(func)) => {

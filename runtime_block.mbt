@@ -332,6 +332,18 @@ fn eval_block_flow(
               )
           }
         }
+        if base_values.length() == 0 {
+          for pair in builtins {
+            if pair.0 == "object" {
+              match pair.1 {
+                Value::Class(object_class) =>
+                  base_values.push(Value::Class(object_class))
+                _ => ()
+              }
+              break
+            }
+          }
+        }
         let class_dict : Array[(String, Value)] = []
         let module_globals_for_lookup = globals
         let flow = match
@@ -352,6 +364,10 @@ fn eval_block_flow(
             )
         }
         let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+        let _ = match class_mro(klass) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
         set_global_value(globals, name, Value::Class(klass))
         last = Value::None
       }
