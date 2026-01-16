@@ -228,3 +228,23 @@ test "e2e/builtin_max" {
   )
   inspect(test_exec_error("max(['x'])"), content="TypeError: expected number")
 }
+
+///|
+test "e2e/builtin_min" {
+  let source =
+    #|print(min([1, 2, 3]))
+    #|print(min(range(5)))
+    #|print(min(1, -9, 3, -9))
+    #|print(min([1, 2.5, -2]))
+    #|print(min([True, False, 2]))
+  inspect(e2e_stdout([], source), content="1\n0\n-9\n-2\nFalse\n")
+  inspect(
+    test_exec_error("min()"),
+    content="TypeError: min() takes at least 1 argument",
+  )
+  inspect(
+    test_exec_error("min([])"),
+    content="TypeError: min() arg is an empty sequence",
+  )
+  inspect(test_exec_error("min(['x'])"), content="TypeError: expected number")
+}

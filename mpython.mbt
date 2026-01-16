@@ -1319,6 +1319,59 @@ fn eval_expr_with_env(
               }
               Ok(best)
             }
+            "min" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "min() takes at least 1 argument".to_string(),
+                  ),
+                )
+              }
+              let items = if arg_values.length() == 1 {
+                match iterable_values(arg_values[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+              } else {
+                arg_values
+              }
+              if items.length() == 0 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "min() arg is an empty sequence".to_string(),
+                  ),
+                )
+              }
+              let mut best = items[0]
+              let (_, first_num) = match number_value(best) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let mut best_num = first_num
+              for i = 1; i < items.length(); i = i + 1 {
+                let item = items[i]
+                let (_, item_num) = match number_value(item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if item_num < best_num {
+                  best = item
+                  best_num = item_num
+                }
+              }
+              Ok(best)
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {
