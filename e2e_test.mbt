@@ -170,3 +170,13 @@ test "e2e/mro_conflict_errors" {
     content="TypeError: cannot create a consistent method resolution order",
   )
 }
+
+///|
+test "e2e/builtin_len" {
+  let source =
+    #|print(len([1, 2, 3]))
+    #|print(len("hi"))
+    #|print(len({"a": 1, "b": 2}))
+  inspect(e2e_stdout([], source), content="3\n2\n2\n")
+  inspect(test_exec_error("len(1)"), content="TypeError: object has no len()")
+}

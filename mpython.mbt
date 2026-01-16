@@ -1096,6 +1096,41 @@ fn eval_expr_with_env(
               io.write_stdout(buf.to_string())
               Ok(Value::None)
             }
+            "len" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() != 1 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "len() takes exactly one argument".to_string(),
+                  ),
+                )
+              }
+              match arg_values[0] {
+                Value::Str(text) => Ok(Value::Int(text.length().to_int64()))
+                Value::List(values) =>
+                  Ok(Value::Int(values.length().to_int64()))
+                Value::Tuple(values) =>
+                  Ok(Value::Int(values.length().to_int64()))
+                Value::Dict(pairs) => Ok(Value::Int(pairs.length().to_int64()))
+                Value::Set(values) => Ok(Value::Int(values.length().to_int64()))
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "object has no len()".to_string(),
+                    ),
+                  )
+              }
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {

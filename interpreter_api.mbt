@@ -183,6 +183,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{ name: "set", params: [], body: [] }),
     ),
     (
+      "len",
+      Value::Function(FunctionValue::{ name: "len", params: [], body: [] }),
+    ),
+    (
       "int",
       Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
     ),
