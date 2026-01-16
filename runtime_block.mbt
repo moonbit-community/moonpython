@@ -161,35 +161,61 @@ fn eval_block_flow(
           Some(name) => set_global_value(globals, name, entered)
           None => ()
         }
-        let flow = match
-          eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
         let exit_value = match get_attr_from_value(ctx_value, "__exit__") {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let _ = match
-          call_callable_with_env(
-            exit_value,
-            [Value::None, Value::None, Value::None],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        match flow {
-          BlockFlow::Normal(_) => {
-            last = Value::None
-            ()
+        let body_result = eval_block_flow(
+          body, locals, globals, builtins, io, loop_depth,
+        )
+        match body_result {
+          Ok(flow) => {
+            let _ = match
+              call_callable_with_env(
+                exit_value,
+                [Value::None, Value::None, Value::None],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            match flow {
+              BlockFlow::Normal(_) => {
+                last = Value::None
+                ()
+              }
+              BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
+              BlockFlow::Break => return Ok(BlockFlow::Break)
+              BlockFlow::Continue => return Ok(BlockFlow::Continue)
+            }
           }
-          BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
-          BlockFlow::Break => return Ok(BlockFlow::Break)
-          BlockFlow::Continue => return Ok(BlockFlow::Continue)
+          Err(err) => {
+            let exit_result = match
+              call_callable_with_env(
+                exit_value,
+                [
+                  Value::Str(err.exc_type),
+                  Value::Str(format_runtime_error(err)),
+                  Value::None,
+                ],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(value) => value
+              Err(e) => return Err(e)
+            }
+            if bool_from_value(exit_result) {
+              last = Value::None
+              ()
+            } else {
+              return Err(err)
+            }
+          }
         }
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
