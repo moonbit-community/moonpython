@@ -158,7 +158,20 @@ fn call_callable_with_env(
       // Minimal exception instance payload.
       if klass.name == "BaseException" ||
         klass.name == "Exception" ||
-        klass.name == "RuntimeError" {
+        klass.name == "RuntimeError" ||
+        klass.name == "NameError" ||
+        klass.name == "TypeError" ||
+        klass.name == "AttributeError" ||
+        klass.name == "IndexError" ||
+        klass.name == "KeyError" ||
+        klass.name == "NotImplementedError" ||
+        klass.name == "ZeroDivisionError" ||
+        klass.name == "ValueError" ||
+        klass.name == "ImportError" ||
+        klass.name == "AssertionError" ||
+        klass.name == "SyntaxError" ||
+        klass.name == "IndentationError" ||
+        klass.name == "EOFError" {
         let dict : Array[(String, Value)] = []
         if positional.length() > 0 {
           dict.push(("message", positional[0]))

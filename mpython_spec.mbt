@@ -214,6 +214,20 @@ pub(all) struct RuntimeError {
 } derive(ToJson)
 
 ///|
+/// Wrap RuntimeError as an error type for use with `raise`
+pub suberror MpythonError {
+  MpythonError(RuntimeError)
+}
+
+///|
+/// Test result from running a test directory
+pub struct TestResult {
+  passed : Int
+  failed : Int
+  errors : Array[String]
+} derive(ToJson)
+
+///|
 /// Interpreter configuration
 pub struct Config {
   max_recursion : Int
@@ -461,5 +475,15 @@ pub fn format_parse_error(error : ParseError) -> String {
 /// Render a runtime error for diagnostics
 #declaration_only
 pub fn format_runtime_error(error : RuntimeError) -> String {
+  ...
+}
+
+///|
+/// Execute all tests in a directory (like python -m test)
+#declaration_only
+pub fn Interpreter::execute_test_dir(
+  self : Interpreter,
+  path : String,
+) -> TestResult raise MpythonError {
   ...
 }

@@ -4670,6 +4670,7 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("try:") {
+      let try_start_index = self.index
       let try_body : Array[Stmt] = []
       let body_text = strip_inline_comment(
           substring(line_text, 4, line_text.length()).to_string(),
@@ -4728,12 +4729,52 @@ fn LineParser::parse_block(
       let handlers : Array[(Expr?, String?, Array[Stmt])] = []
       let else_body : Array[Stmt] = []
       let finally_body : Array[Stmt] = []
+      let mut saw_except = false
+      let mut saw_else = false
+      let mut saw_finally = false
       while self.index < self.lines.length() {
         let next_line = self.lines[self.index]
         let next_trimmed = next_line.trim(chars=" \t").to_string()
         let next_indent = count_indent(next_line)
         if next_indent != current_indent {
           break
+        }
+        if saw_finally {
+          if next_trimmed.has_prefix("except") ||
+            next_trimmed.has_prefix("else") ||
+            next_trimmed.has_prefix("finally") {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          break
+        }
+        if saw_else && next_trimmed.has_prefix("except") {
+          let token = {
+            kind: Eof,
+            start: self.offsets[self.index] + current_indent,
+            end: self.offsets[self.index] + current_indent + 1,
+            line: self.index + 1,
+            column: 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
         }
         if next_trimmed.has_prefix("except") {
           if next_trimmed.has_prefix("except*") {
@@ -4753,6 +4794,23 @@ fn LineParser::parse_block(
             )
           }
           let colon_pos = find_last_char(next_trimmed, ':')
+          if colon_pos is None {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          saw_except = true
           let header_text = match colon_pos {
             Some(pos) =>
               substring(next_trimmed, 6, pos).trim(chars=" \t").to_string()
@@ -4851,7 +4909,40 @@ fn LineParser::parse_block(
           continue
         }
         if next_trimmed.has_prefix("else") {
+          if !saw_except || saw_else {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
           let colon_pos = find_last_char(next_trimmed, ':')
+          if colon_pos is None {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          saw_else = true
           let inline_text = match colon_pos {
             Some(pos) =>
               strip_inline_comment(
@@ -4915,7 +5006,40 @@ fn LineParser::parse_block(
           continue
         }
         if next_trimmed.has_prefix("finally") {
+          if saw_finally {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
           let colon_pos = find_last_char(next_trimmed, ':')
+          if colon_pos is None {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          saw_finally = true
           let inline_text = match colon_pos {
             Some(pos) =>
               strip_inline_comment(
@@ -4979,6 +5103,22 @@ fn LineParser::parse_block(
           continue
         }
         break
+      }
+      if handlers.length() == 0 && finally_body.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[try_start_index] + current_indent,
+          end: self.offsets[try_start_index] + current_indent + 1,
+          line: try_start_index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
       }
       stmts.push(Stmt::Try(body=try_body, handlers~, else_body~, finally_body~))
       continue

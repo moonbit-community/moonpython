@@ -78,6 +78,71 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
+  let name_error_class = ClassValue::{
+    name: "NameError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let type_error_class = ClassValue::{
+    name: "TypeError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let attribute_error_class = ClassValue::{
+    name: "AttributeError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let index_error_class = ClassValue::{
+    name: "IndexError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let key_error_class = ClassValue::{
+    name: "KeyError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let not_implemented_error_class = ClassValue::{
+    name: "NotImplementedError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let zero_division_error_class = ClassValue::{
+    name: "ZeroDivisionError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let value_error_class = ClassValue::{
+    name: "ValueError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let import_error_class = ClassValue::{
+    name: "ImportError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let assertion_error_class = ClassValue::{
+    name: "AssertionError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let syntax_error_class = ClassValue::{
+    name: "SyntaxError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let indentation_error_class = ClassValue::{
+    name: "IndentationError",
+    bases: [Value::Class(syntax_error_class)],
+    dict: [],
+  }
+  let eof_error_class = ClassValue::{
+    name: "EOFError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let runtime_error_class = ClassValue::{
     name: "RuntimeError",
     bases: [Value::Class(exception_class)],
@@ -128,6 +193,19 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
+    ("NameError", Value::Class(name_error_class)),
+    ("TypeError", Value::Class(type_error_class)),
+    ("AttributeError", Value::Class(attribute_error_class)),
+    ("IndexError", Value::Class(index_error_class)),
+    ("KeyError", Value::Class(key_error_class)),
+    ("NotImplementedError", Value::Class(not_implemented_error_class)),
+    ("ZeroDivisionError", Value::Class(zero_division_error_class)),
+    ("ValueError", Value::Class(value_error_class)),
+    ("ImportError", Value::Class(import_error_class)),
+    ("AssertionError", Value::Class(assertion_error_class)),
+    ("SyntaxError", Value::Class(syntax_error_class)),
+    ("IndentationError", Value::Class(indentation_error_class)),
+    ("EOFError", Value::Class(eof_error_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
   ]
   Interpreter::{ config, globals: [], builtins, io }

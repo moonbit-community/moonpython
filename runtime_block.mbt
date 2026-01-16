@@ -193,48 +193,19 @@ fn eval_block_flow(
         }
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-        let try_result = eval_block_flow(
-          body, locals, globals, builtins, io, loop_depth,
-        )
-        match try_result {
-          Ok(flow) => {
-            let mut combined = flow
-            if combined is BlockFlow::Normal(_) && else_body.length() > 0 {
-              combined = match
-                eval_block_flow(
-                  else_body, locals, globals, builtins, io, loop_depth,
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
+        let outcome : Result[BlockFlow, RuntimeError] = match
+          eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+          Ok(flow) =>
+            if flow is BlockFlow::Normal(_) && else_body.length() > 0 {
+              eval_block_flow(
+                else_body, locals, globals, builtins, io, loop_depth,
+              )
+            } else {
+              Ok(flow)
             }
-
-            // Always run finally
-            if finally_body.length() > 0 {
-              match
-                eval_block_flow(
-                  finally_body, locals, globals, builtins, io, loop_depth,
-                ) {
-                Ok(BlockFlow::Normal(_)) => ()
-                Ok(BlockFlow::Return(value)) =>
-                  return Ok(BlockFlow::Return(value))
-                Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
-                Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
-                Err(err) => return Err(err)
-              }
-            }
-            match combined {
-              BlockFlow::Normal(_) => {
-                last = Value::None
-                ()
-              }
-              BlockFlow::Return(value) => return Ok(BlockFlow::Return(value))
-              BlockFlow::Break => return Ok(BlockFlow::Break)
-              BlockFlow::Continue => return Ok(BlockFlow::Continue)
-            }
-          }
           Err(err) => {
-            let mut handled_flow : BlockFlow? = None
+            let mut handled = false
+            let mut handled_result : Result[BlockFlow, RuntimeError] = Err(err)
             for handler in handlers {
               let exc_expr_opt = handler.0
               let name_opt = handler.1
@@ -246,7 +217,11 @@ fn eval_block_flow(
                   let exc_value = match
                     eval_expr_with_env(expr, locals, globals, builtins, io) {
                     Ok(value) => value
-                    Err(e) => return Err(e)
+                    Err(e) => {
+                      handled = true
+                      handled_result = Err(e)
+                      break
+                    }
                   }
                   match exc_value {
                     Value::Class(klass) =>
@@ -262,6 +237,7 @@ fn eval_block_flow(
               if !matches {
                 continue
               }
+              handled = true
               match name_opt {
                 Some(name) =>
                   set_global_value(
@@ -271,46 +247,35 @@ fn eval_block_flow(
                   )
                 None => ()
               }
-              let flow = match
-                eval_block_flow(
-                  handler_body, locals, globals, builtins, io, loop_depth,
-                ) {
-                Ok(value) => value
-                Err(e) => return Err(e)
-              }
-              handled_flow = Some(flow)
+              handled_result = eval_block_flow(
+                handler_body, locals, globals, builtins, io, loop_depth,
+              )
               break
             }
-            if handled_flow is None {
-              if finally_body.length() > 0 {
-                match
-                  eval_block_flow(
-                    finally_body, locals, globals, builtins, io, loop_depth,
-                  ) {
-                  Ok(BlockFlow::Normal(_)) => ()
-                  Ok(BlockFlow::Return(value)) =>
-                    return Ok(BlockFlow::Return(value))
-                  Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
-                  Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
-                  Err(e) => return Err(e)
-                }
-              }
-              return Err(err)
+            if handled {
+              handled_result
+            } else {
+              Err(err)
             }
-            if finally_body.length() > 0 {
-              match
-                eval_block_flow(
-                  finally_body, locals, globals, builtins, io, loop_depth,
-                ) {
-                Ok(BlockFlow::Normal(_)) => ()
-                Ok(BlockFlow::Return(value)) =>
-                  return Ok(BlockFlow::Return(value))
-                Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
-                Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
-                Err(e) => return Err(e)
-              }
-            }
-            match handled_flow.unwrap() {
+          }
+        }
+
+        // Always run finally when leaving the try statement.
+        if finally_body.length() > 0 {
+          match
+            eval_block_flow(
+              finally_body, locals, globals, builtins, io, loop_depth,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+            Err(err) => return Err(err)
+          }
+        }
+        match outcome {
+          Ok(flow) =>
+            match flow {
               BlockFlow::Normal(_) => {
                 last = Value::None
                 ()
@@ -319,7 +284,7 @@ fn eval_block_flow(
               BlockFlow::Break => return Ok(BlockFlow::Break)
               BlockFlow::Continue => return Ok(BlockFlow::Continue)
             }
-          }
+          Err(err) => return Err(err)
         }
       }
       Stmt::Class(name~, bases~, body~) => {
