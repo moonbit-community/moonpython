@@ -19,8 +19,11 @@ fn runtime_error_exc(
     RuntimeErrorKind::Runtime => {
       let prefixes : Array[String] = [
         "ValueError:", "ImportError:", "AssertionError:", "RuntimeError:", "EOFError:",
-        "SyntaxError:", "IndentationError:",
+        "SyntaxError:", "IndentationError:", "StopIteration:",
       ]
+      if message == "StopIteration" {
+        return ("StopIteration".to_string(), [])
+      }
       for prefix in prefixes {
         if message.has_prefix(prefix) {
           let type_name = prefix.substring(start=0, end=prefix.length() - 1)

@@ -315,7 +315,8 @@ fn call_callable_with_env(
         klass.name == "AssertionError" ||
         klass.name == "SyntaxError" ||
         klass.name == "IndentationError" ||
-        klass.name == "EOFError" {
+        klass.name == "EOFError" ||
+        klass.name == "StopIteration" {
         let dict : Array[(String, Value)] = []
         if positional.length() > 0 {
           dict.push(("message", positional[0]))

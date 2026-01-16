@@ -398,3 +398,31 @@ test "e2e/builtin_sorted" {
     content="TypeError: sorted() reverse must be bool",
   )
 }
+
+///|
+test "e2e/builtin_iter_next" {
+  let source =
+    #|it = iter([1, 2])
+    #|print(next(it))
+    #|print(next(it))
+    #|print(next(it, 99))
+    #|it2 = iter("ab")
+    #|print(next(it2), next(it2), next(it2, "Z"))
+  inspect(e2e_stdout([], source), content="1\n2\n99\na b Z\n")
+  inspect(
+    test_exec_error("it = iter([1]); next(it); next(it)"),
+    content="StopIteration",
+  )
+  inspect(
+    test_exec_error("next([1])"),
+    content="TypeError: 'list' object is not an iterator",
+  )
+  inspect(
+    test_exec_error("iter(1)"),
+    content="TypeError: object is not iterable",
+  )
+  inspect(
+    e2e_stdout([], "it = iter([1]); print(iter(it) == it)"),
+    content="True\n",
+  )
+}

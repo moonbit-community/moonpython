@@ -143,6 +143,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let stop_iteration_class = ClassValue::{
+    name: "StopIteration",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let runtime_error_class = ClassValue::{
     name: "RuntimeError",
     bases: [Value::Class(exception_class)],
@@ -339,6 +344,24 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         is_generator: false,
       }),
     ),
+    (
+      "iter",
+      Value::Function(FunctionValue::{
+        name: "iter",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "next",
+      Value::Function(FunctionValue::{
+        name: "next",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
@@ -355,6 +378,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("SyntaxError", Value::Class(syntax_error_class)),
     ("IndentationError", Value::Class(indentation_error_class)),
     ("EOFError", Value::Class(eof_error_class)),
+    ("StopIteration", Value::Class(stop_iteration_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
   ]
   Interpreter::{ config, globals: [], builtins, io }
