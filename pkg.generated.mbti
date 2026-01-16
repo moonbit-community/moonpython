@@ -11,16 +11,25 @@ pub fn parse(String) -> Result[Module, ParseError]
 pub fn parse_expr(String) -> Result[Expr, ParseError]
 
 // Errors
+pub suberror MpythonError {
+  MpythonError(RuntimeError)
+}
 
 // Types and methods
 pub enum BinaryOp {
   Add
   Sub
   Mul
+  MatMul
   Div
   FloorDiv
   Mod
   Pow
+  ShiftLeft
+  ShiftRight
+  BitAnd
+  BitXor
+  BitOr
 }
 pub impl ToJson for BinaryOp
 
@@ -29,6 +38,19 @@ pub enum BoolOp {
   Or
 }
 pub impl ToJson for BoolOp
+
+pub struct BoundMethodValue {
+  function : FunctionValue
+  self : Value
+}
+pub impl ToJson for BoundMethodValue
+
+pub struct ClassValue {
+  name : String
+  bases : Array[Value]
+  dict : Array[(String, Value)]
+}
+pub impl ToJson for ClassValue
 
 pub enum CompareOp {
   Eq
@@ -57,15 +79,22 @@ pub enum Expr {
   Name(String)
   Tuple(Array[Expr])
   List(Array[Expr])
+  ListComp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
+  GenExp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
   Dict(Array[(Expr, Expr)])
+  DictComp(key~ : Expr, value~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
   Set(Array[Expr])
-  Lambda(params~ : Array[String], body~ : Expr)
+  SetComp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
+  Lambda(params~ : Array[String], defaults~ : Array[Expr], body~ : Expr)
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)
+  NamedExpr(name~ : String, value~ : Expr)
   Slice(start~ : Expr?, end~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
   Call(callee~ : Expr, args~ : Array[Expr])
+  Keyword(name~ : String, value~ : Expr)
+  Starred(value~ : Expr)
   Unary(op~ : UnaryOp, expr~ : Expr)
   Binary(op~ : BinaryOp, left~ : Expr, right~ : Expr)
   BoolOp(op~ : BoolOp, values~ : Array[Expr])
@@ -77,8 +106,15 @@ pub struct FunctionValue {
   name : String
   params : Array[String]
   body : Array[Stmt]
+  is_generator : Bool
 }
 pub impl ToJson for FunctionValue
+
+pub struct InstanceValue {
+  class : ClassValue
+  dict : Array[(String, Value)]
+}
+pub impl ToJson for InstanceValue
 
 pub struct Interpreter {
   config : Config
@@ -90,6 +126,7 @@ pub fn Interpreter::eval(Self, Expr) -> Result[Value, RuntimeError]
 pub fn Interpreter::eval_source(Self, String) -> Result[RunResult, RuntimeError]
 pub fn Interpreter::exec(Self, Module) -> Result[RunResult, RuntimeError]
 pub fn Interpreter::exec_source(Self, String) -> Result[RunResult, RuntimeError]
+pub fn Interpreter::execute_test_dir(Self, String) -> TestResult raise MpythonError
 pub fn Interpreter::get_global(Self, String) -> Value?
 pub fn Interpreter::new() -> Self
 pub fn Interpreter::set_global(Self, String, Value) -> Unit
@@ -139,6 +176,14 @@ pub(all) enum ParseErrorKind {
 }
 pub impl ToJson for ParseErrorKind
 
+pub enum Pattern {
+  Wildcard
+  Literal(Literal)
+  Name(String)
+  Tuple(Array[Pattern])
+}
+pub impl ToJson for Pattern
+
 pub struct RunResult {
   value : Value
   stdout : String
@@ -151,6 +196,8 @@ pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
   message : String
   span : Span?
+  exc_type : String
+  exc_args : Array[String]
 }
 pub impl ToJson for RuntimeError
 
@@ -179,22 +226,39 @@ pub enum Stmt {
   Assign(target~ : Target, value~ : Expr)
   Return(Expr?)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
   While(condition~ : Expr, body~ : Array[Stmt])
-  Function(name~ : String, params~ : Array[String], body~ : Array[Stmt])
+  For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
+  Break
+  Continue
+  Function(name~ : String, params~ : Array[String], body~ : Array[Stmt], is_generator~ : Bool)
   Pass
   Global(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
   Raise(Expr?)
-  Del(Array[String])
+  Del(Array[Target])
+  Import(module~ : String)
+  With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
+  Try(body~ : Array[Stmt], handlers~ : Array[(Expr?, String?, Array[Stmt])], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
+  Class(name~ : String, bases~ : Array[Expr], body~ : Array[Stmt])
 }
 pub impl ToJson for Stmt
 
 pub enum Target {
   Name(String)
+  Tuple(Array[Target])
+  List(Array[Target])
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
 }
 pub impl ToJson for Target
+
+pub struct TestResult {
+  passed : Int
+  failed : Int
+  errors : Array[String]
+}
+pub impl ToJson for TestResult
 
 pub enum UnaryOp {
   Pos
@@ -213,7 +277,11 @@ pub enum Value {
   List(Array[Value])
   Tuple(Array[Value])
   Dict(Array[(Value, Value)])
+  Set(Array[Value])
   Function(FunctionValue)
+  Class(ClassValue)
+  Instance(InstanceValue)
+  BoundMethod(BoundMethodValue)
 }
 pub impl ToJson for Value
 

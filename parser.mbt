@@ -2057,6 +2057,106 @@ fn strip_inline_comment(text : String) -> String {
 }
 
 ///|
+fn is_ascii_ident_char(c : Char) -> Bool {
+  if c == '_' {
+    return true
+  }
+  let code = c.to_int()
+  (code >= 48 && code <= 57) ||
+  (code >= 65 && code <= 90) ||
+  (code >= 97 && code <= 122)
+}
+
+///|
+fn line_has_yield_keyword(line : String) -> Bool {
+  let chars = line.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        } else if c == 'y' && i + 4 < chars.length() {
+          if chars[i + 1] == 'i' &&
+            chars[i + 2] == 'e' &&
+            chars[i + 3] == 'l' &&
+            chars[i + 4] == 'd' {
+            let before_ok = i == 0 || !is_ascii_ident_char(chars[i - 1])
+            let after_pos = i + 5
+            let after_ok = after_pos >= chars.length() ||
+              !is_ascii_ident_char(chars[after_pos])
+            if before_ok && after_ok {
+              return true
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
+fn block_has_yield_keyword(
+  lines : Array[String],
+  start_index : Int,
+  base_indent : Int,
+) -> Bool {
+  let mut idx = start_index
+  while idx < lines.length() {
+    let line = lines[idx]
+    let trimmed = line.trim(chars=" \t").to_string()
+    if trimmed.length() == 0 || trimmed.has_prefix("#") {
+      idx += 1
+      continue
+    }
+    let indent = count_indent(line)
+    if indent < base_indent {
+      break
+    }
+    // Don't treat nested function/class yields as generator markers.
+    if trimmed.has_prefix("def ") ||
+      trimmed.has_prefix("async def ") ||
+      trimmed.has_prefix("class ") {
+      let def_indent = indent
+      idx += 1
+      while idx < lines.length() {
+        let next_line = lines[idx]
+        let next_trimmed = next_line.trim(chars=" \t").to_string()
+        if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+          idx += 1
+          continue
+        }
+        if count_indent(next_line) <= def_indent {
+          break
+        }
+        idx += 1
+      }
+      continue
+    }
+    if line_has_yield_keyword(line) {
+      return true
+    }
+    idx += 1
+  }
+  false
+}
+
+///|
 fn has_bare_assign(text : String) -> Bool {
   let chars = text.to_array()
   let mut i = 0
@@ -3844,7 +3944,7 @@ fn LineParser::parse_block(
             _ => ()
           }
         }
-        stmts.push(Stmt::Function(name~, params~, body~))
+        stmts.push(Stmt::Function(name~, params~, body~, is_generator=false))
         self.index = next_index
         continue
       }
@@ -3866,7 +3966,7 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let body = if is_async_def {
+      let (body, is_generator) = if is_async_def {
         let body : Array[Stmt] = []
 
         // Detect docstring (first statement is a literal string).
@@ -4006,8 +4106,13 @@ fn LineParser::parse_block(
           }
         }
         self.skip_block(next_indent)
-        body
+        (body, has_yield)
       } else {
+        let is_generator = block_has_yield_keyword(
+          self.lines,
+          self.index,
+          next_indent,
+        )
         self.func_depth += 1
         let parsed = match self.parse_block(next_indent) {
           Ok(value) => value
@@ -4017,7 +4122,7 @@ fn LineParser::parse_block(
           }
         }
         self.func_depth -= 1
-        parsed
+        (parsed, is_generator)
       }
       for stmt in body {
         match stmt {
@@ -4045,7 +4150,7 @@ fn LineParser::parse_block(
           _ => ()
         }
       }
-      stmts.push(Stmt::Function(name~, params~, body~))
+      stmts.push(Stmt::Function(name~, params~, body~, is_generator~))
       continue
     }
     if line_text.has_prefix("if ") || line_text.has_prefix("if(") {

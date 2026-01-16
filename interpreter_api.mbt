@@ -151,88 +151,193 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let builtins : Array[(String, Value)] = [
     (
       "print",
-      Value::Function(FunctionValue::{ name: "print", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "print",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "input",
-      Value::Function(FunctionValue::{ name: "input", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "input",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     ("__debug__", Value::Bool(true)),
     (
       "str",
-      Value::Function(FunctionValue::{ name: "str", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "str",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "bytes",
-      Value::Function(FunctionValue::{ name: "bytes", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "bytes",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "dict",
-      Value::Function(FunctionValue::{ name: "dict", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "dict",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "list",
-      Value::Function(FunctionValue::{ name: "list", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "list",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "tuple",
-      Value::Function(FunctionValue::{ name: "tuple", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "tuple",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "set",
-      Value::Function(FunctionValue::{ name: "set", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "set",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "len",
-      Value::Function(FunctionValue::{ name: "len", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "len",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "range",
-      Value::Function(FunctionValue::{ name: "range", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "range",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "sum",
-      Value::Function(FunctionValue::{ name: "sum", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "sum",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "max",
-      Value::Function(FunctionValue::{ name: "max", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "max",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "min",
-      Value::Function(FunctionValue::{ name: "min", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "min",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "any",
-      Value::Function(FunctionValue::{ name: "any", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "any",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "all",
-      Value::Function(FunctionValue::{ name: "all", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "all",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "enumerate",
-      Value::Function(FunctionValue::{ name: "enumerate", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "enumerate",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "zip",
-      Value::Function(FunctionValue::{ name: "zip", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "zip",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "reversed",
-      Value::Function(FunctionValue::{ name: "reversed", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "reversed",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "sorted",
-      Value::Function(FunctionValue::{ name: "sorted", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "sorted",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "int",
-      Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "int",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     (
       "float",
-      Value::Function(FunctionValue::{ name: "float", params: [], body: [] }),
+      Value::Function(FunctionValue::{
+        name: "float",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
     ),
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),

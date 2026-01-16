@@ -54,8 +54,8 @@ fn eval_block_flow(
         }
         return Ok(BlockFlow::Return(Value::None))
       }
-      Stmt::Function(name~, params~, body~) => {
-        let func = FunctionValue::{ name, params, body }
+      Stmt::Function(name~, params~, body~, is_generator~) => {
+        let func = FunctionValue::{ name, params, body, is_generator }
         set_global_value(globals, name, Value::Function(func))
         last = Value::None
       }

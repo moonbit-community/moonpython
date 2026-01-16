@@ -150,7 +150,12 @@ pub enum Stmt {
   For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
   Break
   Continue
-  Function(name~ : String, params~ : Array[String], body~ : Array[Stmt])
+  Function(
+    name~ : String,
+    params~ : Array[String],
+    body~ : Array[Stmt],
+    is_generator~ : Bool
+  )
   Pass
   Global(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
@@ -241,6 +246,7 @@ pub struct FunctionValue {
   name : String
   params : Array[String]
   body : Array[Stmt]
+  is_generator : Bool
 } derive(ToJson)
 
 ///|

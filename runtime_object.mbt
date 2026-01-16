@@ -272,9 +272,18 @@ fn call_callable_with_env(
 ) -> Result[Value, RuntimeError] {
   match callee {
     Value::Function(func) =>
-      eval_function_with_kwargs(
-        func, positional, keywords, globals, builtins, io,
-      )
+      if func.is_generator {
+        Ok(
+          Value::Instance(InstanceValue::{
+            class: ClassValue::{ name: "generator", bases: [], dict: [] },
+            dict: [],
+          }),
+        )
+      } else {
+        eval_function_with_kwargs(
+          func, positional, keywords, globals, builtins, io,
+        )
+      }
     Value::BoundMethod(method) => {
       let args : Array[Value] = [method.self]
       for item in positional {

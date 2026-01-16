@@ -166,6 +166,7 @@ fn eval_expr_with_env(
           name: "<genexpr>",
           params: [],
           body: [],
+          is_generator: false,
         }),
       )
     }
@@ -270,6 +271,7 @@ fn eval_expr_with_env(
           name: "<lambda>",
           params,
           body: func_body,
+          is_generator: false,
         }),
       )
     }
@@ -299,6 +301,7 @@ fn eval_expr_with_env(
                   name: "__hash__",
                   params: [],
                   body: [],
+                  is_generator: false,
                 }),
               )
             (Value::Function(_), "__hash__") =>
@@ -307,6 +310,7 @@ fn eval_expr_with_env(
                   name: "__hash__",
                   params: [],
                   body: [],
+                  is_generator: false,
                 }),
               )
             (Value::Function(func), "__doc__") =>
