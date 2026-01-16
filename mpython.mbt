@@ -1474,6 +1474,40 @@ fn eval_expr_with_env(
               }
               Ok(Value::List(pairs))
             }
+            "zip" => {
+              let iterables : Array[Array[Value]] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let items = match iterable_values(value) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                iterables.push(items)
+              }
+              if iterables.length() == 0 {
+                return Ok(Value::List([]))
+              }
+              let mut min_len = iterables[0].length()
+              for i = 1; i < iterables.length(); i = i + 1 {
+                let n = iterables[i].length()
+                if n < min_len {
+                  min_len = n
+                }
+              }
+              let result : Array[Value] = []
+              for i = 0; i < min_len; i = i + 1 {
+                let tuple_items : Array[Value] = []
+                for items in iterables {
+                  tuple_items.push(items[i])
+                }
+                result.push(Value::Tuple(tuple_items))
+              }
+              Ok(Value::List(result))
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {
