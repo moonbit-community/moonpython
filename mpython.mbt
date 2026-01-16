@@ -1401,6 +1401,35 @@ fn eval_expr_with_env(
               }
               Ok(Value::Bool(false))
             }
+            "all" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() != 1 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "all() takes exactly one argument".to_string(),
+                  ),
+                )
+              }
+              let items = match iterable_values(arg_values[0]) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              for item in items {
+                if !bool_from_value(item) {
+                  return Ok(Value::Bool(false))
+                }
+              }
+              Ok(Value::Bool(true))
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {

@@ -272,3 +272,27 @@ test "e2e/builtin_any" {
     content="TypeError: object is not iterable",
   )
 }
+
+///|
+test "e2e/builtin_all" {
+  let source =
+    #|print(all([]))
+    #|print(all([1, 2, 3]))
+    #|print(all([1, 0, 3]))
+    #|print(all("hi"))
+    #|print(all(""))
+    #|print(all({"": 1}))
+    #|print(all({"a": 0}))
+  inspect(
+    e2e_stdout([], source),
+    content="True\nTrue\nFalse\nTrue\nTrue\nFalse\nTrue\n",
+  )
+  inspect(
+    test_exec_error("all()"),
+    content="TypeError: all() takes exactly one argument",
+  )
+  inspect(
+    test_exec_error("all(1)"),
+    content="TypeError: object is not iterable",
+  )
+}
