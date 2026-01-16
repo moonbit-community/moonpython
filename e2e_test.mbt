@@ -198,3 +198,13 @@ test "e2e/builtin_range" {
     content="TypeError: range() arg 3 must not be zero",
   )
 }
+
+///|
+test "e2e/builtin_sum" {
+  let source =
+    #|print(sum([1, 2, 3]))
+    #|print(sum(range(5)))
+    #|print(sum([], 10))
+  inspect(e2e_stdout([], source), content="6\n10\n10\n")
+  inspect(test_exec_error("sum(['x'])"), content="TypeError: expected number")
+}

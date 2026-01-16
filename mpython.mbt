@@ -1217,6 +1217,55 @@ fn eval_expr_with_env(
               }
               Ok(Value::List(items))
             }
+            "sum" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 || arg_values.length() > 2 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "sum() takes 1 or 2 arguments".to_string(),
+                  ),
+                )
+              }
+              let items = match iterable_values(arg_values[0]) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let mut is_float = false
+              let mut total = 0.0
+              if arg_values.length() == 2 {
+                let (start_is_float, start_num) = match
+                  number_value(arg_values[1]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                is_float = start_is_float
+                total = start_num
+              }
+              for item in items {
+                let (item_is_float, item_num) = match number_value(item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if item_is_float {
+                  is_float = true
+                }
+                total = total + item_num
+              }
+              if is_float {
+                Ok(Value::Float(total))
+              } else {
+                Ok(Value::Int(total.to_int64()))
+              }
+            }
             "input" => {
               let arg_values : Array[Value] = []
               for arg in args {
