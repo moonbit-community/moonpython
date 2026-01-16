@@ -208,3 +208,23 @@ test "e2e/builtin_sum" {
   inspect(e2e_stdout([], source), content="6\n10\n10\n")
   inspect(test_exec_error("sum(['x'])"), content="TypeError: expected number")
 }
+
+///|
+test "e2e/builtin_max" {
+  let source =
+    #|print(max([1, 2, 3]))
+    #|print(max(range(5)))
+    #|print(max(1, 9, 3, 9))
+    #|print(max([1, 2.5, 2]))
+    #|print(max([True, False, 2]))
+  inspect(e2e_stdout([], source), content="3\n4\n9\n2.5\n2\n")
+  inspect(
+    test_exec_error("max()"),
+    content="TypeError: max() takes at least 1 argument",
+  )
+  inspect(
+    test_exec_error("max([])"),
+    content="TypeError: max() arg is an empty sequence",
+  )
+  inspect(test_exec_error("max(['x'])"), content="TypeError: expected number")
+}
