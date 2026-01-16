@@ -223,6 +223,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{ name: "reversed", params: [], body: [] }),
     ),
     (
+      "sorted",
+      Value::Function(FunctionValue::{ name: "sorted", params: [], body: [] }),
+    ),
+    (
       "int",
       Value::Function(FunctionValue::{ name: "int", params: [], body: [] }),
     ),

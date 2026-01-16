@@ -364,3 +364,37 @@ test "e2e/builtin_reversed" {
     content="TypeError: object is not iterable",
   )
 }
+
+///|
+test "e2e/builtin_sorted" {
+  let source =
+    #|xs = [3, 1, 2]
+    #|ys = sorted(xs)
+    #|print(",".join([str(x) for x in ys]))
+    #|print(",".join([str(x) for x in xs]))
+    #|print(",".join([str(x) for x in sorted([True, False, 2])]))
+    #|print(",".join([str(x) for x in sorted([1, 2.5, 2])]))
+    #|print("".join(sorted("cba")))
+    #|print(",".join(sorted({"b": 1, "a": 2})))
+    #|print(",".join([str(x) for x in sorted([1, 2, 3], True)]))
+  inspect(
+    e2e_stdout([], source),
+    content="1,2,3\n3,1,2\nFalse,True,2\n1,2,2.5\nabc\na,b\n3,2,1\n",
+  )
+  inspect(
+    test_exec_error("sorted()"),
+    content="TypeError: sorted() takes 1 or 2 arguments",
+  )
+  inspect(
+    test_exec_error("sorted(1)"),
+    content="TypeError: object is not iterable",
+  )
+  inspect(
+    test_exec_error("sorted([1, 'a'])"),
+    content="TypeError: sorted() cannot compare values",
+  )
+  inspect(
+    test_exec_error("sorted([1, 2], 1)"),
+    content="TypeError: sorted() reverse must be bool",
+  )
+}

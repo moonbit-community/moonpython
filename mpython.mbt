@@ -36,6 +36,118 @@ fn stringify_value_with_env(
 }
 
 ///|
+/// `Some(true)` for number-like, `Some(false)` for string-like.
+fn sort_kind_for_sorted(value : Value) -> Bool? {
+  match value {
+    Value::Int(_) | Value::Float(_) | Value::Bool(_) => Some(true)
+    Value::Str(_) => Some(false)
+    _ => None
+  }
+}
+
+///|
+fn cmp_string_for_sorted(a : String, b : String) -> Int {
+  let aa = a.to_array()
+  let bb = b.to_array()
+  let mut i = 0
+  while i < aa.length() && i < bb.length() {
+    let ca = aa[i]
+    let cb = bb[i]
+    if ca < cb {
+      return -1
+    }
+    if ca > cb {
+      return 1
+    }
+    i = i + 1
+  }
+  if aa.length() < bb.length() {
+    -1
+  } else if aa.length() > bb.length() {
+    1
+  } else {
+    0
+  }
+}
+
+///|
+fn cmp_value_for_sorted(
+  is_number : Bool,
+  a : Value,
+  b : Value,
+) -> Result[Int, RuntimeError] {
+  if is_number {
+    let (_, an) = match number_value(a) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    let (_, bn) = match number_value(b) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    if an < bn {
+      Ok(-1)
+    } else if an > bn {
+      Ok(1)
+    } else {
+      Ok(0)
+    }
+  } else {
+    match (a, b) {
+      (Value::Str(aa), Value::Str(bb)) => Ok(cmp_string_for_sorted(aa, bb))
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "sorted() cannot compare values".to_string(),
+          ),
+        )
+    }
+  }
+}
+
+///|
+fn stable_sort_for_sorted(
+  items : Array[Value],
+  is_number : Bool,
+) -> Result[Array[Value], RuntimeError] {
+  let mut out : Array[Value] = []
+  for item in items {
+    let mut inserted = false
+    let next : Array[Value] = []
+    for existing in out {
+      if !inserted {
+        let cmp = match cmp_value_for_sorted(is_number, item, existing) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp < 0 {
+          next.push(item)
+          inserted = true
+        }
+      }
+      next.push(existing)
+    }
+    if !inserted {
+      next.push(item)
+    }
+    out = next
+  }
+  Ok(out)
+}
+
+///|
+fn reverse_values_for_sorted(items : Array[Value]) -> Array[Value] {
+  let out : Array[Value] = []
+  let mut i = items.length()
+  while i > 0 {
+    i = i - 1
+    out.push(items[i])
+  }
+  out
+}
+
+///|
 fn eval_expr_with_env(
   expr : Expr,
   locals : Array[(String, Value)],
@@ -1537,6 +1649,86 @@ fn eval_expr_with_env(
                 reversed.push(items[i])
               }
               Ok(Value::List(reversed))
+            }
+            "sorted" => {
+              let arg_values : Array[Value] = []
+              for arg in args {
+                let value = match
+                  eval_expr_with_env(arg, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                arg_values.push(value)
+              }
+              if arg_values.length() == 0 || arg_values.length() > 2 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "sorted() takes 1 or 2 arguments".to_string(),
+                  ),
+                )
+              }
+              let mut reverse = false
+              if arg_values.length() == 2 {
+                match arg_values[1] {
+                  Value::Bool(v) => reverse = v
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sorted() reverse must be bool".to_string(),
+                      ),
+                    )
+                }
+              }
+              let items_in = match iterable_values(arg_values[0]) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let items : Array[Value] = []
+              for item in items_in {
+                items.push(item)
+              }
+              if items.length() == 0 {
+                return Ok(Value::List([]))
+              }
+              let mut kind_opt : Bool? = None
+              for item in items {
+                match sort_kind_for_sorted(item) {
+                  Some(kind) =>
+                    match kind_opt {
+                      None => kind_opt = Some(kind)
+                      Some(prev) =>
+                        if prev != kind {
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "sorted() cannot compare values".to_string(),
+                            ),
+                          )
+                        }
+                    }
+                  None =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sorted() cannot compare values".to_string(),
+                      ),
+                    )
+                }
+              }
+              let is_number = match kind_opt {
+                Some(kind) => kind
+                None => return Ok(Value::List([]))
+              }
+              let mut out = match stable_sort_for_sorted(items, is_number) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              if reverse {
+                out = reverse_values_for_sorted(out)
+              }
+              Ok(Value::List(out))
             }
             "input" => {
               let arg_values : Array[Value] = []
