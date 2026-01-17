@@ -613,6 +613,89 @@ fn builtin_zip(
 }
 
 ///|
+fn builtin_map(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "map() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let func = arg_values[0]
+  let items = match iterable_values(arg_values[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  for item in items {
+    let mapped = match
+      call_callable_with_env(func, [item], [], globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    results.push(mapped)
+  }
+  Ok(make_iterator(results))
+}
+
+///|
+fn builtin_filter(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "filter() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let predicate = arg_values[0]
+  let items = match iterable_values(arg_values[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  for item in items {
+    let keep = if predicate is Value::None {
+      bool_from_value(item)
+    } else {
+      let test_value = match
+        call_callable_with_env(predicate, [item], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      bool_from_value(test_value)
+    }
+    if keep {
+      results.push(item)
+    }
+  }
+  Ok(make_iterator(results))
+}
+
+///|
 fn builtin_reversed(
   args : Array[Expr],
   locals : Array[(String, Value)],
@@ -2063,6 +2146,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "all", run: builtin_all },
     BuiltinDef::{ name: "enumerate", run: builtin_enumerate },
     BuiltinDef::{ name: "zip", run: builtin_zip },
+    BuiltinDef::{ name: "map", run: builtin_map },
+    BuiltinDef::{ name: "filter", run: builtin_filter },
     BuiltinDef::{ name: "reversed", run: builtin_reversed },
     BuiltinDef::{ name: "sorted", run: builtin_sorted },
     BuiltinDef::{ name: "input", run: builtin_input },

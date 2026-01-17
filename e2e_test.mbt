@@ -425,6 +425,37 @@ test "e2e/builtin_iter_next" {
 }
 
 ///|
+test "e2e/iterable_iterator_values" {
+  let source =
+    #|it = iter([1, 2, 3])
+    #|print(",".join([str(x) for x in list(it)]))
+    #|print(",".join([str(x) for x in list(it)]))
+    #|print(",".join([str(x) for x in iter([4, 5])]))
+  inspect(e2e_stdout([], source), content="1,2,3\n\n4,5\n")
+}
+
+///|
+test "e2e/builtin_map_filter" {
+  let source =
+    #|def inc(x):
+    #|  return x + 1
+    #|def gt2(x):
+    #|  return x > 2
+    #|print(",".join([str(x) for x in map(inc, [1, 2, 3])]))
+    #|print(",".join([str(x) for x in filter(gt2, [1, 2, 3, 4])]))
+    #|print(",".join([str(x) for x in filter(None, [0, 1, "", "a"])]))
+  inspect(e2e_stdout([], source), content="2,3,4\n3,4\n1,a\n")
+  inspect(
+    test_exec_error("map()"),
+    content="TypeError: map() takes exactly two arguments",
+  )
+  inspect(
+    test_exec_error("filter(1)"),
+    content="TypeError: filter() takes exactly two arguments",
+  )
+}
+
+///|
 test "e2e/builtin_more_cpython" {
   let source =
     #|print(bool(), bool(0), bool(1), bool(""), bool("a"))

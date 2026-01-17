@@ -2,6 +2,34 @@
 /// Iterable and comprehension evaluation helpers.
 
 ///|
+fn lookup_iterable_field(
+  dict : Array[(String, Value)],
+  name : String,
+) -> Value? {
+  for pair in dict {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn set_iterable_field(
+  dict : Array[(String, Value)],
+  name : String,
+  value : Value,
+) -> Unit {
+  for i = 0; i < dict.length(); i = i + 1 {
+    if dict[i].0 == name {
+      dict[i] = (name, value)
+      return
+    }
+  }
+  dict.push((name, value))
+}
+
+///|
 fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
   match value {
     Value::List(values) => Ok(values)
@@ -21,6 +49,37 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
       }
       Ok(items)
     }
+    Value::Instance(inst) =>
+      if inst.class.name == "iterator" {
+        let items = match lookup_iterable_field(inst.dict, "items") {
+          Some(Value::List(items)) => items
+          _ => []
+        }
+        let pos = match lookup_iterable_field(inst.dict, "pos") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1L } else { 0L }
+          _ => 0L
+        }
+        let out : Array[Value] = []
+        let mut i = pos.to_int()
+        while i < items.length() {
+          out.push(items[i])
+          i = i + 1
+        }
+        set_iterable_field(
+          inst.dict,
+          "pos",
+          Value::Int(items.length().to_int64()),
+        )
+        Ok(out)
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "object is not iterable".to_string(),
+          ),
+        )
+      }
     _ =>
       Err(
         make_runtime_error(

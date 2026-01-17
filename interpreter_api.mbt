@@ -181,6 +181,24 @@ pub fn Interpreter::new_spec() -> Interpreter {
       }),
     ),
     (
+      "map",
+      Value::Function(FunctionValue::{
+        name: "map",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "filter",
+      Value::Function(FunctionValue::{
+        name: "filter",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
       "any",
       Value::Function(FunctionValue::{
         name: "any",
@@ -460,6 +478,24 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       "zip",
       Value::Function(FunctionValue::{
         name: "zip",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "map",
+      Value::Function(FunctionValue::{
+        name: "map",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "filter",
+      Value::Function(FunctionValue::{
+        name: "filter",
         params: [],
         body: [],
         is_generator: false,
