@@ -57,6 +57,74 @@ test "e2e/io_while_function" {
 }
 
 ///|
+test "e2e/while_else_and_for_else" {
+  let source =
+    #|out = []
+    #|i = 0
+    #|while i < 2:
+    #|  i = i + 1
+    #|else:
+    #|  out = out + ["while-else"]
+    #|for x in [1, 2, 3]:
+    #|  if x == 2:
+    #|    break
+    #|else:
+    #|  out = out + ["for-else"]
+    #|for x in [1, 2, 3]:
+    #|  if x == 9:
+    #|    break
+    #|else:
+    #|  out = out + ["for-else-ran"]
+    #|print(",".join(out))
+  inspect(e2e_stdout([], source), content="while-else,for-else-ran\n")
+}
+
+///|
+test "e2e/for_unpacking" {
+  let source =
+    #|out = []
+    #|for a, b in [(1, 2), (3, 4)]:
+    #|  out = out + [str(a) + ":" + str(b)]
+    #|print(",".join(out))
+  inspect(e2e_stdout([], source), content="1:2,3:4\n")
+}
+
+///|
+test "e2e/function_defaults_and_kwargs" {
+  let ok_source =
+    #|def f(a, b=10, c=20):
+    #|  return a + b + c
+    #|print(f(1))
+    #|print(f(1, 2))
+    #|print(f(1, c=3))
+  inspect(e2e_stdout([], ok_source), content="31\n23\n14\n")
+  let missing_source =
+    #|def f(a, b=10):
+    #|  return a + b
+    #|f()
+  inspect(
+    e2e_stdout([], missing_source),
+    content="ERR: TypeError: f() missing 1 required positional argument: 'a'",
+  )
+  let too_many_source =
+    #|def f(a, b=10):
+    #|  return a + b
+    #|f(1, 2, 3)
+  inspect(
+    e2e_stdout([], too_many_source),
+    content="ERR: TypeError: f() takes 2 positional arguments but 3 were given",
+  )
+  let unexpected_kw_source =
+    #|def f(a, b=10):
+    #|  return a + b
+    #|f(1, c=2)
+  inspect(
+    e2e_stdout([], unexpected_kw_source),
+    content="ERR: TypeError: f() got an unexpected keyword argument 'c'",
+  )
+}
+
+///|
 test "e2e/comprehension_match_fstring" {
   let source =
     #|xs = [2, 4]
@@ -166,6 +234,29 @@ test "e2e/mro_conflict_errors" {
     test_exec_error(source),
     content="TypeError: cannot create a consistent method resolution order",
   )
+}
+
+///|
+test "e2e/decorators_function_and_class" {
+  let source =
+    #|log = []
+    #|def d1(x):
+    #|  log = log + ["d1"]
+    #|  return x
+    #|def d2(x):
+    #|  log = log + ["d2"]
+    #|  return x
+    #|@d1
+    #|@d2
+    #|def f():
+    #|  log = log + ["f"]
+    #|  return 0
+    #|@d2
+    #|class C:
+    #|  pass
+    #|f()
+    #|print(",".join(log))
+  inspect(e2e_stdout([], source), content="d2,d1,d2,f\n")
 }
 
 ///|
@@ -497,9 +588,9 @@ test "e2e/builtin_more_cpython" {
       #|int str list
       #|7 1
       #|12805
-      #|x
+      #|__module__,x
       #|a,b
-      #|
+      #|__module__
       #|
     ),
   )

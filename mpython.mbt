@@ -165,6 +165,7 @@ fn eval_expr_with_env(
         Value::Function(FunctionValue::{
           name: "<genexpr>",
           params: [],
+          defaults: [],
           body: [],
           is_generator: false,
         }),
@@ -258,18 +259,21 @@ fn eval_expr_with_env(
       Ok(Value::Tuple(values))
     }
     Expr::Lambda(params~, defaults~, body~) => {
+      let default_values : Array[Value] = []
       for expr in defaults {
-        let _ = match eval_expr_with_env(expr, locals, globals, builtins, io) {
+        let value = match
+          eval_expr_with_env(expr, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-
+        default_values.push(value)
       }
       let func_body : Array[Stmt] = [Stmt::Return(Some(body))]
       Ok(
         Value::Function(FunctionValue::{
           name: "<lambda>",
           params,
+          defaults: default_values,
           body: func_body,
           is_generator: false,
         }),
@@ -300,6 +304,7 @@ fn eval_expr_with_env(
                 Value::Function(FunctionValue::{
                   name: "__hash__",
                   params: [],
+                  defaults: [],
                   body: [],
                   is_generator: false,
                 }),
@@ -309,6 +314,7 @@ fn eval_expr_with_env(
                 Value::Function(FunctionValue::{
                   name: "__hash__",
                   params: [],
+                  defaults: [],
                   body: [],
                   is_generator: false,
                 }),
@@ -1096,31 +1102,57 @@ fn eval_expr_with_env(
               callee_value, arg_values, keywords, globals, builtins, io,
             )
           }
-        Expr::Name(name) =>
-          match eval_builtin_call(name, args, locals, globals, builtins, io) {
-            Ok(Some(value)) => Ok(value)
-            Ok(None) => {
-              let value = get_from_env(name, locals, globals, builtins)
-              if value is Some(value) {
+        Expr::Name(name) => {
+          let callee_value = get_from_env(name, locals, globals, builtins)
+          if callee_value is Some(callee_value) {
+            match callee_value {
+              Value::Function(func) =>
+                if func.body.length() == 0 {
+                  match
+                    eval_builtin_call(name, args, locals, globals, builtins, io) {
+                    Ok(Some(value)) => Ok(value)
+                    Ok(None) => {
+                      let (arg_values, keywords) = match
+                        eval_call_args(args, locals, globals, builtins, io) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                      call_callable_with_env(
+                        callee_value, arg_values, keywords, globals, builtins, io,
+                      )
+                    }
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  let (arg_values, keywords) = match
+                    eval_call_args(args, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  call_callable_with_env(
+                    callee_value, arg_values, keywords, globals, builtins, io,
+                  )
+                }
+              _ => {
                 let (arg_values, keywords) = match
                   eval_call_args(args, locals, globals, builtins, io) {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
                 call_callable_with_env(
-                  value, arg_values, keywords, globals, builtins, io,
-                )
-              } else {
-                Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Name,
-                    "name '" + name + "' is not defined",
-                  ),
+                  callee_value, arg_values, keywords, globals, builtins, io,
                 )
               }
             }
-            Err(err) => Err(err)
+          } else {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Name,
+                "name '" + name + "' is not defined",
+              ),
+            )
           }
+        }
         _ => {
           let callee_value = match
             eval_expr_with_env(callee, locals, globals, builtins, io) {
@@ -1203,6 +1235,19 @@ fn eval_function_with_kwargs(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  if positional.length() > func.params.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        func.name +
+        "() takes " +
+        func.params.length().to_string() +
+        " positional arguments but " +
+        positional.length().to_string() +
+        " were given",
+      ),
+    )
+  }
   let locals : Array[(String, Value)] = []
   let assigned : Array[Bool] = []
   for param in func.params {
@@ -1216,8 +1261,10 @@ fn eval_function_with_kwargs(
   for pair in keywords {
     let name = pair.0
     let value = pair.1
+    let mut found = false
     for i = 0; i < func.params.length(); i = i + 1 {
       if func.params[i] == name {
+        found = true
         if assigned[i] {
           return Err(
             make_runtime_error(
@@ -1231,6 +1278,55 @@ fn eval_function_with_kwargs(
         break
       }
     }
+    if !found {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          func.name + "() got an unexpected keyword argument '" + name + "'",
+        ),
+      )
+    }
+  }
+  if func.defaults.length() > func.params.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "RuntimeError: bad function defaults".to_string(),
+      ),
+    )
+  }
+  let required_count = func.params.length() - func.defaults.length()
+  for i = required_count; i < func.params.length(); i = i + 1 {
+    if !assigned[i] {
+      locals[i] = (func.params[i], func.defaults[i - required_count])
+      assigned[i] = true
+    }
+  }
+  let missing : Array[String] = []
+  for i = 0; i < required_count; i = i + 1 {
+    if !assigned[i] {
+      missing.push(func.params[i])
+    }
+  }
+  if missing.length() > 0 {
+    let buf = StringBuilder::new()
+    buf.write_string(func.name)
+    buf.write_string("() missing ")
+    buf.write_string(missing.length().to_string())
+    buf.write_string(" required positional argument")
+    if missing.length() != 1 {
+      buf.write_string("s")
+    }
+    buf.write_string(": ")
+    for i = 0; i < missing.length(); i = i + 1 {
+      if i > 0 {
+        buf.write_string(", ")
+      }
+      buf.write_string("'")
+      buf.write_string(missing[i])
+      buf.write_string("'")
+    }
+    return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
   }
   let result = match eval_block(func.body, locals, globals, builtins, io) {
     Ok(value) => value

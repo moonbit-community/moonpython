@@ -817,6 +817,41 @@ fn tokenize_expr(
       let mut is_complex = false
       if i < len && (chars[i] == 'j' || chars[i] == 'J') {
         is_complex = true
+      } else if i < len && (is_alpha(chars[i]) || chars[i] == '_') {
+        let mut j = i
+        while j < len {
+          let d = chars[j]
+          if is_alnum(d) || d == '_' {
+            j += 1
+          } else {
+            break
+          }
+        }
+        let word = substring(source, i, j)
+        let allow_juxtaposed = word == "if" ||
+          word == "else" ||
+          word == "for" ||
+          word == "and" ||
+          word == "or" ||
+          word == "not" ||
+          word == "in" ||
+          word == "is"
+        if !allow_juxtaposed {
+          let token = {
+            kind: Eof,
+            start: base_offset + i,
+            end: base_offset + i + 1,
+            line: current_line,
+            column: i - line_start + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid decimal literal".to_string(),
+              token,
+            ),
+          )
+        }
       }
       let text = substring(source, start, i)
       let kind = if is_complex {
@@ -839,6 +874,8 @@ fn tokenize_expr(
       })
     } else if c == '"' || c == '\'' {
       let start = i
+      let start_line = current_line
+      let start_column = start - line_start + 1
       let triple = start + 2 < chars.length() &&
         chars[start + 1] == chars[start] &&
         chars[start + 2] == chars[start]
@@ -874,9 +911,17 @@ fn tokenize_expr(
         kind,
         start: base_offset + start,
         end: base_offset + i,
-        line: current_line,
-        column: start - line_start + 1,
+        line: start_line,
+        column: start_column,
       })
+      let mut k = start
+      while k < i {
+        if chars[k] == '\n' {
+          current_line += 1
+          line_start = k + 1
+        }
+        k += 1
+      }
     } else if is_alpha(c) || c == '_' {
       let start = i
       let mut raw_prefix = false
@@ -961,6 +1006,14 @@ fn tokenize_expr(
           line: current_line,
           column: start - line_start + 1,
         })
+        let mut k = start
+        while k < i {
+          if chars[k] == '\n' {
+            current_line += 1
+            line_start = k + 1
+          }
+          k += 1
+        }
       } else {
         while i < len {
           let d = chars[i]

@@ -121,9 +121,55 @@ fn eval_block_flow(
         }
         return Ok(BlockFlow::Return(Value::None))
       }
-      Stmt::Function(name~, params~, body~, is_generator~) => {
-        let func = FunctionValue::{ name, params, body, is_generator }
-        set_global_value(globals, name, Value::Function(func))
+      Stmt::Function(
+        name~,
+        decorators~,
+        params~,
+        defaults~,
+        body~,
+        is_generator~
+      ) => {
+        let default_values : Array[Value] = []
+        for expr in defaults {
+          let value = match
+            eval_expr_with_env(expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          default_values.push(value)
+        }
+        let func = FunctionValue::{
+          name,
+          params,
+          defaults: default_values,
+          body,
+          is_generator,
+        }
+        let decorator_values : Array[Value] = []
+        for dec_expr in decorators {
+          let dec_value = match
+            eval_expr_with_env(dec_expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          decorator_values.push(dec_value)
+        }
+        let mut defined : Value = Value::Function(func)
+        for i = decorator_values.length(); i > 0; i = i - 1 {
+          defined = match
+            call_callable_with_env(
+              decorator_values[i - 1],
+              [defined],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+        }
+        set_global_value(globals, name, defined)
         last = Value::None
       }
       Stmt::Pass => last = Value::None
@@ -396,7 +442,16 @@ fn eval_block_flow(
           Err(err) => return Err(err)
         }
       }
-      Stmt::Class(name~, bases~, body~) => {
+      Stmt::Class(name~, decorators~, bases~, keywords~, body~) => {
+        let decorator_values : Array[Value] = []
+        for dec_expr in decorators {
+          let dec_value = match
+            eval_expr_with_env(dec_expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          decorator_values.push(dec_value)
+        }
         let base_values : Array[Value] = []
         for base in bases {
           let value = match
@@ -415,6 +470,14 @@ fn eval_block_flow(
               )
           }
         }
+        for keyword in keywords {
+          let _ = match
+            eval_expr_with_env(keyword.1, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        }
         if base_values.length() == 0 {
           for pair in builtins {
             if pair.0 == "object" {
@@ -427,7 +490,21 @@ fn eval_block_flow(
             }
           }
         }
+        let module_name_value = get_global_value(globals, "__name__")
+        if module_name_value is None {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Name,
+              "name '__name__' is not defined",
+            ),
+          )
+        }
+        let module_name = match module_name_value.unwrap() {
+          Value::Str(text) => text
+          other => value_to_string(other)
+        }
         let class_dict : Array[(String, Value)] = []
+        class_dict.push(("__module__", Value::Str(module_name)))
         let module_globals_for_lookup = globals
         let flow = match
           eval_block_flow(
@@ -451,10 +528,26 @@ fn eval_block_flow(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
-        set_global_value(globals, name, Value::Class(klass))
+        let mut defined : Value = Value::Class(klass)
+        for i = decorator_values.length(); i > 0; i = i - 1 {
+          defined = match
+            call_callable_with_env(
+              decorator_values[i - 1],
+              [defined],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+        }
+        set_global_value(globals, name, defined)
         last = Value::None
       }
-      Stmt::While(condition~, body~) => {
+      Stmt::While(condition~, body~, else_body~) => {
+        let mut broke = false
         while true {
           let cond_value = match
             eval_expr_with_env(condition, locals, globals, builtins, io) {
@@ -468,14 +561,29 @@ fn eval_block_flow(
             eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Continue) => continue
-            Ok(BlockFlow::Break) => break
+            Ok(BlockFlow::Break) => {
+              broke = true
+              break
+            }
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Err(err) => return Err(err)
+          }
+        }
+        if !broke && else_body.length() > 0 {
+          match
+            eval_block_flow(
+              else_body, locals, globals, builtins, io, loop_depth,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
             Err(err) => return Err(err)
           }
         }
         last = Value::None
       }
-      Stmt::For(target~, iter~, body~) => {
+      Stmt::For(target~, iter~, body~, else_body~) => {
         let iter_value = match
           eval_expr_with_env(iter, locals, globals, builtins, io) {
           Ok(value) => value
@@ -485,14 +593,34 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
+        let mut broke = false
         for item in items {
-          set_global_value(globals, target, item)
+          let _ = match
+            assign_target_with_env(target, item, locals, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
           match
             eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Continue) => continue
-            Ok(BlockFlow::Break) => break
+            Ok(BlockFlow::Break) => {
+              broke = true
+              break
+            }
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Err(err) => return Err(err)
+          }
+        }
+        if !broke && else_body.length() > 0 {
+          match
+            eval_block_flow(
+              else_body, locals, globals, builtins, io, loop_depth,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
             Err(err) => return Err(err)
           }
         }

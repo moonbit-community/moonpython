@@ -146,13 +146,20 @@ pub enum Stmt {
   Return(Expr?)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
-  While(condition~ : Expr, body~ : Array[Stmt])
-  For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
+  While(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  For(
+    target~ : Target,
+    iter~ : Expr,
+    body~ : Array[Stmt],
+    else_body~ : Array[Stmt]
+  )
   Break
   Continue
   Function(
     name~ : String,
+    decorators~ : Array[Expr],
     params~ : Array[String],
+    defaults~ : Array[Expr],
     body~ : Array[Stmt],
     is_generator~ : Bool
   )
@@ -169,7 +176,13 @@ pub enum Stmt {
     else_body~ : Array[Stmt],
     finally_body~ : Array[Stmt]
   )
-  Class(name~ : String, bases~ : Array[Expr], body~ : Array[Stmt])
+  Class(
+    name~ : String,
+    decorators~ : Array[Expr],
+    bases~ : Array[Expr],
+    keywords~ : Array[(String, Expr)],
+    body~ : Array[Stmt]
+  )
 } derive(ToJson)
 
 ///|
@@ -245,6 +258,7 @@ pub struct Config {
 pub struct FunctionValue {
   name : String
   params : Array[String]
+  defaults : Array[Value]
   body : Array[Stmt]
   is_generator : Bool
 } derive(ToJson)

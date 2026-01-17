@@ -105,6 +105,7 @@ pub impl ToJson for Expr
 pub struct FunctionValue {
   name : String
   params : Array[String]
+  defaults : Array[Value]
   body : Array[Stmt]
   is_generator : Bool
 }
@@ -228,11 +229,11 @@ pub enum Stmt {
   Return(Expr?)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
-  While(condition~ : Expr, body~ : Array[Stmt])
-  For(target~ : String, iter~ : Expr, body~ : Array[Stmt])
+  While(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  For(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Break
   Continue
-  Function(name~ : String, params~ : Array[String], body~ : Array[Stmt], is_generator~ : Bool)
+  Function(name~ : String, decorators~ : Array[Expr], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool)
   Pass
   Global(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
@@ -241,7 +242,7 @@ pub enum Stmt {
   Import(module~ : String)
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(body~ : Array[Stmt], handlers~ : Array[(Expr?, String?, Array[Stmt])], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
-  Class(name~ : String, bases~ : Array[Expr], body~ : Array[Stmt])
+  Class(name~ : String, decorators~ : Array[Expr], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
 }
 pub impl ToJson for Stmt
 
