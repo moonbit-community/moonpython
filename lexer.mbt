@@ -232,13 +232,16 @@ fn find_last_char(source : String, target : Char) -> Int? {
 
 ///|
 fn is_alpha(c : Char) -> Bool {
+  let code = c.to_int()
   (c >= 'a' && c <= 'z') ||
   (c >= 'A' && c <= 'Z') ||
   (
-    c.to_int() >= 128 &&
-    c.to_int() != 0xA0 &&
-    c.to_int() != 0xA4 &&
-    c.to_int() != 0xFFFD
+    code >= 128 &&
+    code != 0xA0 &&
+    code != 0xA4 &&
+    code != 0xFFFD &&
+    code != 0xFF0C &&
+    code != 0x3002
   )
 }
 
@@ -515,6 +518,9 @@ fn parse_string_literal(
       i = next_i
       continue
     }
+    if !triple && c == '\n' {
+      return (buf.to_string(), i, false)
+    }
     if c == quote {
       if triple {
         if i + 2 < chars.length() &&
@@ -614,6 +620,38 @@ fn tokenize_expr(
         make_parse_error(
           ParseErrorKind::Syntax,
           "invalid character '�' (U+FFFD)".to_string(),
+          token,
+        ),
+      )
+    }
+    if c.to_int() == 0xFF0C {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid character '，' (U+FF0C)".to_string(),
+          token,
+        ),
+      )
+    }
+    if c.to_int() == 0x3002 {
+      let token = {
+        kind: Eof,
+        start: base_offset + i,
+        end: base_offset + i + 1,
+        line: current_line,
+        column: i - line_start + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid character '。' (U+3002)".to_string(),
           token,
         ),
       )

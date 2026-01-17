@@ -125,6 +125,31 @@ test "e2e/function_defaults_and_kwargs" {
 }
 
 ///|
+test "e2e/backslash_newline_inside_string" {
+  let source =
+    #|a = ["line\
+    #|break"]
+    #|print(a[0])
+  inspect(e2e_stdout([], source), content="linebreak\n")
+}
+
+///|
+test "e2e/unicode_punctuation_is_lexical_error" {
+  let source =
+    #|This sentence is in ASCII.
+    #|The next sentence is in GB.己所不欲，勿施於人。Bye.
+  inspect(e2e_stdout([], source), content="ERR: line 2:1 invalid syntax")
+}
+
+///|
+test "e2e/bracket_mismatch_can_outrank_earlier_syntax" {
+  let source =
+    #|a b
+    #|[1)
+  inspect(e2e_stdout([], source), content="ERR: line 2:1 invalid syntax")
+}
+
+///|
 test "e2e/comprehension_match_fstring" {
   let source =
     #|xs = [2, 4]
