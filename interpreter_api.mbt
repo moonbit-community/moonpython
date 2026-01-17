@@ -726,6 +726,33 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         is_generator: false,
       }),
     ),
+    (
+      "getattr",
+      Value::Function(FunctionValue::{
+        name: "getattr",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "hasattr",
+      Value::Function(FunctionValue::{
+        name: "hasattr",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
+    (
+      "setattr",
+      Value::Function(FunctionValue::{
+        name: "setattr",
+        params: [],
+        body: [],
+        is_generator: false,
+      }),
+    ),
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),

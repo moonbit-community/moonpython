@@ -522,6 +522,33 @@ test "e2e/builtin_more_cpython" {
 }
 
 ///|
+test "e2e/builtin_getattr_hasattr_setattr" {
+  let source =
+    #|class C:
+    #|  pass
+    #|c = C()
+    #|print(hasattr(c, "x"))
+    #|setattr(c, "x", 1)
+    #|print(getattr(c, "x"), hasattr(c, "x"))
+    #|print(getattr(c, "y", 99))
+    #|setattr(C, "k", 7)
+    #|print(getattr(c, "k"))
+  inspect(e2e_stdout([], source), content="False\n1 True\n99\n7\n")
+  inspect(
+    test_exec_error("getattr(1, 2)"),
+    content="TypeError: attribute name must be str",
+  )
+  inspect(
+    test_exec_error("hasattr(1, 2)"),
+    content="TypeError: attribute name must be str",
+  )
+  inspect(
+    test_exec_error("getattr(1, \"x\")"),
+    content="AttributeError: 'int' object has no attribute 'x'",
+  )
+}
+
+///|
 test "e2e/raise_class" {
   inspect(test_exec_error("raise ValueError"), content="ValueError")
   inspect(

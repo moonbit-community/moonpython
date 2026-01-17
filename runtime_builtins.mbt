@@ -2113,6 +2113,127 @@ fn builtin_dir(
 }
 
 ///|
+fn builtin_getattr(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 && arg_values.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getattr() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let obj = arg_values[0]
+  let name = match arg_values[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "attribute name must be str".to_string(),
+        ),
+      )
+  }
+  match get_attr_from_value(obj, name) {
+    Ok(value) => Ok(value)
+    Err(err) =>
+      if arg_values.length() == 3 {
+        Ok(arg_values[2])
+      } else {
+        Err(err)
+      }
+  }
+}
+
+///|
+fn builtin_hasattr(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "hasattr() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let obj = arg_values[0]
+  let name = match arg_values[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "attribute name must be str".to_string(),
+        ),
+      )
+  }
+  match get_attr_from_value(obj, name) {
+    Ok(_) => Ok(Value::Bool(true))
+    Err(_err) => Ok(Value::Bool(false))
+  }
+}
+
+///|
+fn builtin_setattr(
+  args : Array[Expr],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let arg_values = match
+    eval_positional_args(args, locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if arg_values.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "setattr() takes exactly three arguments".to_string(),
+      ),
+    )
+  }
+  let target = arg_values[0]
+  let name = match arg_values[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "attribute name must be str".to_string(),
+        ),
+      )
+  }
+  let value = arg_values[2]
+  let _ = match set_attr_on_value(target, name, value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -2179,6 +2300,9 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "globals", run: builtin_globals },
     BuiltinDef::{ name: "locals", run: builtin_locals },
     BuiltinDef::{ name: "dir", run: builtin_dir },
+    BuiltinDef::{ name: "getattr", run: builtin_getattr },
+    BuiltinDef::{ name: "hasattr", run: builtin_hasattr },
+    BuiltinDef::{ name: "setattr", run: builtin_setattr },
   ]
   builtin_defs_ready.val = true
 }
