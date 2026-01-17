@@ -318,6 +318,8 @@ fn call_callable_with_env(
         klass.name == "EOFError" ||
         klass.name == "StopIteration" {
         let dict : Array[(String, Value)] = []
+        dict.push(("__traceback__", Value::None))
+        dict.push(("args", Value::Tuple(positional)))
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
         }

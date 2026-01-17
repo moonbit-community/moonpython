@@ -33,6 +33,50 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
 }
 
 ///|
+fn make_traceback_value() -> Value {
+  let frame_value = Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "frame", bases: [], dict: [] },
+    dict: [],
+  })
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+    dict: [("tb_frame", frame_value)],
+  })
+}
+
+///|
+fn exception_value_from_runtime_error(
+  err : RuntimeError,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Value {
+  let positional : Array[Value] = []
+  for arg in err.exc_args {
+    positional.push(Value::Str(arg))
+  }
+  match get_named_value(builtins, err.exc_type) {
+    Some(Value::Class(klass)) =>
+      match
+        call_callable_with_env(
+          Value::Class(klass),
+          positional,
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(Value::Instance(inst)) => {
+          set_named_value(inst.dict, "__traceback__", make_traceback_value())
+          Value::Instance(inst)
+        }
+        _ => Value::Str(format_runtime_error(err))
+      }
+    _ => Value::Str(format_runtime_error(err))
+  }
+}
+
+///|
 fn eval_block_flow(
   body : Array[Stmt],
   locals : Array[(String, Value)],
@@ -306,7 +350,9 @@ fn eval_block_flow(
                   set_global_value(
                     globals,
                     name,
-                    Value::Str(format_runtime_error(err)),
+                    exception_value_from_runtime_error(
+                      err, globals, builtins, io,
+                    ),
                   )
                 None => ()
               }

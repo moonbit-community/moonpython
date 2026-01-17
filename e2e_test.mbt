@@ -91,11 +91,8 @@ test "e2e/try_except_finally_raise_del" {
     #|finally:
     #|  log = log + ["finally"]
     #|print(",".join(log))
-  inspect(e2e_stdout([], source), content="del,RuntimeError: x,finally\n")
-  inspect(
-    e2e_global([], source, "log"),
-    content="[del, RuntimeError: x, finally]",
-  )
+  inspect(e2e_stdout([], source), content="del,x,finally\n")
+  inspect(e2e_global([], source, "log"), content="[del, x, finally]")
 }
 
 ///|
@@ -504,12 +501,46 @@ test "e2e/raise_class" {
     #|try:
     #|  raise ValueError
     #|except ValueError as e:
-    #|  print("caught", e)
-  inspect(e2e_stdout([], source), content="caught ValueError\n")
+    #|  print("caught", type(e), len(str(e)), type(e.__traceback__))
+  inspect(e2e_stdout([], source), content="caught ValueError 0 traceback\n")
   let source2 =
     #|try:
     #|  raise ValueError("x")
     #|except ValueError as e:
-    #|  print(e)
-  inspect(e2e_stdout([], source2), content="ValueError: x\n")
+    #|  print(type(e), str(e))
+    #|  print(len(e.args), e.args[0])
+    #|  print(type(e.__traceback__), type(e.__traceback__.tb_frame))
+  inspect(
+    e2e_stdout([], source2),
+    content="ValueError x\n1 x\ntraceback frame\n",
+  )
+}
+
+///|
+test "e2e/except_binds_instance" {
+  let source =
+    #|try:
+    #|  missing
+    #|except NameError as e:
+    #|  print(type(e))
+    #|  print(str(e))
+    #|  print(len(e.args), e.args[0])
+    #|try:
+    #|  1 / 0
+    #|except ZeroDivisionError as e:
+    #|  print(type(e))
+    #|  print(str(e))
+    #|  print(type(e.__traceback__), type(e.__traceback__.tb_frame))
+  inspect(
+    e2e_stdout([], source),
+    content=(
+      #|NameError
+      #|name 'missing' is not defined
+      #|1 name 'missing' is not defined
+      #|ZeroDivisionError
+      #|division by zero
+      #|traceback frame
+      #|
+    ),
+  )
 }

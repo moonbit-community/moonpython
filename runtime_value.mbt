@@ -45,6 +45,40 @@ fn not_callable_message(value : Value) -> String {
 }
 
 ///|
+fn is_exception_class_name(name : String) -> Bool {
+  name == "BaseException" ||
+  name == "Exception" ||
+  name == "RuntimeError" ||
+  name == "NameError" ||
+  name == "TypeError" ||
+  name == "AttributeError" ||
+  name == "IndexError" ||
+  name == "KeyError" ||
+  name == "NotImplementedError" ||
+  name == "ZeroDivisionError" ||
+  name == "ValueError" ||
+  name == "ImportError" ||
+  name == "AssertionError" ||
+  name == "SyntaxError" ||
+  name == "IndentationError" ||
+  name == "EOFError" ||
+  name == "StopIteration"
+}
+
+///|
+fn lookup_instance_field(
+  dict : Array[(String, Value)],
+  name : String,
+) -> Value? {
+  for pair in dict {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
 fn value_to_string(value : Value) -> String {
   match value {
     Value::None => "None"
@@ -107,7 +141,16 @@ fn value_to_string(value : Value) -> String {
     }
     Value::Function(func) => "<function " + func.name + ">"
     Value::Class(klass) => "<class '" + klass.name + "'>"
-    Value::Instance(inst) => "<" + inst.class.name + " object>"
+    Value::Instance(inst) =>
+      if is_exception_class_name(inst.class.name) {
+        match lookup_instance_field(inst.dict, "message") {
+          Some(Value::Str(text)) => text
+          Some(other) => value_to_string(other)
+          None => "".to_string()
+        }
+      } else {
+        "<" + inst.class.name + " object>"
+      }
     Value::BoundMethod(method) => "<bound method " + method.function.name + ">"
   }
 }

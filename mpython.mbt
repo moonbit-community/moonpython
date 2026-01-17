@@ -671,27 +671,51 @@ fn eval_expr_with_env(
             Ok(value) => value
             Err(err) => return Err(err)
           }
+          if right_num == 0.0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "division by zero".to_string(),
+              ),
+            )
+          }
           Ok(Value::Float(left_num / right_num))
         }
         BinaryOp::FloorDiv => {
-          let (_, left_num) = match number_value(left_val) {
+          let (left_is_float, left_num) = match number_value(left_val) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let (_, right_num) = match number_value(right_val) {
+          let (right_is_float, right_num) = match number_value(right_val) {
             Ok(value) => value
             Err(err) => return Err(err)
+          }
+          if right_num == 0.0 {
+            let msg = if left_is_float || right_is_float {
+              "float floor division by zero".to_string()
+            } else {
+              "integer division or modulo by zero".to_string()
+            }
+            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
           }
           Ok(Value::Int((left_num / right_num).floor().to_int64()))
         }
         BinaryOp::Mod => {
-          let (_, left_num) = match number_value(left_val) {
+          let (left_is_float, left_num) = match number_value(left_val) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let (_, right_num) = match number_value(right_val) {
+          let (right_is_float, right_num) = match number_value(right_val) {
             Ok(value) => value
             Err(err) => return Err(err)
+          }
+          if right_num == 0.0 {
+            let msg = if left_is_float || right_is_float {
+              "float modulo".to_string()
+            } else {
+              "integer modulo by zero".to_string()
+            }
+            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
           }
           Ok(Value::Float(left_num % right_num))
         }
