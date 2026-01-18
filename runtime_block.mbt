@@ -110,6 +110,138 @@ fn eval_block_flow(
         }
         last = Value::None
       }
+      Stmt::AugAssign(target~, op~, value~) => {
+        let right_val = match
+          eval_expr_with_env(value, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match target {
+          Target::Name(name) => {
+            let current = match get_from_env(name, locals, globals, builtins) {
+              Some(value) => value
+              None =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Name,
+                    "name '" + name + "' is not defined",
+                  ),
+                )
+            }
+            let next = match
+              eval_binary_op_values(
+                op, current, right_val, globals, builtins, io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            set_global_value(globals, name, next)
+          }
+          Target::Attribute(value~, attr~) => {
+            let base = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let current = match get_attr_from_value(base, attr) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let next = match
+              eval_binary_op_values(
+                op, current, right_val, globals, builtins, io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let _ = match set_attr_on_value(base, attr, next) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+
+          }
+          Target::Subscript(value~, index~) => {
+            let container = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let index_value = match
+              eval_expr_with_env(index, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            match container {
+              Value::List(values) => {
+                let idx = match index_from_value(index_value, 0) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let norm = normalize_index(idx, values.length())
+                if norm < 0 || norm >= values.length() {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Index,
+                      "index out of range".to_string(),
+                    ),
+                  )
+                }
+                let current = values[norm]
+                let next = match
+                  eval_binary_op_values(
+                    op, current, right_val, globals, builtins, io,
+                  ) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                values[norm] = next
+              }
+              Value::Dict(pairs) => {
+                let mut found : Int? = None
+                for i = 0; i < pairs.length(); i = i + 1 {
+                  if eq_value(pairs[i].0, index_value) {
+                    found = Some(i)
+                    break
+                  }
+                }
+                if found is None {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Key,
+                      "key not found".to_string(),
+                    ),
+                  )
+                }
+                let i = found.unwrap()
+                let current = pairs[i].1
+                let next = match
+                  eval_binary_op_values(
+                    op, current, right_val, globals, builtins, io,
+                  ) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                pairs[i] = (pairs[i].0, next)
+              }
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "object does not support item assignment".to_string(),
+                  ),
+                )
+            }
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "unsupported augmented assignment target".to_string(),
+              ),
+            )
+        }
+        last = Value::None
+      }
       Stmt::Return(expr) => {
         if expr is Some(expr) {
           let value = match
@@ -174,6 +306,7 @@ fn eval_block_flow(
       }
       Stmt::Pass => last = Value::None
       Stmt::Global(_) => last = Value::None
+      Stmt::Nonlocal(_) => last = Value::None
       Stmt::Assert(condition~, message~) => {
         let value = match
           eval_expr_with_env(condition, locals, globals, builtins, io) {

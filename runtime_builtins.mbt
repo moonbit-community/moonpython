@@ -5,22 +5,23 @@
 /// expression evaluation and general call semantics.
 
 ///|
-fn eval_positional_args(
-  args : Array[Expr],
-  locals : Array[(String, Value)],
-  globals : Array[(String, Value)],
-  builtins : Array[(String, Value)],
-  io : MockIO,
-) -> Result[Array[Value], RuntimeError] {
-  let values : Array[Value] = []
-  for arg in args {
-    let value = match eval_expr_with_env(arg, locals, globals, builtins, io) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
-    values.push(value)
+fn unexpected_keywords_error(name : String) -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    name + "() got unexpected keyword arguments".to_string(),
+  )
+}
+
+///|
+fn ensure_no_keywords(
+  name : String,
+  keywords : Array[(String, Value)],
+) -> Result[Unit, RuntimeError] {
+  if keywords.length() > 0 {
+    Err(unexpected_keywords_error(name))
+  } else {
+    Ok(())
   }
-  Ok(values)
 }
 
 ///|
@@ -136,48 +137,98 @@ fn stable_sort_for_sorted(
 
 ///|
 fn builtin_print(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+  let mut sep = " ".to_string()
+  let mut end = "\n".to_string()
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "sep" =>
+        match value {
+          Value::Str(text) => sep = text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() sep must be str".to_string(),
+              ),
+            )
+        }
+      "end" =>
+        match value {
+          Value::Str(text) => end = text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() end must be str".to_string(),
+              ),
+            )
+        }
+      "file" =>
+        match value {
+          Value::None => ()
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::NotImplemented,
+                "print() file is not supported".to_string(),
+              ),
+            )
+        }
+      "flush" =>
+        match value {
+          Value::Bool(_) => ()
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() flush must be bool".to_string(),
+              ),
+            )
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "print() got an unexpected keyword argument '" + key + "'",
+          ),
+        )
+    }
   }
   let buf = StringBuilder::new()
-  for i = 0; i < arg_values.length(); i = i + 1 {
+  for i = 0; i < positional.length(); i = i + 1 {
     if i > 0 {
-      buf.write_string(" ")
+      buf.write_string(sep)
     }
-    let text = match
-      stringify_value_with_env(arg_values[i], globals, builtins, io) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
-    buf.write_string(text)
+    buf.write_string(value_to_string(positional[i]))
   }
-  buf.write_string("\n")
+  buf.write_string(end)
   io.write_stdout(buf.to_string())
   Ok(Value::None)
 }
 
 ///|
 fn builtin_len(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("len", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -185,7 +236,7 @@ fn builtin_len(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Str(text) => Ok(Value::Int(text.length().to_int64()))
     Value::List(values) => Ok(Value::Int(values.length().to_int64()))
     Value::Tuple(values) => Ok(Value::Int(values.length().to_int64()))
@@ -203,14 +254,14 @@ fn builtin_len(
 
 ///|
 fn builtin_range(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("range", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -228,7 +279,7 @@ fn builtin_range(
     }
   }
 
-  if arg_values.length() == 0 || arg_values.length() > 3 {
+  if positional.length() == 0 || positional.length() > 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -239,30 +290,30 @@ fn builtin_range(
   let mut start = 0L
   let mut stop = 0L
   let mut step = 1L
-  if arg_values.length() == 1 {
-    stop = match to_int(arg_values[0]) {
+  if positional.length() == 1 {
+    stop = match to_int(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-  } else if arg_values.length() == 2 {
-    start = match to_int(arg_values[0]) {
+  } else if positional.length() == 2 {
+    start = match to_int(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    stop = match to_int(arg_values[1]) {
+    stop = match to_int(positional[1]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
   } else {
-    start = match to_int(arg_values[0]) {
+    start = match to_int(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    stop = match to_int(arg_values[1]) {
+    stop = match to_int(positional[1]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    step = match to_int(arg_values[2]) {
+    step = match to_int(positional[2]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -293,18 +344,18 @@ fn builtin_range(
 
 ///|
 fn builtin_sum(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("sum", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 || arg_values.length() > 2 {
+  if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -312,14 +363,14 @@ fn builtin_sum(
       ),
     )
   }
-  let items = match iterable_values(arg_values[0]) {
+  let items = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
   let mut is_float = false
   let mut total = 0.0
-  if arg_values.length() == 2 {
-    let (start_is_float, start_num) = match number_value(arg_values[1]) {
+  if positional.length() == 2 {
+    let (start_is_float, start_num) = match number_value(positional[1]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -345,18 +396,18 @@ fn builtin_sum(
 
 ///|
 fn builtin_max(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("max", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -364,13 +415,13 @@ fn builtin_max(
       ),
     )
   }
-  let items = if arg_values.length() == 1 {
-    match iterable_values(arg_values[0]) {
+  let items = if positional.length() == 1 {
+    match iterable_values(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
   } else {
-    arg_values
+    positional
   }
   if items.length() == 0 {
     return Err(
@@ -402,18 +453,18 @@ fn builtin_max(
 
 ///|
 fn builtin_min(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("min", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -421,13 +472,13 @@ fn builtin_min(
       ),
     )
   }
-  let items = if arg_values.length() == 1 {
-    match iterable_values(arg_values[0]) {
+  let items = if positional.length() == 1 {
+    match iterable_values(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
   } else {
-    arg_values
+    positional
   }
   if items.length() == 0 {
     return Err(
@@ -459,18 +510,18 @@ fn builtin_min(
 
 ///|
 fn builtin_any(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("any", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -478,7 +529,7 @@ fn builtin_any(
       ),
     )
   }
-  let items = match iterable_values(arg_values[0]) {
+  let items = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -492,18 +543,18 @@ fn builtin_any(
 
 ///|
 fn builtin_all(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("all", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -511,7 +562,7 @@ fn builtin_all(
       ),
     )
   }
-  let items = match iterable_values(arg_values[0]) {
+  let items = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -525,18 +576,18 @@ fn builtin_all(
 
 ///|
 fn builtin_enumerate(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("enumerate", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 || arg_values.length() > 2 {
+  if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -544,13 +595,13 @@ fn builtin_enumerate(
       ),
     )
   }
-  let items = match iterable_values(arg_values[0]) {
+  let items = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
   let mut start = 0L
-  if arg_values.length() == 2 {
-    match arg_values[1] {
+  if positional.length() == 2 {
+    match positional[1] {
       Value::Int(v) => start = v
       Value::Bool(v) => start = if v { 1L } else { 0L }
       _ =>
@@ -573,18 +624,19 @@ fn builtin_enumerate(
 
 ///|
 fn builtin_zip(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   let iterables : Array[Array[Value]] = []
-  for arg in args {
-    let value = match eval_expr_with_env(arg, locals, globals, builtins, io) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
+  let _ = match ensure_no_keywords("zip", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for value in positional {
     let items = match iterable_values(value) {
       Ok(v) => v
       Err(err) => return Err(err)
@@ -614,18 +666,18 @@ fn builtin_zip(
 
 ///|
 fn builtin_map(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("map", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 {
+  if positional.length() != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -633,8 +685,8 @@ fn builtin_map(
       ),
     )
   }
-  let func = arg_values[0]
-  let items = match iterable_values(arg_values[1]) {
+  let func = positional[0]
+  let items = match iterable_values(positional[1]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -652,18 +704,18 @@ fn builtin_map(
 
 ///|
 fn builtin_filter(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("filter", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 {
+  if positional.length() != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -671,8 +723,8 @@ fn builtin_filter(
       ),
     )
   }
-  let predicate = arg_values[0]
-  let items = match iterable_values(arg_values[1]) {
+  let predicate = positional[0]
+  let items = match iterable_values(positional[1]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -697,18 +749,18 @@ fn builtin_filter(
 
 ///|
 fn builtin_reversed(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("reversed", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -716,7 +768,7 @@ fn builtin_reversed(
       ),
     )
   }
-  let items = match iterable_values(arg_values[0]) {
+  let items = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -725,18 +777,18 @@ fn builtin_reversed(
 
 ///|
 fn builtin_sorted(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("sorted", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 || arg_values.length() > 2 {
+  if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -745,8 +797,8 @@ fn builtin_sorted(
     )
   }
   let mut reverse = false
-  if arg_values.length() == 2 {
-    match arg_values[1] {
+  if positional.length() == 2 {
+    match positional[1] {
       Value::Bool(v) => reverse = v
       _ =>
         return Err(
@@ -757,7 +809,7 @@ fn builtin_sorted(
         )
     }
   }
-  let items_in = match iterable_values(arg_values[0]) {
+  let items_in = match iterable_values(positional[0]) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -809,19 +861,19 @@ fn builtin_sorted(
 
 ///|
 fn builtin_input(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("input", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() > 0 {
-    io.write_stdout(value_to_string(arg_values[0]))
+  if positional.length() > 0 {
+    io.write_stdout(value_to_string(positional[0]))
   }
   let line = io.read_line()
   if line is Some(line) {
@@ -838,46 +890,41 @@ fn builtin_input(
 
 ///|
 fn builtin_str(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("str", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Str(""))
   } else {
-    let text = match
-      stringify_value_with_env(arg_values[0], globals, builtins, io) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
-    Ok(Value::Str(text))
+    Ok(Value::Str(value_to_string(positional[0])))
   }
 }
 
 ///|
 fn builtin_int(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("int", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Int(0L))
   } else {
-    match arg_values[0] {
+    match positional[0] {
       Value::Int(v) => Ok(Value::Int(v))
       Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
       Value::Float(v) => Ok(Value::Int(v.to_int64()))
@@ -906,21 +953,21 @@ fn builtin_int(
 
 ///|
 fn builtin_float(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("float", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Float(0.0))
   } else {
-    match arg_values[0] {
+    match positional[0] {
       Value::Float(v) => Ok(Value::Float(v))
       Value::Int(v) => Ok(Value::Float(v.to_double()))
       Value::Bool(v) => Ok(Value::Float(if v { 1.0 } else { 0.0 }))
@@ -949,21 +996,21 @@ fn builtin_float(
 
 ///|
 fn builtin_list(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("list", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::List([]))
   } else {
-    let items = match iterable_values(arg_values[0]) {
+    let items = match iterable_values(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -973,21 +1020,21 @@ fn builtin_list(
 
 ///|
 fn builtin_tuple(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("tuple", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Tuple([]))
   } else {
-    let items = match iterable_values(arg_values[0]) {
+    let items = match iterable_values(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -997,21 +1044,21 @@ fn builtin_tuple(
 
 ///|
 fn builtin_set(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("set", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Set([]))
   } else {
-    let items = match iterable_values(arg_values[0]) {
+    let items = match iterable_values(positional[0]) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -1034,21 +1081,21 @@ fn builtin_set(
 
 ///|
 fn builtin_dict(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("dict", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     Ok(Value::Dict([]))
   } else {
-    match arg_values[0] {
+    match positional[0] {
       Value::Dict(pairs) => Ok(Value::Dict(pairs))
       Value::List(items) | Value::Tuple(items) => {
         let pairs : Array[(Value, Value)] = []
@@ -1104,18 +1151,18 @@ fn make_iterator(items_in : Array[Value]) -> Value {
 
 ///|
 fn builtin_iter(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("iter", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1123,7 +1170,7 @@ fn builtin_iter(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Instance(inst) =>
       if inst.class.name == "iterator" {
         Ok(Value::Instance(inst))
@@ -1146,18 +1193,18 @@ fn builtin_iter(
 
 ///|
 fn builtin_next(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("next", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 || arg_values.length() > 2 {
+  if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1165,12 +1212,12 @@ fn builtin_next(
       ),
     )
   }
-  let default_value : Value? = if arg_values.length() == 2 {
-    Some(arg_values[1])
+  let default_value : Value? = if positional.length() == 2 {
+    Some(positional[1])
   } else {
     None
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Instance(inst) =>
       if inst.class.name != "iterator" {
         Err(
@@ -1287,21 +1334,21 @@ fn escape_string_for_repr(text : String) -> String {
 
 ///|
 fn builtin_bool(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("bool", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 {
+  if positional.length() == 0 {
     return Ok(Value::Bool(false))
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1309,23 +1356,23 @@ fn builtin_bool(
       ),
     )
   }
-  Ok(Value::Bool(bool_from_value(arg_values[0])))
+  Ok(Value::Bool(bool_from_value(positional[0])))
 }
 
 ///|
 fn builtin_repr(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("repr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1333,7 +1380,7 @@ fn builtin_repr(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Str(text) =>
       Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
     other => Ok(Value::Str(value_to_string(other)))
@@ -1342,18 +1389,18 @@ fn builtin_repr(
 
 ///|
 fn builtin_abs(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("abs", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1361,7 +1408,7 @@ fn builtin_abs(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Int(v) => Ok(Value::Int(if v < 0L { -v } else { v }))
     Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
     Value::Float(v) => Ok(Value::Float(if v < 0.0 { -v } else { v }))
@@ -1386,18 +1433,18 @@ fn round_float_to_int(value : Double) -> Int64 {
 
 ///|
 fn builtin_round(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("round", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() == 0 || arg_values.length() > 2 {
+  if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1406,7 +1453,7 @@ fn builtin_round(
     )
   }
   // `ndigits` is accepted but ignored for now.
-  match arg_values[0] {
+  match positional[0] {
     Value::Int(v) => Ok(Value::Int(v))
     Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
     Value::Float(v) => Ok(Value::Int(round_float_to_int(v)))
@@ -1451,18 +1498,18 @@ fn mod_pow_int(base : Int64, exp : Int64, modulus : Int64) -> Int64 {
 
 ///|
 fn builtin_pow(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("pow", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() < 2 || arg_values.length() > 3 {
+  if positional.length() < 2 || positional.length() > 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1470,8 +1517,8 @@ fn builtin_pow(
       ),
     )
   }
-  let modulus_opt : Int64? = if arg_values.length() == 3 {
-    match arg_values[2] {
+  let modulus_opt : Int64? = if positional.length() == 3 {
+    match positional[2] {
       Value::Int(v) => Some(v)
       Value::Bool(v) => Some(if v { 1L } else { 0L })
       _ =>
@@ -1485,7 +1532,7 @@ fn builtin_pow(
   } else {
     None
   }
-  match (arg_values[0], arg_values[1], modulus_opt) {
+  match (positional[0], positional[1], modulus_opt) {
     (Value::Int(a), Value::Int(b), Some(m)) =>
       if b < 0L {
         Err(
@@ -1511,11 +1558,11 @@ fn builtin_pow(
         Ok(Value::Int(pow_int(a, b)))
       }
     _ => {
-      let (_, aa) = match number_value(arg_values[0]) {
+      let (_, aa) = match number_value(positional[0]) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      let (_, bb) = match number_value(arg_values[1]) {
+      let (_, bb) = match number_value(positional[1]) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
@@ -1537,18 +1584,18 @@ fn floor_divmod_int(a : Int64, b : Int64) -> (Int64, Int64) {
 
 ///|
 fn builtin_divmod(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("divmod", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 {
+  if positional.length() != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1556,7 +1603,7 @@ fn builtin_divmod(
       ),
     )
   }
-  match (arg_values[0], arg_values[1]) {
+  match (positional[0], positional[1]) {
     (Value::Int(a), Value::Int(b)) =>
       if b == 0L {
         Err(
@@ -1570,11 +1617,11 @@ fn builtin_divmod(
         Ok(Value::Tuple([Value::Int(q), Value::Int(r)]))
       }
     _ => {
-      let (_, aa) = match number_value(arg_values[0]) {
+      let (_, aa) = match number_value(positional[0]) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      let (_, bb) = match number_value(arg_values[1]) {
+      let (_, bb) = match number_value(positional[1]) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
@@ -1595,18 +1642,18 @@ fn builtin_divmod(
 
 ///|
 fn builtin_chr(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("chr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1614,7 +1661,7 @@ fn builtin_chr(
       ),
     )
   }
-  let codepoint = match arg_values[0] {
+  let codepoint = match positional[0] {
     Value::Int(v) => v
     Value::Bool(v) => if v { 1L } else { 0L }
     _ =>
@@ -1638,18 +1685,18 @@ fn builtin_chr(
 
 ///|
 fn builtin_ord(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("ord", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1657,7 +1704,7 @@ fn builtin_ord(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::Str(text) => {
       let chars = text.to_array()
       if chars.length() != 1 {
@@ -1682,18 +1729,18 @@ fn builtin_ord(
 
 ///|
 fn builtin_bin(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("bin", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1701,7 +1748,7 @@ fn builtin_bin(
       ),
     )
   }
-  let value = match arg_values[0] {
+  let value = match positional[0] {
     Value::Int(v) => v
     Value::Bool(v) => if v { 1L } else { 0L }
     _ =>
@@ -1717,18 +1764,18 @@ fn builtin_bin(
 
 ///|
 fn builtin_oct(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("oct", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1736,7 +1783,7 @@ fn builtin_oct(
       ),
     )
   }
-  let value = match arg_values[0] {
+  let value = match positional[0] {
     Value::Int(v) => v
     Value::Bool(v) => if v { 1L } else { 0L }
     _ =>
@@ -1752,18 +1799,18 @@ fn builtin_oct(
 
 ///|
 fn builtin_hex(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("hex", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1771,7 +1818,7 @@ fn builtin_hex(
       ),
     )
   }
-  let value = match arg_values[0] {
+  let value = match positional[0] {
     Value::Int(v) => v
     Value::Bool(v) => if v { 1L } else { 0L }
     _ =>
@@ -1787,18 +1834,18 @@ fn builtin_hex(
 
 ///|
 fn builtin_callable(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("callable", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1806,7 +1853,7 @@ fn builtin_callable(
       ),
     )
   }
-  let value = match arg_values[0] {
+  let value = match positional[0] {
     Value::Function(_) | Value::Class(_) | Value::BoundMethod(_) => true
     _ => false
   }
@@ -1815,18 +1862,18 @@ fn builtin_callable(
 
 ///|
 fn builtin_isinstance(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("isinstance", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 {
+  if positional.length() != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1834,8 +1881,8 @@ fn builtin_isinstance(
       ),
     )
   }
-  let obj = arg_values[0]
-  let cls = arg_values[1]
+  let obj = positional[0]
+  let cls = positional[1]
   match cls {
     Value::Function(func) =>
       if func.body.length() == 0 {
@@ -1915,18 +1962,18 @@ fn builtin_isinstance(
 
 ///|
 fn builtin_type(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("type", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1934,23 +1981,23 @@ fn builtin_type(
       ),
     )
   }
-  Ok(Value::Str(type_name_from_value(arg_values[0])))
+  Ok(Value::Str(type_name_from_value(positional[0])))
 }
 
 ///|
 fn builtin_id(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("id", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1958,7 +2005,7 @@ fn builtin_id(
       ),
     )
   }
-  let value = arg_values[0]
+  let value = positional[0]
   match value {
     Value::Int(v) => Ok(Value::Int(v))
     Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
@@ -1969,18 +2016,18 @@ fn builtin_id(
 
 ///|
 fn builtin_hash(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("hash", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 1 {
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -1988,7 +2035,7 @@ fn builtin_hash(
       ),
     )
   }
-  match arg_values[0] {
+  match positional[0] {
     Value::None => Ok(Value::Int(0L))
     Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
     Value::Int(v) => Ok(Value::Int(v))
@@ -2006,7 +2053,8 @@ fn builtin_hash(
 
 ///|
 fn builtin_globals(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
@@ -2015,7 +2063,11 @@ fn builtin_globals(
   let _ = io
   let _ = locals
   let _ = builtins
-  if args.length() != 0 {
+  let _ = match ensure_no_keywords("globals", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2032,7 +2084,8 @@ fn builtin_globals(
 
 ///|
 fn builtin_locals(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
@@ -2041,7 +2094,11 @@ fn builtin_locals(
   let _ = io
   let _ = globals
   let _ = builtins
-  if args.length() != 0 {
+  let _ = match ensure_no_keywords("locals", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2058,26 +2115,28 @@ fn builtin_locals(
 
 ///|
 fn builtin_dir(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   let _ = io
-  if args.length() == 0 {
+  let _ = match ensure_no_keywords("dir", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
     let names : Array[Value] = []
     for pair in globals {
       names.push(Value::Str(pair.0))
     }
     return Ok(Value::List(names))
   }
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  if arg_values.length() != 1 {
+  let _ = builtins
+  let _ = locals
+  if positional.length() != 1 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2085,7 +2144,7 @@ fn builtin_dir(
       ),
     )
   }
-  let value = arg_values[0]
+  let value = positional[0]
   let out : Array[Value] = []
   match value {
     Value::Dict(pairs) =>
@@ -2114,18 +2173,22 @@ fn builtin_dir(
 
 ///|
 fn builtin_getattr(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("getattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 && arg_values.length() != 3 {
+  let _ = io
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  if positional.length() != 2 && positional.length() != 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2133,8 +2196,8 @@ fn builtin_getattr(
       ),
     )
   }
-  let obj = arg_values[0]
-  let name = match arg_values[1] {
+  let obj = positional[0]
+  let name = match positional[1] {
     Value::Str(text) => text
     _ =>
       return Err(
@@ -2147,8 +2210,8 @@ fn builtin_getattr(
   match get_attr_from_value(obj, name) {
     Ok(value) => Ok(value)
     Err(err) =>
-      if arg_values.length() == 3 {
-        Ok(arg_values[2])
+      if positional.length() == 3 {
+        Ok(positional[2])
       } else {
         Err(err)
       }
@@ -2157,18 +2220,22 @@ fn builtin_getattr(
 
 ///|
 fn builtin_hasattr(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("hasattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 2 {
+  let _ = io
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  if positional.length() != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2176,8 +2243,8 @@ fn builtin_hasattr(
       ),
     )
   }
-  let obj = arg_values[0]
-  let name = match arg_values[1] {
+  let obj = positional[0]
+  let name = match positional[1] {
     Value::Str(text) => text
     _ =>
       return Err(
@@ -2195,18 +2262,22 @@ fn builtin_hasattr(
 
 ///|
 fn builtin_setattr(
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  let arg_values = match
-    eval_positional_args(args, locals, globals, builtins, io) {
+  let _ = match ensure_no_keywords("setattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if arg_values.length() != 3 {
+  let _ = io
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  if positional.length() != 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -2214,8 +2285,8 @@ fn builtin_setattr(
       ),
     )
   }
-  let target = arg_values[0]
-  let name = match arg_values[1] {
+  let target = positional[0]
+  let name = match positional[1] {
     Value::Str(text) => text
     _ =>
       return Err(
@@ -2225,7 +2296,7 @@ fn builtin_setattr(
         ),
       )
   }
-  let value = arg_values[2]
+  let value = positional[2]
   let _ = match set_attr_on_value(target, name, value) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2237,7 +2308,8 @@ fn builtin_setattr(
 priv struct BuiltinDef {
   name : String
   run : (
-    Array[Expr],
+    Array[Value],
+    Array[(String, Value)],
     Array[(String, Value)],
     Array[(String, Value)],
     Array[(String, Value)],
@@ -2308,12 +2380,13 @@ fn ensure_builtin_defs_ready() -> Unit {
 }
 
 ///|
-/// Evaluate a builtin call `name(args...)`.
+/// Evaluate a builtin call `name(args...)` with pre-evaluated arguments.
 ///
 /// Returns `Ok(Some(value))` if handled as a builtin, `Ok(None)` if not a builtin.
 fn eval_builtin_call(
   name : String,
-  args : Array[Expr],
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
@@ -2322,7 +2395,8 @@ fn eval_builtin_call(
   ensure_builtin_defs_ready()
   for def in builtin_defs_ref.val {
     if def.name == name {
-      let value = match (def.run)(args, locals, globals, builtins, io) {
+      let value = match
+        (def.run)(positional, keywords, locals, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }

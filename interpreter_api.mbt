@@ -723,6 +723,7 @@ pub fn Interpreter::exec(
   self : Interpreter,
   program : Module,
 ) -> Result[RunResult, RuntimeError] {
+  ensure_runtime_callbacks_ready()
   let value = match
     eval_block(program.body, [], self.globals, self.builtins, self.io) {
     Ok(value) => value
@@ -767,6 +768,7 @@ pub fn Interpreter::eval_source(
     Ok(value) => value
     Err(err) => return Err(make_parse_runtime_error(err))
   }
+  ensure_runtime_callbacks_ready()
   let value = match
     eval_expr_with_env(expr, [], self.globals, self.builtins, self.io) {
     Ok(value) => value
@@ -795,6 +797,7 @@ pub fn Interpreter::eval(
   self : Interpreter,
   expr : Expr,
 ) -> Result[Value, RuntimeError] {
+  ensure_runtime_callbacks_ready()
   eval_expr_with_env(expr, [], self.globals, self.builtins, self.io)
 }
 

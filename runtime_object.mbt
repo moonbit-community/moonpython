@@ -262,6 +262,55 @@ fn set_attr_on_value(
 }
 
 ///|
+fn eval_function_with_kwargs_uninitialized(
+  func : FunctionValue,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = func
+  let _ = positional
+  let _ = keywords
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  Err(
+    make_runtime_error(
+      RuntimeErrorKind::Runtime,
+      "RuntimeError: internal call callback not initialized".to_string(),
+    ),
+  )
+}
+
+///|
+let eval_function_with_kwargs_ref : Ref[
+  (
+    FunctionValue,
+    Array[Value],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    MockIO,
+  ) -> Result[Value, RuntimeError],
+] = { val: eval_function_with_kwargs_uninitialized }
+
+///|
+fn set_eval_function_with_kwargs_callback(
+  callback : (
+    FunctionValue,
+    Array[Value],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    MockIO,
+  ) -> Result[Value, RuntimeError],
+) -> Unit {
+  eval_function_with_kwargs_ref.val = callback
+}
+
+///|
 fn call_callable_with_env(
   callee : Value,
   positional : Array[Value],
@@ -280,7 +329,7 @@ fn call_callable_with_env(
           }),
         )
       } else {
-        eval_function_with_kwargs(
+        (eval_function_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
         )
       }
@@ -289,7 +338,7 @@ fn call_callable_with_env(
       for item in positional {
         args.push(item)
       }
-      eval_function_with_kwargs(
+      (eval_function_with_kwargs_ref.val)(
         method.function,
         args,
         keywords,
@@ -337,7 +386,7 @@ fn call_callable_with_env(
             args.push(item)
           }
           let _ = match
-            eval_function_with_kwargs(
+            (eval_function_with_kwargs_ref.val)(
               func, args, keywords, globals, builtins, io,
             ) {
             Ok(v) => v

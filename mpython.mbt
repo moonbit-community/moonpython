@@ -18,20 +18,290 @@ fn stringify_value_with_env(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[String, RuntimeError] {
-  match value {
-    Value::Instance(inst) => {
-      let instance = Value::Instance(inst)
-      match get_attr_from_value(instance, "__str__") {
-        Ok(method) =>
-          match call_callable_with_env(method, [], [], globals, builtins, io) {
-            Ok(Value::Str(text)) => Ok(text)
-            Ok(other) => Ok(value_to_string(other))
-            Err(_) => Ok(value_to_string(instance))
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  Ok(value_to_string(value))
+}
+
+///|
+fn eval_binary_op_values(
+  op : BinaryOp,
+  left_val : Value,
+  right_val : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  match op {
+    BinaryOp::Add =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b))
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b))
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_double() + b))
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b.to_double()))
+        (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + b))
+        (Value::List(a), Value::List(b)) => {
+          let merged : Array[Value] = []
+          for item in a {
+            merged.push(item)
           }
-        Err(_) => Ok(value_to_string(instance))
+          for item in b {
+            merged.push(item)
+          }
+          Ok(Value::List(merged))
+        }
+        _ => {
+          if left_val is Value::Instance(_) {
+            match get_attr_from_value(left_val, "__add__") {
+              Ok(method) =>
+                return call_callable_with_env(
+                  method,
+                  [right_val],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                )
+              Err(_) => ()
+            }
+          }
+          if right_val is Value::Instance(_) {
+            match get_attr_from_value(right_val, "__radd__") {
+              Ok(method) =>
+                return call_callable_with_env(
+                  method,
+                  [left_val],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                )
+              Err(_) => ()
+            }
+          }
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for +".to_string(),
+            ),
+          )
+        }
+      }
+    BinaryOp::Sub => {
+      let (left_is_float, left_num) = match number_value(left_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let (right_is_float, right_num) = match number_value(right_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let result = left_num - right_num
+      if left_is_float || right_is_float {
+        Ok(Value::Float(result))
+      } else {
+        Ok(Value::Int(result.to_int64()))
       }
     }
-    _ => Ok(value_to_string(value))
+    BinaryOp::Mul =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b))
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b))
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_double() * b))
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b.to_double()))
+        (Value::Str(text), Value::Int(count))
+        | (Value::Int(count), Value::Str(text)) =>
+          if count <= 0L {
+            Ok(Value::Str(""))
+          } else {
+            let buf = StringBuilder::new()
+            for i = 0; i < count.to_int(); i = i + 1 {
+              buf.write_string(text)
+            }
+            Ok(Value::Str(buf.to_string()))
+          }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for *".to_string(),
+            ),
+          )
+      }
+    BinaryOp::Div => {
+      let (_, left_num) = match number_value(left_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let (_, right_num) = match number_value(right_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if right_num == 0.0 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::ZeroDivision,
+            "division by zero".to_string(),
+          ),
+        )
+      }
+      Ok(Value::Float(left_num / right_num))
+    }
+    BinaryOp::FloorDiv => {
+      let (left_is_float, left_num) = match number_value(left_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let (right_is_float, right_num) = match number_value(right_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if right_num == 0.0 {
+        let msg = if left_is_float || right_is_float {
+          "float floor division by zero".to_string()
+        } else {
+          "integer division or modulo by zero".to_string()
+        }
+        return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
+      }
+      Ok(Value::Int((left_num / right_num).floor().to_int64()))
+    }
+    BinaryOp::Mod => {
+      let (left_is_float, left_num) = match number_value(left_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let (right_is_float, right_num) = match number_value(right_val) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if right_num == 0.0 {
+        let msg = if left_is_float || right_is_float {
+          "float modulo".to_string()
+        } else {
+          "integer modulo by zero".to_string()
+        }
+        return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
+      }
+      Ok(Value::Float(left_num % right_num))
+    }
+    BinaryOp::Pow =>
+      match (left_val, right_val) {
+        (Value::Int(left), Value::Int(right)) =>
+          if right < 0L {
+            Ok(Value::Float(Double::pow(left.to_double(), right.to_double())))
+          } else {
+            let mut result = 1L
+            for i = 0; i < right.to_int(); i = i + 1 {
+              result = result * left
+            }
+            Ok(Value::Int(result))
+          }
+        _ => {
+          let (_, left_num) = match number_value(left_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let (_, right_num) = match number_value(right_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(Double::pow(left_num, right_num)))
+        }
+      }
+    BinaryOp::MatMul =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "unsupported operand type for @".to_string(),
+        ),
+      )
+    BinaryOp::ShiftLeft =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b.to_int()))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) << b.to_int()))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a << (if b { 1 } else { 0 })))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) << (if b { 1 } else { 0 })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for <<".to_string(),
+            ),
+          )
+      }
+    BinaryOp::ShiftRight =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b.to_int()))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) >> b.to_int()))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a >> (if b { 1 } else { 0 })))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) >> (if b { 1 } else { 0 })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for >>".to_string(),
+            ),
+          )
+      }
+    BinaryOp::BitAnd =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) & b))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a & (if b { 1L } else { 0L })))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) & (if b { 1L } else { 0L })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for &".to_string(),
+            ),
+          )
+      }
+    BinaryOp::BitXor =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) ^ b))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a ^ (if b { 1L } else { 0L })))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) ^ (if b { 1L } else { 0L })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for ^".to_string(),
+            ),
+          )
+      }
+    BinaryOp::BitOr =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) | b))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a | (if b { 1L } else { 0L })))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1L } else { 0L }) | (if b { 1L } else { 0L })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for |".to_string(),
+            ),
+          )
+      }
   }
 }
 
@@ -125,12 +395,30 @@ fn eval_expr_with_env(
     Expr::List(items) => {
       let values : Array[Value] = []
       for item in items {
-        let value = match
-          eval_expr_with_env(item, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        match item {
+          Expr::Starred(value~) => {
+            let iter_value = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let items = match iterable_values(iter_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for v in items {
+              values.push(v)
+            }
+          }
+          _ => {
+            let value = match
+              eval_expr_with_env(item, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            values.push(value)
+          }
         }
-        values.push(value)
       }
       Ok(Value::List(values))
     }
@@ -210,38 +498,103 @@ fn eval_expr_with_env(
     }
     Expr::Dict(items) => {
       let values : Array[(Value, Value)] = []
+      fn set_pair(
+        pairs : Array[(Value, Value)],
+        key : Value,
+        value : Value,
+      ) -> Unit {
+        for i = 0; i < pairs.length(); i = i + 1 {
+          if eq_value(pairs[i].0, key) {
+            pairs[i] = (key, value)
+            return
+          }
+        }
+        pairs.push((key, value))
+      }
+
       for item in items {
-        let key = match
-          eval_expr_with_env(item.0, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        match item.0 {
+          Expr::DoubleStarred(value~) => {
+            let mapping = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            match mapping {
+              Value::Dict(pairs) =>
+                for pair in pairs {
+                  set_pair(values, pair.0, pair.1)
+                }
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "dict update sequence element has wrong length".to_string(),
+                  ),
+                )
+            }
+          }
+          _ => {
+            let key = match
+              eval_expr_with_env(item.0, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let value = match
+              eval_expr_with_env(item.1, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            set_pair(values, key, value)
+          }
         }
-        let value = match
-          eval_expr_with_env(item.1, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        values.push((key, value))
       }
       Ok(Value::Dict(values))
     }
     Expr::Set(items) => {
       let values : Array[Value] = []
       for item in items {
-        let value = match
-          eval_expr_with_env(item, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        let mut exists = false
-        for existing in values {
-          if eq_value(existing, value) {
-            exists = true
-            break
+        match item {
+          Expr::Starred(value~) => {
+            let iter_value = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let items = match iterable_values(iter_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for value in items {
+              let mut exists = false
+              for existing in values {
+                if eq_value(existing, value) {
+                  exists = true
+                  break
+                }
+              }
+              if !exists {
+                values.push(value)
+              }
+            }
           }
-        }
-        if !exists {
-          values.push(value)
+          _ => {
+            let value = match
+              eval_expr_with_env(item, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let mut exists = false
+            for existing in values {
+              if eq_value(existing, value) {
+                exists = true
+                break
+              }
+            }
+            if !exists {
+              values.push(value)
+            }
+          }
         }
       }
       Ok(Value::Set(values))
@@ -249,12 +602,30 @@ fn eval_expr_with_env(
     Expr::Tuple(items) => {
       let values : Array[Value] = []
       for item in items {
-        let value = match
-          eval_expr_with_env(item, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        match item {
+          Expr::Starred(value~) => {
+            let iter_value = match
+              eval_expr_with_env(value, locals, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let items = match iterable_values(iter_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for v in items {
+              values.push(v)
+            }
+          }
+          _ => {
+            let value = match
+              eval_expr_with_env(item, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            values.push(value)
+          }
         }
-        values.push(value)
       }
       Ok(Value::Tuple(values))
     }
@@ -359,16 +730,8 @@ fn eval_expr_with_env(
         Err(err) => return Err(err)
       }
       match index {
-        Expr::Slice(start~, end~) => {
-          let start_index = match start {
-            Some(expr) =>
-              match eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-            None => Value::Int(0L)
-          }
-          let end_index = match end {
+        Expr::Slice(start~, end~, step~) => {
+          let start_value = match start {
             Some(expr) =>
               match eval_expr_with_env(expr, locals, globals, builtins, io) {
                 Ok(value) => value
@@ -376,32 +739,62 @@ fn eval_expr_with_env(
               }
             None => Value::None
           }
-          let start = match index_from_value(start_index, 0) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          let end_value = match end {
+            Some(expr) =>
+              match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+            None => Value::None
+          }
+          let step_value = match step {
+            Some(expr) =>
+              match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+            None => Value::None
           }
           match target {
             Value::List(values) => {
-              let end = match index_from_value(end_index, values.length()) {
-                Ok(value) => value
+              let indices = match
+                slice_indices_from_values(
+                  values.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
                 Err(err) => return Err(err)
               }
-              Ok(Value::List(slice_values(values, start, end)))
+              Ok(Value::List(slice_values_by_indices(values, indices)))
             }
             Value::Tuple(values) => {
-              let end = match index_from_value(end_index, values.length()) {
-                Ok(value) => value
+              let indices = match
+                slice_indices_from_values(
+                  values.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
                 Err(err) => return Err(err)
               }
-              Ok(Value::Tuple(slice_values(values, start, end)))
+              Ok(Value::Tuple(slice_values_by_indices(values, indices)))
             }
             Value::Str(text) => {
               let chars = text.to_array()
-              let end = match index_from_value(end_index, chars.length()) {
-                Ok(value) => value
+              let indices = match
+                slice_indices_from_values(
+                  chars.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
                 Err(err) => return Err(err)
               }
-              Ok(Value::Str(slice_string(chars, start, end)))
+              Ok(Value::Str(slice_string_by_indices(chars, indices)))
             }
             _ =>
               Err(
@@ -568,298 +961,7 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match op {
-        BinaryOp::Add =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b))
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b))
-            (Value::Int(a), Value::Float(b)) =>
-              Ok(Value::Float(a.to_double() + b))
-            (Value::Float(a), Value::Int(b)) =>
-              Ok(Value::Float(a + b.to_double()))
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + b))
-            (Value::List(a), Value::List(b)) => {
-              let merged : Array[Value] = []
-              for item in a {
-                merged.push(item)
-              }
-              for item in b {
-                merged.push(item)
-              }
-              Ok(Value::List(merged))
-            }
-            _ => {
-              if left_val is Value::Instance(_) {
-                match get_attr_from_value(left_val, "__add__") {
-                  Ok(method) =>
-                    return call_callable_with_env(
-                      method,
-                      [right_val],
-                      [],
-                      globals,
-                      builtins,
-                      io,
-                    )
-                  Err(_) => ()
-                }
-              }
-              if right_val is Value::Instance(_) {
-                match get_attr_from_value(right_val, "__radd__") {
-                  Ok(method) =>
-                    return call_callable_with_env(
-                      method,
-                      [left_val],
-                      [],
-                      globals,
-                      builtins,
-                      io,
-                    )
-                  Err(_) => ()
-                }
-              }
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for +".to_string(),
-                ),
-              )
-            }
-          }
-        BinaryOp::Sub => {
-          let (left_is_float, left_num) = match number_value(left_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let (right_is_float, right_num) = match number_value(right_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let result = left_num - right_num
-          if left_is_float || right_is_float {
-            Ok(Value::Float(result))
-          } else {
-            Ok(Value::Int(result.to_int64()))
-          }
-        }
-        BinaryOp::Mul =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b))
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b))
-            (Value::Int(a), Value::Float(b)) =>
-              Ok(Value::Float(a.to_double() * b))
-            (Value::Float(a), Value::Int(b)) =>
-              Ok(Value::Float(a * b.to_double()))
-            (Value::Str(text), Value::Int(count))
-            | (Value::Int(count), Value::Str(text)) =>
-              if count <= 0L {
-                Ok(Value::Str(""))
-              } else {
-                let buf = StringBuilder::new()
-                for i = 0; i < count.to_int(); i = i + 1 {
-                  buf.write_string(text)
-                }
-                Ok(Value::Str(buf.to_string()))
-              }
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for *".to_string(),
-                ),
-              )
-          }
-        BinaryOp::Div => {
-          let (_, left_num) = match number_value(left_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let (_, right_num) = match number_value(right_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          if right_num == 0.0 {
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::ZeroDivision,
-                "division by zero".to_string(),
-              ),
-            )
-          }
-          Ok(Value::Float(left_num / right_num))
-        }
-        BinaryOp::FloorDiv => {
-          let (left_is_float, left_num) = match number_value(left_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let (right_is_float, right_num) = match number_value(right_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          if right_num == 0.0 {
-            let msg = if left_is_float || right_is_float {
-              "float floor division by zero".to_string()
-            } else {
-              "integer division or modulo by zero".to_string()
-            }
-            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
-          }
-          Ok(Value::Int((left_num / right_num).floor().to_int64()))
-        }
-        BinaryOp::Mod => {
-          let (left_is_float, left_num) = match number_value(left_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let (right_is_float, right_num) = match number_value(right_val) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          if right_num == 0.0 {
-            let msg = if left_is_float || right_is_float {
-              "float modulo".to_string()
-            } else {
-              "integer modulo by zero".to_string()
-            }
-            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
-          }
-          Ok(Value::Float(left_num % right_num))
-        }
-        BinaryOp::Pow =>
-          match (left_val, right_val) {
-            (Value::Int(left), Value::Int(right)) =>
-              if right < 0L {
-                Ok(
-                  Value::Float(Double::pow(left.to_double(), right.to_double())),
-                )
-              } else {
-                let mut result = 1L
-                for i = 0; i < right.to_int(); i = i + 1 {
-                  result = result * left
-                }
-                Ok(Value::Int(result))
-              }
-            _ => {
-              let (_, left_num) = match number_value(left_val) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              let (_, right_num) = match number_value(right_val) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              Ok(Value::Float(Double::pow(left_num, right_num)))
-            }
-          }
-        BinaryOp::MatMul =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "unsupported operand type for @".to_string(),
-            ),
-          )
-        BinaryOp::ShiftLeft =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b.to_int()))
-            (Value::Bool(a), Value::Int(b)) =>
-              Ok(Value::Int((if a { 1L } else { 0L }) << b.to_int()))
-            (Value::Int(a), Value::Bool(b)) =>
-              Ok(Value::Int(a << (if b { 1 } else { 0 })))
-            (Value::Bool(a), Value::Bool(b)) =>
-              Ok(
-                Value::Int((if a { 1L } else { 0L }) << (if b { 1 } else { 0 })),
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for <<".to_string(),
-                ),
-              )
-          }
-        BinaryOp::ShiftRight =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b.to_int()))
-            (Value::Bool(a), Value::Int(b)) =>
-              Ok(Value::Int((if a { 1L } else { 0L }) >> b.to_int()))
-            (Value::Int(a), Value::Bool(b)) =>
-              Ok(Value::Int(a >> (if b { 1 } else { 0 })))
-            (Value::Bool(a), Value::Bool(b)) =>
-              Ok(
-                Value::Int((if a { 1L } else { 0L }) >> (if b { 1 } else { 0 })),
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for >>".to_string(),
-                ),
-              )
-          }
-        BinaryOp::BitAnd =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b))
-            (Value::Bool(a), Value::Int(b)) =>
-              Ok(Value::Int((if a { 1L } else { 0L }) & b))
-            (Value::Int(a), Value::Bool(b)) =>
-              Ok(Value::Int(a & (if b { 1L } else { 0L })))
-            (Value::Bool(a), Value::Bool(b)) =>
-              Ok(
-                Value::Int(
-                  (if a { 1L } else { 0L }) & (if b { 1L } else { 0L }),
-                ),
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for &".to_string(),
-                ),
-              )
-          }
-        BinaryOp::BitXor =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b))
-            (Value::Bool(a), Value::Int(b)) =>
-              Ok(Value::Int((if a { 1L } else { 0L }) ^ b))
-            (Value::Int(a), Value::Bool(b)) =>
-              Ok(Value::Int(a ^ (if b { 1L } else { 0L })))
-            (Value::Bool(a), Value::Bool(b)) =>
-              Ok(
-                Value::Int(
-                  (if a { 1L } else { 0L }) ^ (if b { 1L } else { 0L }),
-                ),
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for ^".to_string(),
-                ),
-              )
-          }
-        BinaryOp::BitOr =>
-          match (left_val, right_val) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b))
-            (Value::Bool(a), Value::Int(b)) =>
-              Ok(Value::Int((if a { 1L } else { 0L }) | b))
-            (Value::Int(a), Value::Bool(b)) =>
-              Ok(Value::Int(a | (if b { 1L } else { 0L })))
-            (Value::Bool(a), Value::Bool(b)) =>
-              Ok(
-                Value::Int(
-                  (if a { 1L } else { 0L }) | (if b { 1L } else { 0L }),
-                ),
-              )
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "unsupported operand type for |".to_string(),
-                ),
-              )
-          }
-      }
+      eval_binary_op_values(op, left_val, right_val, globals, builtins, io)
     }
     Expr::BoolOp(op~, values~) =>
       if values.length() == 0 {
@@ -1108,19 +1210,20 @@ fn eval_expr_with_env(
             match callee_value {
               Value::Function(func) =>
                 if func.body.length() == 0 {
+                  let (arg_values, keywords) = match
+                    eval_call_args(args, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
                   match
-                    eval_builtin_call(name, args, locals, globals, builtins, io) {
+                    eval_builtin_call(
+                      name, arg_values, keywords, locals, globals, builtins, io,
+                    ) {
                     Ok(Some(value)) => Ok(value)
-                    Ok(None) => {
-                      let (arg_values, keywords) = match
-                        eval_call_args(args, locals, globals, builtins, io) {
-                        Ok(value) => value
-                        Err(err) => return Err(err)
-                      }
+                    Ok(None) =>
                       call_callable_with_env(
                         callee_value, arg_values, keywords, globals, builtins, io,
                       )
-                    }
                     Err(err) => Err(err)
                   }
                 } else {
@@ -1203,6 +1306,35 @@ fn eval_call_args(
         }
         for item in items {
           positional.push(item)
+        }
+      }
+      Expr::DoubleStarred(value~) => {
+        let mapping = match
+          eval_expr_with_env(value, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match mapping {
+          Value::Dict(pairs) =>
+            for pair in pairs {
+              match pair.0 {
+                Value::Str(name) => keywords.push((name, pair.1))
+                _ =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "keywords must be strings".to_string(),
+                    ),
+                  )
+              }
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "keywords must be strings".to_string(),
+              ),
+            )
         }
       }
       Expr::Keyword(name~, value~) => {
@@ -1333,6 +1465,18 @@ fn eval_function_with_kwargs(
     Err(err) => return Err(err)
   }
   Ok(result)
+}
+
+///|
+let runtime_callbacks_ready : Ref[Bool] = { val: false }
+
+///|
+fn ensure_runtime_callbacks_ready() -> Unit {
+  if runtime_callbacks_ready.val {
+    return
+  }
+  set_eval_function_with_kwargs_callback(eval_function_with_kwargs)
+  runtime_callbacks_ready.val = true
 }
 
 ///|

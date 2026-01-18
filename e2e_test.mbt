@@ -718,3 +718,110 @@ test "e2e/except_binds_instance" {
     ),
   )
 }
+
+///|
+test "e2e/with_header_commas_in_call" {
+  let source =
+    #|class C:
+    #|  def __enter__(self):
+    #|    print("enter")
+    #|    return self
+    #|  def __exit__(self, exc_type, exc, tb):
+    #|    print("exit")
+    #|    return False
+    #|class T:
+    #|  def cm(self, a, b):
+    #|    print("cm", a, b)
+    #|    return C()
+    #|  def go(self):
+    #|    with self.cm(1, 2):
+    #|      print("body")
+    #|T().go()
+  inspect(e2e_stdout([], source), content="cm 1 2\nenter\nbody\nexit\n")
+}
+
+///|
+test "e2e/augassign_name_and_subscript" {
+  let source =
+    #|x = 2
+    #|x += 5
+    #|print(x)
+    #|xs = [1, 2]
+    #|xs[0] += 9
+    #|print(xs[0])
+    #|d = {"a": 1}
+    #|d["a"] += 3
+    #|print(d["a"])
+  inspect(e2e_stdout([], source), content="7\n10\n4\n")
+}
+
+///|
+fn parse_ok(source : String) -> String {
+  match parse(source) {
+    Ok(_) => "ok"
+    Err(err) => format_parse_error(err)
+  }
+}
+
+///|
+test "e2e/parse_nonlocal_statement" {
+  let source =
+    #|def outer():
+    #|  x = 0
+    #|  def inner():
+    #|    nonlocal x
+    #|    x = x + 1
+    #|  inner()
+    #|  return x
+    #|print(outer())
+  inspect(parse_ok(source), content="ok")
+}
+
+///|
+test "e2e/star_unpack_in_literals_and_kwargs" {
+  let source =
+    #|xs = [2, 3]
+    #|ys = [1, *xs, 4]
+    #|print(ys[0], ys[1], ys[2], ys[3])
+    #|d1 = {"a": 1, "b": 2}
+    #|d2 = {"b": 9, **d1, "c": 3}
+    #|print(d2["a"], d2["b"], d2["c"])
+    #|def f(a, b, c):
+    #|  print(a, b, c)
+    #|f(**{"a": 10, "b": 20, "c": 30})
+  inspect(e2e_stdout([], source), content="1 2 3 4\n1 2 3\n10 20 30\n")
+}
+
+///|
+test "e2e/slicing_step_read_del_assign" {
+  let source =
+    #|xs = [0, 1, 2, 3, 4, 5]
+    #|ys = xs[::2]
+    #|zs = xs[::-1]
+    #|print(ys[0], ys[1], ys[2])
+    #|print(zs[0], zs[5])
+    #|s = "abcdef"
+    #|print(s[::2])
+    #|print(s[::-1])
+    #|xs2 = [0, 1, 2, 3, 4, 5]
+    #|del xs2[::2]
+    #|print(xs2[0], xs2[1], xs2[2])
+    #|xs3 = [0, 1, 2, 3, 4, 5]
+    #|xs3[::2] = [10, 11, 12]
+    #|print(xs3[0], xs3[2], xs3[4])
+  inspect(
+    e2e_stdout([], source),
+    content="0 2 4\n5 0\nace\nfedcba\n1 3 5\n10 11 12\n",
+  )
+}
+
+///|
+test "e2e/slicing_step_assign_size_mismatch" {
+  let source =
+    #|xs = [0, 1, 2, 3, 4, 5]
+    #|xs[::2] = [10, 11]
+  inspect(
+    e2e_stdout([], source),
+    content="ERR: ValueError: attempt to assign sequence of size 2 to extended slice of size 3",
+  )
+}

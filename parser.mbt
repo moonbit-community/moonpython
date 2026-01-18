@@ -905,12 +905,16 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
       collect_named_expr_targets(then_expr, targets)
       collect_named_expr_targets(else_expr, targets)
     }
-    Expr::Slice(start~, end~) => {
+    Expr::Slice(start~, end~, step~) => {
       match start {
         Some(expr) => collect_named_expr_targets(expr, targets)
         None => ()
       }
       match end {
+        Some(expr) => collect_named_expr_targets(expr, targets)
+        None => ()
+      }
+      match step {
         Some(expr) => collect_named_expr_targets(expr, targets)
         None => ()
       }
@@ -931,6 +935,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
       collect_named_expr_targets(value, targets)
     }
     Expr::Starred(value~) => collect_named_expr_targets(value, targets)
+    Expr::DoubleStarred(value~) => collect_named_expr_targets(value, targets)
     Expr::Unary(op~, expr~) => collect_named_expr_targets(expr, targets)
     Expr::Binary(op~, left~, right~) => {
       collect_named_expr_targets(left, targets)
@@ -970,17 +975,75 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     }
     StrLit(value) => {
       let _ = self.advance()
-      let mut text = value
-      while self.current().kind is StrLit(more) {
-        text = text + more
-        let _ = self.advance()
-
+      let pieces : Array[Expr] = [Expr::Literal(Literal::Str(value))]
+      while true {
+        match self.current().kind {
+          StrLit(text) => {
+            let _ = self.advance()
+            pieces.push(Expr::Literal(Literal::Str(text)))
+          }
+          FStrLit(text) => {
+            let _ = self.advance()
+            pieces.push(Expr::FString(text))
+          }
+          _ => break
+        }
       }
-      Expr::Literal(Literal::Str(text))
+      if pieces.length() == 1 {
+        pieces[0]
+      } else {
+        // Merge adjacent literal pieces to avoid deep trees for plain strings.
+        let simplified : Array[Expr] = []
+        for piece in pieces {
+          match piece {
+            Expr::Literal(Literal::Str(text)) =>
+              if simplified.length() > 0 {
+                let last_idx = simplified.length() - 1
+                match simplified[last_idx] {
+                  Expr::Literal(Literal::Str(prev)) =>
+                    simplified[last_idx] = Expr::Literal(
+                      Literal::Str(prev + text),
+                    )
+                  _ => simplified.push(piece)
+                }
+              } else {
+                simplified.push(piece)
+              }
+            _ => simplified.push(piece)
+          }
+        }
+        let mut expr = simplified[0]
+        for i = 1; i < simplified.length(); i = i + 1 {
+          expr = Expr::Binary(op=BinaryOp::Add, left=expr, right=simplified[i])
+        }
+        expr
+      }
     }
     FStrLit(value) => {
       let _ = self.advance()
-      Expr::FString(value)
+      let pieces : Array[Expr] = [Expr::FString(value)]
+      while true {
+        match self.current().kind {
+          StrLit(text) => {
+            let _ = self.advance()
+            pieces.push(Expr::Literal(Literal::Str(text)))
+          }
+          FStrLit(text) => {
+            let _ = self.advance()
+            pieces.push(Expr::FString(text))
+          }
+          _ => break
+        }
+      }
+      if pieces.length() == 1 {
+        pieces[0]
+      } else {
+        let mut expr = pieces[0]
+        for i = 1; i < pieces.length(); i = i + 1 {
+          expr = Expr::Binary(op=BinaryOp::Add, left=expr, right=pieces[i])
+        }
+        expr
+      }
     }
     BoolLit(value) => {
       let _ = self.advance()
@@ -1063,7 +1126,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      let body = match self.parse_expr() {
+      let body = match self.parse_conditional() {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1084,9 +1147,18 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         let _ = self.advance()
         Expr::Tuple([])
       } else {
-        let first = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        let first = if self.current().kind == Star {
+          let _ = self.advance()
+          let value = match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Expr::Starred(value~)
+        } else {
+          match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
         }
         if self.current().kind == For {
           let (clauses, filters) = match
@@ -1134,9 +1206,18 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             if self.current().kind == RParen {
               break
             }
-            let value = match self.parse_conditional() {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            let value = if self.current().kind == Star {
+              let _ = self.advance()
+              let value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              Expr::Starred(value~)
+            } else {
+              match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
             }
             items.push(value)
           }
@@ -1214,12 +1295,30 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         let _ = self.advance()
         Expr::List([])
       } else {
-        let first = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        let first = if self.current().kind == Star {
+          let _ = self.advance()
+          let value = match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Expr::Starred(value~)
+        } else {
+          match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
         }
         match self.current().kind {
           For => {
+            if first is Expr::Starred(_) {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  open,
+                ),
+              )
+            }
             let (clauses, filters) = match
               self.parse_comprehension_tail(RBracket, open) {
               Ok(value) => value
@@ -1265,9 +1364,18 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               if self.current().kind == RBracket {
                 break
               }
-              let value = match self.parse_conditional() {
-                Ok(value) => value
-                Err(err) => return Err(err)
+              let value = if self.current().kind == Star {
+                let _ = self.advance()
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                Expr::Starred(value~)
+              } else {
+                match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
               }
               items.push(value)
             }
@@ -1318,7 +1426,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          items.push((Expr::Literal(Literal::None), value))
+          items.push(
+            (Expr::DoubleStarred(value~), Expr::Literal(Literal::None)),
+          )
           while self.current().kind == Comma {
             let _ = self.advance()
             if self.current().kind == RBrace {
@@ -1330,7 +1440,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
-              items.push((Expr::Literal(Literal::None), value))
+              items.push(
+                (Expr::DoubleStarred(value~), Expr::Literal(Literal::None)),
+              )
               continue
             }
             let key = match self.parse_conditional() {
@@ -1348,9 +1460,18 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             items.push((key, value))
           }
         } else {
-          let first = match self.parse_conditional() {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          let first = if self.current().kind == Star {
+            let _ = self.advance()
+            let value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            Expr::Starred(value~)
+          } else {
+            match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
           }
           if self.current().kind == Colon {
             let _ = self.advance()
@@ -1409,7 +1530,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                items.push((Expr::Literal(Literal::None), value))
+                items.push(
+                  (Expr::DoubleStarred(value~), Expr::Literal(Literal::None)),
+                )
                 continue
               }
               let next_key = match self.parse_conditional() {
@@ -1428,6 +1551,15 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             }
           } else {
             if self.current().kind == For {
+              if first is Expr::Starred(_) {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    open,
+                  ),
+                )
+              }
               let (clauses, filters) = match
                 self.parse_comprehension_tail(RBrace, open) {
                 Ok(value) => value
@@ -1472,9 +1604,18 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               if self.current().kind == RBrace {
                 break
               }
-              let value = match self.parse_conditional() {
-                Ok(value) => value
-                Err(err) => return Err(err)
+              let value = if self.current().kind == Star {
+                let _ = self.advance()
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                Expr::Starred(value~)
+              } else {
+                match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
               }
               set_items.push(value)
             }
@@ -1536,8 +1677,11 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let _ = kind
-            args.push(Expr::Starred(value~))
+            match kind {
+              Star => args.push(Expr::Starred(value~))
+              StarStar => args.push(Expr::DoubleStarred(value~))
+              _ => args.push(Expr::Starred(value~))
+            }
           } else {
             let idx = self.index()
             let next_kind = if idx + 1 < self.tokens.length() {
@@ -1655,14 +1799,29 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         }
         if self.current().kind == Colon {
           let _ = self.advance()
-          if self.current().kind != Comma && self.current().kind != RBracket {
+          if self.current().kind != Colon &&
+            self.current().kind != Comma &&
+            self.current().kind != RBracket {
             let end_value = match self.parse_conditional() {
               Ok(value) => value
               Err(err) => return Err(err)
             }
             end_expr = Some(end_value)
           }
-          items.push(Expr::Slice(start=start_expr, end=end_expr))
+          let mut step_expr : Expr? = None
+          if self.current().kind == Colon {
+            let _ = self.advance()
+            if self.current().kind != Comma && self.current().kind != RBracket {
+              let step_value = match self.parse_conditional() {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              step_expr = Some(step_value)
+            }
+          }
+          items.push(
+            Expr::Slice(start=start_expr, end=end_expr, step=step_expr),
+          )
         } else {
           let index_expr = match start_expr {
             Some(expr) => expr
@@ -2099,6 +2258,125 @@ fn has_top_level_comma(text : String) -> Bool {
     }
   }
   false
+}
+
+///|
+fn first_top_level_comma_pos(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if c == ',' && depth == 0 {
+          return Some(i)
+        }
+    }
+  }
+  None
+}
+
+///|
+fn find_top_level_augassign(text : String) -> (Int, String)? {
+  let chars = text.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      i += 1
+      continue
+    }
+    if c == '(' || c == '[' || c == '{' {
+      depth += 1
+      i += 1
+      continue
+    }
+    if c == ')' || c == ']' || c == '}' {
+      if depth > 0 {
+        depth -= 1
+      }
+      i += 1
+      continue
+    }
+    if depth == 0 {
+      // Prefer the longest operator match.
+      if i + 2 < chars.length() &&
+        c == '*' &&
+        chars[i + 1] == '*' &&
+        chars[i + 2] == '=' {
+        return Some((i, "**=".to_string()))
+      }
+      if i + 2 < chars.length() &&
+        c == '/' &&
+        chars[i + 1] == '/' &&
+        chars[i + 2] == '=' {
+        return Some((i, "//=".to_string()))
+      }
+      if i + 2 < chars.length() &&
+        c == '<' &&
+        chars[i + 1] == '<' &&
+        chars[i + 2] == '=' {
+        return Some((i, "<<=".to_string()))
+      }
+      if i + 2 < chars.length() &&
+        c == '>' &&
+        chars[i + 1] == '>' &&
+        chars[i + 2] == '=' {
+        return Some((i, ">>=".to_string()))
+      }
+      if i + 1 < chars.length() && chars[i + 1] == '=' {
+        if c == '+' ||
+          c == '-' ||
+          c == '*' ||
+          c == '@' ||
+          c == '/' ||
+          c == '%' ||
+          c == '&' ||
+          c == '|' ||
+          c == '^' {
+          return Some((i, c.to_string() + "="))
+        }
+      }
+    }
+    i += 1
+  }
+  None
 }
 
 ///|
@@ -2661,7 +2939,7 @@ fn expr_has_name(expr : Expr) -> Bool {
       let _ = name
       expr_has_name(value)
     }
-    Expr::Slice(start~, end~) => {
+    Expr::Slice(start~, end~, step~) => {
       let start_has = match start {
         Some(v) => expr_has_name(v)
         None => false
@@ -2670,13 +2948,18 @@ fn expr_has_name(expr : Expr) -> Bool {
         Some(v) => expr_has_name(v)
         None => false
       }
-      start_has || end_has
+      let step_has = match step {
+        Some(v) => expr_has_name(v)
+        None => false
+      }
+      start_has || end_has || step_has
     }
     Expr::Keyword(name~, value~) => {
       let _ = name
       expr_has_name(value)
     }
     Expr::Starred(value~) => expr_has_name(value)
+    Expr::DoubleStarred(value~) => expr_has_name(value)
     Expr::FString(_) | Expr::Literal(_) => false
   }
 }
@@ -2960,6 +3243,18 @@ fn parse_simple_statement(
       }
     }
     stmts.push(Stmt::Global(names))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("nonlocal ") {
+    let names : Array[String] = []
+    let rest = substring(trimmed, 9, trimmed.length())
+    for part in rest.split(",") {
+      let name = part.trim(chars=" \t").to_string()
+      if name.length() > 0 {
+        names.push(name)
+      }
+    }
+    stmts.push(Stmt::Nonlocal(names))
     return Ok(stmts)
   }
   if trimmed.has_prefix("import ") {
@@ -3415,6 +3710,86 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::ExprStmt(expr))
     return Ok(stmts)
+  }
+  match find_top_level_augassign(trimmed) {
+    Some((pos, op_text)) => {
+      let left_text = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
+      let right_text = substring(
+          trimmed,
+          pos + op_text.length(),
+          trimmed.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if left_text.length() == 0 || right_text.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let left_tokens = match
+        tokenize_expr(left_text, line_index + 1, base_offset) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let left_expr = match parse_tokens_expr(left_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let target = match
+        target_from_expr(left_expr, {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 1,
+          column: 1,
+        }) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let right_tokens = match
+        tokenize_expr(
+          right_text,
+          line_index + 1,
+          base_offset + pos + op_text.length(),
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let value_expr = match parse_tokens_expr(right_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let op = match op_text {
+        "+=" => BinaryOp::Add
+        "-=" => BinaryOp::Sub
+        "*=" => BinaryOp::Mul
+        "@=" => BinaryOp::MatMul
+        "/=" => BinaryOp::Div
+        "//=" => BinaryOp::FloorDiv
+        "%=" => BinaryOp::Mod
+        "**=" => BinaryOp::Pow
+        "<<=" => BinaryOp::ShiftLeft
+        ">>=" => BinaryOp::ShiftRight
+        "&=" => BinaryOp::BitAnd
+        "^=" => BinaryOp::BitXor
+        "|=" => BinaryOp::BitOr
+        _ => BinaryOp::Add
+      }
+      stmts.push(Stmt::AugAssign(target~, op~, value=value_expr))
+      return Ok(stmts)
+    }
+    None => ()
   }
   if has_bare_assign(trimmed) {
     let eq_pos = find_char(trimmed, '=')
@@ -5941,16 +6316,13 @@ fn LineParser::parse_block(
       if item_text.has_prefix("(") && item_text.has_suffix(")") {
         item_text = substring(item_text, 1, item_text.length() - 1).to_string()
       }
-      let mut first_item = ""
-      for part in item_text.split(",") {
-        let candidate = part.trim(chars=" \t\n\r").to_string()
-        if candidate.length() > 0 {
-          first_item = candidate
-          break
-        }
-      }
-      if first_item.length() == 0 {
-        first_item = item_text.trim(chars=" \t\n\r").to_string()
+      let mut first_item = item_text.trim(chars=" \t\n\r").to_string()
+      match first_top_level_comma_pos(first_item) {
+        Some(pos) =>
+          first_item = substring(first_item, 0, pos)
+            .trim(chars=" \t\n\r")
+            .to_string()
+        None => ()
       }
       let parts : Array[String] = []
       for part in first_item.split(" as ") {
