@@ -455,6 +455,7 @@ fn delete_local_value(locals : Array[(String, Value)], name : String) -> Unit {
 /// Scope declarations (minimal): tracks `global` names in the active function.
 priv struct ScopeDecls {
   globals : Array[String]
+  nonlocals : Array[String]
 }
 
 ///|
@@ -462,7 +463,21 @@ let scope_decls_stack : Ref[Array[ScopeDecls]] = { val: [] }
 
 ///|
 fn push_scope_decls(global_names : Array[String]) -> Unit {
-  scope_decls_stack.val.push(ScopeDecls::{ globals: global_names })
+  scope_decls_stack.val.push(ScopeDecls::{
+    globals: global_names,
+    nonlocals: [],
+  })
+}
+
+///|
+fn push_scope_decls_with_nonlocals(
+  global_names : Array[String],
+  nonlocal_names : Array[String],
+) -> Unit {
+  scope_decls_stack.val.push(ScopeDecls::{
+    globals: global_names,
+    nonlocals: nonlocal_names,
+  })
 }
 
 ///|
@@ -471,6 +486,11 @@ fn pop_scope_decls() -> Unit {
     let _ = scope_decls_stack.val.pop()
 
   }
+}
+
+///|
+fn in_function_scope() -> Bool {
+  scope_decls_stack.val.length() > 0
 }
 
 ///|
@@ -488,6 +508,20 @@ fn scope_name_is_global(name : String) -> Bool {
 }
 
 ///|
+fn scope_name_is_nonlocal(name : String) -> Bool {
+  if scope_decls_stack.val.length() == 0 {
+    return false
+  }
+  let decls = scope_decls_stack.val[scope_decls_stack.val.length() - 1]
+  for n in decls.nonlocals {
+    if n == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn get_scoped_value(
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
@@ -495,8 +529,16 @@ fn get_scoped_value(
 ) -> Value? {
   if scope_name_is_global(name) {
     get_global_value(globals, name)
+  } else if scope_name_is_nonlocal(name) {
+    match lookup_closure_cell(name) {
+      Some(cell) => Some(deref_cell_value(cell))
+      None => None
+    }
   } else {
-    get_local_value(locals, name)
+    match get_local_value(locals, name) {
+      Some(v) => Some(deref_cell_value(v))
+      None => None
+    }
   }
 }
 
@@ -509,6 +551,11 @@ fn set_scoped_value(
 ) -> Unit {
   if scope_name_is_global(name) {
     set_global_value(globals, name, value)
+  } else if scope_name_is_nonlocal(name) {
+    match lookup_closure_cell(name) {
+      Some(cell) => cell_set_value(cell, value)
+      None => ()
+    }
   } else {
     set_local_value(locals, name, value)
   }
@@ -527,10 +574,47 @@ fn delete_scoped_value(
     } else {
       false
     }
+  } else if scope_name_is_nonlocal(name) {
+    false
   } else if get_local_value(locals, name) is Some(_) {
     delete_local_value(locals, name)
     true
   } else {
     false
   }
+}
+
+///|
+fn lookup_closure_cell(name : String) -> Value? {
+  if closure_env_stack.val.length() == 0 {
+    return None
+  }
+  let env = closure_env_stack.val[closure_env_stack.val.length() - 1]
+  for pair in env {
+    if pair.0 == name && is_cell_value(pair.1) {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn merge_cell_closures(
+  locals : Array[(String, Value)],
+  extra : Array[(String, Value)],
+) -> Array[(String, Value)] {
+  let out = capture_cell_closure(locals)
+  for pair in extra {
+    let mut exists = false
+    for existing in out {
+      if existing.0 == pair.0 {
+        exists = true
+        break
+      }
+    }
+    if !exists {
+      out.push(pair)
+    }
+  }
+  out
 }

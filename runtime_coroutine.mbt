@@ -9,6 +9,7 @@ priv struct CoroutineState {
   builtins : Array[(String, Value)]
   io : MockIO
   global_names : Array[String]
+  nonlocal_names : Array[String]
   closure : Array[(String, Value)]
   mut done : Bool
 }
@@ -95,6 +96,7 @@ fn coroutine_new(
   builtins : Array[(String, Value)],
   io : MockIO,
   global_names : Array[String],
+  nonlocal_names : Array[String],
   closure : Array[(String, Value)],
 ) -> Value {
   let state : Ref[CoroutineState] = {
@@ -105,6 +107,7 @@ fn coroutine_new(
       builtins,
       io,
       global_names,
+      nonlocal_names,
       closure,
       done: false,
     },
@@ -129,7 +132,10 @@ fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
     )
   }
   push_closure_env(state.val.closure)
-  push_scope_decls(state.val.global_names)
+  push_scope_decls_with_nonlocals(
+    state.val.global_names,
+    state.val.nonlocal_names,
+  )
   coroutine_active_depth.val = coroutine_active_depth.val + 1
   let result = eval_block(
     state.val.body,

@@ -74,3 +74,32 @@ test "match capture binds locals not globals" {
   inspect(test_exec_global(source, "a"), content="<missing>")
   inspect(test_exec_global(source, "b"), content="<missing>")
 }
+
+///|
+test "nonlocal assignment updates outer binding" {
+  let source =
+    #|def outer():
+    #|  x = 1
+    #|  def inner():
+    #|    nonlocal x
+    #|    x = 2
+    #|  inner()
+    #|  return x
+    #|res = outer()
+  inspect(test_exec_global(source, "res"), content="2")
+}
+
+///|
+test "nonlocal missing binding is syntax error" {
+  let source =
+    #|def outer():
+    #|  def inner():
+    #|    nonlocal x
+    #|    x = 1
+    #|  inner()
+    #|outer()
+  inspect(
+    test_exec_error(source),
+    content="SyntaxError: no binding for nonlocal 'x' found",
+  )
+}

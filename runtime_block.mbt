@@ -473,6 +473,28 @@ fn eval_block_flow(
           }
           default_values.push(value)
         }
+        let (_, nonlocal_names) = collect_scope_decl_names(body)
+        let extra_cells : Array[(String, Value)] = []
+        for nonlocal_name in nonlocal_names {
+          match get_local_value(locals, nonlocal_name) {
+            Some(v) =>
+              ensure_local_cell(locals, nonlocal_name, deref_cell_value(v))
+            None =>
+              match lookup_closure_cell(nonlocal_name) {
+                Some(cell) => extra_cells.push((nonlocal_name, cell))
+                None =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "SyntaxError: no binding for nonlocal '" +
+                      nonlocal_name +
+                      "' found",
+                    ),
+                  )
+              }
+          }
+        }
+        let closure = merge_cell_closures(locals, extra_cells)
         let func = FunctionValue::{
           name,
           params,
@@ -480,7 +502,7 @@ fn eval_block_flow(
           body,
           is_generator,
           is_async,
-          closure: capture_cell_closure(locals),
+          closure,
         }
         let decorator_values : Array[Value] = []
         for dec_expr in decorators {
@@ -511,7 +533,17 @@ fn eval_block_flow(
       }
       Stmt::Pass => last = Value::None
       Stmt::Global(_) => last = Value::None
-      Stmt::Nonlocal(_) => last = Value::None
+      Stmt::Nonlocal(_) =>
+        if !in_function_scope() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: nonlocal declaration not allowed at module level".to_string(),
+            ),
+          )
+        } else {
+          last = Value::None
+        }
       Stmt::Assert(condition~, message~) => {
         let value = match
           eval_expr_with_env(condition, locals, globals, builtins, io) {

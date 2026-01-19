@@ -845,7 +845,7 @@ fn eval_expr_with_env(
       if clauses.length() == 0 {
         let body = genexp_to_generator_body(elt, clauses, filters)
         return Ok(
-          generator_new(body, gen_locals, globals, builtins, io, [], []),
+          generator_new(body, gen_locals, globals, builtins, io, [], [], []),
         )
       }
       let first_iter_value = match
@@ -865,7 +865,7 @@ fn eval_expr_with_env(
         adjusted_clauses.push(clauses[i])
       }
       let body = genexp_to_generator_body(elt, adjusted_clauses, filters)
-      Ok(generator_new(body, gen_locals, globals, builtins, io, [], []))
+      Ok(generator_new(body, gen_locals, globals, builtins, io, [], [], []))
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
@@ -1954,13 +1954,20 @@ fn append_unique_name(names : Array[String], name : String) -> Unit {
 }
 
 ///|
-fn collect_scope_global_names(body : Array[Stmt]) -> Array[String] {
-  let names : Array[String] = []
+fn collect_scope_decl_names(
+  body : Array[Stmt],
+) -> (Array[String], Array[String]) {
+  let globals : Array[String] = []
+  let nonlocals : Array[String] = []
   fn walk(stmt : Stmt) -> Unit {
     match stmt {
       Stmt::Global(ns) =>
         for n in ns {
-          append_unique_name(names, n)
+          append_unique_name(globals, n)
+        }
+      Stmt::Nonlocal(ns) =>
+        for n in ns {
+          append_unique_name(nonlocals, n)
         }
       Stmt::If(condition~, body~, else_body~) => {
         let _ = condition
@@ -2033,7 +2040,7 @@ fn collect_scope_global_names(body : Array[Stmt]) -> Array[String] {
   for stmt in body {
     walk(stmt)
   }
-  names
+  (globals, nonlocals)
 }
 
 ///|
@@ -2050,7 +2057,7 @@ fn eval_function_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let global_names = collect_scope_global_names(func.body)
+  let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
   if func.is_async {
     if func.is_generator {
       return Err(
@@ -2068,12 +2075,13 @@ fn eval_function_with_kwargs(
         builtins,
         io,
         global_names,
+        nonlocal_names,
         func.closure,
       ),
     )
   }
   push_closure_env(func.closure)
-  push_scope_decls(global_names)
+  push_scope_decls_with_nonlocals(global_names, nonlocal_names)
   let result = eval_block(func.body, locals, globals, builtins, io)
   pop_scope_decls()
   pop_closure_env()
@@ -2204,7 +2212,7 @@ fn eval_generator_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let global_names = collect_scope_global_names(func.body)
+  let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
   Ok(
     generator_new(
       func.body,
@@ -2213,6 +2221,7 @@ fn eval_generator_with_kwargs(
       builtins,
       io,
       global_names,
+      nonlocal_names,
       func.closure,
     ),
   )

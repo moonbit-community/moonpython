@@ -245,6 +245,14 @@ fn delete_target_with_env(
 ) -> Result[Unit, RuntimeError] {
   match target {
     Target::Name(name) => {
+      if scope_name_is_nonlocal(name) {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: can't delete nonlocal".to_string(),
+          ),
+        )
+      }
       if !delete_scoped_value(locals, globals, name) {
         return Err(
           make_runtime_error(
