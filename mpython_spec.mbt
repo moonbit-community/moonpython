@@ -109,6 +109,7 @@ pub enum Expr {
   NamedExpr(name~ : String, value~ : Expr)
   Yield(Expr?)
   YieldFrom(Expr)
+  Await(Expr)
   Slice(start~ : Expr?, end~ : Expr?, step~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
@@ -167,7 +168,8 @@ pub enum Stmt {
     params~ : Array[String],
     defaults~ : Array[Expr],
     body~ : Array[Stmt],
-    is_generator~ : Bool
+    is_generator~ : Bool,
+    is_async~ : Bool
   )
   Pass
   Global(Array[String])
@@ -272,6 +274,7 @@ pub struct FunctionValue {
   defaults : Array[Value]
   body : Array[Stmt]
   is_generator : Bool
+  is_async : Bool
 } derive(ToJson)
 
 ///|

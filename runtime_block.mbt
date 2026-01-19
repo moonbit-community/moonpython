@@ -448,7 +448,8 @@ fn eval_block_flow(
         params~,
         defaults~,
         body~,
-        is_generator~
+        is_generator~,
+        is_async~
       ) => {
         let default_values : Array[Value] = []
         for expr in defaults {
@@ -465,6 +466,7 @@ fn eval_block_flow(
           defaults: default_values,
           body,
           is_generator,
+          is_async,
         }
         let decorator_values : Array[Value] = []
         for dec_expr in decorators {

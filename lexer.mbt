@@ -53,6 +53,7 @@ priv enum TokenKind {
   Def
   Return
   Yield
+  Await
   Lambda
   Assert
   Import
@@ -151,6 +152,7 @@ fn token_text(token : Token) -> String {
     TokenKind::Def => "def"
     TokenKind::Return => "return"
     TokenKind::Yield => "yield"
+    TokenKind::Await => "await"
     TokenKind::Lambda => "lambda"
     TokenKind::Assert => "assert"
     TokenKind::Import => "import"
@@ -1079,6 +1081,7 @@ fn tokenize_expr(
           "def" => Def
           "return" => Return
           "yield" => Yield
+          "await" => Await
           "lambda" => Lambda
           "assert" => Assert
           "import" => Import

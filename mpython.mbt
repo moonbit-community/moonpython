@@ -509,6 +509,45 @@ fn eval_expr_with_env(
       set_global_value(globals, name, evaluated)
       Ok(evaluated)
     }
+    Expr::Await(expr) =>
+      if !coroutine_is_active() {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'await' outside async function".to_string(),
+          ),
+        )
+      } else {
+        let awaitable = match
+          eval_expr_with_env(expr, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match awaitable {
+          Value::Instance(inst) =>
+            if inst.class.name == "coroutine" {
+              coroutine_await(awaitable)
+            } else {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "'" +
+                  type_name_from_value(awaitable) +
+                  "' object can't be used in 'await' expression",
+                ),
+              )
+            }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "'" +
+                type_name_from_value(awaitable) +
+                "' object can't be used in 'await' expression",
+              ),
+            )
+        }
+      }
     Expr::Yield(_) | Expr::YieldFrom(_) =>
       Err(
         make_runtime_error(
@@ -771,6 +810,7 @@ fn eval_expr_with_env(
           defaults: default_values,
           body: func_body,
           is_generator: false,
+          is_async: false,
         }),
       )
     }
@@ -802,6 +842,7 @@ fn eval_expr_with_env(
                   defaults: [],
                   body: [],
                   is_generator: false,
+                  is_async: false,
                 }),
               )
             (Value::Function(_), "__hash__") =>
@@ -812,6 +853,7 @@ fn eval_expr_with_env(
                   defaults: [],
                   body: [],
                   is_generator: false,
+                  is_async: false,
                 }),
               )
             (Value::Function(func), "__doc__") =>
@@ -1582,6 +1624,17 @@ fn eval_function_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
+  if func.is_async {
+    if func.is_generator {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::NotImplemented,
+          "async generators are not supported".to_string(),
+        ),
+      )
+    }
+    return Ok(coroutine_new(func.body, locals, globals, builtins, io))
+  }
   let result = match eval_block(func.body, locals, globals, builtins, io) {
     Ok(value) => value
     Err(err) => return Err(err)
@@ -1700,6 +1753,14 @@ fn eval_generator_with_kwargs(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  if func.is_async {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::NotImplemented,
+        "async generators are not supported".to_string(),
+      ),
+    )
+  }
   let locals = match
     bind_function_args_with_kwargs(func, positional, keywords) {
     Ok(value) => value

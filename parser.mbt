@@ -906,6 +906,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
         None => ()
       }
     Expr::YieldFrom(value) => collect_named_expr_targets(value, targets)
+    Expr::Await(value) => collect_named_expr_targets(value, targets)
     Expr::Tuple(items) =>
       for item in items {
         collect_named_expr_targets(item, targets)
@@ -1122,6 +1123,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     Ident(name) => {
       let _ = self.advance()
       Expr::Name(name)
+    }
+    Await => {
+      let _ = self.advance()
+      let expr = match self.parse_primary() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Expr::Await(expr)
     }
     Lambda => {
       let _ = self.advance()
@@ -2040,6 +2049,7 @@ priv struct LineParser {
   mut index : Int
   offsets : Array[Int]
   mut func_depth : Int
+  mut async_depth : Int
 }
 
 ///|
@@ -2054,7 +2064,7 @@ fn LineParser::new(source : String) -> LineParser {
     offsets.push(offset)
     offset += line.length() + 1
   }
-  LineParser::{ lines, index: 0, offsets, func_depth: 0 }
+  LineParser::{ lines, index: 0, offsets, func_depth: 0, async_depth: 0 }
 }
 
 ///|
@@ -2794,6 +2804,49 @@ fn line_has_yield_keyword(line : String) -> Bool {
 }
 
 ///|
+fn line_has_await_keyword(line : String) -> Bool {
+  let chars = line.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        } else if c == 'a' && i + 4 < chars.length() {
+          if chars[i + 1] == 'w' &&
+            chars[i + 2] == 'a' &&
+            chars[i + 3] == 'i' &&
+            chars[i + 4] == 't' {
+            let before_ok = i == 0 || !is_ascii_ident_char(chars[i - 1])
+            let after_pos = i + 5
+            let after_ok = after_pos >= chars.length() ||
+              !is_ascii_ident_char(chars[after_pos])
+            if before_ok && after_ok {
+              return true
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 fn block_has_yield_keyword(
   lines : Array[String],
   start_index : Int,
@@ -2900,6 +2953,7 @@ fn expr_has_name(expr : Expr) -> Bool {
         None => false
       }
     Expr::YieldFrom(value) => expr_has_name(value)
+    Expr::Await(value) => expr_has_name(value)
     Expr::Attribute(value~, attr~) => {
       let _ = attr
       expr_has_name(value)
@@ -4278,6 +4332,25 @@ fn LineParser::parse_block(
         ),
       )
     }
+    if self.async_depth == 0 &&
+      line_has_await_keyword(line_text) &&
+      !line_text.has_prefix("def ") &&
+      !line_text.has_prefix("async def ") {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
     if line_text.has_prefix("match ") || line_text.has_prefix("match(") {
       let colon_pos = find_last_char(line_text, ':')
       if colon_pos is None {
@@ -4756,6 +4829,14 @@ fn LineParser::parse_block(
       stmts.push(Stmt::Class(name~, decorators~, bases~, keywords~, body~))
       continue
     }
+    if self.async_depth > 0 &&
+      (line_text.contains("async for") || line_text.contains("async with")) {
+      // Allow parsing async-only constructs inside async functions even when we
+      // don't implement their runtime semantics yet (e.g. async comprehensions).
+      stmts.push(Stmt::Pass)
+      self.index = next_index
+      continue
+    }
     if line_text.has_prefix("async for ") || line_text.has_prefix("async with ") {
       let token = {
         kind: Eof,
@@ -4967,7 +5048,23 @@ fn LineParser::parse_block(
         )
         .trim(chars=" \t")
         .to_string()
-      if body_text.contains("yield") {
+      if !is_async_def && body_text.contains("yield") {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      if !is_async_def && line_has_await_keyword(body_text) {
         let token = {
           kind: Eof,
           start: self.offsets[self.index] + current_indent,
@@ -5041,6 +5138,13 @@ fn LineParser::parse_block(
             _ => ()
           }
         }
+        let mut is_generator = false
+        for stmt in body {
+          match stmt {
+            Stmt::Yield(_) | Stmt::YieldFrom(_) => is_generator = true
+            _ => ()
+          }
+        }
         stmts.push(
           Stmt::Function(
             name~,
@@ -5048,7 +5152,8 @@ fn LineParser::parse_block(
             params~,
             defaults~,
             body~,
-            is_generator=false,
+            is_generator~,
+            is_async=is_async_def,
           ),
         )
         self.index = next_index
@@ -5075,35 +5180,13 @@ fn LineParser::parse_block(
           ),
         )
       }
+      let is_generator = block_has_yield_keyword(
+        self.lines,
+        self.index,
+        next_indent,
+      )
       let (body, is_generator) = if is_async_def {
-        let body : Array[Stmt] = []
-
-        // Detect docstring (first statement is a literal string).
         let mut idx = self.index
-        while idx < self.lines.length() {
-          let body_line = self.lines[idx]
-          let trimmed = body_line.trim(chars=" \t").to_string()
-          if trimmed.length() == 0 || trimmed.has_prefix("#") {
-            idx += 1
-            continue
-          }
-          let body_indent = count_indent(body_line)
-          if body_indent < next_indent {
-            break
-          }
-          if body_indent == next_indent {
-            if trimmed.has_prefix("\"") || trimmed.has_prefix("'") {
-              body.push(Stmt::ExprStmt(Expr::Literal(Literal::Str(""))))
-            }
-            break
-          }
-          idx += 1
-        }
-
-        // Scan async body for syntax errors.
-        let mut has_yield = false
-        let open_parens : Array[(Int, Int)] = []
-        idx = self.index
         while idx < self.lines.length() {
           let body_line = self.lines[idx]
           let trimmed = body_line.trim(chars=" \t").to_string()
@@ -5131,46 +5214,9 @@ fn LineParser::parse_block(
               ),
             )
           }
-          if trimmed.has_prefix("yield") {
-            has_yield = true
-          }
-          if trimmed.has_suffix("(") {
-            let pos = find_last_char(body_line, '(').unwrap_or(0)
-            let token = {
-              kind: Eof,
-              start: self.offsets[idx] + pos,
-              end: self.offsets[idx] + pos + 1,
-              line: idx + 1,
-              column: pos + 1,
-            }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Syntax,
-                "'(' was never closed".to_string(),
-                token,
-              ),
-            )
-          }
           idx += 1
         }
-        if open_parens.length() > 0 {
-          let last = open_parens[open_parens.length() - 1]
-          let token = {
-            kind: Eof,
-            start: self.offsets[last.0] + last.1,
-            end: self.offsets[last.0] + last.1 + 1,
-            line: last.0 + 1,
-            column: last.1 + 1,
-          }
-          return Err(
-            make_parse_error(
-              ParseErrorKind::Syntax,
-              "'(' was never closed".to_string(),
-              token,
-            ),
-          )
-        }
-        if has_yield {
+        if is_generator {
           idx = self.index
           while idx < self.lines.length() {
             let body_line = self.lines[idx]
@@ -5182,18 +5228,6 @@ fn LineParser::parse_block(
             let body_indent = count_indent(body_line)
             if body_indent < next_indent {
               break
-            }
-            let line_chars = body_line.to_array()
-            for i = 0; i < line_chars.length(); i = i + 1 {
-              let c = line_chars[i]
-              if c == '(' {
-                open_parens.push((idx, i))
-              } else if c == ')' {
-                if open_parens.length() > 0 {
-                  let _ = open_parens.pop()
-
-                }
-              }
             }
             if trimmed.has_prefix("return ") {
               let token = {
@@ -5214,23 +5248,34 @@ fn LineParser::parse_block(
             idx += 1
           }
         }
-        self.skip_block(next_indent)
-        (body, has_yield)
-      } else {
-        let is_generator = block_has_yield_keyword(
-          self.lines,
-          self.index,
-          next_indent,
-        )
+        let prev_async_depth = self.async_depth
+        self.async_depth = 1
         self.func_depth += 1
         let parsed = match self.parse_block(next_indent) {
           Ok(value) => value
           Err(err) => {
             self.func_depth -= 1
+            self.async_depth = prev_async_depth
             return Err(err)
           }
         }
         self.func_depth -= 1
+        self.async_depth = prev_async_depth
+        (parsed, is_generator)
+      } else {
+        let prev_async_depth = self.async_depth
+        self.async_depth = 0
+        self.func_depth += 1
+        let parsed = match self.parse_block(next_indent) {
+          Ok(value) => value
+          Err(err) => {
+            self.func_depth -= 1
+            self.async_depth = prev_async_depth
+            return Err(err)
+          }
+        }
+        self.func_depth -= 1
+        self.async_depth = prev_async_depth
         (parsed, is_generator)
       }
       for stmt in body {
@@ -5267,6 +5312,7 @@ fn LineParser::parse_block(
           defaults~,
           body~,
           is_generator~,
+          is_async=is_async_def,
         ),
       )
       continue

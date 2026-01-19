@@ -91,6 +91,7 @@ pub enum Expr {
   NamedExpr(name~ : String, value~ : Expr)
   Yield(Expr?)
   YieldFrom(Expr)
+  Await(Expr)
   Slice(start~ : Expr?, end~ : Expr?, step~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
@@ -111,6 +112,7 @@ pub struct FunctionValue {
   defaults : Array[Value]
   body : Array[Stmt]
   is_generator : Bool
+  is_async : Bool
 }
 pub impl ToJson for FunctionValue
 
@@ -243,7 +245,7 @@ pub enum Stmt {
   For(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Break
   Continue
-  Function(name~ : String, decorators~ : Array[Expr], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool)
+  Function(name~ : String, decorators~ : Array[Expr], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
   Pass
   Global(Array[String])
   Nonlocal(Array[String])

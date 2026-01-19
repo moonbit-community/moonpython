@@ -9,6 +9,7 @@ fn function_stub(name : String) -> Value {
     defaults: [],
     body: [],
     is_generator: false,
+    is_async: false,
   })
 }
 
@@ -82,6 +83,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
         defaults: [],
         body: [Stmt::Return(Some(Expr::Name("self")))],
         is_generator: false,
+        is_async: false,
       }),
     ),
   )
@@ -98,8 +100,8 @@ pub fn Interpreter::new_spec() -> Interpreter {
   let builtins : Array[(String, Value)] = []
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
-    "print", "len", "range", "str", "int", "float", "list", "dict", "set", "tuple",
-    "enumerate", "zip", "map", "filter", "any", "all", "sum",
+    "__mpython_run", "print", "len", "range", "str", "int", "float", "list", "dict",
+    "set", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -131,6 +133,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [Stmt::Return(Some(Expr::Name("self")))],
         is_generator: false,
+        is_async: false,
       }),
     ),
   )
@@ -228,6 +231,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -238,9 +242,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     ("__debug__", Value::Bool(true)),
+    ("__mpython_run", function_stub("__mpython_run")),
     (
       "str",
       Value::Function(FunctionValue::{
@@ -249,6 +255,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -259,6 +266,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -269,6 +277,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -279,6 +288,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -289,6 +299,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -299,6 +310,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -309,6 +321,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -319,6 +332,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -329,6 +343,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -339,6 +354,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -349,6 +365,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -359,6 +376,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -369,6 +387,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -379,6 +398,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -389,6 +409,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -399,6 +420,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -409,6 +431,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -419,6 +442,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -429,6 +453,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -439,6 +464,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -449,6 +475,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -459,6 +486,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -469,6 +497,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -479,6 +508,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -489,6 +519,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -499,6 +530,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -509,6 +541,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -519,6 +552,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -529,6 +563,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -539,6 +574,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -549,6 +585,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -559,6 +596,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -569,6 +607,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -579,6 +618,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -589,6 +629,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -599,6 +640,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -609,6 +651,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -619,6 +662,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -629,6 +673,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -639,6 +684,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -649,6 +695,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -659,6 +706,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -669,6 +717,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -679,6 +728,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     (
@@ -689,6 +739,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         defaults: [],
         body: [],
         is_generator: false,
+        is_async: false,
       }),
     ),
     ("object", Value::Class(object_class)),

@@ -198,6 +198,7 @@ fn get_attr_from_value(
                 defaults: [],
                 body: [],
                 is_generator: false,
+                is_async: false,
               },
               self: Value::Instance(inst),
             }),
@@ -212,6 +213,7 @@ fn get_attr_from_value(
                 defaults: [],
                 body: [],
                 is_generator: false,
+                is_async: false,
               },
               self: Value::Instance(inst),
             }),
@@ -226,6 +228,7 @@ fn get_attr_from_value(
                 defaults: [Value::None, Value::None],
                 body: [],
                 is_generator: false,
+                is_async: false,
               },
               self: Value::Instance(inst),
             }),
@@ -414,7 +417,20 @@ fn call_callable_with_env(
 ) -> Result[Value, RuntimeError] {
   match callee {
     Value::Function(func) =>
-      if func.is_generator {
+      if func.is_async {
+        if func.is_generator {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::NotImplemented,
+              "async generators are not supported".to_string(),
+            ),
+          )
+        } else {
+          (eval_function_with_kwargs_ref.val)(
+            func, positional, keywords, globals, builtins, io,
+          )
+        }
+      } else if func.is_generator {
         (eval_generator_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
         )
