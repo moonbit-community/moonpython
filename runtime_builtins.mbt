@@ -1305,6 +1305,45 @@ fn escape_string_for_repr(text : String) -> String {
 }
 
 ///|
+///|
+fn builtin_property(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = match ensure_no_keywords("property", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "property() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let fget = positional[0]
+  let dict : Array[(String, Value)] = []
+  dict.push(("fget", fget))
+  Ok(
+    Value::Instance(
+      InstanceValue::{
+        class: ClassValue::{ name: "property", bases: [], dict: [] },
+        dict,
+      },
+    ),
+  )
+}
+
+///|
 fn builtin_bool(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2445,6 +2484,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "iter", run: builtin_iter },
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
+    BuiltinDef::{ name: "property", run: builtin_property },
     BuiltinDef::{ name: "repr", run: builtin_repr },
     BuiltinDef::{ name: "abs", run: builtin_abs },
     BuiltinDef::{ name: "round", run: builtin_round },

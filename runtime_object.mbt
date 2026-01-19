@@ -190,6 +190,33 @@ fn get_attr_from_value(
     obj : Value,
     owner : Value,
   ) -> Result[Value?, RuntimeError] {
+    // Built-in descriptor: property(fget)
+    match class_attr {
+      Value::Instance(inst) =>
+        if inst.class.name == "property" {
+          match get_named_value(inst.dict, "fget") {
+            Some(fget) =>
+              match obj {
+                Value::None => return Ok(Some(class_attr))
+                _ =>
+                  return match call_callable_with_env(
+                    fget,
+                    [obj],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                    Ok(v) => Ok(Some(v))
+                    Err(err) => Err(err)
+                  }
+              }
+            None => return Ok(None)
+          }
+        }
+      _ => ()
+    }
+
     let desc_class = match class_attr {
       Value::Instance(d) => Some(d.class)
       Value::Class(d) => Some(d)

@@ -705,6 +705,20 @@ test "e2e/builtin_getattr_hasattr_setattr" {
 }
 
 ///|
+test "e2e/builtin_property" {
+  let source =
+    #|class A:
+    #|  def __init__(self):
+    #|    self.v = 9
+    #|  def getv(self):
+    #|    return self.v
+    #|  v2 = property(getv)
+    #|a = A()
+    #|print(a.v2)
+  inspect(e2e_stdout([], source), content="9\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:

@@ -118,7 +118,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "print", "len", "range", "str", "int", "float", "list", "dict",
-    "set", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
+    "set", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum", "property",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -274,6 +274,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("iter", function_stub("iter")),
     ("next", function_stub("next")),
     ("bool", function_stub("bool")),
+    ("property", function_stub("property")),
     ("repr", function_stub("repr")),
     ("abs", function_stub("abs")),
     ("round", function_stub("round")),
