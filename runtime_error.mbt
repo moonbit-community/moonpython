@@ -59,6 +59,9 @@ fn make_runtime_error(
     exc_type,
     exc_args,
     exc_value: None,
+    exc_cause: None,
+    exc_context: None,
+    exc_suppress_context: false,
   }
 }
 
@@ -76,6 +79,9 @@ fn make_parse_runtime_error(error : ParseError) -> RuntimeError {
     exc_type,
     exc_args,
     exc_value: None,
+    exc_cause: None,
+    exc_context: None,
+    exc_suppress_context: false,
   }
 }
 

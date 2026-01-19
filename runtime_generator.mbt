@@ -101,6 +101,9 @@ fn generator_stop_iteration_with_value(value : Value) -> RuntimeError {
     exc_type: err.exc_type,
     exc_args: err.exc_args,
     exc_value: Some(value),
+    exc_cause: err.exc_cause,
+    exc_context: err.exc_context,
+    exc_suppress_context: err.exc_suppress_context,
   }
 }
 
@@ -591,10 +594,22 @@ fn generator_step_statement(
       }
       Ok(None)
     }
-    Stmt::Raise(exc~, cause~) => {
-      let raised_value = match exc {
-        Some(expr) =>
-          match
+    Stmt::Raise(exc~, cause~) =>
+      match exc {
+        None =>
+          match active_exception() {
+            Some(err) => Err(err)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "RuntimeError: No active exception to reraise".to_string(),
+                ),
+              )
+          }
+        Some(expr) => {
+          let context_err_opt = active_exception()
+          let raised_value = match
             eval_expr_with_env(
               expr,
               state.val.locals,
@@ -605,43 +620,92 @@ fn generator_step_statement(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-        None => Value::None
-      }
-      if cause is Some(expr) {
-        let _ = match
-          eval_expr_with_env(
-            expr,
-            state.val.locals,
-            state.val.globals,
-            state.val.builtins,
-            state.val.io,
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+          let inst_value = match
+            ensure_exception_instance_from_value(
+              raised_value,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let err0 = match inst_value {
+            Value::Instance(inst) => runtime_error_from_exception_instance(inst)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "RuntimeError: invalid exception".to_string(),
+                ),
+              )
+          }
+          let err1 = match (context_err_opt, err0.exc_context) {
+            (Some(ctx_err), None) => {
+              let ctx_value = exception_value_from_runtime_error(
+                ctx_err,
+                state.val.globals,
+                state.val.builtins,
+                state.val.io,
+              )
+              RuntimeError::{
+                kind: err0.kind,
+                message: err0.message,
+                span: err0.span,
+                exc_type: err0.exc_type,
+                exc_args: err0.exc_args,
+                exc_value: err0.exc_value,
+                exc_cause: err0.exc_cause,
+                exc_context: Some(ctx_value),
+                exc_suppress_context: err0.exc_suppress_context,
+              }
+            }
+            _ => err0
+          }
+          let err2 = match cause {
+            None => err1
+            Some(cause_expr) => {
+              let cause_value = match
+                eval_expr_with_env(
+                  cause_expr,
+                  state.val.locals,
+                  state.val.globals,
+                  state.val.builtins,
+                  state.val.io,
+                ) {
+                Ok(value) => value
+                Err(e) => return Err(e)
+              }
+              let cause_inst = match cause_value {
+                Value::None => Value::None
+                _ =>
+                  match
+                    ensure_exception_instance_from_value(
+                      cause_value,
+                      state.val.globals,
+                      state.val.builtins,
+                      state.val.io,
+                    ) {
+                    Ok(v) => v
+                    Err(e) => return Err(e)
+                  }
+              }
+              RuntimeError::{
+                kind: err1.kind,
+                message: err1.message,
+                span: err1.span,
+                exc_type: err1.exc_type,
+                exc_args: err1.exc_args,
+                exc_value: err1.exc_value,
+                exc_cause: Some(cause_inst),
+                exc_context: err1.exc_context,
+                exc_suppress_context: true,
+              }
+            }
+          }
+          Err(err2)
         }
-
       }
-      match raised_value {
-        Value::Instance(inst) =>
-          Err(runtime_error_from_exception_instance(inst))
-        Value::Class(klass) =>
-          Err(make_runtime_error(RuntimeErrorKind::Runtime, klass.name))
-        Value::None =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "RuntimeError: raised".to_string(),
-            ),
-          )
-        _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "exceptions must derive from BaseException".to_string(),
-            ),
-          )
-      }
-    }
     _ =>
       Err(
         make_runtime_error(

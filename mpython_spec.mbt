@@ -237,6 +237,9 @@ pub(all) struct RuntimeError {
   exc_type : String
   exc_args : Array[String]
   exc_value : Value?
+  exc_cause : Value?
+  exc_context : Value?
+  exc_suppress_context : Bool
 } derive(ToJson)
 
 ///|

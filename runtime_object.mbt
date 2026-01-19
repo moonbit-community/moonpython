@@ -511,6 +511,9 @@ fn call_callable_with_env(
         let dict : Array[(String, Value)] = []
         dict.push(("__traceback__", Value::None))
         dict.push(("args", Value::Tuple(positional)))
+        dict.push(("__cause__", Value::None))
+        dict.push(("__context__", Value::None))
+        dict.push(("__suppress_context__", Value::Bool(false)))
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
         }

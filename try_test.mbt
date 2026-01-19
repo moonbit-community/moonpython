@@ -2,6 +2,15 @@
 /// Try/except/else/finally tests.
 
 ///|
+fn run_stdout_try(source : String) -> String {
+  let io = MockIO::new([])
+  match Interpreter::with_io(Config::default(), io).exec_source(source) {
+    Ok(run) => run.stdout
+    Err(err) => "ERR: " + format_runtime_error(err)
+  }
+}
+
+///|
 test "try/except NameError" {
   let source =
     #|flag = 0
@@ -108,4 +117,47 @@ test "except/tuple_matches" {
     #|except (ValueError, ZeroDivisionError):
     #|  flag = 1
   inspect(test_exec_global(source, "flag"), content="1")
+}
+
+///|
+test "raise/from_sets_context_and_suppresses" {
+  let source =
+    #|try:
+    #|  try:
+    #|    1 / 0
+    #|  except ZeroDivisionError:
+    #|    raise ValueError("x") from None
+    #|except ValueError as e:
+    #|  print(e.__cause__)
+    #|  print(e.__context__)
+    #|  print(e.__suppress_context__)
+  inspect(run_stdout_try(source), content="None\ndivision by zero\nTrue\n")
+}
+
+///|
+test "raise/from_explicit_cause_sets_cause" {
+  let source =
+    #|try:
+    #|  try:
+    #|    1 / 0
+    #|  except ZeroDivisionError:
+    #|    raise ValueError("x") from KeyError("k")
+    #|except ValueError as e:
+    #|  print(e.__cause__)
+    #|  print(e.__context__)
+    #|  print(e.__suppress_context__)
+  inspect(run_stdout_try(source), content="k\ndivision by zero\nTrue\n")
+}
+
+///|
+test "raise/from_rejects_non_exception_cause" {
+  let source =
+    #|try:
+    #|  raise ValueError("x") from 5
+    #|except ValueError:
+    #|  pass
+  inspect(
+    test_exec_error(source),
+    content="TypeError: exceptions must derive from BaseException",
+  )
 }
