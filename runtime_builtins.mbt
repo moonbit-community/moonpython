@@ -2488,6 +2488,92 @@ fn builtin_setattr(
 }
 
 ///|
+fn builtin_super(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = match ensure_no_keywords("super", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = io
+  let _ = locals
+
+  // Minimal: only support super(type, obj)
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "super() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+
+  let thisclass = match positional[0] {
+    Value::Class(k) => k
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "super() arg 1 must be a type".to_string(),
+        ),
+      )
+  }
+  let self_value = positional[1]
+
+  // Determine the dynamic class to do MRO search on
+  let self_class = match self_value {
+    Value::Instance(inst) => inst.class
+    Value::Class(k) => k
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "super() arg 2 must be an instance or type".to_string(),
+        ),
+      )
+  }
+
+  // Ensure thisclass is in self_class mro
+  let mro = match class_mro(self_class) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut found = false
+  for c in mro {
+    if c.name == thisclass.name {
+      found = true
+      break
+    }
+  }
+  if !found {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "super() arguments are inconsistent".to_string(),
+      ),
+    )
+  }
+
+  let dict : Array[(String, Value)] = []
+  dict.push(("__thisclass__", Value::Class(thisclass)))
+  dict.push(("__self__", self_value))
+  dict.push(("__self_class__", Value::Class(self_class)))
+  Ok(
+    Value::Instance(
+      InstanceValue::{
+        class: ClassValue::{ name: "super", bases: [], dict: [] },
+        dict,
+      },
+    ),
+  )
+}
+
+///|
 fn builtin_delattr(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2634,6 +2720,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },
     BuiltinDef::{ name: "setattr", run: builtin_setattr },
     BuiltinDef::{ name: "delattr", run: builtin_delattr },
+    BuiltinDef::{ name: "super", run: builtin_super },
   ]
   builtin_defs_ready.val = true
 }

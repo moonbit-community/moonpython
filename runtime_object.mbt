@@ -317,6 +317,87 @@ fn get_attr_raw_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
+      if inst.class.name == "super" {
+        // super(type, obj) proxy
+        let thisclass = match get_named_value(inst.dict, "__thisclass__") {
+          Some(Value::Class(k)) => k
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "invalid super object".to_string(),
+              ),
+            )
+        }
+        let self_value = match get_named_value(inst.dict, "__self__") {
+          Some(v) => v
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "invalid super object".to_string(),
+              ),
+            )
+        }
+        let self_class = match get_named_value(inst.dict, "__self_class__") {
+          Some(Value::Class(k)) => k
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "invalid super object".to_string(),
+              ),
+            )
+        }
+
+        let mro = match class_mro(self_class) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let mut after = false
+        for cls in mro {
+          if after {
+            let direct = get_named_value(cls.dict, attr)
+            if direct is Some(value) {
+              match value {
+                Value::Function(func) => {
+                  // Bind like normal instance access
+                  match self_value {
+                    Value::Instance(_) =>
+                      return Ok(
+                        Value::BoundMethod(
+                          BoundMethodValue::{ function: func, self: self_value },
+                        ),
+                      )
+                    _ => ()
+                  }
+                }
+                _ => ()
+              }
+              // Apply descriptor semantics; owner is dynamic class
+              let obj_for_desc = match self_value {
+                Value::Instance(_) => self_value
+                _ => Value::None
+              }
+              match apply_descriptor(value, obj_for_desc, Value::Class(self_class)) {
+                Ok(Some(v)) => return Ok(v)
+                Ok(None) => return Ok(value)
+                Err(err) => return Err(err)
+              }
+            }
+          }
+          if cls.name == thisclass.name {
+            after = true
+          }
+        }
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Attribute,
+            "'super' object has no attribute '" + attr + "'",
+          ),
+        )
+      }
+
       if inst.class.name == "generator" {
         if attr == "send" {
           return Ok(

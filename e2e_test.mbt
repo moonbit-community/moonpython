@@ -822,6 +822,19 @@ test "e2e/dunder_delattr" {
 }
 
 ///|
+test "e2e/builtin_super" {
+  let source =
+    #|class A:
+    #|  def f(self):
+    #|    return "A"
+    #|class B(A):
+    #|  def f(self):
+    #|    return super(B, self).f() + "B"
+    #|print(B().f())
+  inspect(e2e_stdout([], source), content="AB\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:
