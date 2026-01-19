@@ -1305,6 +1305,7 @@ fn escape_string_for_repr(text : String) -> String {
 }
 
 ///|
+
 ///|
 fn builtin_property(
   positional : Array[Value],
@@ -1334,19 +1335,16 @@ fn builtin_property(
   let fset = if positional.length() >= 2 { positional[1] } else { Value::None }
   let fdel = if positional.length() >= 3 { positional[2] } else { Value::None }
   let doc = if positional.length() >= 4 { positional[3] } else { Value::None }
-
   let dict : Array[(String, Value)] = []
   dict.push(("fget", fget))
   dict.push(("fset", fset))
   dict.push(("fdel", fdel))
   dict.push(("doc", doc))
   Ok(
-    Value::Instance(
-      InstanceValue::{
-        class: ClassValue::{ name: "property", bases: [], dict: [] },
-        dict,
-      },
-    ),
+    Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "property", bases: [], dict: [] },
+      dict,
+    }),
   )
 }
 
@@ -1378,12 +1376,10 @@ fn builtin_staticmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   Ok(
-    Value::Instance(
-      InstanceValue::{
-        class: ClassValue::{ name: "staticmethod", bases: [], dict: [] },
-        dict,
-      },
-    ),
+    Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "staticmethod", bases: [], dict: [] },
+      dict,
+    }),
   )
 }
 
@@ -1415,12 +1411,10 @@ fn builtin_classmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   Ok(
-    Value::Instance(
-      InstanceValue::{
-        class: ClassValue::{ name: "classmethod", bases: [], dict: [] },
-        dict,
-      },
-    ),
+    Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "classmethod", bases: [], dict: [] },
+      dict,
+    }),
   )
 }
 
@@ -2030,7 +2024,8 @@ fn builtin_callable(
   }
   let value = match positional[0] {
     Value::Function(_) | Value::Class(_) | Value::BoundMethod(_) => true
-    Value::Instance(inst) => get_named_value(inst.class.dict, "__call__") is Some(_)
+    Value::Instance(inst) =>
+      get_named_value(inst.class.dict, "__call__") is Some(_)
     _ => false
   }
   Ok(Value::Bool(value))
@@ -2332,21 +2327,16 @@ fn builtin_dir(
   // __dir__ hook
   match value {
     Value::Instance(_) | Value::Class(_) => {
-      let hook = match get_attr_from_value(value, "__dir__", globals, builtins, io) {
+      let hook = match
+        get_attr_from_value(value, "__dir__", globals, builtins, io) {
         Ok(v) => v
         Err(_err) => Value::None
       }
       match hook {
         Value::None => ()
         _ => {
-          let result = match call_callable_with_env(
-            hook,
-            [],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
+          let result = match
+            call_callable_with_env(hook, [], [], globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
@@ -2381,7 +2371,6 @@ fn builtin_dir(
     names.push(name)
   }
 
-
   match value {
     Value::Dict(pairs) =>
       for pair in pairs {
@@ -2400,7 +2389,9 @@ fn builtin_dir(
       }
       for cls in mro {
         for pair in cls.dict {
-          if pair.0 != "__getattribute__" {
+          if pair.0 != "__getattribute__" &&
+            pair.0 != "__setattr__" &&
+            pair.0 != "__delattr__" {
             push_name(names, pair.0)
           }
         }
@@ -2413,7 +2404,9 @@ fn builtin_dir(
       }
       for cls in mro {
         for pair in cls.dict {
-          if pair.0 != "__getattribute__" {
+          if pair.0 != "__getattribute__" &&
+            pair.0 != "__setattr__" &&
+            pair.0 != "__delattr__" {
             push_name(names, pair.0)
           }
         }
@@ -2421,7 +2414,6 @@ fn builtin_dir(
     }
     _ => ()
   }
-
   names.sort()
   let out : Array[Value] = []
   for name in names {
@@ -2583,7 +2575,6 @@ fn builtin_super(
   // - super() best-effort: uses closure __class__ and locals "self" / "cls"
   let mut thisclass_value : Value = Value::None
   let mut self_value : Value = Value::None
-
   if positional.length() == 0 {
     let cls_opt = get_from_env("__class__", locals, globals, builtins)
     if cls_opt is None {
@@ -2595,7 +2586,6 @@ fn builtin_super(
       )
     }
     thisclass_value = cls_opt.unwrap()
-
     let self_opt = get_from_env("self", locals, globals, builtins)
     let cls_opt2 = get_from_env("cls", locals, globals, builtins)
     if self_opt is Some(v) {
@@ -2621,7 +2611,6 @@ fn builtin_super(
       ),
     )
   }
-
   let thisclass = match thisclass_value {
     Value::Class(k) => k
     _ =>
@@ -2666,18 +2655,15 @@ fn builtin_super(
       ),
     )
   }
-
   let dict : Array[(String, Value)] = []
   dict.push(("__thisclass__", Value::Class(thisclass)))
   dict.push(("__self__", self_value))
   dict.push(("__self_class__", Value::Class(self_class)))
   Ok(
-    Value::Instance(
-      InstanceValue::{
-        class: ClassValue::{ name: "super", bases: [], dict: [] },
-        dict,
-      },
-    ),
+    Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "super", bases: [], dict: [] },
+      dict,
+    }),
   )
 }
 

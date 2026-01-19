@@ -84,7 +84,8 @@ fn assign_target_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match set_attr_on_value(target_value, attr, assigned, globals, builtins, io) {
+      match
+        set_attr_on_value(target_value, attr, assigned, globals, builtins, io) {
         Ok(_) => Ok(())
         Err(err) => Err(err)
       }

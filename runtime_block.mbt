@@ -339,7 +339,8 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let current = match get_attr_from_value(base, attr, globals, builtins, io) {
+            let current = match
+              get_attr_from_value(base, attr, globals, builtins, io) {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -350,11 +351,11 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let _ = match set_attr_on_value(base, attr, next, globals, builtins, io) {
+            let _ = match
+              set_attr_on_value(base, attr, next, globals, builtins, io) {
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
 
           }
           Target::Subscript(value~, index~) => {
@@ -705,7 +706,8 @@ fn eval_block_flow(
             }
             continue
           }
-          let imported = match get_attr_from_value(module_value, name, globals, builtins, io) {
+          let imported = match
+            get_attr_from_value(module_value, name, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -723,7 +725,8 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let enter_value = match get_attr_from_value(ctx_value, "__enter__", globals, builtins, io) {
+        let enter_value = match
+          get_attr_from_value(ctx_value, "__enter__", globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -736,7 +739,8 @@ fn eval_block_flow(
           Some(name) => set_scoped_value(locals, globals, name, entered)
           None => ()
         }
-        let exit_value = match get_attr_from_value(ctx_value, "__exit__", globals, builtins, io) {
+        let exit_value = match
+          get_attr_from_value(ctx_value, "__exit__", globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }

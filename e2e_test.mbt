@@ -640,7 +640,6 @@ test "e2e/builtin_more_cpython" {
       #|
     ),
   )
-
   inspect(
     e2e_stdout([], "print(float(10 ** 400))"),
     content="ERR: OverflowError: int too large to convert to float",
@@ -819,6 +818,32 @@ test "e2e/dunder_setattr" {
     #|a.x = 5
     #|print(",".join(log))
   inspect(e2e_stdout([], source), content="x=5\n")
+}
+
+///|
+test "e2e/object_dunder_setattr_delegation" {
+  let source =
+    #|class A:
+    #|  def __setattr__(self, name, value):
+    #|    return object.__setattr__(self, name, value)
+    #|a = A()
+    #|a.x = 7
+    #|print(a.x)
+  inspect(e2e_stdout([], source), content="7\n")
+}
+
+///|
+test "e2e/object_dunder_delattr_delegation" {
+  let source =
+    #|class A:
+    #|  def __init__(self):
+    #|    self.x = 1
+    #|  def __delattr__(self, name):
+    #|    return object.__delattr__(self, name)
+    #|a = A()
+    #|del a.x
+    #|print(hasattr(a, "x"))
+  inspect(e2e_stdout([], source), content="False\n")
 }
 
 ///|

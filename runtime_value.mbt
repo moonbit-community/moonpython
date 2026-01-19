@@ -546,7 +546,6 @@ fn bigint_to_double_checked(v : @bigint.BigInt) -> Result[Double, RuntimeError] 
   if v == 0N {
     return Ok(0.0)
   }
-
   let neg = v < 0N
   let abs = if neg { -v } else { v }
   let nbits = abs.bit_length()
@@ -575,28 +574,26 @@ fn bigint_to_double_checked(v : @bigint.BigInt) -> Result[Double, RuntimeError] 
   let mut top53 = if shift > 0 {
     abs >> shift
   } else if shift < 0 {
-    abs << (-shift)
+    abs << -shift
   } else {
     abs
   }
   let mut exp = nbits - 1
-
   if shift > 0 {
     let dropped = abs - (top53 << shift)
     let half = 1N << (shift - 1)
-    let round_up =
-      if dropped > half {
-        true
-      } else if dropped < half {
-        false
-      } else {
-        // tie: round to even
-        (top53 & 1N) != 0N
-      }
+    let round_up = if dropped > half {
+      true
+    } else if dropped < half {
+      false
+    } else {
+      // tie: round to even
+      (top53 & 1N) != 0N
+    }
     if round_up {
       top53 = top53 + 1N
       // carry out of the 53-bit window
-      if top53 == (1N << 53) {
+      if top53 == 1N << 53 {
         top53 = top53 >> 1
         exp = exp + 1
         if exp > 1023 {

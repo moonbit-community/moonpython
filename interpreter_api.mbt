@@ -92,20 +92,50 @@ pub fn Interpreter::new_spec() -> Interpreter {
   object_dict.push(
     (
       "__getattribute__",
-      Value::Function(
-        FunctionValue::{
-          name: "__getattribute__",
-          params: ["self", "name"],
-          defaults: [],
-          body: [],
-          is_generator: false,
-          is_async: false,
-          closure: [],
-        },
-      ),
+      Value::Function(FunctionValue::{
+        name: "__getattribute__",
+        params: ["self", "name"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
     ),
   )
-  let object_class = ClassValue::{ name: "object", bases: [], dict: object_dict }
+  object_dict.push(
+    (
+      "__setattr__",
+      Value::Function(FunctionValue::{
+        name: "__setattr__",
+        params: ["self", "name", "value"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__delattr__",
+      Value::Function(FunctionValue::{
+        name: "__delattr__",
+        params: ["self", "name"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  let object_class = ClassValue::{
+    name: "object",
+    bases: [],
+    dict: object_dict,
+  }
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
     (
@@ -161,20 +191,50 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   object_dict.push(
     (
       "__getattribute__",
-      Value::Function(
-        FunctionValue::{
-          name: "__getattribute__",
-          params: ["self", "name"],
-          defaults: [],
-          body: [],
-          is_generator: false,
-          is_async: false,
-          closure: [],
-        },
-      ),
+      Value::Function(FunctionValue::{
+        name: "__getattribute__",
+        params: ["self", "name"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
     ),
   )
-  let object_class = ClassValue::{ name: "object", bases: [], dict: object_dict }
+  object_dict.push(
+    (
+      "__setattr__",
+      Value::Function(FunctionValue::{
+        name: "__setattr__",
+        params: ["self", "name", "value"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__delattr__",
+      Value::Function(FunctionValue::{
+        name: "__delattr__",
+        params: ["self", "name"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  let object_class = ClassValue::{
+    name: "object",
+    bases: [],
+    dict: object_dict,
+  }
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
     (

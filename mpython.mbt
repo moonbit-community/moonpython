@@ -323,7 +323,8 @@ fn eval_binary_op_values(
         }
         _ => {
           if left_val is Value::Instance(_) {
-            match get_attr_from_value(left_val, "__add__", globals, builtins, io) {
+            match
+              get_attr_from_value(left_val, "__add__", globals, builtins, io) {
               Ok(method) =>
                 return call_callable_with_env(
                   method,
@@ -337,7 +338,8 @@ fn eval_binary_op_values(
             }
           }
           if right_val is Value::Instance(_) {
-            match get_attr_from_value(right_val, "__radd__", globals, builtins, io) {
+            match
+              get_attr_from_value(right_val, "__radd__", globals, builtins, io) {
               Ok(method) =>
                 return call_callable_with_env(
                   method,

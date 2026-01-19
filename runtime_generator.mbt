@@ -51,7 +51,9 @@ fn make_generator_instance(id : Int) -> Value {
 }
 
 ///|
-fn generator_id_from_instance(inst : InstanceValue) -> Result[Int?, RuntimeError] {
+fn generator_id_from_instance(
+  inst : InstanceValue,
+) -> Result[Int?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {
