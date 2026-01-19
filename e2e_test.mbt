@@ -622,6 +622,29 @@ test "e2e/builtin_more_cpython" {
       #|
     ),
   )
+
+  // Rounding edge cases for CPython-style int -> float conversion.
+  // These exercise round-to-nearest, ties-to-even and overflow behavior.
+  let rounding_source =
+    #|print(float(9007199254740993) == float(9007199254740992))
+    #|print(float(9007199254740993) == float(9007199254740994))
+    #|print(float(9007199254740995) == float(9007199254740996))
+    #|print(float(9007199254740995) == float(9007199254740994))
+  inspect(
+    e2e_stdout([], rounding_source),
+    content=(
+      #|True
+      #|False
+      #|True
+      #|False
+      #|
+    ),
+  )
+
+  inspect(
+    e2e_stdout([], "print(float(10 ** 400))"),
+    content="ERR: OverflowError: int too large to convert to float",
+  )
   inspect(
     test_exec_error("chr(-1)"),
     content="ValueError: chr() arg not in range(0x110000)",

@@ -551,6 +551,14 @@ fn bigint_to_double_checked(v : @bigint.BigInt) -> Result[Double, RuntimeError] 
   let abs = if neg { -v } else { v }
   let nbits = abs.bit_length()
 
+  // Fast path: if it fits in 64 bits, rely on IEEE-754 hardware rounding.
+  // This matches CPython's round-to-nearest, ties-to-even behavior.
+  if nbits <= 64 {
+    let u = abs.to_uint64()
+    let d = Double::convert_uint64(u)
+    return Ok(if neg { -d } else { d })
+  }
+
   // Largest finite double is < 2^1024.
   // If abs >= 2^1024, conversion overflows.
   if nbits > 1024 {
