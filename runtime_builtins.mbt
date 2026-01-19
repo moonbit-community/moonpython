@@ -1351,6 +1351,80 @@ fn builtin_property(
 }
 
 ///|
+fn builtin_staticmethod(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = match ensure_no_keywords("staticmethod", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "staticmethod() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let dict : Array[(String, Value)] = []
+  dict.push(("func", positional[0]))
+  Ok(
+    Value::Instance(
+      InstanceValue::{
+        class: ClassValue::{ name: "staticmethod", bases: [], dict: [] },
+        dict,
+      },
+    ),
+  )
+}
+
+///|
+fn builtin_classmethod(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = match ensure_no_keywords("classmethod", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "classmethod() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let dict : Array[(String, Value)] = []
+  dict.push(("func", positional[0]))
+  Ok(
+    Value::Instance(
+      InstanceValue::{
+        class: ClassValue::{ name: "classmethod", bases: [], dict: [] },
+        dict,
+      },
+    ),
+  )
+}
+
+///|
 fn builtin_bool(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2493,6 +2567,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
     BuiltinDef::{ name: "property", run: builtin_property },
+    BuiltinDef::{ name: "staticmethod", run: builtin_staticmethod },
+    BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
     BuiltinDef::{ name: "repr", run: builtin_repr },
     BuiltinDef::{ name: "abs", run: builtin_abs },
     BuiltinDef::{ name: "round", run: builtin_round },

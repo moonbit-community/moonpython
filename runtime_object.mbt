@@ -230,6 +230,55 @@ fn get_attr_from_value(
       _ => ()
     }
 
+    // Built-in descriptor: staticmethod(func)
+    match class_attr {
+      Value::Instance(inst) =>
+        if inst.class.name == "staticmethod" {
+          match get_named_value(inst.dict, "func") {
+            Some(func) => {
+              return Ok(Some(func))
+            }
+            None => {
+              return Ok(None)
+            }
+          }
+        }
+      _ => ()
+    }
+
+    // Built-in descriptor: classmethod(func)
+    match class_attr {
+      Value::Instance(inst) =>
+        if inst.class.name == "classmethod" {
+          match get_named_value(inst.dict, "func") {
+            Some(func_value) => {
+              let func = match func_value {
+                Value::Function(f) => f
+                _ =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "classmethod() expects a function".to_string(),
+                    ),
+                  )
+              }
+              // Call with the owner class as the implicit first argument.
+              return Ok(
+                Some(
+                  Value::BoundMethod(
+                    BoundMethodValue::{ function: func, self: owner },
+                  ),
+                ),
+              )
+            }
+            None => {
+              return Ok(None)
+            }
+          }
+        }
+      _ => ()
+    }
+
     let desc_class = match class_attr {
       Value::Instance(d) => Some(d.class)
       Value::Class(d) => Some(d)

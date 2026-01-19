@@ -732,6 +732,30 @@ test "e2e/instance_call" {
 }
 
 ///|
+test "e2e/builtin_staticmethod" {
+  let source =
+    #|class A:
+    #|  def f(x):
+    #|    return x
+    #|  g = staticmethod(f)
+    #|print(A.g(3))
+    #|print(A().g(4))
+  inspect(e2e_stdout([], source), content="3\n4\n")
+}
+
+///|
+test "e2e/builtin_classmethod" {
+  let source =
+    #|class A:
+    #|  def f(cls, x):
+    #|    return x
+    #|  g = classmethod(f)
+    #|print(A.g(3))
+    #|print(A().g(4))
+  inspect(e2e_stdout([], source), content="3\n4\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:
