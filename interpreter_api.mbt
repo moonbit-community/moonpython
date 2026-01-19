@@ -119,7 +119,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "print", "len", "range", "str", "int", "float", "list", "dict",
     "set", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum", "property",
-    "staticmethod", "classmethod",
+    "staticmethod", "classmethod", "delattr",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -278,6 +278,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("property", function_stub("property")),
     ("staticmethod", function_stub("staticmethod")),
     ("classmethod", function_stub("classmethod")),
+    ("delattr", function_stub("delattr")),
     ("repr", function_stub("repr")),
     ("abs", function_stub("abs")),
     ("round", function_stub("round")),

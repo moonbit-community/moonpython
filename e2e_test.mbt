@@ -794,6 +794,18 @@ test "e2e/dunder_setattr" {
 }
 
 ///|
+test "e2e/builtin_delattr" {
+  let source =
+    #|class A:
+    #|  def __init__(self):
+    #|    self.x = 1
+    #|a = A()
+    #|delattr(a, "x")
+    #|print(hasattr(a, "x"))
+  inspect(e2e_stdout([], source), content="False\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:

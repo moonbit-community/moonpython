@@ -2488,6 +2488,47 @@ fn builtin_setattr(
 }
 
 ///|
+fn builtin_delattr(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = match ensure_no_keywords("delattr", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = builtins
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "delattr() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let name = match positional[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "attribute name must be str".to_string(),
+        ),
+      )
+  }
+  let _ = match delete_attr_on_value(target, name, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
 fn builtin_mpython_run(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2592,6 +2633,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },
     BuiltinDef::{ name: "setattr", run: builtin_setattr },
+    BuiltinDef::{ name: "delattr", run: builtin_delattr },
   ]
   builtin_defs_ready.val = true
 }
