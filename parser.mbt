@@ -3438,28 +3438,37 @@ fn parse_simple_statement(
     return Ok(stmts)
   }
   if trimmed.has_prefix("import ") {
-    let mut module_text = substring(trimmed, 7, trimmed.length())
+    let module_text = substring(trimmed, 7, trimmed.length())
       .trim(chars=" \t")
       .to_string()
-    let comma_pos = find_char(module_text, ',')
-    match comma_pos {
-      Some(pos) =>
-        module_text = substring(module_text, 0, pos)
-          .trim(chars=" \t")
-          .to_string()
-      None => ()
-    }
-    let parts : Array[String] = []
-    for part in module_text.split(" ") {
-      if part.length() > 0 {
-        parts.push(part.to_string())
+    for item in module_text.split(",") {
+      let part = item.trim(chars=" \t").to_string()
+      if part.length() == 0 {
+        continue
       }
+      let mut module_name : String = ""
+      let mut alias_opt : String? = None
+      if part.contains(" as ") {
+        let pieces : Array[String] = []
+        for p in part.split(" as ") {
+          if p.length() > 0 {
+            pieces.push(p.trim(chars=" \t").to_string())
+          }
+        }
+        if pieces.length() == 2 {
+          module_name = pieces[0]
+          alias_opt = Some(pieces[1])
+        } else {
+          module_name = part
+        }
+      } else {
+        module_name = part
+      }
+      if module_name == "." {
+        module_name = ""
+      }
+      stmts.push(Stmt::Import(module=module_name, alias=alias_opt))
     }
-    let mut module_name = if parts.length() > 0 { parts[0] } else { "" }
-    if module_name == "." {
-      module_name = ""
-    }
-    stmts.push(Stmt::Import(module=module_name))
     return Ok(stmts)
   }
   if trimmed.has_prefix("from ") {

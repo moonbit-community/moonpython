@@ -32,3 +32,13 @@ test "import/from_import_binds_callables" {
     #|print(int(pi))
   inspect(run_stdout_import(source), content="4\n16\n3\n3\n")
 }
+
+///|
+test "import/import_as_and_multi_import" {
+  let source =
+    #|import math as m
+    #|print(int(m.sqrt(9)))
+    #|import math, math as n
+    #|print(int(n.sqrt(16)))
+  inspect(run_stdout_import(source), content="3\n4\n")
+}

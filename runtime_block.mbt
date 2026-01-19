@@ -669,9 +669,13 @@ fn eval_block_flow(
         }
         last = Value::None
       }
-      Stmt::Import(module~) =>
+      Stmt::Import(module~, alias~) =>
         if module == "math" {
-          set_scoped_value(locals, globals, "math", make_math_module())
+          let binding = match alias {
+            Some(name) => name
+            None => module
+          }
+          set_scoped_value(locals, globals, binding, make_math_module())
           last = Value::None
         } else {
           return Err(

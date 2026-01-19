@@ -177,7 +177,7 @@ pub enum Stmt {
   Assert(condition~ : Expr, message~ : Expr?)
   Raise(exc~ : Expr?, cause~ : Expr?)
   Del(Array[Target])
-  Import(module~ : String)
+  Import(module~ : String, alias~ : String?)
   FromImport(module~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(
