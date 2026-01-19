@@ -131,10 +131,11 @@ fn bind_comp_targets(
   targets : Array[String],
   item : Value,
 ) -> Result[Unit, RuntimeError] {
+  let _ = globals
   if targets.length() == 1 {
     if targets[0] != "_" {
+      ensure_local_cell(locals, targets[0], Value::None)
       set_local_value(locals, targets[0], item)
-      set_global_value(globals, targets[0], item)
     }
     return Ok(())
   }
@@ -153,8 +154,8 @@ fn bind_comp_targets(
   }
   for i = 0; i < targets.length(); i = i + 1 {
     if targets[i] != "_" {
+      ensure_local_cell(locals, targets[i], Value::None)
       set_local_value(locals, targets[i], values[i])
-      set_global_value(globals, targets[i], values[i])
     }
   }
   Ok(())

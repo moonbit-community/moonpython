@@ -239,6 +239,103 @@ fn slice_string_by_indices(chars : Array[Char], indices : Array[Int]) -> String 
 }
 
 ///|
+fn is_cell_value(value : Value) -> Bool {
+  match value {
+    Value::Instance(inst) => inst.class.name == "cell"
+    _ => false
+  }
+}
+
+///|
+fn cell_new(value : Value) -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "cell", bases: [], dict: [] },
+    dict: [("value", value)],
+  })
+}
+
+///|
+fn cell_get_value(value : Value) -> Value? {
+  match value {
+    Value::Instance(inst) =>
+      if inst.class.name == "cell" {
+        get_named_value(inst.dict, "value")
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn cell_set_value(cell : Value, value : Value) -> Unit {
+  match cell {
+    Value::Instance(inst) =>
+      if inst.class.name == "cell" {
+        set_named_value(inst.dict, "value", value)
+      } else {
+        ()
+      }
+    _ => ()
+  }
+}
+
+///|
+fn deref_cell_value(value : Value) -> Value {
+  match cell_get_value(value) {
+    Some(v) => v
+    None => value
+  }
+}
+
+///|
+fn ensure_local_cell(
+  locals : Array[(String, Value)],
+  name : String,
+  initial : Value,
+) -> Unit {
+  for i = 0; i < locals.length(); i = i + 1 {
+    if locals[i].0 == name {
+      if is_cell_value(locals[i].1) {
+        return
+      }
+      locals[i] = (name, cell_new(initial))
+      return
+    }
+  }
+  locals.push((name, cell_new(initial)))
+}
+
+///|
+fn capture_cell_closure(
+  locals : Array[(String, Value)],
+) -> Array[(String, Value)] {
+  let out : Array[(String, Value)] = []
+  for pair in locals {
+    if is_cell_value(pair.1) {
+      out.push(pair)
+    }
+  }
+  out
+}
+
+///|
+let closure_env_stack : Ref[Array[Array[(String, Value)]]] = { val: [] }
+
+///|
+fn push_closure_env(env : Array[(String, Value)]) -> Unit {
+  closure_env_stack.val.push(env)
+}
+
+///|
+fn pop_closure_env() -> Unit {
+  if closure_env_stack.val.length() > 0 {
+    let _ = closure_env_stack.val.pop()
+
+  }
+}
+
+///|
 fn get_from_env(
   name : String,
   locals : Array[(String, Value)],
@@ -247,7 +344,15 @@ fn get_from_env(
 ) -> Value? {
   for pair in locals {
     if pair.0 == name {
-      return Some(pair.1)
+      return Some(deref_cell_value(pair.1))
+    }
+  }
+  if closure_env_stack.val.length() > 0 {
+    let env = closure_env_stack.val[closure_env_stack.val.length() - 1]
+    for pair in env {
+      if pair.0 == name {
+        return Some(deref_cell_value(pair.1))
+      }
     }
   }
   for pair in globals {
@@ -315,9 +420,117 @@ fn set_local_value(
 ) -> Unit {
   for i = 0; i < locals.length(); i = i + 1 {
     if locals[i].0 == name {
-      locals[i] = (name, value)
+      if is_cell_value(locals[i].1) {
+        cell_set_value(locals[i].1, value)
+      } else {
+        locals[i] = (name, value)
+      }
       return
     }
   }
   locals.push((name, value))
+}
+
+///|
+fn get_local_value(locals : Array[(String, Value)], name : String) -> Value? {
+  for pair in locals {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn delete_local_value(locals : Array[(String, Value)], name : String) -> Unit {
+  for idx = 0; idx < locals.length(); idx = idx + 1 {
+    if locals[idx].0 == name {
+      let _ = locals.remove(idx)
+      break
+    }
+  }
+}
+
+///|
+/// Scope declarations (minimal): tracks `global` names in the active function.
+priv struct ScopeDecls {
+  globals : Array[String]
+}
+
+///|
+let scope_decls_stack : Ref[Array[ScopeDecls]] = { val: [] }
+
+///|
+fn push_scope_decls(global_names : Array[String]) -> Unit {
+  scope_decls_stack.val.push(ScopeDecls::{ globals: global_names })
+}
+
+///|
+fn pop_scope_decls() -> Unit {
+  if scope_decls_stack.val.length() > 0 {
+    let _ = scope_decls_stack.val.pop()
+
+  }
+}
+
+///|
+fn scope_name_is_global(name : String) -> Bool {
+  if scope_decls_stack.val.length() == 0 {
+    return false
+  }
+  let decls = scope_decls_stack.val[scope_decls_stack.val.length() - 1]
+  for n in decls.globals {
+    if n == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn get_scoped_value(
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  name : String,
+) -> Value? {
+  if scope_name_is_global(name) {
+    get_global_value(globals, name)
+  } else {
+    get_local_value(locals, name)
+  }
+}
+
+///|
+fn set_scoped_value(
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  name : String,
+  value : Value,
+) -> Unit {
+  if scope_name_is_global(name) {
+    set_global_value(globals, name, value)
+  } else {
+    set_local_value(locals, name, value)
+  }
+}
+
+///|
+fn delete_scoped_value(
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  name : String,
+) -> Bool {
+  if scope_name_is_global(name) {
+    if get_global_value(globals, name) is Some(_) {
+      delete_global_value(globals, name)
+      true
+    } else {
+      false
+    }
+  } else if get_local_value(locals, name) is Some(_) {
+    delete_local_value(locals, name)
+    true
+  } else {
+    false
+  }
 }

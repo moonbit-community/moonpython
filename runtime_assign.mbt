@@ -25,7 +25,7 @@ fn assign_target_with_env(
 ) -> Result[Unit, RuntimeError] {
   match target {
     Target::Name(name) => {
-      set_global_value(globals, name, assigned)
+      set_scoped_value(locals, globals, name, assigned)
       Ok(())
     }
     Target::Tuple(targets) | Target::List(targets) => {
@@ -245,15 +245,7 @@ fn delete_target_with_env(
 ) -> Result[Unit, RuntimeError] {
   match target {
     Target::Name(name) => {
-      let mut found = false
-      for idx = 0; idx < globals.length(); idx = idx + 1 {
-        if globals[idx].0 == name {
-          let _ = globals.remove(idx)
-          found = true
-          break
-        }
-      }
-      if !found {
+      if !delete_scoped_value(locals, globals, name) {
         return Err(
           make_runtime_error(
             RuntimeErrorKind::Name,

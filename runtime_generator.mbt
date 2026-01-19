@@ -32,6 +32,8 @@ priv struct GeneratorState {
   globals : Array[(String, Value)]
   builtins : Array[(String, Value)]
   io : MockIO
+  global_names : Array[String]
+  closure : Array[(String, Value)]
   mut started : Bool
   mut done : Bool
 }
@@ -63,6 +65,8 @@ fn generator_new(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
+  global_names : Array[String],
+  closure : Array[(String, Value)],
 ) -> Value {
   let frames : Array[GenFrame] = [GenFrame::Block(body~, index=0, loop_depth=0)]
   let state : Ref[GeneratorState] = {
@@ -72,6 +76,8 @@ fn generator_new(
       globals,
       builtins,
       io,
+      global_names,
+      closure,
       started: false,
       done: false,
     },
@@ -399,7 +405,7 @@ fn generator_step_statement(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          set_global_value(state.val.globals, name, next)
+          set_scoped_value(state.val.locals, state.val.globals, name, next)
           Ok(None)
         }
         _ =>
@@ -717,7 +723,7 @@ fn generator_step_statement(
 }
 
 ///|
-fn generator_resume(
+fn generator_resume_inner(
   state : Ref[GeneratorState],
   sent_value_in : Value,
 ) -> Result[Value, RuntimeError] {
@@ -918,6 +924,19 @@ fn generator_resume(
     }
   }
   Err(generator_stop_iteration())
+}
+
+///|
+fn generator_resume(
+  state : Ref[GeneratorState],
+  sent_value_in : Value,
+) -> Result[Value, RuntimeError] {
+  push_closure_env(state.val.closure)
+  push_scope_decls(state.val.global_names)
+  let result = generator_resume_inner(state, sent_value_in)
+  pop_scope_decls()
+  pop_closure_env()
+  result
 }
 
 ///|

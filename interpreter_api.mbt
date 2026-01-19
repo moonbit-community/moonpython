@@ -10,6 +10,7 @@ fn function_stub(name : String) -> Value {
     body: [],
     is_generator: false,
     is_async: false,
+    closure: [],
   })
 }
 
@@ -84,6 +85,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
         body: [Stmt::Return(Some(Expr::Name("self")))],
         is_generator: false,
         is_async: false,
+        closure: [],
       }),
     ),
   )
@@ -134,6 +136,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
         body: [Stmt::Return(Some(Expr::Name("self")))],
         is_generator: false,
         is_async: false,
+        closure: [],
       }),
     ),
   )
@@ -223,525 +226,55 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     dict: [],
   }
   let builtins : Array[(String, Value)] = [
-    (
-      "print",
-      Value::Function(FunctionValue::{
-        name: "print",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "input",
-      Value::Function(FunctionValue::{
-        name: "input",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
+    ("print", function_stub("print")),
+    ("input", function_stub("input")),
     ("__debug__", Value::Bool(true)),
     ("__mpython_run", function_stub("__mpython_run")),
-    (
-      "str",
-      Value::Function(FunctionValue::{
-        name: "str",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "bytes",
-      Value::Function(FunctionValue::{
-        name: "bytes",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "dict",
-      Value::Function(FunctionValue::{
-        name: "dict",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "list",
-      Value::Function(FunctionValue::{
-        name: "list",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "tuple",
-      Value::Function(FunctionValue::{
-        name: "tuple",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "set",
-      Value::Function(FunctionValue::{
-        name: "set",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "len",
-      Value::Function(FunctionValue::{
-        name: "len",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "range",
-      Value::Function(FunctionValue::{
-        name: "range",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "sum",
-      Value::Function(FunctionValue::{
-        name: "sum",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "max",
-      Value::Function(FunctionValue::{
-        name: "max",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "min",
-      Value::Function(FunctionValue::{
-        name: "min",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "any",
-      Value::Function(FunctionValue::{
-        name: "any",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "all",
-      Value::Function(FunctionValue::{
-        name: "all",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "enumerate",
-      Value::Function(FunctionValue::{
-        name: "enumerate",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "zip",
-      Value::Function(FunctionValue::{
-        name: "zip",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "map",
-      Value::Function(FunctionValue::{
-        name: "map",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "filter",
-      Value::Function(FunctionValue::{
-        name: "filter",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "reversed",
-      Value::Function(FunctionValue::{
-        name: "reversed",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "sorted",
-      Value::Function(FunctionValue::{
-        name: "sorted",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "int",
-      Value::Function(FunctionValue::{
-        name: "int",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "float",
-      Value::Function(FunctionValue::{
-        name: "float",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "iter",
-      Value::Function(FunctionValue::{
-        name: "iter",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "next",
-      Value::Function(FunctionValue::{
-        name: "next",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "bool",
-      Value::Function(FunctionValue::{
-        name: "bool",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "repr",
-      Value::Function(FunctionValue::{
-        name: "repr",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "abs",
-      Value::Function(FunctionValue::{
-        name: "abs",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "round",
-      Value::Function(FunctionValue::{
-        name: "round",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "pow",
-      Value::Function(FunctionValue::{
-        name: "pow",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "divmod",
-      Value::Function(FunctionValue::{
-        name: "divmod",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "chr",
-      Value::Function(FunctionValue::{
-        name: "chr",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "ord",
-      Value::Function(FunctionValue::{
-        name: "ord",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "bin",
-      Value::Function(FunctionValue::{
-        name: "bin",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "oct",
-      Value::Function(FunctionValue::{
-        name: "oct",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "hex",
-      Value::Function(FunctionValue::{
-        name: "hex",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "callable",
-      Value::Function(FunctionValue::{
-        name: "callable",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "isinstance",
-      Value::Function(FunctionValue::{
-        name: "isinstance",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "type",
-      Value::Function(FunctionValue::{
-        name: "type",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "id",
-      Value::Function(FunctionValue::{
-        name: "id",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "hash",
-      Value::Function(FunctionValue::{
-        name: "hash",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "globals",
-      Value::Function(FunctionValue::{
-        name: "globals",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "locals",
-      Value::Function(FunctionValue::{
-        name: "locals",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "dir",
-      Value::Function(FunctionValue::{
-        name: "dir",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "getattr",
-      Value::Function(FunctionValue::{
-        name: "getattr",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "hasattr",
-      Value::Function(FunctionValue::{
-        name: "hasattr",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
-    (
-      "setattr",
-      Value::Function(FunctionValue::{
-        name: "setattr",
-        params: [],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-      }),
-    ),
+    ("str", function_stub("str")),
+    ("bytes", function_stub("bytes")),
+    ("dict", function_stub("dict")),
+    ("list", function_stub("list")),
+    ("tuple", function_stub("tuple")),
+    ("set", function_stub("set")),
+    ("len", function_stub("len")),
+    ("range", function_stub("range")),
+    ("sum", function_stub("sum")),
+    ("max", function_stub("max")),
+    ("min", function_stub("min")),
+    ("any", function_stub("any")),
+    ("all", function_stub("all")),
+    ("enumerate", function_stub("enumerate")),
+    ("zip", function_stub("zip")),
+    ("map", function_stub("map")),
+    ("filter", function_stub("filter")),
+    ("reversed", function_stub("reversed")),
+    ("sorted", function_stub("sorted")),
+    ("int", function_stub("int")),
+    ("float", function_stub("float")),
+    ("iter", function_stub("iter")),
+    ("next", function_stub("next")),
+    ("bool", function_stub("bool")),
+    ("repr", function_stub("repr")),
+    ("abs", function_stub("abs")),
+    ("round", function_stub("round")),
+    ("pow", function_stub("pow")),
+    ("divmod", function_stub("divmod")),
+    ("chr", function_stub("chr")),
+    ("ord", function_stub("ord")),
+    ("bin", function_stub("bin")),
+    ("oct", function_stub("oct")),
+    ("hex", function_stub("hex")),
+    ("callable", function_stub("callable")),
+    ("isinstance", function_stub("isinstance")),
+    ("type", function_stub("type")),
+    ("id", function_stub("id")),
+    ("hash", function_stub("hash")),
+    ("globals", function_stub("globals")),
+    ("locals", function_stub("locals")),
+    ("dir", function_stub("dir")),
+    ("getattr", function_stub("getattr")),
+    ("hasattr", function_stub("hasattr")),
+    ("setattr", function_stub("setattr")),
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
@@ -776,7 +309,7 @@ pub fn Interpreter::exec(
 ) -> Result[RunResult, RuntimeError] {
   ensure_runtime_callbacks_ready()
   let value = match
-    eval_block(program.body, [], self.globals, self.builtins, self.io) {
+    eval_block(program.body, self.globals, self.globals, self.builtins, self.io) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -821,7 +354,7 @@ pub fn Interpreter::eval_source(
   }
   ensure_runtime_callbacks_ready()
   let value = match
-    eval_expr_with_env(expr, [], self.globals, self.builtins, self.io) {
+    eval_expr_with_env(expr, self.globals, self.globals, self.builtins, self.io) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -858,7 +391,7 @@ pub fn Interpreter::eval(
   expr : Expr,
 ) -> Result[Value, RuntimeError] {
   ensure_runtime_callbacks_ready()
-  eval_expr_with_env(expr, [], self.globals, self.builtins, self.io)
+  eval_expr_with_env(expr, self.globals, self.globals, self.builtins, self.io)
 }
 
 ///|

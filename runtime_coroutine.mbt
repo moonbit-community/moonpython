@@ -8,6 +8,8 @@ priv struct CoroutineState {
   globals : Array[(String, Value)]
   builtins : Array[(String, Value)]
   io : MockIO
+  global_names : Array[String]
+  closure : Array[(String, Value)]
   mut done : Bool
 }
 
@@ -92,9 +94,20 @@ fn coroutine_new(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
+  global_names : Array[String],
+  closure : Array[(String, Value)],
 ) -> Value {
   let state : Ref[CoroutineState] = {
-    val: CoroutineState::{ body, locals, globals, builtins, io, done: false },
+    val: CoroutineState::{
+      body,
+      locals,
+      globals,
+      builtins,
+      io,
+      global_names,
+      closure,
+      done: false,
+    },
   }
   let id = coroutine_registry.val.length()
   coroutine_registry.val.push(state)
@@ -115,6 +128,8 @@ fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
       ),
     )
   }
+  push_closure_env(state.val.closure)
+  push_scope_decls(state.val.global_names)
   coroutine_active_depth.val = coroutine_active_depth.val + 1
   let result = eval_block(
     state.val.body,
@@ -124,6 +139,8 @@ fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
     state.val.io,
   )
   coroutine_active_depth.val = coroutine_active_depth.val - 1
+  pop_scope_decls()
+  pop_closure_env()
   state.val.done = true
   result
 }

@@ -300,15 +300,28 @@ fn eval_block_flow(
         }
         match target {
           Target::Name(name) => {
-            let current = match get_from_env(name, locals, globals, builtins) {
-              Some(value) => value
-              None =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Name,
-                    "name '" + name + "' is not defined",
-                  ),
-                )
+            let current = if scope_name_is_global(name) {
+              match get_global_value(globals, name) {
+                Some(value) => value
+                None =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Name,
+                      "name '" + name + "' is not defined",
+                    ),
+                  )
+              }
+            } else {
+              match get_from_env(name, locals, globals, builtins) {
+                Some(value) => value
+                None =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Name,
+                      "name '" + name + "' is not defined",
+                    ),
+                  )
+              }
             }
             let next = match
               eval_binary_op_values(
@@ -317,7 +330,7 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            set_global_value(globals, name, next)
+            set_scoped_value(locals, globals, name, next)
           }
           Target::Attribute(value~, attr~) => {
             let base = match
@@ -467,6 +480,7 @@ fn eval_block_flow(
           body,
           is_generator,
           is_async,
+          closure: capture_cell_closure(locals),
         }
         let decorator_values : Array[Value] = []
         for dec_expr in decorators {
@@ -492,7 +506,7 @@ fn eval_block_flow(
             Err(err) => return Err(err)
           }
         }
-        set_global_value(globals, name, defined)
+        set_scoped_value(locals, globals, name, defined)
         last = Value::None
       }
       Stmt::Pass => last = Value::None
@@ -650,7 +664,7 @@ fn eval_block_flow(
           Err(err) => return Err(err)
         }
         match target {
-          Some(name) => set_global_value(globals, name, entered)
+          Some(name) => set_scoped_value(locals, globals, name, entered)
           None => ()
         }
         let exit_value = match get_attr_from_value(ctx_value, "__exit__") {
@@ -782,7 +796,8 @@ fn eval_block_flow(
               handled = true
               match name_opt {
                 Some(name) =>
-                  set_global_value(
+                  set_scoped_value(
+                    locals,
                     globals,
                     name,
                     exception_value_from_runtime_error(
@@ -897,10 +912,16 @@ fn eval_block_flow(
         }
         let class_dict : Array[(String, Value)] = []
         class_dict.push(("__module__", Value::Str(module_name)))
-        let module_globals_for_lookup = globals
+        let lookup_globals : Array[(String, Value)] = []
+        for pair in locals {
+          lookup_globals.push(pair)
+        }
+        for pair in globals {
+          lookup_globals.push(pair)
+        }
         let flow = match
           eval_block_flow(
-            body, module_globals_for_lookup, class_dict, builtins, io, loop_depth,
+            body, class_dict, lookup_globals, builtins, io, loop_depth,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -935,7 +956,7 @@ fn eval_block_flow(
             Err(err) => return Err(err)
           }
         }
-        set_global_value(globals, name, defined)
+        set_scoped_value(locals, globals, name, defined)
         last = Value::None
       }
       Stmt::While(condition~, body~, else_body~) => {
@@ -1063,8 +1084,10 @@ fn eval_block_flow(
             Some(bindings) => {
               let previous : Array[(String, Value?)] = []
               for binding in bindings {
-                previous.push((binding.0, get_global_value(globals, binding.0)))
-                set_global_value(globals, binding.0, binding.1)
+                previous.push(
+                  (binding.0, get_scoped_value(locals, globals, binding.0)),
+                )
+                set_scoped_value(locals, globals, binding.0, binding.1)
               }
               let mut guard_ok = true
               if guard_expr_opt is Some(guard_expr) {
@@ -1091,9 +1114,10 @@ fn eval_block_flow(
               }
               for prev in previous {
                 if prev.1 is Some(value) {
-                  set_global_value(globals, prev.0, value)
+                  set_scoped_value(locals, globals, prev.0, value)
                 } else {
-                  delete_global_value(globals, prev.0)
+                  let _ = delete_scoped_value(locals, globals, prev.0)
+
                 }
               }
             }

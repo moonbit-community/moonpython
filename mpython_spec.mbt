@@ -275,6 +275,7 @@ pub struct FunctionValue {
   body : Array[Stmt]
   is_generator : Bool
   is_async : Bool
+  closure : Array[(String, Value)]
 } derive(ToJson)
 
 ///|

@@ -716,7 +716,7 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      set_global_value(globals, name, evaluated)
+      set_scoped_value(locals, globals, name, evaluated)
       Ok(evaluated)
     }
     Expr::Await(expr) =>
@@ -797,6 +797,32 @@ fn eval_expr_with_env(
     }
     Expr::ListComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
+      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      if clauses.length() > 0 {
+        let first_iter_value = match
+          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let iter_name = fresh_genexp_local(comp_locals)
+        set_local_value(comp_locals, iter_name, first_iter_value)
+        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        for i = 1; i < clauses.length(); i = i + 1 {
+          adjusted_clauses.push(clauses[i])
+        }
+      }
+      let clauses = if clauses.length() > 0 {
+        adjusted_clauses
+      } else {
+        clauses
+      }
+      for clause in clauses {
+        for name in clause.0 {
+          if name != "_" {
+            ensure_local_cell(comp_locals, name, Value::None)
+          }
+        }
+      }
       let values : Array[Value] = []
       let _ = match
         eval_list_comp_walk(
@@ -809,9 +835,18 @@ fn eval_expr_with_env(
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
       let gen_locals = clone_locals(locals)
+      for clause in clauses {
+        for name in clause.0 {
+          if name != "_" {
+            ensure_local_cell(gen_locals, name, Value::None)
+          }
+        }
+      }
       if clauses.length() == 0 {
         let body = genexp_to_generator_body(elt, clauses, filters)
-        return Ok(generator_new(body, gen_locals, globals, builtins, io))
+        return Ok(
+          generator_new(body, gen_locals, globals, builtins, io, [], []),
+        )
       }
       let first_iter_value = match
         eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
@@ -830,10 +865,36 @@ fn eval_expr_with_env(
         adjusted_clauses.push(clauses[i])
       }
       let body = genexp_to_generator_body(elt, adjusted_clauses, filters)
-      Ok(generator_new(body, gen_locals, globals, builtins, io))
+      Ok(generator_new(body, gen_locals, globals, builtins, io, [], []))
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
+      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      if clauses.length() > 0 {
+        let first_iter_value = match
+          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let iter_name = fresh_genexp_local(comp_locals)
+        set_local_value(comp_locals, iter_name, first_iter_value)
+        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        for i = 1; i < clauses.length(); i = i + 1 {
+          adjusted_clauses.push(clauses[i])
+        }
+      }
+      let clauses = if clauses.length() > 0 {
+        adjusted_clauses
+      } else {
+        clauses
+      }
+      for clause in clauses {
+        for name in clause.0 {
+          if name != "_" {
+            ensure_local_cell(comp_locals, name, Value::None)
+          }
+        }
+      }
       let values : Array[Value] = []
       let _ = match
         eval_list_comp_walk(
@@ -859,6 +920,32 @@ fn eval_expr_with_env(
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
+      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      if clauses.length() > 0 {
+        let first_iter_value = match
+          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let iter_name = fresh_genexp_local(comp_locals)
+        set_local_value(comp_locals, iter_name, first_iter_value)
+        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        for i = 1; i < clauses.length(); i = i + 1 {
+          adjusted_clauses.push(clauses[i])
+        }
+      }
+      let clauses = if clauses.length() > 0 {
+        adjusted_clauses
+      } else {
+        clauses
+      }
+      for clause in clauses {
+        for name in clause.0 {
+          if name != "_" {
+            ensure_local_cell(comp_locals, name, Value::None)
+          }
+        }
+      }
       let values : Array[(Value, Value)] = []
       let _ = match
         eval_dict_comp_walk(
@@ -1021,6 +1108,7 @@ fn eval_expr_with_env(
           body: func_body,
           is_generator: false,
           is_async: false,
+          closure: capture_cell_closure(locals),
         }),
       )
     }
@@ -1053,6 +1141,7 @@ fn eval_expr_with_env(
                   body: [],
                   is_generator: false,
                   is_async: false,
+                  closure: [],
                 }),
               )
             (Value::Function(_), "__hash__") =>
@@ -1064,6 +1153,7 @@ fn eval_expr_with_env(
                   body: [],
                   is_generator: false,
                   is_async: false,
+                  closure: [],
                 }),
               )
             (Value::Function(func), "__doc__") =>
@@ -1821,6 +1911,99 @@ fn eval_call_args(
 }
 
 ///|
+fn append_unique_name(names : Array[String], name : String) -> Unit {
+  for existing in names {
+    if existing == name {
+      return
+    }
+  }
+  names.push(name)
+}
+
+///|
+fn collect_scope_global_names(body : Array[Stmt]) -> Array[String] {
+  let names : Array[String] = []
+  fn walk(stmt : Stmt) -> Unit {
+    match stmt {
+      Stmt::Global(ns) =>
+        for n in ns {
+          append_unique_name(names, n)
+        }
+      Stmt::If(condition~, body~, else_body~) => {
+        let _ = condition
+        for s in body {
+          walk(s)
+        }
+        for s in else_body {
+          walk(s)
+        }
+      }
+      Stmt::While(condition~, body~, else_body~) => {
+        let _ = condition
+        for s in body {
+          walk(s)
+        }
+        for s in else_body {
+          walk(s)
+        }
+      }
+      Stmt::For(target~, iter~, body~, else_body~) => {
+        let _ = target
+        let _ = iter
+        for s in body {
+          walk(s)
+        }
+        for s in else_body {
+          walk(s)
+        }
+      }
+      Stmt::With(context~, target~, body~) => {
+        let _ = context
+        let _ = target
+        for s in body {
+          walk(s)
+        }
+      }
+      Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+        for s in body {
+          walk(s)
+        }
+        for handler in handlers {
+          let _ = handler.0
+          let _ = handler.1
+          for s in handler.2 {
+            walk(s)
+          }
+        }
+        for s in else_body {
+          walk(s)
+        }
+        for s in finally_body {
+          walk(s)
+        }
+      }
+      Stmt::Match(subject~, cases~) => {
+        let _ = subject
+        for case in cases {
+          let _ = case.0
+          let _ = case.1
+          for s in case.2 {
+            walk(s)
+          }
+        }
+      }
+      Stmt::Function(..) | Stmt::Class(..) => ()
+      _ => ()
+    }
+  }
+
+  for stmt in body {
+    walk(stmt)
+  }
+  names
+}
+
+///|
 fn eval_function_with_kwargs(
   func : FunctionValue,
   positional : Array[Value],
@@ -1834,6 +2017,7 @@ fn eval_function_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
+  let global_names = collect_scope_global_names(func.body)
   if func.is_async {
     if func.is_generator {
       return Err(
@@ -1843,13 +2027,24 @@ fn eval_function_with_kwargs(
         ),
       )
     }
-    return Ok(coroutine_new(func.body, locals, globals, builtins, io))
+    return Ok(
+      coroutine_new(
+        func.body,
+        locals,
+        globals,
+        builtins,
+        io,
+        global_names,
+        func.closure,
+      ),
+    )
   }
-  let result = match eval_block(func.body, locals, globals, builtins, io) {
-    Ok(value) => value
-    Err(err) => return Err(err)
-  }
-  Ok(result)
+  push_closure_env(func.closure)
+  push_scope_decls(global_names)
+  let result = eval_block(func.body, locals, globals, builtins, io)
+  pop_scope_decls()
+  pop_closure_env()
+  result
 }
 
 ///|
@@ -1976,7 +2171,18 @@ fn eval_generator_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  Ok(generator_new(func.body, locals, globals, builtins, io))
+  let global_names = collect_scope_global_names(func.body)
+  Ok(
+    generator_new(
+      func.body,
+      locals,
+      globals,
+      builtins,
+      io,
+      global_names,
+      func.closure,
+    ),
+  )
 }
 
 ///|

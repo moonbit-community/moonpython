@@ -266,14 +266,17 @@ test "e2e/decorators_function_and_class" {
   let source =
     #|log = []
     #|def d1(x):
+    #|  global log
     #|  log = log + ["d1"]
     #|  return x
     #|def d2(x):
+    #|  global log
     #|  log = log + ["d2"]
     #|  return x
     #|@d1
     #|@d2
     #|def f():
+    #|  global log
     #|  log = log + ["f"]
     #|  return 0
     #|@d2

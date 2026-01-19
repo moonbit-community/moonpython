@@ -34,9 +34,12 @@
 - [ ] Tracebacks with file/line/column spans and stack frames (not just a formatted message).
 
 ### 4) Scoping and locals (correct Python semantics)
-- [ ] Proper local scope model for functions (locals vs globals vs builtins); closures + cell vars.
-- [ ] Correct `global` / `nonlocal` behavior enforcement and runtime effects.
-- [ ] Comprehension scope rules (including assignment expression scoping).
+- [x] Function assignments default to locals (module uses globals).
+- [x] `global` statement routing for reads/writes/deletes (runtime-scanned per function).
+- [x] Comprehension scope rules with cell bindings for loop targets (enables CPython-style lambda capture tests).
+- [ ] Full closures + cell vars for general nested functions (not only comprehension targets).
+- [ ] `nonlocal` behavior enforcement and runtime effects.
+- [ ] UnboundLocalError / compile-time local analysis (reads before assignment).
 - [ ] `exec`/`eval` scoping rules (if supported).
 
 ### 5) Modules and imports (minimal but real)
