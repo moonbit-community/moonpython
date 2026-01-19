@@ -654,6 +654,36 @@ fn delete_attr_on_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Unit, RuntimeError] {
+  // __delattr__ (instance hook)
+  match target {
+    Value::Instance(inst) =>
+      match lookup_class_attr(inst.class, "__delattr__") {
+        Ok(Some(Value::Function(f))) => {
+          let _ = match (eval_function_with_kwargs_ref.val)(
+            f,
+            [target, Value::Str(attr)],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(())
+        }
+        Ok(Some(_)) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__delattr__ must be a function".to_string(),
+            ),
+          )
+        Ok(None) => ()
+        Err(err) => return Err(err)
+      }
+    _ => ()
+  }
   fn apply_descriptor_delete(
     class_attr : Value,
     obj : Value,

@@ -806,6 +806,22 @@ test "e2e/builtin_delattr" {
 }
 
 ///|
+test "e2e/dunder_delattr" {
+  let source =
+    #|log = []
+    #|class A:
+    #|  def __init__(self):
+    #|    self.x = 1
+    #|  def __delattr__(self, name):
+    #|    global log
+    #|    log = log + [name]
+    #|a = A()
+    #|delattr(a, "x")
+    #|print(",".join(log))
+  inspect(e2e_stdout([], source), content="x\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:
