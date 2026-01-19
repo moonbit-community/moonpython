@@ -16,21 +16,21 @@
 ## Biggest gaps vs Python 3.12
 
 ### 1) Generators, `yield`, and iterator protocol (high impact)
-- [ ] `yield` / `yield from` as real syntax nodes (currently treated as a no-op in statement parsing).
-- [ ] Generator objects with `__iter__`/`__next__`, `StopIteration`, `return` in generators, `send`/`throw`/`close`.
-- [ ] Generator expressions `(x for x in xs)` (currently represented but evaluated as a stub).
-- [ ] Drive `for` loops and comprehensions via the iterator protocol (not “array-of-values” shortcuts), including correct `StopIteration` handling.
+- [x] `yield` / `yield from` as real syntax nodes.
+- [x] Generator objects with `__iter__`/`__next__`, `StopIteration`, `return` in generators, `send`/`throw`/`close`.
+- [x] Generator expressions `(x for x in xs)`.
+- [x] Drive `for` loops and comprehensions via the iterator protocol, including correct `StopIteration` handling.
 
 ### 2) Async/await (Python 3.12 baseline)
-- [ ] `await` expressions.
-- [ ] `async def` runtime semantics (currently parsed/validated but not executed).
+- [x] `await` expressions (coroutine-only for now).
+- [x] `async def` runtime semantics (coroutines + eager `await` via `__mpython_run` helper).
 - [ ] `async for`, `async with`, async comprehensions.
 - [ ] Coroutine objects, async generators, and a minimal scheduling story (even if test-only).
 
 ### 3) Exceptions (correctness + compatibility)
-- [ ] Exception chaining: `raise ... from ...`, `__cause__`, `__context__`, `__suppress_context__`.
+- [x] Exception chaining: `raise ... from ...`, `__cause__`, `__context__`, `__suppress_context__`.
 - [ ] Exception groups + `except*` (PEP 654; required for 3.12 compatibility).
-- [ ] More accurate exception matching (subclass checks, tuples of exception types).
+- [x] More accurate exception matching (subclass checks, tuples of exception types).
 - [ ] Tracebacks with file/line/column spans and stack frames (not just a formatted message).
 
 ### 4) Scoping and locals (correct Python semantics)
@@ -53,7 +53,8 @@
 - [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
 
 ### 7) Python 3.12 language additions / syntax parity
-- [ ] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, conversions (`!r/!s/!a`), debug `=`, better error reporting.
+- [ ] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, better error reporting.
+- [x] f-string conversions (`!r/!s/!a`) and debug `=` runtime behavior.
 - [ ] Type parameter syntax and `type` statements (PEP 695): accept/parse (even if runtime ignores), and preserve AST fidelity.
 - [ ] Improved parser error recovery to better match CPython’s SyntaxError locations/messages (pragmatic alignment).
 
@@ -77,4 +78,3 @@
 
 - Treat `aaom-mpython/spec_generated_test.mbt` and the `aaom-mpython/reference_test/` corpus as the main compatibility signals.
 - Prefer adding targeted end-to-end tests in MoonBit when implementing each missing feature, then grow the Python reference subset over time.
-
