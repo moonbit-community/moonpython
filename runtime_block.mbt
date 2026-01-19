@@ -106,6 +106,32 @@ fn ensure_exception_instance_from_value(
 }
 
 ///|
+fn exception_matches_handler(
+  err : RuntimeError,
+  handler_class : ClassValue,
+  builtins : Array[(String, Value)],
+) -> Result[Bool, RuntimeError] {
+  if handler_class.name == "Exception" || handler_class.name == "BaseException" {
+    return Ok(true)
+  }
+  match get_named_value(builtins, err.exc_type) {
+    Some(Value::Class(err_class)) => {
+      let mro = match class_mro(err_class) {
+        Ok(value) => value
+        Err(e) => return Err(e)
+      }
+      for cls in mro {
+        if cls.name == handler_class.name {
+          return Ok(true)
+        }
+      }
+      Ok(false)
+    }
+    _ => Ok(handler_class.name == err.exc_type)
+  }
+}
+
+///|
 fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
   let mut message = "".to_string()
   match get_named_value(inst.dict, "message") {
@@ -715,20 +741,31 @@ fn eval_block_flow(
                   }
                   match exc_value {
                     Value::Class(klass) =>
-                      if klass.name == "Exception" ||
-                        klass.name == "BaseException" ||
-                        klass.name == err.exc_type {
-                        matches = true
+                      match exception_matches_handler(err, klass, builtins) {
+                        Ok(true) => matches = true
+                        Ok(false) => ()
+                        Err(e) => {
+                          handled = true
+                          handled_result = Err(e)
+                          break
+                        }
                       }
                     Value::Tuple(items) =>
                       for item in items {
                         match item {
                           Value::Class(klass) =>
-                            if klass.name == "Exception" ||
-                              klass.name == "BaseException" ||
-                              klass.name == err.exc_type {
-                              matches = true
-                              break
+                            match
+                              exception_matches_handler(err, klass, builtins) {
+                              Ok(true) => {
+                                matches = true
+                                break
+                              }
+                              Ok(false) => ()
+                              Err(e) => {
+                                handled = true
+                                handled_result = Err(e)
+                                break
+                              }
                             }
                           _ => ()
                         }

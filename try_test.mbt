@@ -120,6 +120,17 @@ test "except/tuple_matches" {
 }
 
 ///|
+test "except/subclass_matches" {
+  let source =
+    #|flag = 0
+    #|try:
+    #|  raise IndentationError("x")
+    #|except SyntaxError:
+    #|  flag = 1
+  inspect(test_exec_global(source, "flag"), content="1")
+}
+
+///|
 test "raise/from_sets_context_and_suppresses" {
   let source =
     #|try:
