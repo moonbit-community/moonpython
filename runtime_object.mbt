@@ -190,15 +190,25 @@ fn get_attr_from_value(
     obj : Value,
     owner : Value,
   ) -> Result[Value?, RuntimeError] {
-    // Built-in descriptor: property(fget)
+    // Built-in descriptor: property(fget, fset, fdel, doc)
     match class_attr {
       Value::Instance(inst) =>
         if inst.class.name == "property" {
           match get_named_value(inst.dict, "fget") {
             Some(fget) =>
               match obj {
-                Value::None => return Ok(Some(class_attr))
-                _ =>
+                Value::None => {
+                  return Ok(Some(class_attr))
+                }
+                _ => {
+                  if fget is Value::None {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Attribute,
+                        "property has no getter".to_string(),
+                      ),
+                    )
+                  }
                   return match call_callable_with_env(
                     fget,
                     [obj],
@@ -210,8 +220,11 @@ fn get_attr_from_value(
                     Ok(v) => Ok(Some(v))
                     Err(err) => Err(err)
                   }
+                }
               }
-            None => return Ok(None)
+            None => {
+              return Ok(None)
+            }
           }
         }
       _ => ()
@@ -369,13 +382,102 @@ fn set_attr_on_value(
   target : Value,
   attr : String,
   value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Unit, RuntimeError] {
+  fn apply_descriptor_set(
+    class_attr : Value,
+    obj : Value,
+    value : Value,
+  ) -> Result[Bool, RuntimeError] {
+    // Built-in descriptor: property(fget, fset, fdel, doc)
+    match class_attr {
+      Value::Instance(inst) =>
+        if inst.class.name == "property" {
+          match get_named_value(inst.dict, "fset") {
+            Some(fset) => {
+              let args : Array[Value] = [obj, value]
+              let _ = match call_callable_with_env(
+                fset,
+                args,
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              return Ok(true)
+            }
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Attribute,
+                  "can't set attribute".to_string(),
+                ),
+              )
+          }
+        }
+      _ => ()
+    }
+
+    let desc_class = match class_attr {
+      Value::Instance(d) => Some(d.class)
+      Value::Class(d) => Some(d)
+      _ => None
+    }
+    if desc_class is None {
+      return Ok(false)
+    }
+    let desc_class = desc_class.unwrap()
+    let set_opt = match lookup_class_attr(desc_class, "__set__") {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    match set_opt {
+      Some(Value::Function(set_fn)) => {
+        let args : Array[Value] = [class_attr, obj, value]
+        match (eval_function_with_kwargs_ref.val)(
+          set_fn,
+          args,
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+          Ok(_v) => Ok(true)
+          Err(err) => Err(err)
+        }
+      }
+      _ => Ok(false)
+    }
+  }
+
   match target {
     Value::Instance(inst) => {
+      let class_attr = match lookup_class_attr(inst.class, attr) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match class_attr {
+        Some(descr) => {
+          let handled = match apply_descriptor_set(descr, target, value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if handled {
+            return Ok(())
+          }
+        }
+        None => ()
+      }
       set_named_value(inst.dict, attr, value)
       Ok(())
     }
     Value::Class(klass) => {
+      // NOTE: we don't implement metaclass descriptors yet.
       set_named_value(klass.dict, attr, value)
       Ok(())
     }
@@ -384,6 +486,136 @@ fn set_attr_on_value(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
           "cannot set attribute".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn delete_attr_on_value(
+  target : Value,
+  attr : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Unit, RuntimeError] {
+  fn apply_descriptor_delete(
+    class_attr : Value,
+    obj : Value,
+  ) -> Result[Bool, RuntimeError] {
+    // Built-in descriptor: property(fget, fset, fdel, doc)
+    match class_attr {
+      Value::Instance(inst) =>
+        if inst.class.name == "property" {
+          match get_named_value(inst.dict, "fdel") {
+            Some(fdel) => {
+              let _ = match call_callable_with_env(
+                fdel,
+                [obj],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              return Ok(true)
+            }
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Attribute,
+                  "can't delete attribute".to_string(),
+                ),
+              )
+          }
+        }
+      _ => ()
+    }
+
+    let desc_class = match class_attr {
+      Value::Instance(d) => Some(d.class)
+      Value::Class(d) => Some(d)
+      _ => None
+    }
+    if desc_class is None {
+      return Ok(false)
+    }
+    let desc_class = desc_class.unwrap()
+    let del_opt = match lookup_class_attr(desc_class, "__delete__") {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    match del_opt {
+      Some(Value::Function(del_fn)) => {
+        let args : Array[Value] = [class_attr, obj]
+        match (eval_function_with_kwargs_ref.val)(
+          del_fn,
+          args,
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+          Ok(_v) => Ok(true)
+          Err(err) => Err(err)
+        }
+      }
+      _ => Ok(false)
+    }
+  }
+
+  match target {
+    Value::Instance(inst) => {
+      let class_attr = match lookup_class_attr(inst.class, attr) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match class_attr {
+        Some(descr) => {
+          let handled = match apply_descriptor_delete(descr, target) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if handled {
+            return Ok(())
+          }
+        }
+        None => ()
+      }
+      for i = 0; i < inst.dict.length(); i = i + 1 {
+        if inst.dict[i].0 == attr {
+          let _ = inst.dict.remove(i)
+          return Ok(())
+        }
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "attribute not found".to_string(),
+        ),
+      )
+    }
+    Value::Class(klass) => {
+      for i = 0; i < klass.dict.length(); i = i + 1 {
+        if klass.dict[i].0 == attr {
+          let _ = klass.dict.remove(i)
+          return Ok(())
+        }
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "attribute not found".to_string(),
+        ),
+      )
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "attribute not supported".to_string(),
         ),
       )
   }
@@ -647,6 +879,28 @@ fn call_callable_with_env(
         _ => ()
       }
       Ok(inst)
+    }
+    Value::Instance(inst) => {
+      // Callable objects: obj(...) dispatches to obj.__call__(...)
+      let call_attr = match lookup_class_attr(inst.class, "__call__") {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match call_attr {
+        Some(value) => {
+          // Reuse the regular attribute lookup path so we also get descriptor
+          // behavior and method binding.
+          let bound = match get_attr_from_value(callee, "__call__", globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          call_callable_with_env(bound, positional, keywords, globals, builtins, io)
+        }
+        None =>
+          Err(
+            make_runtime_error(RuntimeErrorKind::Type, not_callable_message(callee)),
+          )
+      }
     }
     _ =>
       Err(

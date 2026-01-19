@@ -1322,17 +1322,24 @@ fn builtin_property(
   let _ = globals
   let _ = builtins
   let _ = io
-  if positional.length() != 1 {
+  if positional.length() > 4 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "property() takes exactly one argument".to_string(),
+        "property() takes at most 4 arguments".to_string(),
       ),
     )
   }
-  let fget = positional[0]
+  let fget = if positional.length() >= 1 { positional[0] } else { Value::None }
+  let fset = if positional.length() >= 2 { positional[1] } else { Value::None }
+  let fdel = if positional.length() >= 3 { positional[2] } else { Value::None }
+  let doc = if positional.length() >= 4 { positional[3] } else { Value::None }
+
   let dict : Array[(String, Value)] = []
   dict.push(("fget", fget))
+  dict.push(("fset", fset))
+  dict.push(("fdel", fdel))
+  dict.push(("doc", doc))
   Ok(
     Value::Instance(
       InstanceValue::{
@@ -1949,6 +1956,7 @@ fn builtin_callable(
   }
   let value = match positional[0] {
     Value::Function(_) | Value::Class(_) | Value::BoundMethod(_) => true
+    Value::Instance(inst) => get_named_value(inst.class.dict, "__call__") is Some(_)
     _ => false
   }
   Ok(Value::Bool(value))
@@ -2398,7 +2406,7 @@ fn builtin_setattr(
       )
   }
   let value = positional[2]
-  let _ = match set_attr_on_value(target, name, value) {
+  let _ = match set_attr_on_value(target, name, value, globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }

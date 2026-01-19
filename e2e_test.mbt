@@ -719,6 +719,19 @@ test "e2e/builtin_property" {
 }
 
 ///|
+test "e2e/instance_call" {
+  let source =
+    #|class A:
+    #|  def __init__(self, x):
+    #|    self.x = x
+    #|  def __call__(self, y):
+    #|    return self.x + y
+    #|a = A(3)
+    #|print(a(4))
+  inspect(e2e_stdout([], source), content="7\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:

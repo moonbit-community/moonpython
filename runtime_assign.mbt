@@ -84,7 +84,7 @@ fn assign_target_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match set_attr_on_value(target_value, attr, assigned) {
+      match set_attr_on_value(target_value, attr, assigned, globals, builtins, io) {
         Ok(_) => Ok(())
         Err(err) => Err(err)
       }
@@ -280,29 +280,7 @@ fn delete_target_with_env(
         Ok(v) => v
         Err(err) => return Err(err)
       }
-      match target_value {
-        Value::Instance(inst) => {
-          for i = 0; i < inst.dict.length(); i = i + 1 {
-            if inst.dict[i].0 == attr {
-              let _ = inst.dict.remove(i)
-              return Ok(())
-            }
-          }
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Attribute,
-              "attribute not found".to_string(),
-            ),
-          )
-        }
-        _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Attribute,
-              "attribute not supported".to_string(),
-            ),
-          )
-      }
+      delete_attr_on_value(target_value, attr, globals, builtins, io)
     }
     Target::Subscript(value~, index~) => {
       let container = match

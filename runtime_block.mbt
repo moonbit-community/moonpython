@@ -350,10 +350,11 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let _ = match set_attr_on_value(base, attr, next) {
-              Ok(value) => value
+            let _ = match set_attr_on_value(base, attr, next, globals, builtins, io) {
+              Ok(v) => v
               Err(err) => return Err(err)
             }
+
 
           }
           Target::Subscript(value~, index~) => {
