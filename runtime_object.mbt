@@ -524,18 +524,46 @@ fn get_attr_from_value(
       match lookup_class_attr(inst.class, "__getattribute__") {
         Ok(Some(Value::Function(f))) => {
           let name_val = Value::Str(attr)
-          let result = match (eval_function_with_kwargs_ref.val)(
+          let result = (eval_function_with_kwargs_ref.val)(
             f,
             [target, name_val],
             [],
             globals,
             builtins,
             io,
-          ) {
-            Ok(v) => v
-            Err(err) => return Err(err)
+          )
+          match result {
+            Ok(v) => return Ok(v)
+            Err(err0) =>
+              match err0.kind {
+                RuntimeErrorKind::Attribute => {
+                  // __getattr__ fallback only for AttributeError
+                  match lookup_class_attr(inst.class, "__getattr__") {
+                    Ok(Some(Value::Function(f2))) => {
+                      let name_val2 = Value::Str(attr)
+                      return (eval_function_with_kwargs_ref.val)(
+                        f2,
+                        [target, name_val2],
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      )
+                    }
+                    Ok(Some(_)) =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__getattr__ must be a function".to_string(),
+                        ),
+                      )
+                    Ok(None) => return Err(err0)
+                    Err(err) => return Err(err)
+                  }
+                }
+                _ => return Err(err0)
+              }
           }
-          return Ok(result)
         }
         Ok(Some(_)) =>
           return Err(
@@ -578,6 +606,7 @@ fn get_attr_from_value(
           }
         }
       }
+
     }
     _ => get_attr_raw_from_value(target, attr, globals, builtins, io)
   }
@@ -1013,12 +1042,74 @@ fn call_callable_with_env(
         (eval_generator_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
         )
+      } else if func.name == "__getattribute__" && func.body.length() == 0 {
+        // Intrinsic: object.__getattribute__(self, name)
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__getattribute__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__getattribute__() takes exactly two arguments".to_string(),
+            ),
+          )
+        }
+        let target = positional[0]
+        let name = match positional[1] {
+          Value::Str(text) => text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "attribute name must be str".to_string(),
+              ),
+            )
+        }
+        get_attr_raw_from_value(target, name, globals, builtins, io)
       } else {
         (eval_function_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
         )
       }
     Value::BoundMethod(method) => {
+      // Intrinsic: object.__getattribute__(self, name)
+      if method.function.name == "__getattribute__" &&
+        method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__getattribute__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__getattribute__() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        let name = match positional[0] {
+          Value::Str(text) => text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "attribute name must be str".to_string(),
+              ),
+            )
+        }
+        return get_attr_raw_from_value(method.self, name, globals, builtins, io)
+      }
+
       match method.self {
         Value::Instance(inst) =>
           if inst.class.name == "generator" &&

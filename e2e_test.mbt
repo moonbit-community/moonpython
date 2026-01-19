@@ -780,6 +780,34 @@ test "e2e/dunder_getattribute" {
 }
 
 ///|
+test "e2e/object_dunder_getattribute_delegation" {
+  let source =
+    #|class A:
+    #|  def __init__(self):
+    #|    self.x = 1
+    #|  def __getattribute__(self, name):
+    #|    if name == "x":
+    #|      return object.__getattribute__(self, name) + 1
+    #|    return object.__getattribute__(self, name)
+    #|a = A()
+    #|print(a.x)
+  inspect(e2e_stdout([], source), content="2\n")
+}
+
+///|
+test "e2e/object_dunder_getattribute_falls_back_to_getattr" {
+  let source =
+    #|class A:
+    #|  def __getattribute__(self, name):
+    #|    return object.__getattribute__(self, name)
+    #|  def __getattr__(self, name):
+    #|    return 9
+    #|a = A()
+    #|print(a.missing)
+  inspect(e2e_stdout([], source), content="9\n")
+}
+
+///|
 test "e2e/dunder_setattr" {
   let source =
     #|log = []
