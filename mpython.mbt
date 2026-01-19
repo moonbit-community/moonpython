@@ -392,6 +392,13 @@ fn eval_expr_with_env(
       set_global_value(globals, name, evaluated)
       Ok(evaluated)
     }
+    Expr::Yield(_) | Expr::YieldFrom(_) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: 'yield' outside function".to_string(),
+        ),
+      )
     Expr::List(items) => {
       let values : Array[Value] = []
       for item in items {
@@ -435,29 +442,29 @@ fn eval_expr_with_env(
       Ok(Value::List(values))
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
-      let _ = elt
-      let _ = filters
-      if clauses.length() > 0 {
-        let iter_value = match
-          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        let _ = match iterable_values(iter_value) {
-          Ok(_) => ()
-          Err(err) => return Err(err)
-        }
-
+      let gen_locals = clone_locals(locals)
+      if clauses.length() == 0 {
+        let body = genexp_to_generator_body(elt, clauses, filters)
+        return Ok(generator_new(body, gen_locals, globals, builtins, io))
       }
-      Ok(
-        Value::Function(FunctionValue::{
-          name: "<genexpr>",
-          params: [],
-          defaults: [],
-          body: [],
-          is_generator: false,
-        }),
-      )
+      let first_iter_value = match
+        eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let first_iterator = match iter_value_to_iterator(first_iter_value) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let iter_name = fresh_genexp_local(gen_locals)
+      set_local_value(gen_locals, iter_name, first_iterator)
+      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+      for i = 1; i < clauses.length(); i = i + 1 {
+        adjusted_clauses.push(clauses[i])
+      }
+      let body = genexp_to_generator_body(elt, adjusted_clauses, filters)
+      Ok(generator_new(body, gen_locals, globals, builtins, io))
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let comp_locals = clone_locals(locals)
@@ -1168,12 +1175,19 @@ fn eval_expr_with_env(
                   parts.push(value_to_string(v))
                 }
               _ =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    "can only join an iterable".to_string(),
-                  ),
-                )
+                match iterable_values(iter_value) {
+                  Ok(values) =>
+                    for v in values {
+                      parts.push(value_to_string(v))
+                    }
+                  Err(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "can only join an iterable".to_string(),
+                      ),
+                    )
+                }
             }
             let buf = StringBuilder::new()
             for i = 0; i < parts.length(); i = i + 1 {
@@ -1283,6 +1297,85 @@ fn eval_expr_with_env(
 }
 
 ///|
+fn genexp_targets_to_target(targets : Array[String]) -> Target {
+  if targets.length() == 1 {
+    Target::Name(targets[0])
+  } else {
+    let out : Array[Target] = []
+    for name in targets {
+      out.push(Target::Name(name))
+    }
+    Target::Tuple(out)
+  }
+}
+
+///|
+fn genexp_filters_to_condition(filters : Array[Expr]) -> Expr? {
+  if filters.length() == 0 {
+    None
+  } else if filters.length() == 1 {
+    Some(filters[0])
+  } else {
+    Some(Expr::BoolOp(op=BoolOp::And, values=filters))
+  }
+}
+
+///|
+fn genexp_to_generator_body(
+  elt : Expr,
+  clauses : Array[(Array[String], Expr)],
+  filters : Array[Expr],
+) -> Array[Stmt] {
+  let inner : Array[Stmt] = [Stmt::Yield(Some(elt))]
+  let conditioned = match genexp_filters_to_condition(filters) {
+    Some(cond) => [Stmt::If(condition=cond, body=inner, else_body=[])]
+    None => inner
+  }
+  let mut body = conditioned
+  let mut i = clauses.length()
+  while i > 0 {
+    i = i - 1
+    let clause = clauses[i]
+    body = [
+      Stmt::For(
+        target=genexp_targets_to_target(clause.0),
+        iter=clause.1,
+        body~,
+        else_body=[],
+      ),
+    ]
+  }
+  body
+}
+
+///|
+fn genexp_local_taken(locals : Array[(String, Value)], name : String) -> Bool {
+  for pair in locals {
+    if pair.0 == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn fresh_genexp_local(locals : Array[(String, Value)]) -> String {
+  let base = "__mpython_genexp_iter".to_string()
+  if !genexp_local_taken(locals, base) {
+    return base
+  }
+  let mut i = 0
+  while true {
+    let candidate = base + "_" + i.to_string()
+    if !genexp_local_taken(locals, candidate) {
+      return candidate
+    }
+    i = i + 1
+  }
+  base
+}
+
+///|
 fn eval_call_args(
   args : Array[Expr],
   locals : Array[(String, Value)],
@@ -1367,6 +1460,24 @@ fn eval_function_with_kwargs(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  let locals = match
+    bind_function_args_with_kwargs(func, positional, keywords) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let result = match eval_block(func.body, locals, globals, builtins, io) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  Ok(result)
+}
+
+///|
+fn bind_function_args_with_kwargs(
+  func : FunctionValue,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+) -> Result[Array[(String, Value)], RuntimeError] {
   if positional.length() > func.params.length() {
     return Err(
       make_runtime_error(
@@ -1460,11 +1571,24 @@ fn eval_function_with_kwargs(
     }
     return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
   }
-  let result = match eval_block(func.body, locals, globals, builtins, io) {
+  Ok(locals)
+}
+
+///|
+fn eval_generator_with_kwargs(
+  func : FunctionValue,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let locals = match
+    bind_function_args_with_kwargs(func, positional, keywords) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  Ok(result)
+  Ok(generator_new(func.body, locals, globals, builtins, io))
 }
 
 ///|
@@ -1476,6 +1600,7 @@ fn ensure_runtime_callbacks_ready() -> Unit {
     return
   }
   set_eval_function_with_kwargs_callback(eval_function_with_kwargs)
+  set_eval_generator_with_kwargs_callback(eval_generator_with_kwargs)
   runtime_callbacks_ready.val = true
 }
 

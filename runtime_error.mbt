@@ -52,7 +52,14 @@ fn make_runtime_error(
   message : String,
 ) -> RuntimeError {
   let (exc_type, exc_args) = runtime_error_exc(kind, message)
-  RuntimeError::{ kind, message, span: None, exc_type, exc_args }
+  RuntimeError::{
+    kind,
+    message,
+    span: None,
+    exc_type,
+    exc_args,
+    exc_value: None,
+  }
 }
 
 ///|
@@ -68,6 +75,7 @@ fn make_parse_runtime_error(error : ParseError) -> RuntimeError {
     span: None,
     exc_type,
     exc_args,
+    exc_value: None,
   }
 }
 

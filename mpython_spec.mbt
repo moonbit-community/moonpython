@@ -107,6 +107,8 @@ pub enum Expr {
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)
   NamedExpr(name~ : String, value~ : Expr)
+  Yield(Expr?)
+  YieldFrom(Expr)
   Slice(start~ : Expr?, end~ : Expr?, step~ : Expr?)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
@@ -146,6 +148,8 @@ pub enum Stmt {
   Assign(target~ : Target, value~ : Expr)
   AugAssign(target~ : Target, op~ : BinaryOp, value~ : Expr)
   Return(Expr?)
+  Yield(Expr?)
+  YieldFrom(Expr)
   If(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
   While(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
@@ -169,7 +173,7 @@ pub enum Stmt {
   Global(Array[String])
   Nonlocal(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
-  Raise(Expr?)
+  Raise(exc~ : Expr?, cause~ : Expr?)
   Del(Array[Target])
   Import(module~ : String)
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
@@ -232,6 +236,7 @@ pub(all) struct RuntimeError {
   span : Span?
   exc_type : String
   exc_args : Array[String]
+  exc_value : Value?
 } derive(ToJson)
 
 ///|

@@ -10,6 +10,18 @@ priv enum BlockFlow {
 }
 
 ///|
+let active_exception_stack : Ref[Array[RuntimeError]] = { val: [] }
+
+///|
+fn active_exception() -> RuntimeError? {
+  if active_exception_stack.val.length() == 0 {
+    None
+  } else {
+    Some(active_exception_stack.val[active_exception_stack.val.length() - 1])
+  }
+}
+
+///|
 fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
   let mut message = "".to_string()
   match get_named_value(inst.dict, "message") {
@@ -23,12 +35,26 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     inst.class.name
   }
   let args : Array[String] = if message.length() > 0 { [message] } else { [] }
+  let exc_value = if inst.class.name == "StopIteration" {
+    match get_named_value(inst.dict, "args") {
+      Some(Value::Tuple(values)) =>
+        if values.length() > 0 {
+          Some(values[0])
+        } else {
+          Some(Value::None)
+        }
+      _ => Some(Value::None)
+    }
+  } else {
+    None
+  }
   RuntimeError::{
     kind: RuntimeErrorKind::Runtime,
     message: printed,
     span: None,
     exc_type: inst.class.name,
     exc_args: args,
+    exc_value,
   }
 }
 
@@ -52,8 +78,15 @@ fn exception_value_from_runtime_error(
   io : MockIO,
 ) -> Value {
   let positional : Array[Value] = []
-  for arg in err.exc_args {
-    positional.push(Value::Str(arg))
+  if err.exc_type == "StopIteration" {
+    match err.exc_value {
+      Some(value) => positional.push(value)
+      None => ()
+    }
+  } else {
+    for arg in err.exc_args {
+      positional.push(Value::Str(arg))
+    }
   }
   match get_named_value(builtins, err.exc_type) {
     Some(Value::Class(klass)) =>
@@ -253,6 +286,13 @@ fn eval_block_flow(
         }
         return Ok(BlockFlow::Return(Value::None))
       }
+      Stmt::Yield(_) | Stmt::YieldFrom(_) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'yield' outside function".to_string(),
+          ),
+        )
       Stmt::Function(
         name~,
         decorators~,
@@ -329,8 +369,8 @@ fn eval_block_flow(
         }
         last = Value::None
       }
-      Stmt::Raise(expr) => {
-        if expr is Some(expr) {
+      Stmt::Raise(exc~, cause~) => {
+        if exc is Some(expr) {
           let raised_value = match
             eval_expr_with_env(expr, locals, globals, builtins, io) {
             Ok(value) => value
@@ -371,6 +411,20 @@ fn eval_block_flow(
                   "exceptions must derive from BaseException".to_string(),
                 ),
               )
+          }
+        }
+        if cause is Some(expr) {
+          let _ = match
+            eval_expr_with_env(expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+
+        }
+        if exc is None {
+          match active_exception() {
+            Some(err) => return Err(err)
+            None => ()
           }
         }
         return Err(
@@ -516,6 +570,19 @@ fn eval_block_flow(
                         klass.name == err.exc_type {
                         matches = true
                       }
+                    Value::Tuple(items) =>
+                      for item in items {
+                        match item {
+                          Value::Class(klass) =>
+                            if klass.name == "Exception" ||
+                              klass.name == "BaseException" ||
+                              klass.name == err.exc_type {
+                              matches = true
+                              break
+                            }
+                          _ => ()
+                        }
+                      }
                     _ => ()
                   }
                 }
@@ -535,9 +602,12 @@ fn eval_block_flow(
                   )
                 None => ()
               }
-              handled_result = eval_block_flow(
+              active_exception_stack.val.push(err)
+              let next_result = eval_block_flow(
                 handler_body, locals, globals, builtins, io, loop_depth,
               )
+              let _ = active_exception_stack.val.pop()
+              handled_result = next_result
               break
             }
             if handled {
@@ -722,12 +792,21 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let items = match iterable_values(iter_value) {
+        let mut broke = false
+        let iterator = match iter_value_to_iterator(iter_value) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let mut broke = false
-        for item in items {
+        while true {
+          let item = match iterator_next(iterator, None) {
+            Ok(value) => value
+            Err(err) =>
+              if err.exc_type == "StopIteration" {
+                break
+              } else {
+                return Err(err)
+              }
+          }
           let _ = match
             assign_target_with_env(target, item, locals, globals, builtins, io) {
             Ok(v) => v

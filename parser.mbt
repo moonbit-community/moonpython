@@ -62,6 +62,45 @@ fn ExprParser::expect(
 
 ///|
 fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
+  if self.view() is [{ kind: Yield, .. }, .. rest] {
+    self.update_view(rest)
+    if self.view() is [{ kind: From, .. }, .. rest2] {
+      self.update_view(rest2)
+      let inner = match self.parse_conditional() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      return Ok(Expr::YieldFrom(inner))
+    }
+    match self.view() {
+      [{ kind: Eof | Comma | RParen | RBracket | RBrace, .. }, ..] =>
+        return Ok(Expr::Yield(None))
+      _ => ()
+    }
+    let first = match self.parse_conditional() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    return match self.view() {
+      [{ kind: Comma, .. }, ..] => {
+        let items : Array[Expr] = []
+        items.push(first)
+        while self.view() is [{ kind: Comma, .. }, .. rest3] {
+          self.update_view(rest3)
+          if self.view() is [{ kind: Eof, .. }, ..] {
+            break
+          }
+          let next = match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          items.push(next)
+        }
+        Ok(Expr::Yield(Some(Expr::Tuple(items))))
+      }
+      _ => Ok(Expr::Yield(Some(first)))
+    }
+  }
   let expr = match self.parse_conditional() {
     Ok(value) => value
     Err(err) => return Err(err)
@@ -89,6 +128,27 @@ fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
 
 ///|
 fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] {
+  if self.view() is [{ kind: Yield, .. }, .. rest] {
+    self.update_view(rest)
+    if self.view() is [{ kind: From, .. }, .. rest2] {
+      self.update_view(rest2)
+      let inner = match self.parse_conditional() {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      return Ok(Expr::YieldFrom(inner))
+    }
+    match self.view() {
+      [{ kind: Eof | Comma | RParen | RBracket | RBrace, .. }, ..] =>
+        return Ok(Expr::Yield(None))
+      _ => ()
+    }
+    let inner = match self.parse_conditional() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    return Ok(Expr::Yield(Some(inner)))
+  }
   let mut expr = match self.parse_or() {
     Ok(value) => value
     Err(err) => return Err(err)
@@ -840,6 +900,12 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
       targets.push(name)
       collect_named_expr_targets(value, targets)
     }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => collect_named_expr_targets(value, targets)
+        None => ()
+      }
+    Expr::YieldFrom(value) => collect_named_expr_targets(value, targets)
     Expr::Tuple(items) =>
       for item in items {
         collect_named_expr_targets(item, targets)
@@ -2545,6 +2611,10 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       if segment.length() == 0 {
         continue
       }
+      let segment_trimmed = segment.trim(chars=" \t").to_string()
+      if segment_trimmed.has_prefix("yield") {
+        continue
+      }
       let base_offset = offsets[index] + current_indent + offset
       match tokenize_expr(segment, index + 1, base_offset) {
         Ok(_) => ()
@@ -2824,6 +2894,12 @@ fn parse_int64_digits(text : String) -> Int64 {
 fn expr_has_name(expr : Expr) -> Bool {
   match expr {
     Expr::Name(_) => true
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_has_name(value)
+        None => false
+      }
+    Expr::YieldFrom(value) => expr_has_name(value)
     Expr::Attribute(value~, attr~) => {
       let _ = attr
       expr_has_name(value)
@@ -3157,8 +3233,58 @@ fn parse_simple_statement(
     stmts.push(Stmt::Pass)
     return Ok(stmts)
   }
-  if trimmed.contains("yield") {
-    stmts.push(Stmt::Pass)
+  if trimmed == "yield" {
+    stmts.push(Stmt::Yield(None))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("yield from") {
+    let rest = substring(trimmed, 10, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if rest.length() == 0 {
+      let token = {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 10) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::YieldFrom(expr))
+    return Ok(stmts)
+  }
+  if trimmed.has_prefix("yield ") || trimmed.has_prefix("yield\t") {
+    let rest = substring(trimmed, 5, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if rest.length() == 0 {
+      stmts.push(Stmt::Yield(None))
+      return Ok(stmts)
+    }
+    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::Yield(Some(expr)))
     return Ok(stmts)
   }
   if trimmed.has_prefix("{") && trimmed.contains(" for ") {
@@ -3466,29 +3592,84 @@ fn parse_simple_statement(
       .trim(chars=" \t")
       .to_string()
     if rest.length() == 0 {
-      stmts.push(Stmt::Raise(None))
+      stmts.push(Stmt::Raise(exc=None, cause=None))
       return Ok(stmts)
     }
-    let mut expr_text = rest
+    if rest.has_prefix("from ") {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), Token::{
+          kind: TokenKind::Eof,
+          start: 0,
+          end: 0,
+          line: line_index + 1,
+          column: base_offset + 1,
+        }),
+      )
+    }
+    let mut exc_text = rest
+    let mut cause_text = ""
     if rest.contains(" from ") {
       let parts : Array[String] = []
       for part in rest.split(" from ") {
         parts.push(part.to_string())
       }
-      if parts.length() > 0 {
-        expr_text = parts[0].trim(chars=" \t").to_string()
+      if parts.length() < 2 {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            Token::{
+              kind: TokenKind::Eof,
+              start: 0,
+              end: 0,
+              line: line_index + 1,
+              column: base_offset + 1,
+            },
+          ),
+        )
+      }
+      exc_text = parts[0].trim(chars=" \t").to_string()
+      cause_text = parts[1].trim(chars=" \t").to_string()
+      if exc_text.length() == 0 || cause_text.length() == 0 {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            Token::{
+              kind: TokenKind::Eof,
+              start: 0,
+              end: 0,
+              line: line_index + 1,
+              column: base_offset + 1,
+            },
+          ),
+        )
       }
     }
-    let tokens = match
-      tokenize_expr(expr_text, line_index + 1, base_offset + 5) {
+    let exc_tokens = match
+      tokenize_expr(exc_text, line_index + 1, base_offset + 5) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
-    let expr = match parse_tokens_expr(tokens) {
+    let exc_expr = match parse_tokens_expr(exc_tokens) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
-    stmts.push(Stmt::Raise(Some(expr)))
+    let cause_expr = if cause_text.length() > 0 {
+      let cause_tokens = match
+        tokenize_expr(cause_text, line_index + 1, base_offset + 5) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(cause_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Some(expr)
+    } else {
+      None
+    }
+    stmts.push(Stmt::Raise(exc=Some(exc_expr), cause=cause_expr))
     return Ok(stmts)
   }
   if trimmed.has_prefix("del ") {
@@ -4066,6 +4247,22 @@ fn LineParser::parse_block(
       )
     }
     if line_text.has_prefix("return") && self.func_depth == 0 {
+      let token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent,
+        end: self.offsets[self.index] + current_indent + 1,
+        line: self.index + 1,
+        column: 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if self.func_depth == 0 && line_has_yield_keyword(line_text) {
       let token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent,

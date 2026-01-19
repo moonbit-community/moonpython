@@ -188,6 +188,50 @@ fn get_attr_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
+      if inst.class.name == "generator" {
+        if attr == "send" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "send",
+                params: ["self", "value"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+              },
+              self: Value::Instance(inst),
+            }),
+          )
+        }
+        if attr == "close" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "close",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+              },
+              self: Value::Instance(inst),
+            }),
+          )
+        }
+        if attr == "throw" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "throw",
+                params: ["self", "exc", "val", "tb"],
+                defaults: [Value::None, Value::None],
+                body: [],
+                is_generator: false,
+              },
+              self: Value::Instance(inst),
+            }),
+          )
+        }
+      }
       let class_attr = match lookup_class_attr(inst.class, attr) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -297,6 +341,41 @@ let eval_function_with_kwargs_ref : Ref[
 ] = { val: eval_function_with_kwargs_uninitialized }
 
 ///|
+fn eval_generator_with_kwargs_uninitialized(
+  func : FunctionValue,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = func
+  let _ = positional
+  let _ = keywords
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  Err(
+    make_runtime_error(
+      RuntimeErrorKind::Runtime,
+      "RuntimeError: internal generator callback not initialized".to_string(),
+    ),
+  )
+}
+
+///|
+let eval_generator_with_kwargs_ref : Ref[
+  (
+    FunctionValue,
+    Array[Value],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    MockIO,
+  ) -> Result[Value, RuntimeError],
+] = { val: eval_generator_with_kwargs_uninitialized }
+
+///|
 fn set_eval_function_with_kwargs_callback(
   callback : (
     FunctionValue,
@@ -311,6 +390,20 @@ fn set_eval_function_with_kwargs_callback(
 }
 
 ///|
+fn set_eval_generator_with_kwargs_callback(
+  callback : (
+    FunctionValue,
+    Array[Value],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    Array[(String, Value)],
+    MockIO,
+  ) -> Result[Value, RuntimeError],
+) -> Unit {
+  eval_generator_with_kwargs_ref.val = callback
+}
+
+///|
 fn call_callable_with_env(
   callee : Value,
   positional : Array[Value],
@@ -322,11 +415,8 @@ fn call_callable_with_env(
   match callee {
     Value::Function(func) =>
       if func.is_generator {
-        Ok(
-          Value::Instance(InstanceValue::{
-            class: ClassValue::{ name: "generator", bases: [], dict: [] },
-            dict: [],
-          }),
+        (eval_generator_with_kwargs_ref.val)(
+          func, positional, keywords, globals, builtins, io,
         )
       } else {
         (eval_function_with_kwargs_ref.val)(
@@ -334,6 +424,58 @@ fn call_callable_with_env(
         )
       }
     Value::BoundMethod(method) => {
+      match method.self {
+        Value::Instance(inst) =>
+          if inst.class.name == "generator" &&
+            method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match method.function.name {
+              "send" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "send() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  return generator_send(method.self, positional[0])
+                }
+              "close" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "close() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return generator_close(method.self)
+                }
+              "throw" =>
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "throw() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return generator_throw(method.self, positional[0])
+                }
+              _ => ()
+            }
+          }
+        _ => ()
+      }
       let args : Array[Value] = [method.self]
       for item in positional {
         args.push(item)
@@ -371,6 +513,14 @@ fn call_callable_with_env(
         dict.push(("args", Value::Tuple(positional)))
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
+        }
+        if klass.name == "StopIteration" {
+          let value = if positional.length() > 0 {
+            positional[0]
+          } else {
+            Value::None
+          }
+          dict.push(("value", value))
         }
         return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
       }

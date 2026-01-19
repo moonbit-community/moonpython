@@ -72,6 +72,20 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
           Value::Int(items.length().to_int64()),
         )
         Ok(out)
+      } else if inst.class.name == "generator" {
+        let out : Array[Value] = []
+        while true {
+          match iterator_next(Value::Instance(inst), None) {
+            Ok(v) => out.push(v)
+            Err(err) =>
+              if err.exc_type == "StopIteration" {
+                break
+              } else {
+                return Err(err)
+              }
+          }
+        }
+        Ok(out)
       } else {
         Err(
           make_runtime_error(

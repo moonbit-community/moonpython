@@ -782,6 +782,15 @@ pub fn Interpreter::eval_source(
           "ValueError: unsupported value".to_string(),
         ),
       )
+    Value::Instance(inst) =>
+      if inst.class.name == "generator" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: unsupported value".to_string(),
+          ),
+        )
+      }
     _ => ()
   }
   Ok(RunResult::{
