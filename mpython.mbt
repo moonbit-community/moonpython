@@ -1717,7 +1717,13 @@ fn eval_expr_with_env(
                   }
                   match
                     eval_builtin_call(
-                      name, arg_values, keywords, locals, globals, builtins, io,
+                      func.name,
+                      arg_values,
+                      keywords,
+                      locals,
+                      globals,
+                      builtins,
+                      io,
                     ) {
                     Ok(Some(value)) => Ok(value)
                     Ok(None) =>

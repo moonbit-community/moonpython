@@ -3553,7 +3553,63 @@ fn parse_simple_statement(
         ),
       )
     }
-    stmts.push(Stmt::Import(module=module_name))
+    let import_split : Array[String] = []
+    for part in trimmed.split("import") {
+      import_split.push(part.to_string())
+    }
+    if import_split.length() < 2 {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let mut imported = substring(
+        trimmed,
+        trimmed.length() - import_split[1].length(),
+        trimmed.length(),
+      )
+      .trim(chars=" \t")
+      .to_string()
+    if imported.has_prefix("(") && imported.ends_with(")") {
+      imported = substring(imported, 1, imported.length() - 1)
+        .trim(chars=" \t")
+        .to_string()
+    }
+    let names : Array[(String, String?)] = []
+    if imported == "*" {
+      names.push(("*", (None : String?)))
+    } else {
+      for item in imported.split(",") {
+        let part = item.trim(chars=" \t").to_string()
+        if part.length() == 0 {
+          continue
+        }
+        if part.contains(" as ") {
+          let pieces : Array[String] = []
+          for p in part.split(" as ") {
+            if p.length() > 0 {
+              pieces.push(p.trim(chars=" \t").to_string())
+            }
+          }
+          if pieces.length() != 2 {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          names.push((pieces[0], Some(pieces[1])))
+        } else {
+          names.push((part, (None : String?)))
+        }
+      }
+    }
+    stmts.push(Stmt::FromImport(module=module_name, names~))
     return Ok(stmts)
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {

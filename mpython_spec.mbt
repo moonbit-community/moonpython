@@ -178,6 +178,7 @@ pub enum Stmt {
   Raise(exc~ : Expr?, cause~ : Expr?)
   Del(Array[Target])
   Import(module~ : String)
+  FromImport(module~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(
     body~ : Array[Stmt],

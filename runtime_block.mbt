@@ -649,6 +649,43 @@ fn eval_block_flow(
             ),
           )
         }
+      Stmt::FromImport(module~, names~) =>
+        if module == "math" {
+          let module_value = make_math_module()
+          for item in names {
+            let name = item.0
+            let alias_opt = item.1
+            if name == "*" {
+              match module_value {
+                Value::Instance(inst) =>
+                  for pair in inst.dict {
+                    if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                      set_scoped_value(locals, globals, pair.0, pair.1)
+                    }
+                  }
+                _ => ()
+              }
+              continue
+            }
+            let imported = match get_attr_from_value(module_value, name) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let binding = match alias_opt {
+              Some(alias) => alias
+              None => name
+            }
+            set_scoped_value(locals, globals, binding, imported)
+          }
+          last = Value::None
+        } else {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ImportError: module " + module + " is not allowed",
+            ),
+          )
+        }
       Stmt::With(context~, target~, body~) => {
         let ctx_value = match
           eval_expr_with_env(context, locals, globals, builtins, io) {

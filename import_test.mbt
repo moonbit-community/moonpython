@@ -20,3 +20,15 @@ test "import/math_basic" {
     #|print(int(math.pi))
   inspect(run_stdout_import(source), content="math\n3\n8\n3\n")
 }
+
+///|
+test "import/from_import_binds_callables" {
+  let source =
+    #|from math import sqrt as s, pow
+    #|print(int(s(16)))
+    #|print(int(pow(2, 4)))
+    #|from math import *
+    #|print(int(sqrt(9)))
+    #|print(int(pi))
+  inspect(run_stdout_import(source), content="4\n16\n3\n3\n")
+}
