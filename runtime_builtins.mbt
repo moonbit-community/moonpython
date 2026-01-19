@@ -2328,34 +2328,104 @@ fn builtin_dir(
     )
   }
   let value = positional[0]
-  let out : Array[Value] = []
+
+  // __dir__ hook
+  match value {
+    Value::Instance(_) | Value::Class(_) => {
+      let hook = match get_attr_from_value(value, "__dir__", globals, builtins, io) {
+        Ok(v) => v
+        Err(_err) => Value::None
+      }
+      match hook {
+        Value::None => ()
+        _ => {
+          let result = match call_callable_with_env(
+            hook,
+            [],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match result {
+            Value::List(_) => return Ok(result)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__dir__ must return a list".to_string(),
+                ),
+              )
+          }
+        }
+      }
+    }
+    _ => ()
+  }
+
+  // Default listing: include inherited names, sort, dedup.
+  let names : Array[String] = []
+  fn push_name(names : Array[String], name : String) -> Unit {
+    if name == "__class__" {
+      // Hide implementation detail used to support zero-arg super().
+      return
+    }
+    for existing in names {
+      if existing == name {
+        return
+      }
+    }
+    names.push(name)
+  }
+
+
   match value {
     Value::Dict(pairs) =>
       for pair in pairs {
         match pair.0 {
-          Value::Str(name) => out.push(Value::Str(name))
+          Value::Str(name) => push_name(names, name)
           _ => ()
         }
       }
     Value::Instance(inst) => {
       for pair in inst.dict {
-        out.push(Value::Str(pair.0))
+        push_name(names, pair.0)
       }
-      for pair in inst.class.dict {
-        // Hide implementation detail used to support zero-arg super().
-        if pair.0 != "__class__" {
-          out.push(Value::Str(pair.0))
+      let mro = match class_mro(inst.class) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for cls in mro {
+        for pair in cls.dict {
+          if pair.0 != "__getattribute__" {
+            push_name(names, pair.0)
+          }
         }
       }
     }
-    Value::Class(klass) =>
-      for pair in klass.dict {
-        // Hide implementation detail used to support zero-arg super().
-        if pair.0 != "__class__" {
-          out.push(Value::Str(pair.0))
+    Value::Class(klass) => {
+      let mro = match class_mro(klass) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for cls in mro {
+        for pair in cls.dict {
+          if pair.0 != "__getattribute__" {
+            push_name(names, pair.0)
+          }
         }
       }
+    }
     _ => ()
+  }
+
+  names.sort()
+  let out : Array[Value] = []
+  for name in names {
+    out.push(Value::Str(name))
   }
   Ok(Value::List(out))
 }

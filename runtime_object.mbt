@@ -523,10 +523,14 @@ fn get_attr_from_value(
       // __getattribute__ (instance hook)
       match lookup_class_attr(inst.class, "__getattribute__") {
         Ok(Some(Value::Function(f))) => {
-          let name_val = Value::Str(attr)
-          let result = (eval_function_with_kwargs_ref.val)(
-            f,
-            [target, name_val],
+          // Call through the normal call path so intrinsic implementations
+          // (e.g. object.__getattribute__) are handled.
+          let bound = Value::BoundMethod(
+            BoundMethodValue::{ function: f, self: target },
+          )
+          let result = call_callable_with_env(
+            bound,
+            [Value::Str(attr)],
             [],
             globals,
             builtins,
