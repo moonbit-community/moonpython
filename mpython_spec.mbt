@@ -160,6 +160,12 @@ pub enum Stmt {
     body~ : Array[Stmt],
     else_body~ : Array[Stmt]
   )
+  AsyncFor(
+    target~ : Target,
+    iter~ : Expr,
+    body~ : Array[Stmt],
+    else_body~ : Array[Stmt]
+  )
   Break
   Continue
   Function(
@@ -180,6 +186,7 @@ pub enum Stmt {
   Import(module~ : String, alias~ : String?)
   FromImport(module~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
+  AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(
     body~ : Array[Stmt],
     handlers~ : Array[(Expr?, String?, Array[Stmt])],

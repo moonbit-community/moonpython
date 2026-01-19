@@ -797,6 +797,21 @@ fn eval_block_flow(
           }
         }
       }
+      Stmt::AsyncWith(context~, target~, body~) => {
+        let _ = target
+        let _ = body
+        let _ = match
+          eval_expr_with_env(context, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "NotImplementedError: async with is not supported".to_string(),
+          ),
+        )
+      }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
         let outcome : Result[BlockFlow, RuntimeError] = match
           eval_block_flow(
@@ -1147,6 +1162,21 @@ fn eval_block_flow(
           }
         }
         last = Value::None
+      }
+      Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+        let _ = target
+        let _ = body
+        let _ = else_body
+        let _ = match eval_expr_with_env(iter, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "NotImplementedError: async for is not supported".to_string(),
+          ),
+        )
       }
       Stmt::Break => {
         if loop_depth > 0 {

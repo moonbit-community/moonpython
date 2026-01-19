@@ -4898,15 +4898,11 @@ fn LineParser::parse_block(
       stmts.push(Stmt::Class(name~, decorators~, bases~, keywords~, body~))
       continue
     }
-    if self.async_depth > 0 &&
-      (line_text.contains("async for") || line_text.contains("async with")) {
-      // Allow parsing async-only constructs inside async functions even when we
-      // don't implement their runtime semantics yet (e.g. async comprehensions).
-      stmts.push(Stmt::Pass)
-      self.index = next_index
-      continue
-    }
-    if line_text.has_prefix("async for ") || line_text.has_prefix("async with ") {
+    if (
+        line_text.has_prefix("async for ") ||
+        line_text.has_prefix("async with ")
+      ) &&
+      self.async_depth == 0 {
       let token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent,
@@ -4921,6 +4917,299 @@ fn LineParser::parse_block(
           token,
         ),
       )
+    }
+    if self.async_depth > 0 &&
+      !line_text.has_prefix("async for ") &&
+      !line_text.has_prefix("async with ") &&
+      (line_text.contains("async for") || line_text.contains("async with")) {
+      // Allow parsing async-only constructs inside async functions even when we
+      // don't implement their runtime semantics yet (e.g. async comprehensions).
+      stmts.push(Stmt::Pass)
+      self.index = next_index
+      continue
+    }
+    if line_text.has_prefix("async for ") {
+      let colon_pos = find_last_char(line_text, ':')
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let header_text = substring(line_text, 10, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+      let in_pos = header_text.find(" in ")
+      if in_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let pos = in_pos.unwrap()
+      let target_text = substring(header_text, 0, pos)
+        .trim(chars=" \t")
+        .to_string()
+      let iter_text = substring(header_text, pos + 4, header_text.length())
+        .trim(chars=" \t")
+        .to_string()
+      if target_text.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let target_tokens = match
+        tokenize_expr(
+          target_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 10,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let target_expr = match parse_tokens_expr(target_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let target_token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent + 10,
+        end: self.offsets[self.index] + current_indent + 11,
+        line: self.index + 1,
+        column: 1,
+      }
+      let target = match target_from_expr(target_expr, target_token) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let iter_tokens = match
+        tokenize_expr(
+          iter_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 10 + pos + 4,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let iter_expr = match parse_tokens_expr(iter_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          line_text,
+          colon_pos.unwrap() + 1,
+          line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let body = match
+          parse_simple_statement(
+            body_text,
+            self.index,
+            self.offsets[self.index],
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body=[]))
+        self.index = next_index
+        continue
+      }
+      self.index = next_index
+      let next_indent = self.peek_next_indent()
+      if next_indent <= current_indent {
+        let missing_line = self.clamp_line_index(
+          self.peek_next_significant_index().unwrap_or(self.index),
+        )
+        let token = {
+          kind: Eof,
+          start: self.offsets[missing_line],
+          end: self.offsets[missing_line] + 1,
+          line: missing_line + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body=[]))
+      continue
+    }
+    if line_text.has_prefix("async with ") {
+      let mut full_line_text = line_text
+      let mut colon_pos = find_last_char(full_line_text, ':')
+      let mut header_end_index = next_index
+      if colon_pos is None {
+        let mut scan = next_index
+        while scan < self.lines.length() {
+          let part = self.lines[scan].trim(chars=" \t").to_string()
+          full_line_text = full_line_text + "\n" + part
+          colon_pos = find_last_char(full_line_text, ':')
+          scan += 1
+          if colon_pos is Some(_) {
+            header_end_index = scan
+            break
+          }
+        }
+      }
+      if colon_pos is None {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let header_text = substring(full_line_text, 10, colon_pos.unwrap())
+        .trim(chars=" \t")
+        .to_string()
+
+      // Parse just the first context manager expression.
+      let mut item_text = header_text
+      if item_text.has_prefix("(") && item_text.has_suffix(")") {
+        item_text = substring(item_text, 1, item_text.length() - 1).to_string()
+      }
+      let mut first_item = item_text.trim(chars=" \t\n\r").to_string()
+      match first_top_level_comma_pos(first_item) {
+        Some(pos) =>
+          first_item = substring(first_item, 0, pos)
+            .trim(chars=" \t\n\r")
+            .to_string()
+        None => ()
+      }
+      let parts : Array[String] = []
+      for part in first_item.split(" as ") {
+        parts.push(part.to_string())
+      }
+      let context_text = parts[0].trim(chars=" \t").to_string()
+      let mut target : String? = None
+      if parts.length() >= 2 {
+        let mut name_text = parts[1].trim(chars=" \t").to_string()
+        let comma_pos = find_char(name_text, ',')
+        if comma_pos is Some(pos) {
+          name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+        }
+        let close_pos = find_char(name_text, ')')
+        if close_pos is Some(pos) {
+          name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+        }
+        if name_text.length() > 0 {
+          target = Some(name_text)
+        }
+      }
+      let context_tokens = match
+        tokenize_expr(
+          context_text,
+          self.index + 1,
+          self.offsets[self.index] + current_indent + 10,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let context = match parse_tokens_expr(context_tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let body_text = substring(
+          full_line_text,
+          colon_pos.unwrap() + 1,
+          full_line_text.length(),
+        )
+        .trim(chars=" \t")
+        .to_string()
+      if body_text.length() > 0 {
+        let body : Array[Stmt] = []
+        let parsed = match
+          parse_simple_statement(
+            body_text,
+            self.index,
+            self.offsets[self.index],
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        for stmt in parsed {
+          body.push(stmt)
+        }
+        stmts.push(Stmt::AsyncWith(context~, target~, body~))
+        self.index = header_end_index
+        continue
+      }
+      self.index = header_end_index
+      let next_indent = self.peek_next_indent()
+      if next_indent <= current_indent {
+        let missing_line = self.clamp_line_index(
+          self.peek_next_significant_index().unwrap_or(self.index),
+        )
+        let token = {
+          kind: Eof,
+          start: self.offsets[missing_line],
+          end: self.offsets[missing_line] + 1,
+          line: missing_line + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Indentation,
+            "expected indented block".to_string(),
+            token,
+          ),
+        )
+      }
+      let body = match self.parse_block(next_indent) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::AsyncWith(context~, target~, body~))
+      continue
     }
     let mut is_async_def = false
     if line_text.has_prefix("async def ") {
