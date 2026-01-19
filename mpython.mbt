@@ -1673,9 +1673,36 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            call_callable_with_env(
-              callee_value, arg_values, keywords, globals, builtins, io,
-            )
+            match callee_value {
+              Value::Function(func) =>
+                if func.body.length() == 0 {
+                  match
+                    eval_builtin_call(
+                      func.name,
+                      arg_values,
+                      keywords,
+                      locals,
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(Some(value)) => Ok(value)
+                    Ok(None) =>
+                      call_callable_with_env(
+                        callee_value, arg_values, keywords, globals, builtins, io,
+                      )
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  call_callable_with_env(
+                    callee_value, arg_values, keywords, globals, builtins, io,
+                  )
+                }
+              _ =>
+                call_callable_with_env(
+                  callee_value, arg_values, keywords, globals, builtins, io,
+                )
+            }
           }
         Expr::Name(name) => {
           let callee_value = get_from_env(name, locals, globals, builtins)

@@ -639,6 +639,7 @@ fn eval_block_flow(
       }
       Stmt::Import(module~) =>
         if module == "math" {
+          set_scoped_value(locals, globals, "math", make_math_module())
           last = Value::None
         } else {
           return Err(

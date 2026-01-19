@@ -1504,6 +1504,74 @@ fn builtin_pow(
 }
 
 ///|
+fn builtin_math_sqrt(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.sqrt", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.sqrt() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let (_, x) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Float(@math.pow(x, 0.5)))
+}
+
+///|
+fn builtin_math_pow(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.pow", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.pow() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let (_, a) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let (_, b) = match number_value(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Float(@math.pow(a, b)))
+}
+
+///|
 fn floor_divmod_int(a : Int64, b : Int64) -> (Int64, Int64) {
   let mut q = a / b
   let mut r = a % b
@@ -2319,6 +2387,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "abs", run: builtin_abs },
     BuiltinDef::{ name: "round", run: builtin_round },
     BuiltinDef::{ name: "pow", run: builtin_pow },
+    BuiltinDef::{ name: "math.sqrt", run: builtin_math_sqrt },
+    BuiltinDef::{ name: "math.pow", run: builtin_math_pow },
     BuiltinDef::{ name: "divmod", run: builtin_divmod },
     BuiltinDef::{ name: "chr", run: builtin_chr },
     BuiltinDef::{ name: "ord", run: builtin_ord },
