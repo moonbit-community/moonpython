@@ -1,1 +1,7 @@
-{}
+{
+  "import": [
+    "moonbitlang/x/fs",
+    "moonbitlang/x/path",
+    "moonbitlang/core/bigint"
+  ]
+}

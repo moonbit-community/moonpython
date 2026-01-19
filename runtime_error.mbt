@@ -18,8 +18,8 @@ fn runtime_error_exc(
       ("NotImplementedError".to_string(), [message])
     RuntimeErrorKind::Runtime => {
       let prefixes : Array[String] = [
-        "ValueError:", "ImportError:", "AssertionError:", "RuntimeError:", "EOFError:",
-        "SyntaxError:", "IndentationError:", "StopIteration:",
+        "ValueError:", "OverflowError:", "ImportError:", "AssertionError:", "RuntimeError:",
+        "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])

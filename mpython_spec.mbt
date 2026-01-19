@@ -19,7 +19,7 @@ pub(all) struct Span {
 pub enum Literal {
   None
   Bool(Bool)
-  Int(Int64)
+  Int(@bigint.BigInt)
   Float(Double)
   Str(String)
 } derive(ToJson)
@@ -265,6 +265,17 @@ pub struct Config {
   max_recursion : Int
   traceback_limit : Int
   track_spans : Bool
+  /// When `false`, only built-in shim modules (e.g. `math`) are allowed.
+  ///
+  /// This is used by `Interpreter::new_spec()` to keep the environment deterministic.
+  allow_filesystem_imports : Bool
+  /// Additional roots for resolving `import <name>` from files.
+  ///
+  /// The interpreter always searches the main script directory (when `main_path` is set)
+  /// and the current working directory (".") first.
+  import_paths : Array[String]
+  /// Path of the "main" script being executed (CLI-only).
+  main_path : String?
 } derive(ToJson)
 
 ///|
@@ -308,7 +319,7 @@ pub struct BoundMethodValue {
 pub enum Value {
   None
   Bool(Bool)
-  Int(Int64)
+  Int(@bigint.BigInt)
   Float(Double)
   Str(String)
   List(Array[Value])

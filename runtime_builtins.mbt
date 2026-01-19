@@ -237,11 +237,15 @@ fn builtin_len(
     )
   }
   match positional[0] {
-    Value::Str(text) => Ok(Value::Int(text.length().to_int64()))
-    Value::List(values) => Ok(Value::Int(values.length().to_int64()))
-    Value::Tuple(values) => Ok(Value::Int(values.length().to_int64()))
-    Value::Dict(pairs) => Ok(Value::Int(pairs.length().to_int64()))
-    Value::Set(values) => Ok(Value::Int(values.length().to_int64()))
+    Value::Str(text) => Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
+    Value::List(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Tuple(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Dict(pairs) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+    Value::Set(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
     _ =>
       Err(
         make_runtime_error(
@@ -265,10 +269,10 @@ fn builtin_range(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  fn to_int(value : Value) -> Result[Int64, RuntimeError] {
+  fn to_int(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
     match value {
       Value::Int(v) => Ok(v)
-      Value::Bool(v) => Ok(if v { 1L } else { 0L })
+      Value::Bool(v) => Ok(if v { 1N } else { 0N })
       _ =>
         Err(
           make_runtime_error(
@@ -287,9 +291,9 @@ fn builtin_range(
       ),
     )
   }
-  let mut start = 0L
-  let mut stop = 0L
-  let mut step = 1L
+  let mut start = 0N
+  let mut stop = 0N
+  let mut step = 1N
   if positional.length() == 1 {
     stop = match to_int(positional[0]) {
       Ok(v) => v
@@ -318,7 +322,7 @@ fn builtin_range(
       Err(err) => return Err(err)
     }
   }
-  if step == 0L {
+  if step == 0N {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
@@ -327,16 +331,38 @@ fn builtin_range(
     )
   }
   let items : Array[Value] = []
-  let mut i = start
-  if step > 0L {
-    while i < stop {
-      items.push(Value::Int(i))
-      i = i + step
+  // NOTE: still returns a realized list (mpython simplification).
+  // Convert to Int for looping; raise if it doesn't fit.
+  let start_i = match bigint_to_int_checked(start) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let stop_i = match bigint_to_int_checked(stop) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let step_i = match bigint_to_int_checked(step) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if step_i == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range() arg 3 must not be zero".to_string(),
+      ),
+    )
+  }
+  let mut i = start_i
+  if step_i > 0 {
+    while i < stop_i {
+      items.push(Value::Int(@bigint.BigInt::from_int(i)))
+      i = i + step_i
     }
   } else {
-    while i > stop {
-      items.push(Value::Int(i))
-      i = i + step
+    while i > stop_i {
+      items.push(Value::Int(@bigint.BigInt::from_int(i)))
+      i = i + step_i
     }
   }
   Ok(Value::List(items))
@@ -390,7 +416,7 @@ fn builtin_sum(
   if is_float {
     Ok(Value::Float(total))
   } else {
-    Ok(Value::Int(total.to_int64()))
+    Ok(Value::Int(@bigint.BigInt::from_int64(total.to_int64())))
   }
 }
 
@@ -599,11 +625,11 @@ fn builtin_enumerate(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let mut start = 0L
+  let mut start = 0N
   if positional.length() == 2 {
     match positional[1] {
       Value::Int(v) => start = v
-      Value::Bool(v) => start = if v { 1L } else { 0L }
+      Value::Bool(v) => start = if v { 1N } else { 0N }
       _ =>
         return Err(
           make_runtime_error(
@@ -617,7 +643,7 @@ fn builtin_enumerate(
   let mut i = start
   for item in items {
     pairs.push(Value::Tuple([Value::Int(i), item]))
-    i = i + 1L
+    i = i + 1N
   }
   Ok(Value::List(pairs))
 }
@@ -922,12 +948,13 @@ fn builtin_int(
     Err(err) => return Err(err)
   }
   if positional.length() == 0 {
-    Ok(Value::Int(0L))
+    Ok(Value::Int(0N))
   } else {
     match positional[0] {
       Value::Int(v) => Ok(Value::Int(v))
-      Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
-      Value::Float(v) => Ok(Value::Int(v.to_int64()))
+      Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+      Value::Float(v) =>
+        Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
       Value::Str(text) => {
         let parsed = @strconv.parse_int(text) catch {
           _ =>
@@ -938,7 +965,7 @@ fn builtin_int(
               ),
             )
         }
-        Ok(Value::Int(parsed.to_int64()))
+        Ok(Value::Int(@bigint.BigInt::from_int(parsed)))
       }
       _ =>
         Err(
@@ -969,7 +996,13 @@ fn builtin_float(
   } else {
     match positional[0] {
       Value::Float(v) => Ok(Value::Float(v))
-      Value::Int(v) => Ok(Value::Float(v.to_double()))
+      Value::Int(v) => {
+        let d = match bigint_to_double_checked(v) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Float(d))
+      }
       Value::Bool(v) => Ok(Value::Float(if v { 1.0 } else { 0.0 }))
       Value::Str(text) => {
         let parsed = @strconv.parse_double(text) catch {
@@ -1198,8 +1231,14 @@ fn builtin_next(
 }
 
 ///|
-fn int_to_base_string(value_in : Int64, base : Int, prefix : String) -> String {
-  if value_in == 0L {
+fn bigint_to_base_string(
+  value_in : @bigint.BigInt,
+  base : Int,
+  prefix : String,
+) -> String {
+  // NOTE: BigInt already provides `to_string()` for decimal.
+  // For non-decimal, we implement a simple base conversion using div/mod.
+  if value_in == 0N {
     return prefix + "0"
   }
   let digits = if base == 2 {
@@ -1211,16 +1250,17 @@ fn int_to_base_string(value_in : Int64, base : Int, prefix : String) -> String {
   }
   let mut value = value_in
   let mut sign = ""
-  if value < 0L {
+  if value < 0N {
     sign = "-"
     value = -value
   }
+  let b = @bigint.BigInt::from_int(base)
   let chars : Array[Char] = []
   let mut n = value
-  while n > 0L {
-    let d = (n % base.to_int64()).to_int()
+  while n > 0N {
+    let d = (n % b).to_int()
     chars.push(digits.to_array()[d])
-    n = n / base.to_int64()
+    n = n / b
   }
   let buf = StringBuilder::new()
   buf.write_string(sign)
@@ -1341,8 +1381,8 @@ fn builtin_abs(
     )
   }
   match positional[0] {
-    Value::Int(v) => Ok(Value::Int(if v < 0L { -v } else { v }))
-    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::Int(v) => Ok(Value::Int(if v < 0N { -v } else { v }))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Float(v) => Ok(Value::Float(if v < 0.0 { -v } else { v }))
     _ =>
       Err(
@@ -1387,8 +1427,9 @@ fn builtin_round(
   // `ndigits` is accepted but ignored for now.
   match positional[0] {
     Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
-    Value::Float(v) => Ok(Value::Int(round_float_to_int(v)))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    Value::Float(v) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(round_float_to_int(v))))
     _ =>
       Err(
         make_runtime_error(
@@ -1400,6 +1441,8 @@ fn builtin_round(
 }
 
 ///|
+// Deprecated helpers kept for historical context; BigInt::pow is used now.
+// (Left here to avoid touching too much code at once.)
 fn pow_int(base : Int64, exp : Int64) -> Int64 {
   let mut out = 1L
   let mut i = 0L
@@ -1415,9 +1458,9 @@ fn mod_pow_int(base : Int64, exp : Int64, modulus : Int64) -> Int64 {
   if modulus == 1L || modulus == -1L {
     return 0L
   }
-  let mut result = 1L
   let mut b = base % modulus
   let mut e = exp
+  let mut result = 1L
   while e > 0L {
     if e % 2L != 0L {
       result = result * b % modulus
@@ -1449,10 +1492,10 @@ fn builtin_pow(
       ),
     )
   }
-  let modulus_opt : Int64? = if positional.length() == 3 {
+  let modulus_opt : @bigint.BigInt? = if positional.length() == 3 {
     match positional[2] {
       Value::Int(v) => Some(v)
-      Value::Bool(v) => Some(if v { 1L } else { 0L })
+      Value::Bool(v) => Some(if v { 1N } else { 0N })
       _ =>
         return Err(
           make_runtime_error(
@@ -1466,14 +1509,14 @@ fn builtin_pow(
   }
   match (positional[0], positional[1], modulus_opt) {
     (Value::Int(a), Value::Int(b), Some(m)) =>
-      if b < 0L {
+      if b < 0N {
         Err(
           make_runtime_error(
             RuntimeErrorKind::Type,
             "pow() exponent must be >= 0 when modulus is provided".to_string(),
           ),
         )
-      } else if m == 0L {
+      } else if m == 0N {
         Err(
           make_runtime_error(
             RuntimeErrorKind::ZeroDivision,
@@ -1481,13 +1524,21 @@ fn builtin_pow(
           ),
         )
       } else {
-        Ok(Value::Int(mod_pow_int(a, b, m)))
+        Ok(Value::Int(a.pow(b, modulus=m)))
       }
     (Value::Int(a), Value::Int(b), None) =>
-      if b < 0L {
-        Ok(Value::Float(@math.pow(a.to_double(), b.to_double())))
+      if b < 0N {
+        let aa = match bigint_to_double_checked(a) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let bb = match bigint_to_double_checked(b) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Float(@math.pow(aa, bb)))
       } else {
-        Ok(Value::Int(pow_int(a, b)))
+        Ok(Value::Int(a.pow(b)))
       }
     _ => {
       let (_, aa) = match number_value(positional[0]) {
@@ -1572,11 +1623,15 @@ fn builtin_math_pow(
 }
 
 ///|
-fn floor_divmod_int(a : Int64, b : Int64) -> (Int64, Int64) {
+fn floor_divmod_int(
+  a : @bigint.BigInt,
+  b : @bigint.BigInt,
+) -> (@bigint.BigInt, @bigint.BigInt) {
+  // Python-style floor division adjustment.
   let mut q = a / b
   let mut r = a % b
-  if r != 0L && (r > 0L) != (b > 0L) {
-    q = q - 1L
+  if r != 0N && (r > 0N) != (b > 0N) {
+    q = q - 1N
     r = r + b
   }
   (q, r)
@@ -1605,7 +1660,7 @@ fn builtin_divmod(
   }
   match (positional[0], positional[1]) {
     (Value::Int(a), Value::Int(b)) =>
-      if b == 0L {
+      if b == 0N {
         Err(
           make_runtime_error(
             RuntimeErrorKind::ZeroDivision,
@@ -1663,7 +1718,7 @@ fn builtin_chr(
   }
   let codepoint = match positional[0] {
     Value::Int(v) => v
-    Value::Bool(v) => if v { 1L } else { 0L }
+    Value::Bool(v) => if v { 1N } else { 0N }
     _ =>
       return Err(
         make_runtime_error(
@@ -1672,7 +1727,7 @@ fn builtin_chr(
         ),
       )
   }
-  if codepoint < 0L || codepoint > 0x10FFFFL {
+  if codepoint < 0N || codepoint > @bigint.BigInt::from_int(0x10FFFF) {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
@@ -1680,7 +1735,7 @@ fn builtin_chr(
       ),
     )
   }
-  Ok(Value::Str(char_to_string(Char::from_int(codepoint.to_int()))))
+  Ok(Value::Str(char_to_string(Char::from_int(codepoint.to_int64().to_int()))))
 }
 
 ///|
@@ -1715,7 +1770,7 @@ fn builtin_ord(
           ),
         )
       }
-      Ok(Value::Int(chars[0].to_int().to_int64()))
+      Ok(Value::Int(@bigint.BigInt::from_int(chars[0].to_int())))
     }
     _ =>
       Err(
@@ -1750,7 +1805,7 @@ fn builtin_bin(
   }
   let value = match positional[0] {
     Value::Int(v) => v
-    Value::Bool(v) => if v { 1L } else { 0L }
+    Value::Bool(v) => if v { 1N } else { 0N }
     _ =>
       return Err(
         make_runtime_error(
@@ -1759,7 +1814,7 @@ fn builtin_bin(
         ),
       )
   }
-  Ok(Value::Str(int_to_base_string(value, 2, "0b")))
+  Ok(Value::Str(bigint_to_base_string(value, 2, "0b")))
 }
 
 ///|
@@ -1785,7 +1840,7 @@ fn builtin_oct(
   }
   let value = match positional[0] {
     Value::Int(v) => v
-    Value::Bool(v) => if v { 1L } else { 0L }
+    Value::Bool(v) => if v { 1N } else { 0N }
     _ =>
       return Err(
         make_runtime_error(
@@ -1794,7 +1849,7 @@ fn builtin_oct(
         ),
       )
   }
-  Ok(Value::Str(int_to_base_string(value, 8, "0o")))
+  Ok(Value::Str(bigint_to_base_string(value, 8, "0o")))
 }
 
 ///|
@@ -1820,7 +1875,7 @@ fn builtin_hex(
   }
   let value = match positional[0] {
     Value::Int(v) => v
-    Value::Bool(v) => if v { 1L } else { 0L }
+    Value::Bool(v) => if v { 1N } else { 0N }
     _ =>
       return Err(
         make_runtime_error(
@@ -1829,7 +1884,7 @@ fn builtin_hex(
         ),
       )
   }
-  Ok(Value::Str(int_to_base_string(value, 16, "0x")))
+  Ok(Value::Str(bigint_to_base_string(value, 16, "0x")))
 }
 
 ///|
@@ -2008,9 +2063,15 @@ fn builtin_id(
   let value = positional[0]
   match value {
     Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
-    Value::Str(text) => Ok(Value::Int(hash_string(text)))
-    _ => Ok(Value::Int(hash_string(value_to_string(value))))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    Value::Str(text) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
+    _ =>
+      Ok(
+        Value::Int(
+          @bigint.BigInt::from_int64(hash_string(value_to_string(value))),
+        ),
+      )
   }
 }
 
@@ -2036,11 +2097,12 @@ fn builtin_hash(
     )
   }
   match positional[0] {
-    Value::None => Ok(Value::Int(0L))
-    Value::Bool(v) => Ok(Value::Int(if v { 1L } else { 0L }))
+    Value::None => Ok(Value::Int(0N))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Int(v) => Ok(Value::Int(v))
-    Value::Float(v) => Ok(Value::Int(v.to_int64()))
-    Value::Str(text) => Ok(Value::Int(hash_string(text)))
+    Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
+    Value::Str(text) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
     other =>
       Err(
         make_runtime_error(

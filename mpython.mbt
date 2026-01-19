@@ -181,25 +181,23 @@ fn parse_decimal_int(text : String) -> Int {
 
 ///|
 fn fstring_int_to_base_string(
-  value : Int64,
+  value : @bigint.BigInt,
   base : Int,
   uppercase : Bool,
 ) -> String {
-  if value == 0L {
+  if value == 0N {
     return "0"
   }
+  let digits_table : Array[Char] = "0123456789abcdef".to_array()
+  let upper_table : Array[Char] = "0123456789ABCDEF".to_array()
+  let table = if uppercase { upper_table } else { digits_table }
   let mut n = value
+  let b = @bigint.BigInt::from_int(base)
   let digits : Array[Char] = []
-  while n > 0L {
-    let d = (n % base.to_int64()).to_int()
-    let c = if d < 10 {
-      (48 + d).to_char().unwrap_or('0')
-    } else {
-      let offset = if uppercase { 55 } else { 87 }
-      (offset + d).to_char().unwrap_or('0')
-    }
-    digits.push(c)
-    n = n / base.to_int64()
+  while n > 0N {
+    let d = (n % b).to_int()
+    digits.push(table[d])
+    n = n / b
   }
   let buf = StringBuilder::new()
   let mut i = digits.length()
@@ -211,7 +209,7 @@ fn fstring_int_to_base_string(
 }
 
 ///|
-fn format_int_with_spec(value : Int64, spec : String) -> String? {
+fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
   if spec.length() == 0 {
     return None
   }
@@ -243,7 +241,7 @@ fn format_int_with_spec(value : Int64, spec : String) -> String? {
   if i + 1 != chars.length() {
     return None
   }
-  let neg = value < 0L
+  let neg = value < 0N
   let abs_value = if neg { -value } else { value }
   let (prefix, base, uppercase, decimal) = match typ {
     'd' => ("", 10, false, true)
@@ -298,8 +296,20 @@ fn eval_binary_op_values(
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b))
-        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_double() + b))
-        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b.to_double()))
+        (Value::Int(a), Value::Float(b)) => {
+          let aa = match bigint_to_double_checked(a) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(aa + b))
+        }
+        (Value::Float(a), Value::Int(b)) => {
+          let bb = match bigint_to_double_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(a + bb))
+        }
         (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + b))
         (Value::List(a), Value::List(b)) => {
           let merged : Array[Value] = []
@@ -348,35 +358,71 @@ fn eval_binary_op_values(
           )
         }
       }
-    BinaryOp::Sub => {
-      let (left_is_float, left_num) = match number_value(left_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+    BinaryOp::Sub =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b))
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b))
+        (Value::Int(a), Value::Float(b)) => {
+          let aa = match bigint_to_double_checked(a) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(aa - b))
+        }
+        (Value::Float(a), Value::Int(b)) => {
+          let bb = match bigint_to_double_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(a - bb))
+        }
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1N } else { 0N }) - (if b { 1N } else { 0N })))
+        (Value::Bool(a), Value::Int(b)) =>
+          Ok(Value::Int((if a { 1N } else { 0N }) - b))
+        (Value::Int(a), Value::Bool(b)) =>
+          Ok(Value::Int(a - (if b { 1N } else { 0N })))
+        (Value::Bool(a), Value::Float(b)) =>
+          Ok(Value::Float((if a { 1.0 } else { 0.0 }) - b))
+        (Value::Float(a), Value::Bool(b)) =>
+          Ok(Value::Float(a - (if b { 1.0 } else { 0.0 })))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unsupported operand type for -".to_string(),
+            ),
+          )
       }
-      let (right_is_float, right_num) = match number_value(right_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let result = left_num - right_num
-      if left_is_float || right_is_float {
-        Ok(Value::Float(result))
-      } else {
-        Ok(Value::Int(result.to_int64()))
-      }
-    }
     BinaryOp::Mul =>
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b))
-        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a.to_double() * b))
-        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b.to_double()))
+        (Value::Int(a), Value::Float(b)) => {
+          let aa = match bigint_to_double_checked(a) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(aa * b))
+        }
+        (Value::Float(a), Value::Int(b)) => {
+          let bb = match bigint_to_double_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Float(a * bb))
+        }
         (Value::Str(text), Value::Int(count))
         | (Value::Int(count), Value::Str(text)) =>
-          if count <= 0L {
+          if count <= 0N {
             Ok(Value::Str(""))
           } else {
             let buf = StringBuilder::new()
-            for i = 0; i < count.to_int(); i = i + 1 {
+            let count_i = match bigint_to_int_checked(count) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for i = 0; i < count_i; i = i + 1 {
               buf.write_string(text)
             }
             Ok(Value::Str(buf.to_string()))
@@ -408,55 +454,153 @@ fn eval_binary_op_values(
       }
       Ok(Value::Float(left_num / right_num))
     }
-    BinaryOp::FloorDiv => {
-      let (left_is_float, left_num) = match number_value(left_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let (right_is_float, right_num) = match number_value(right_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      if right_num == 0.0 {
-        let msg = if left_is_float || right_is_float {
-          "float floor division by zero".to_string()
-        } else {
-          "integer division or modulo by zero".to_string()
+    BinaryOp::FloorDiv =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => {
+          if b == 0N {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "integer division or modulo by zero".to_string(),
+              ),
+            )
+          }
+          let q0 = a / b
+          let r0 = a % b
+          let q = if r0 != 0N && (r0 < 0N) != (b < 0N) { q0 - 1N } else { q0 }
+          Ok(Value::Int(q))
         }
-        return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
-      }
-      Ok(Value::Int((left_num / right_num).floor().to_int64()))
-    }
-    BinaryOp::Mod => {
-      let (left_is_float, left_num) = match number_value(left_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let (right_is_float, right_num) = match number_value(right_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      if right_num == 0.0 {
-        let msg = if left_is_float || right_is_float {
-          "float modulo".to_string()
-        } else {
-          "integer modulo by zero".to_string()
+        (Value::Bool(a), Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::FloorDiv,
+            Value::Int(if a { 1N } else { 0N }),
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
+        (Value::Bool(a), Value::Int(b)) =>
+          eval_binary_op_values(
+            BinaryOp::FloorDiv,
+            Value::Int(if a { 1N } else { 0N }),
+            Value::Int(b),
+            globals,
+            builtins,
+            io,
+          )
+        (Value::Int(a), Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::FloorDiv,
+            Value::Int(a),
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
+        _ => {
+          let (left_is_float, left_num) = match number_value(left_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let (right_is_float, right_num) = match number_value(right_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if right_num == 0.0 {
+            let msg = if left_is_float || right_is_float {
+              "float floor division by zero".to_string()
+            } else {
+              "integer division or modulo by zero".to_string()
+            }
+            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
+          }
+          Ok(Value::Float((left_num / right_num).floor()))
         }
-        return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
       }
-      Ok(Value::Float(left_num % right_num))
-    }
+    BinaryOp::Mod =>
+      match (left_val, right_val) {
+        (Value::Int(a), Value::Int(b)) => {
+          if b == 0N {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "integer modulo by zero".to_string(),
+              ),
+            )
+          }
+          let q0 = a / b
+          let r0 = a % b
+          let needs_adjust = r0 != 0N && (r0 < 0N) != (b < 0N)
+          let r = if needs_adjust { r0 + b } else { r0 }
+          Ok(Value::Int(r))
+        }
+        (Value::Bool(a), Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::Mod,
+            Value::Int(if a { 1N } else { 0N }),
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
+        (Value::Bool(a), Value::Int(b)) =>
+          eval_binary_op_values(
+            BinaryOp::Mod,
+            Value::Int(if a { 1N } else { 0N }),
+            Value::Int(b),
+            globals,
+            builtins,
+            io,
+          )
+        (Value::Int(a), Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::Mod,
+            Value::Int(a),
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
+        _ => {
+          let (left_is_float, left_num) = match number_value(left_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let (right_is_float, right_num) = match number_value(right_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if right_num == 0.0 {
+            let msg = if left_is_float || right_is_float {
+              "float modulo".to_string()
+            } else {
+              "integer modulo by zero".to_string()
+            }
+            return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
+          }
+          Ok(Value::Float(left_num % right_num))
+        }
+      }
     BinaryOp::Pow =>
       match (left_val, right_val) {
         (Value::Int(left), Value::Int(right)) =>
-          if right < 0L {
-            Ok(Value::Float(Double::pow(left.to_double(), right.to_double())))
+          if right < 0N {
+            Ok(
+              Value::Float(
+                Double::pow(
+                  match bigint_to_double_checked(left) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  },
+                  match bigint_to_double_checked(right) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  },
+                ),
+              ),
+            )
           } else {
-            let mut result = 1L
-            for i = 0; i < right.to_int(); i = i + 1 {
-              result = result * left
-            }
-            Ok(Value::Int(result))
+            Ok(Value::Int(left.pow(right)))
           }
         _ => {
           let (_, left_num) = match number_value(left_val) {
@@ -479,13 +623,24 @@ fn eval_binary_op_values(
       )
     BinaryOp::ShiftLeft =>
       match (left_val, right_val) {
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b.to_int()))
-        (Value::Bool(a), Value::Int(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) << b.to_int()))
+        (Value::Int(a), Value::Int(b)) => {
+          let bb = match bigint_to_int_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int(a << bb))
+        }
+        (Value::Bool(a), Value::Int(b)) => {
+          let bb = match bigint_to_int_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int((if a { 1N } else { 0N }) << bb))
+        }
         (Value::Int(a), Value::Bool(b)) =>
           Ok(Value::Int(a << (if b { 1 } else { 0 })))
         (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) << (if b { 1 } else { 0 })))
+          Ok(Value::Int((if a { 1N } else { 0N }) << (if b { 1 } else { 0 })))
         _ =>
           Err(
             make_runtime_error(
@@ -496,13 +651,24 @@ fn eval_binary_op_values(
       }
     BinaryOp::ShiftRight =>
       match (left_val, right_val) {
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b.to_int()))
-        (Value::Bool(a), Value::Int(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) >> b.to_int()))
+        (Value::Int(a), Value::Int(b)) => {
+          let bb = match bigint_to_int_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int(a >> bb))
+        }
+        (Value::Bool(a), Value::Int(b)) => {
+          let bb = match bigint_to_int_checked(b) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int((if a { 1N } else { 0N }) >> bb))
+        }
         (Value::Int(a), Value::Bool(b)) =>
           Ok(Value::Int(a >> (if b { 1 } else { 0 })))
         (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) >> (if b { 1 } else { 0 })))
+          Ok(Value::Int((if a { 1N } else { 0N }) >> (if b { 1 } else { 0 })))
         _ =>
           Err(
             make_runtime_error(
@@ -515,11 +681,11 @@ fn eval_binary_op_values(
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b))
         (Value::Bool(a), Value::Int(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) & b))
+          Ok(Value::Int((if a { 1N } else { 0N }) & b))
         (Value::Int(a), Value::Bool(b)) =>
-          Ok(Value::Int(a & (if b { 1L } else { 0L })))
+          Ok(Value::Int(a & (if b { 1N } else { 0N })))
         (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) & (if b { 1L } else { 0L })))
+          Ok(Value::Int((if a { 1N } else { 0N }) & (if b { 1N } else { 0N })))
         _ =>
           Err(
             make_runtime_error(
@@ -532,11 +698,11 @@ fn eval_binary_op_values(
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b))
         (Value::Bool(a), Value::Int(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) ^ b))
+          Ok(Value::Int((if a { 1N } else { 0N }) ^ b))
         (Value::Int(a), Value::Bool(b)) =>
-          Ok(Value::Int(a ^ (if b { 1L } else { 0L })))
+          Ok(Value::Int(a ^ (if b { 1N } else { 0N })))
         (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) ^ (if b { 1L } else { 0L })))
+          Ok(Value::Int((if a { 1N } else { 0N }) ^ (if b { 1N } else { 0N })))
         _ =>
           Err(
             make_runtime_error(
@@ -549,11 +715,11 @@ fn eval_binary_op_values(
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b))
         (Value::Bool(a), Value::Int(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) | b))
+          Ok(Value::Int((if a { 1N } else { 0N }) | b))
         (Value::Int(a), Value::Bool(b)) =>
-          Ok(Value::Int(a | (if b { 1L } else { 0L })))
+          Ok(Value::Int(a | (if b { 1N } else { 0N })))
         (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1L } else { 0L }) | (if b { 1L } else { 0L })))
+          Ok(Value::Int((if a { 1N } else { 0N }) | (if b { 1N } else { 0N })))
         _ =>
           Err(
             make_runtime_error(
@@ -1372,15 +1538,19 @@ fn eval_expr_with_env(
           if is_float {
             Ok(Value::Float(-num))
           } else {
-            Ok(Value::Int(-num.to_int64()))
+            match value {
+              Value::Int(v) => Ok(Value::Int(-v))
+              Value::Bool(v) => Ok(Value::Int(-(if v { 1N } else { 0N })))
+              _ => Ok(Value::Int(-@bigint.BigInt::from_int64(num.to_int64())))
+            }
           }
         }
         UnaryOp::Pos => Ok(value)
         UnaryOp::Not => Ok(Value::Bool(!bool_from_value(value)))
         UnaryOp::Invert =>
           match value {
-            Value::Int(v) => Ok(Value::Int(-(v + 1L)))
-            Value::Bool(v) => Ok(Value::Int(-((if v { 1L } else { 0L }) + 1L)))
+            Value::Int(v) => Ok(Value::Int(-(v + 1N)))
+            Value::Bool(v) => Ok(Value::Int(-((if v { 1N } else { 0N }) + 1N)))
             Value::Float(_) =>
               Err(
                 make_runtime_error(
@@ -2077,12 +2247,20 @@ fn eval_function_with_kwargs(
         global_names,
         nonlocal_names,
         func.closure,
+        Config::default(),
       ),
     )
   }
   push_closure_env(func.closure)
   push_scope_decls_with_nonlocals(global_names, nonlocal_names)
-  let result = eval_block(func.body, locals, globals, builtins, io)
+  let result = eval_block(
+    func.body,
+    locals,
+    globals,
+    builtins,
+    io,
+    Config::default(),
+  )
   pop_scope_decls()
   pop_closure_env()
   result
@@ -2253,7 +2431,8 @@ fn eval_function(
     let value = if i < args.length() { args[i] } else { Value::None }
     locals.push((func.params[i], value))
   }
-  let result = match eval_block(func.body, locals, globals, builtins, io) {
+  let result = match
+    eval_block(func.body, locals, globals, builtins, io, Config::default()) {
     Ok(value) => value
     Err(err) => return Err(err)
   }

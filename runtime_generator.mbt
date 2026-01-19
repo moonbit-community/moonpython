@@ -46,16 +46,20 @@ let generator_registry : Ref[Array[Ref[GeneratorState]]] = { val: [] }
 fn make_generator_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "generator", bases: [], dict: [] },
-    dict: [("id", Value::Int(id.to_int64()))],
+    dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }
 
 ///|
-fn generator_id_from_instance(inst : InstanceValue) -> Int? {
+fn generator_id_from_instance(inst : InstanceValue) -> Result[Int?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
-    Some(Value::Int(v)) => Some(v.to_int())
-    Some(Value::Bool(v)) => Some(if v { 1 } else { 0 })
-    _ => None
+    Some(Value::Int(v)) =>
+      match bigint_to_int_checked(v) {
+        Ok(i) => Ok(Some(i))
+        Err(err) => Err(err)
+      }
+    Some(Value::Bool(v)) => Ok(Some(if v { 1 } else { 0 }))
+    _ => Ok(None)
   }
 }
 
@@ -130,7 +134,11 @@ fn generator_state_from_value(
           ),
         )
       } else {
-        let id = match generator_id_from_instance(inst) {
+        let id_opt = match generator_id_from_instance(inst) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let id = match id_opt {
           Some(id) => id
           None =>
             return Err(

@@ -57,11 +57,15 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
         }
         let pos = match lookup_iterable_field(inst.dict, "pos") {
           Some(Value::Int(v)) => v
-          Some(Value::Bool(v)) => if v { 1L } else { 0L }
-          _ => 0L
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
         }
         let out : Array[Value] = []
-        let mut i = pos.to_int()
+        let start = match bigint_to_int_checked(pos) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let mut i = start
         while i < items.length() {
           out.push(items[i])
           i = i + 1
@@ -69,7 +73,7 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
         set_iterable_field(
           inst.dict,
           "pos",
-          Value::Int(items.length().to_int64()),
+          Value::Int(@bigint.BigInt::from_int(items.length())),
         )
         Ok(out)
       } else if inst.class.name == "generator" {

@@ -9,7 +9,7 @@ fn make_iterator(items_in : Array[Value]) -> Value {
   }
   let dict : Array[(String, Value)] = []
   dict.push(("items", Value::List(items)))
-  dict.push(("pos", Value::Int(0L)))
+  dict.push(("pos", Value::Int(0N)))
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "iterator", bases: [], dict: [] },
     dict,
@@ -55,12 +55,16 @@ fn iterator_next(
         }
         let pos = match pos_value {
           Some(Value::Int(v)) => v
-          Some(Value::Bool(v)) => if v { 1L } else { 0L }
-          _ => 0L
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
         }
-        if pos < items.length().to_int64() {
-          let item = items[pos.to_int()]
-          set_named_value(inst.dict, "pos", Value::Int(pos + 1L))
+        if pos < @bigint.BigInt::from_int(items.length()) {
+          let idx = match bigint_to_int_checked(pos) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let item = items[idx]
+          set_named_value(inst.dict, "pos", Value::Int(pos + 1N))
           Ok(item)
         } else {
           match default_value {

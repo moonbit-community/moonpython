@@ -16,7 +16,14 @@ fn function_stub(name : String) -> Value {
 
 ///|
 pub fn Config::default() -> Config {
-  Config::{ max_recursion: 1000, traceback_limit: 20, track_spans: true }
+  Config::{
+    max_recursion: 1000,
+    traceback_limit: 20,
+    track_spans: true,
+    allow_filesystem_imports: false,
+    import_paths: [],
+    main_path: None,
+  }
 }
 
 ///|
@@ -62,7 +69,15 @@ pub fn MockIO::take_stderr(self : MockIO) -> String {
 
 ///|
 pub fn Interpreter::new() -> Interpreter {
-  Interpreter::with_io(Config::default(), MockIO::new([]))
+  let config = Config::{
+    max_recursion: 1000,
+    traceback_limit: 20,
+    track_spans: true,
+    allow_filesystem_imports: true,
+    import_paths: [],
+    main_path: None,
+  }
+  Interpreter::with_io(config, MockIO::new([]))
 }
 
 ///|
@@ -185,6 +200,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let overflow_error_class = ClassValue::{
+    name: "OverflowError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let value_error_class = ClassValue::{
     name: "ValueError",
     bases: [Value::Class(exception_class)],
@@ -285,6 +305,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("KeyError", Value::Class(key_error_class)),
     ("NotImplementedError", Value::Class(not_implemented_error_class)),
     ("ZeroDivisionError", Value::Class(zero_division_error_class)),
+    ("OverflowError", Value::Class(overflow_error_class)),
     ("ValueError", Value::Class(value_error_class)),
     ("ImportError", Value::Class(import_error_class)),
     ("AssertionError", Value::Class(assertion_error_class)),
@@ -309,7 +330,14 @@ pub fn Interpreter::exec(
 ) -> Result[RunResult, RuntimeError] {
   ensure_runtime_callbacks_ready()
   let value = match
-    eval_block(program.body, self.globals, self.globals, self.builtins, self.io) {
+    eval_block(
+      program.body,
+      self.globals,
+      self.globals,
+      self.builtins,
+      self.io,
+      self.config,
+    ) {
     Ok(value) => value
     Err(err) => return Err(err)
   }

@@ -3,7 +3,7 @@
 
 ///|
 priv enum TokenKind {
-  IntLit(Int64)
+  IntLit(@bigint.BigInt)
   FloatLit(Double)
   ComplexLit
   StrLit(String)
@@ -284,7 +284,7 @@ fn digit_value(c : Char) -> Int? {
 }
 
 ///|
-fn parse_int_literal(text : String) -> Int64 {
+fn parse_int_literal(text : String) -> @bigint.BigInt {
   let cleaned = strip_underscores(text)
   let chars = cleaned.to_array()
   let mut start = 0
@@ -309,14 +309,15 @@ fn parse_int_literal(text : String) -> Int64 {
       }
     }
   }
-  let mut value = 0L
+  let mut value = 0N
   for i = start; i < chars.length(); i = i + 1 {
     let d = digit_value(chars[i])
     if d is Some(d) {
       if d >= base {
         break
       }
-      value = value * base.to_int64() + d.to_int64()
+      value = value * @bigint.BigInt::from_int(base) +
+        @bigint.BigInt::from_int(d)
     } else {
       break
     }

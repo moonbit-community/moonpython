@@ -14,7 +14,7 @@ fn normalize_index(index : Int, length : Int) -> Int {
 fn index_from_value(value : Value, default : Int) -> Result[Int, RuntimeError] {
   match value {
     Value::None => Ok(default)
-    Value::Int(v) => Ok(v.to_int())
+    Value::Int(v) => bigint_to_int_checked(v)
     Value::Bool(v) => Ok(if v { 1 } else { 0 })
     Value::Float(v) => Ok(v.to_int())
     _ =>

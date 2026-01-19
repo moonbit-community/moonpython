@@ -11,6 +11,7 @@ priv struct CoroutineState {
   global_names : Array[String]
   nonlocal_names : Array[String]
   closure : Array[(String, Value)]
+  config : Config
   mut done : Bool
 }
 
@@ -29,16 +30,20 @@ fn coroutine_is_active() -> Bool {
 fn make_coroutine_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "coroutine", bases: [], dict: [] },
-    dict: [("id", Value::Int(id.to_int64()))],
+    dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }
 
 ///|
-fn coroutine_id_from_instance(inst : InstanceValue) -> Int? {
+fn coroutine_id_from_instance(inst : InstanceValue) -> Result[Int?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
-    Some(Value::Int(v)) => Some(v.to_int())
-    Some(Value::Bool(v)) => Some(if v { 1 } else { 0 })
-    _ => None
+    Some(Value::Int(v)) =>
+      match bigint_to_int_checked(v) {
+        Ok(i) => Ok(Some(i))
+        Err(err) => Err(err)
+      }
+    Some(Value::Bool(v)) => Ok(Some(if v { 1 } else { 0 }))
+    _ => Ok(None)
   }
 }
 
@@ -56,7 +61,11 @@ fn coroutine_state_from_value(
           ),
         )
       } else {
-        let id = match coroutine_id_from_instance(inst) {
+        let id_opt = match coroutine_id_from_instance(inst) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let id = match id_opt {
           Some(id) => id
           None =>
             return Err(
@@ -98,6 +107,7 @@ fn coroutine_new(
   global_names : Array[String],
   nonlocal_names : Array[String],
   closure : Array[(String, Value)],
+  config : Config,
 ) -> Value {
   let state : Ref[CoroutineState] = {
     val: CoroutineState::{
@@ -109,6 +119,7 @@ fn coroutine_new(
       global_names,
       nonlocal_names,
       closure,
+      config,
       done: false,
     },
   }
@@ -143,6 +154,7 @@ fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
     state.val.globals,
     state.val.builtins,
     state.val.io,
+    state.val.config,
   )
   coroutine_active_depth.val = coroutine_active_depth.val - 1
   pop_scope_decls()

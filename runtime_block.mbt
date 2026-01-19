@@ -265,6 +265,7 @@ fn eval_block_flow(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
+  config : Config,
   loop_depth : Int,
 ) -> Result[BlockFlow, RuntimeError] {
   let mut last = Value::None
@@ -669,59 +670,52 @@ fn eval_block_flow(
         }
         last = Value::None
       }
-      Stmt::Import(module~, alias~) =>
-        if module == "math" {
-          let binding = match alias {
-            Some(name) => name
-            None => module
-          }
-          set_scoped_value(locals, globals, binding, make_math_module())
-          last = Value::None
-        } else {
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "ImportError: module " + module + " is not allowed",
-            ),
-          )
+      Stmt::Import(module~, alias~) => {
+        let module_value = match
+          import_module(module, globals, builtins, io, config) {
+          Ok(v) => v
+          Err(err) => return Err(err)
         }
-      Stmt::FromImport(module~, names~) =>
-        if module == "math" {
-          let module_value = make_math_module()
-          for item in names {
-            let name = item.0
-            let alias_opt = item.1
-            if name == "*" {
-              match module_value {
-                Value::Instance(inst) =>
-                  for pair in inst.dict {
-                    if pair.0 != "__name__" && !pair.0.has_prefix("_") {
-                      set_scoped_value(locals, globals, pair.0, pair.1)
-                    }
+        let binding = match alias {
+          Some(name) => name
+          None => module
+        }
+        set_scoped_value(locals, globals, binding, module_value)
+        last = Value::None
+      }
+      Stmt::FromImport(module~, names~) => {
+        let module_value = match
+          import_module(module, globals, builtins, io, config) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        for item in names {
+          let name = item.0
+          let alias_opt = item.1
+          if name == "*" {
+            match module_value {
+              Value::Instance(inst) =>
+                for pair in inst.dict {
+                  if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                    set_scoped_value(locals, globals, pair.0, pair.1)
                   }
-                _ => ()
-              }
-              continue
+                }
+              _ => ()
             }
-            let imported = match get_attr_from_value(module_value, name) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let binding = match alias_opt {
-              Some(alias) => alias
-              None => name
-            }
-            set_scoped_value(locals, globals, binding, imported)
+            continue
           }
-          last = Value::None
-        } else {
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "ImportError: module " + module + " is not allowed",
-            ),
-          )
+          let imported = match get_attr_from_value(module_value, name) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let binding = match alias_opt {
+            Some(alias) => alias
+            None => name
+          }
+          set_scoped_value(locals, globals, binding, imported)
         }
+        last = Value::None
+      }
       Stmt::With(context~, target~, body~) => {
         let ctx_value = match
           eval_expr_with_env(context, locals, globals, builtins, io) {
@@ -746,7 +740,7 @@ fn eval_block_flow(
           Err(err) => return Err(err)
         }
         let body_result = eval_block_flow(
-          body, locals, globals, builtins, io, loop_depth,
+          body, locals, globals, builtins, io, config, loop_depth,
         )
         match body_result {
           Ok(flow) => {
@@ -800,11 +794,13 @@ fn eval_block_flow(
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
         let outcome : Result[BlockFlow, RuntimeError] = match
-          eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+          eval_block_flow(
+            body, locals, globals, builtins, io, config, loop_depth,
+          ) {
           Ok(flow) =>
             if flow is BlockFlow::Normal(_) && else_body.length() > 0 {
               eval_block_flow(
-                else_body, locals, globals, builtins, io, loop_depth,
+                else_body, locals, globals, builtins, io, config, loop_depth,
               )
             } else {
               Ok(flow)
@@ -882,7 +878,7 @@ fn eval_block_flow(
               }
               active_exception_stack.val.push(err)
               let next_result = eval_block_flow(
-                handler_body, locals, globals, builtins, io, loop_depth,
+                handler_body, locals, globals, builtins, io, config, loop_depth,
               )
               let _ = active_exception_stack.val.pop()
               handled_result = next_result
@@ -900,7 +896,7 @@ fn eval_block_flow(
         if finally_body.length() > 0 {
           match
             eval_block_flow(
-              finally_body, locals, globals, builtins, io, loop_depth,
+              finally_body, locals, globals, builtins, io, config, loop_depth,
             ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
@@ -995,7 +991,7 @@ fn eval_block_flow(
         }
         let flow = match
           eval_block_flow(
-            body, class_dict, lookup_globals, builtins, io, loop_depth,
+            body, class_dict, lookup_globals, builtins, io, config, loop_depth,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -1045,7 +1041,15 @@ fn eval_block_flow(
             break
           }
           match
-            eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
+            eval_block_flow(
+              body,
+              locals,
+              globals,
+              builtins,
+              io,
+              config,
+              loop_depth + 1,
+            ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Continue) => continue
             Ok(BlockFlow::Break) => {
@@ -1059,7 +1063,7 @@ fn eval_block_flow(
         if !broke && else_body.length() > 0 {
           match
             eval_block_flow(
-              else_body, locals, globals, builtins, io, loop_depth,
+              else_body, locals, globals, builtins, io, config, loop_depth,
             ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
@@ -1097,7 +1101,15 @@ fn eval_block_flow(
             Err(err) => return Err(err)
           }
           match
-            eval_block_flow(body, locals, globals, builtins, io, loop_depth + 1) {
+            eval_block_flow(
+              body,
+              locals,
+              globals,
+              builtins,
+              io,
+              config,
+              loop_depth + 1,
+            ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Continue) => continue
             Ok(BlockFlow::Break) => {
@@ -1111,7 +1123,7 @@ fn eval_block_flow(
         if !broke && else_body.length() > 0 {
           match
             eval_block_flow(
-              else_body, locals, globals, builtins, io, loop_depth,
+              else_body, locals, globals, builtins, io, config, loop_depth,
             ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
@@ -1175,7 +1187,7 @@ fn eval_block_flow(
               if guard_ok {
                 match
                   eval_block_flow(
-                    case_body, locals, globals, builtins, io, loop_depth,
+                    case_body, locals, globals, builtins, io, config, loop_depth,
                   ) {
                   Ok(BlockFlow::Normal(_)) => ()
                   Ok(BlockFlow::Return(value)) =>
@@ -1208,7 +1220,9 @@ fn eval_block_flow(
         }
         if bool_from_value(cond_value) {
           match
-            eval_block_flow(body, locals, globals, builtins, io, loop_depth) {
+            eval_block_flow(
+              body, locals, globals, builtins, io, config, loop_depth,
+            ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
             Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
@@ -1218,7 +1232,7 @@ fn eval_block_flow(
         } else {
           match
             eval_block_flow(
-              else_body, locals, globals, builtins, io, loop_depth,
+              else_body, locals, globals, builtins, io, config, loop_depth,
             ) {
             Ok(BlockFlow::Normal(_)) => ()
             Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
@@ -1248,8 +1262,9 @@ fn eval_block(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
+  config : Config,
 ) -> Result[Value, RuntimeError] {
-  match eval_block_flow(body, locals, globals, builtins, io, 0) {
+  match eval_block_flow(body, locals, globals, builtins, io, config, 0) {
     Ok(BlockFlow::Normal(value)) => Ok(value)
     Ok(BlockFlow::Return(value)) => Ok(value)
     Ok(BlockFlow::Break) =>

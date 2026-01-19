@@ -3133,7 +3133,11 @@ fn parse_pattern(
     }
   }
   if all_digits {
-    return Ok(Pattern::Literal(Literal::Int(parse_int64_digits(trimmed))))
+    return Ok(
+      Pattern::Literal(
+        Literal::Int(@bigint.BigInt::from_int64(parse_int64_digits(trimmed))),
+      ),
+    )
   }
   let is_tuple = trimmed.contains(",") ||
     (chars.length() >= 2 && chars[0] == '(' && chars[chars.length() - 1] == ')')

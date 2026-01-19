@@ -6,7 +6,7 @@ fn bool_from_value(value : Value) -> Bool {
   match value {
     Value::None => false
     Value::Bool(v) => v
-    Value::Int(v) => v != 0L
+    Value::Int(v) => v != 0N
     Value::Float(v) => v != 0.0
     Value::Str(v) => v.length() > 0
     Value::List(v) => v.length() > 0
@@ -56,6 +56,7 @@ fn is_exception_class_name(name : String) -> Bool {
   name == "KeyError" ||
   name == "NotImplementedError" ||
   name == "ZeroDivisionError" ||
+  name == "OverflowError" ||
   name == "ValueError" ||
   name == "ImportError" ||
   name == "AssertionError" ||
@@ -505,9 +506,120 @@ fn eq_value(a : Value, b : Value) -> Bool {
 }
 
 ///|
+fn bigint_to_int_checked(v : @bigint.BigInt) -> Result[Int, RuntimeError] {
+  let min : Int = -0x80000000
+  let max : Int = 0x7fffffff
+  if v.compare_int(min) < 0 || v.compare_int(max) > 0 {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "OverflowError: cannot fit 'int' into an index-sized integer".to_string(),
+      ),
+    )
+  } else {
+    Ok(v.to_int())
+  }
+}
+
+///|
+fn bigint_to_int64_checked(v : @bigint.BigInt) -> Result[Int64, RuntimeError] {
+  let min : Int64 = -0x8000000000000000L
+  let max : Int64 = 0x7fffffffffffffffL
+  if v.compare_int64(min) < 0 || v.compare_int64(max) > 0 {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "OverflowError: int too large to convert to int64".to_string(),
+      ),
+    )
+  } else {
+    Ok(v.to_int64())
+  }
+}
+
+///|
+fn bigint_to_double_checked(v : @bigint.BigInt) -> Result[Double, RuntimeError] {
+  // CPython-like integer -> float conversion:
+  // - exact for <= 53 bits
+  // - round to nearest, ties to even
+  // - overflow to inf raises OverflowError
+  if v == 0N {
+    return Ok(0.0)
+  }
+
+  let neg = v < 0N
+  let abs = if neg { -v } else { v }
+  let nbits = abs.bit_length()
+
+  // Largest finite double is < 2^1024.
+  // If abs >= 2^1024, conversion overflows.
+  if nbits > 1024 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "OverflowError: int too large to convert to float".to_string(),
+      ),
+    )
+  }
+
+  // Extract the top 53 bits (implicit 1 + 52 mantissa bits), then round.
+  let shift = nbits - 53
+  let mut top53 = if shift > 0 {
+    abs >> shift
+  } else if shift < 0 {
+    abs << (-shift)
+  } else {
+    abs
+  }
+  let mut exp = nbits - 1
+
+  if shift > 0 {
+    let dropped = abs - (top53 << shift)
+    let half = 1N << (shift - 1)
+    let round_up =
+      if dropped > half {
+        true
+      } else if dropped < half {
+        false
+      } else {
+        // tie: round to even
+        (top53 & 1N) != 0N
+      }
+    if round_up {
+      top53 = top53 + 1N
+      // carry out of the 53-bit window
+      if top53 == (1N << 53) {
+        top53 = top53 >> 1
+        exp = exp + 1
+        if exp > 1023 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "OverflowError: int too large to convert to float".to_string(),
+            ),
+          )
+        }
+      }
+    }
+  }
+
+  // Build IEEE-754 bits.
+  let mantissa_mask = (1N << 52) - 1N
+  let mantissa = (top53 & mantissa_mask).to_uint64()
+  let exponent_bits : UInt64 = (exp + 1023).to_uint64()
+  let sign_bits : UInt64 = if neg { 1UL << 63 } else { 0UL }
+  let bits = sign_bits | (exponent_bits << 52) | mantissa
+  Ok(bits.reinterpret_as_double())
+}
+
+///|
 fn number_value(value : Value) -> Result[(Bool, Double), RuntimeError] {
   match value {
-    Value::Int(v) => Ok((false, v.to_double()))
+    Value::Int(v) =>
+      match bigint_to_double_checked(v) {
+        Ok(d) => Ok((false, d))
+        Err(err) => Err(err)
+      }
     Value::Float(v) => Ok((true, v))
     Value::Bool(v) => Ok((false, if v { 1.0 } else { 0.0 }))
     _ =>
