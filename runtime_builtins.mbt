@@ -2342,12 +2342,18 @@ fn builtin_dir(
         out.push(Value::Str(pair.0))
       }
       for pair in inst.class.dict {
-        out.push(Value::Str(pair.0))
+        // Hide implementation detail used to support zero-arg super().
+        if pair.0 != "__class__" {
+          out.push(Value::Str(pair.0))
+        }
       }
     }
     Value::Class(klass) =>
       for pair in klass.dict {
-        out.push(Value::Str(pair.0))
+        // Hide implementation detail used to support zero-arg super().
+        if pair.0 != "__class__" {
+          out.push(Value::Str(pair.0))
+        }
       }
     _ => ()
   }
@@ -2501,19 +2507,52 @@ fn builtin_super(
     Err(err) => return Err(err)
   }
   let _ = io
-  let _ = locals
 
-  // Minimal: only support super(type, obj)
-  if positional.length() != 2 {
+  // Support:
+  // - super(type, obj)
+  // - super() best-effort: uses closure __class__ and locals "self" / "cls"
+  let mut thisclass_value : Value = Value::None
+  let mut self_value : Value = Value::None
+
+  if positional.length() == 0 {
+    let cls_opt = get_from_env("__class__", locals, globals, builtins)
+    if cls_opt is None {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: super(): no __class__ in scope".to_string(),
+        ),
+      )
+    }
+    thisclass_value = cls_opt.unwrap()
+
+    let self_opt = get_from_env("self", locals, globals, builtins)
+    let cls_opt2 = get_from_env("cls", locals, globals, builtins)
+    if self_opt is Some(v) {
+      self_value = v
+    } else if cls_opt2 is Some(v) {
+      self_value = v
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: super(): no self/cls in scope".to_string(),
+        ),
+      )
+    }
+  } else if positional.length() == 2 {
+    thisclass_value = positional[0]
+    self_value = positional[1]
+  } else {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "super() takes exactly two arguments".to_string(),
+        "super() takes 0 or 2 arguments".to_string(),
       ),
     )
   }
 
-  let thisclass = match positional[0] {
+  let thisclass = match thisclass_value {
     Value::Class(k) => k
     _ =>
       return Err(
@@ -2523,7 +2562,6 @@ fn builtin_super(
         ),
       )
   }
-  let self_value = positional[1]
 
   // Determine the dynamic class to do MRO search on
   let self_class = match self_value {

@@ -983,6 +983,10 @@ fn eval_block_flow(
         }
         let class_dict : Array[(String, Value)] = []
         class_dict.push(("__module__", Value::Str(module_name)))
+
+        // Best-effort support for zero-arg super(): functions created in this
+        // class body can close over a __class__ cell.
+        ensure_local_cell(class_dict, "__class__", Value::None)
         let lookup_globals : Array[(String, Value)] = []
         for pair in locals {
           lookup_globals.push(pair)
@@ -1008,6 +1012,11 @@ fn eval_block_flow(
             )
         }
         let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+        // Fill the __class__ cell so closures can resolve it (for super()).
+        match get_named_value(klass.dict, "__class__") {
+          Some(cell) => cell_set_value(cell, Value::Class(klass))
+          None => ()
+        }
         let _ = match class_mro(klass) {
           Ok(_) => ()
           Err(err) => return Err(err)
