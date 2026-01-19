@@ -25,6 +25,87 @@ fn stringify_value_with_env(
 }
 
 ///|
+fn hex_digit(n : Int) -> Char {
+  if n < 10 {
+    ('0'.to_int() + n).to_char().unwrap()
+  } else {
+    ('a'.to_int() + (n - 10)).to_char().unwrap()
+  }
+}
+
+///|
+fn hex_width(codepoint : Int, width : Int) -> String {
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < width {
+    let shift = 4 * (width - 1 - i)
+    let digit = (codepoint >> shift) & 0xF
+    buf.write_char(hex_digit(digit))
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn ascii_escape(text : String) -> String {
+  let buf = StringBuilder::new()
+  for ch in text.to_array() {
+    let code = ch.to_int()
+    if code < 0x80 {
+      buf.write_char(ch)
+    } else if code <= 0xFFFF {
+      buf.write_string("\\u")
+      buf.write_string(hex_width(code, 4))
+    } else {
+      buf.write_string("\\U")
+      buf.write_string(hex_width(code, 8))
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn fstring_value_to_text(
+  value : Value,
+  conv : Char?,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[String, RuntimeError] {
+  match conv {
+    None => stringify_value_with_env(value, globals, builtins, io)
+    Some('s') =>
+      match
+        eval_builtin_call("str", [value], [], locals, globals, builtins, io) {
+        Ok(Some(Value::Str(text))) => Ok(text)
+        Ok(Some(other)) => Ok(value_to_string(other))
+        Ok(None) => stringify_value_with_env(value, globals, builtins, io)
+        Err(err) => Err(err)
+      }
+    Some('r') =>
+      match
+        eval_builtin_call("repr", [value], [], locals, globals, builtins, io) {
+        Ok(Some(Value::Str(text))) => Ok(text)
+        Ok(Some(other)) => Ok(value_to_string(other))
+        Ok(None) => stringify_value_with_env(value, globals, builtins, io)
+        Err(err) => Err(err)
+      }
+    Some('a') => {
+      let base = match
+        eval_builtin_call("repr", [value], [], locals, globals, builtins, io) {
+        Ok(Some(Value::Str(text))) => text
+        Ok(Some(other)) => value_to_string(other)
+        Ok(None) => value_to_string(value)
+        Err(err) => return Err(err)
+      }
+      Ok(ascii_escape(base))
+    }
+    Some(_) => stringify_value_with_env(value, globals, builtins, io)
+  }
+}
+
+///|
 fn eval_binary_op_values(
   op : BinaryOp,
   left_val : Value,
@@ -354,31 +435,67 @@ fn eval_expr_with_env(
         let close = close.unwrap()
         let inner = substring(after_open, 0, close)
         let remaining = substring(after_open, close + 1, after_open.length())
-        let expr = match parse_expr(inner) {
-          Ok(value) => value
-          Err(_) =>
-            match find_top_level_format_colon(inner) {
-              Some(pos) => {
-                let expr_text = substring(inner, 0, pos)
-                match parse_expr(expr_text) {
-                  Ok(value) => value
-                  Err(_) => return Ok(Value::Str(text))
-                }
-              }
-              None => return Ok(Value::Str(text))
+        let (expr_and_conv, _format_spec) = match
+          find_top_level_format_colon(inner) {
+          Some(pos) =>
+            (
+              substring(inner, 0, pos),
+              substring(inner, pos + 1, inner.length()),
+            )
+          None => (inner, "".to_string())
+        }
+        let (expr_raw, conv) = match
+          find_top_level_fstring_conversion_bang(expr_and_conv) {
+          Some(pos) =>
+            if pos + 1 < expr_and_conv.length() {
+              let conv_char = expr_and_conv.to_array()[pos + 1]
+              (substring(expr_and_conv, 0, pos), Some(conv_char))
+            } else {
+              (expr_and_conv, None)
             }
+          None => (expr_and_conv, None)
+        }
+        let debug_eq = find_top_level_fstring_debug_equal(expr_raw)
+        let (expr_text, debug_prefix) = match debug_eq {
+          Some(pos) => {
+            let mut prefix_end = pos + 1
+            let chars = expr_raw.to_array()
+            while prefix_end < chars.length() {
+              let c = chars[prefix_end]
+              if c == ' ' || c == '\t' {
+                prefix_end += 1
+              } else {
+                break
+              }
+            }
+            (
+              substring(expr_raw, 0, pos).trim(chars=" \t").to_string(),
+              Some(substring(expr_raw, 0, prefix_end)),
+            )
+          }
+          None => (expr_raw.trim(chars=" \t").to_string(), None)
+        }
+        let expr = match parse_expr(expr_text) {
+          Ok(value) => value
+          Err(_) => return Ok(Value::Str(text))
         }
         let value = match
           eval_expr_with_env(expr, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let text = match
-          stringify_value_with_env(value, globals, builtins, io) {
+        let rendered = match
+          fstring_value_to_text(value, conv, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        buf.write_string(text)
+        match debug_prefix {
+          Some(prefix) => {
+            buf.write_string(prefix)
+            buf.write_string(rendered)
+          }
+          None => buf.write_string(rendered)
+        }
         rest = remaining
       }
       Ok(Value::Str(buf.to_string()))

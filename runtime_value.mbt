@@ -270,6 +270,161 @@ fn find_fstring_expr_close(after_open : String) -> Int? {
 }
 
 ///|
+fn find_top_level_fstring_conversion_bang(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut depth_paren = 0
+  let mut depth_bracket = 0
+  let mut depth_brace = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        continue
+      }
+      None => ()
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      continue
+    }
+    if c == '(' {
+      depth_paren += 1
+      continue
+    }
+    if c == ')' {
+      if depth_paren > 0 {
+        depth_paren -= 1
+      }
+      continue
+    }
+    if c == '[' {
+      depth_bracket += 1
+      continue
+    }
+    if c == ']' {
+      if depth_bracket > 0 {
+        depth_bracket -= 1
+      }
+      continue
+    }
+    if c == '{' {
+      depth_brace += 1
+      continue
+    }
+    if c == '}' {
+      if depth_brace > 0 {
+        depth_brace -= 1
+      }
+      continue
+    }
+    if c == '!' && depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+      if i + 1 < chars.length() {
+        let next = chars[i + 1]
+        if next != '=' {
+          return Some(i)
+        }
+      }
+    }
+  }
+  None
+}
+
+///|
+fn find_top_level_fstring_debug_equal(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut depth_paren = 0
+  let mut depth_bracket = 0
+  let mut depth_brace = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        continue
+      }
+      None => ()
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      continue
+    }
+    if c == '(' {
+      depth_paren += 1
+      continue
+    }
+    if c == ')' {
+      if depth_paren > 0 {
+        depth_paren -= 1
+      }
+      continue
+    }
+    if c == '[' {
+      depth_bracket += 1
+      continue
+    }
+    if c == ']' {
+      if depth_bracket > 0 {
+        depth_bracket -= 1
+      }
+      continue
+    }
+    if c == '{' {
+      depth_brace += 1
+      continue
+    }
+    if c == '}' {
+      if depth_brace > 0 {
+        depth_brace -= 1
+      }
+      continue
+    }
+    if c == '=' && depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+      let prev = if i > 0 { Some(chars[i - 1]) } else { None }
+      let next = if i + 1 < chars.length() { Some(chars[i + 1]) } else { None }
+      let prev_is_op = match prev {
+        Some('=') | Some('!') | Some('<') | Some('>') => true
+        _ => false
+      }
+      let next_is_eq = match next {
+        Some('=') => true
+        _ => false
+      }
+      if !prev_is_op && !next_is_eq {
+        return Some(i)
+      }
+    }
+  }
+  None
+}
+
+///|
 fn eq_value(a : Value, b : Value) -> Bool {
   match (a, b) {
     (Value::None, Value::None) => true
