@@ -664,6 +664,20 @@ test "e2e/builtin_more_cpython" {
 }
 
 ///|
+test "e2e/descriptor_get" {
+  let source =
+    #|class D:
+    #|  def __get__(self, obj, typ):
+    #|    if obj == None:
+    #|      return "cls"
+    #|    return "inst"
+    #|class A:
+    #|  x = D()
+    #|print(A.x, A().x)
+  inspect(e2e_stdout([], source), content="cls inst\n")
+}
+
+///|
 test "e2e/builtin_getattr_hasattr_setattr" {
   let source =
     #|class C:
@@ -688,6 +702,25 @@ test "e2e/builtin_getattr_hasattr_setattr" {
     test_exec_error("getattr(1, \"x\")"),
     content="AttributeError: 'int' object has no attribute 'x'",
   )
+}
+
+///|
+test "e2e/descriptor_property_like" {
+  let source =
+    #|class P:
+    #|  def __init__(self, f):
+    #|    self.f = f
+    #|  def __get__(self, obj, typ):
+    #|    return self.f(obj)
+    #|class A:
+    #|  def __init__(self):
+    #|    self.v = 5
+    #|  def getv(self):
+    #|    return self.v
+    #|  v2 = P(getv)
+    #|a = A()
+    #|print(a.v2)
+  inspect(e2e_stdout([], source), content="5\n")
 }
 
 ///|

@@ -181,7 +181,47 @@ fn lookup_class_attr(
 fn get_attr_from_value(
   target : Value,
   attr : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  fn apply_descriptor(
+    class_attr : Value,
+    obj : Value,
+    owner : Value,
+  ) -> Result[Value?, RuntimeError] {
+    let desc_class = match class_attr {
+      Value::Instance(d) => Some(d.class)
+      Value::Class(d) => Some(d)
+      _ => None
+    }
+    if desc_class is None {
+      return Ok(None)
+    }
+    let desc_class = desc_class.unwrap()
+    let get_opt = match lookup_class_attr(desc_class, "__get__") {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    match get_opt {
+      Some(Value::Function(get_fn)) => {
+        let args : Array[Value] = [class_attr, obj, owner]
+        match (eval_function_with_kwargs_ref.val)(
+          get_fn,
+          args,
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+          Ok(v) => Ok(Some(v))
+          Err(err) => Err(err)
+        }
+      }
+      _ => Ok(None)
+    }
+  }
+
   match target {
     Value::Instance(inst) => {
       let direct = get_named_value(inst.dict, attr)
@@ -250,7 +290,12 @@ fn get_attr_from_value(
               self: Value::Instance(inst),
             }),
           )
-        Some(value) => Ok(value)
+        Some(value) =>
+          match apply_descriptor(value, Value::Instance(inst), Value::Class(inst.class)) {
+            Ok(Some(v)) => Ok(v)
+            Ok(None) => Ok(value)
+            Err(err) => Err(err)
+          }
         None =>
           Err(
             make_runtime_error(
@@ -260,9 +305,14 @@ fn get_attr_from_value(
           )
       }
     }
-    Value::Class(klass) =>
+    Value::Class(klass) => {
       match lookup_class_attr(klass, attr) {
-        Ok(Some(value)) => Ok(value)
+        Ok(Some(value)) =>
+          match apply_descriptor(value, Value::None, Value::Class(klass)) {
+            Ok(Some(v)) => Ok(v)
+            Ok(None) => Ok(value)
+            Err(err) => Err(err)
+          }
         Ok(None) =>
           Err(
             make_runtime_error(
@@ -272,6 +322,7 @@ fn get_attr_from_value(
           )
         Err(err) => Err(err)
       }
+    }
     _ =>
       Err(
         make_runtime_error(

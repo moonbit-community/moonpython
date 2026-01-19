@@ -323,7 +323,7 @@ fn eval_binary_op_values(
         }
         _ => {
           if left_val is Value::Instance(_) {
-            match get_attr_from_value(left_val, "__add__") {
+            match get_attr_from_value(left_val, "__add__", globals, builtins, io) {
               Ok(method) =>
                 return call_callable_with_env(
                   method,
@@ -337,7 +337,7 @@ fn eval_binary_op_values(
             }
           }
           if right_val is Value::Instance(_) {
-            match get_attr_from_value(right_val, "__radd__") {
+            match get_attr_from_value(right_val, "__radd__", globals, builtins, io) {
               Ok(method) =>
                 return call_callable_with_env(
                   method,
@@ -1294,7 +1294,7 @@ fn eval_expr_with_env(
       }
       match target {
         Value::Instance(_) | Value::Class(_) =>
-          get_attr_from_value(target, attr)
+          get_attr_from_value(target, attr, globals, builtins, io)
         _ =>
           match (target, attr) {
             (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))

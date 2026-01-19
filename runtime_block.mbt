@@ -339,7 +339,7 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let current = match get_attr_from_value(base, attr) {
+            let current = match get_attr_from_value(base, attr, globals, builtins, io) {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -704,7 +704,7 @@ fn eval_block_flow(
             }
             continue
           }
-          let imported = match get_attr_from_value(module_value, name) {
+          let imported = match get_attr_from_value(module_value, name, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -722,7 +722,7 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let enter_value = match get_attr_from_value(ctx_value, "__enter__") {
+        let enter_value = match get_attr_from_value(ctx_value, "__enter__", globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -735,7 +735,7 @@ fn eval_block_flow(
           Some(name) => set_scoped_value(locals, globals, name, entered)
           None => ()
         }
-        let exit_value = match get_attr_from_value(ctx_value, "__exit__") {
+        let exit_value = match get_attr_from_value(ctx_value, "__exit__", globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }

@@ -2269,7 +2269,7 @@ fn builtin_getattr(
         ),
       )
   }
-  match get_attr_from_value(obj, name) {
+  match get_attr_from_value(obj, name, globals, builtins, io) {
     Ok(value) => Ok(value)
     Err(err) =>
       if positional.length() == 3 {
@@ -2316,7 +2316,7 @@ fn builtin_hasattr(
         ),
       )
   }
-  match get_attr_from_value(obj, name) {
+  match get_attr_from_value(obj, name, globals, builtins, io) {
     Ok(_) => Ok(Value::Bool(true))
     Err(_err) => Ok(Value::Bool(false))
   }
