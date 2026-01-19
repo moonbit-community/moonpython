@@ -178,7 +178,7 @@ fn lookup_class_attr(
 }
 
 ///|
-fn get_attr_from_value(
+fn get_attr_raw_from_value(
   target : Value,
   attr : String,
   globals : Array[(String, Value)],
@@ -427,6 +427,82 @@ fn get_attr_from_value(
 }
 
 ///|
+fn get_attr_from_value(
+  target : Value,
+  attr : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  // 1) If instance defines __getattribute__, use it.
+  // 2) Otherwise do the default lookup.
+  // 3) If default lookup fails and instance defines __getattr__, call it.
+  match target {
+    Value::Instance(inst) => {
+      // __getattribute__ (instance hook)
+      match lookup_class_attr(inst.class, "__getattribute__") {
+        Ok(Some(Value::Function(f))) => {
+          let name_val = Value::Str(attr)
+          let result = match (eval_function_with_kwargs_ref.val)(
+            f,
+            [target, name_val],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(result)
+        }
+        Ok(Some(_)) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__getattribute__ must be a function".to_string(),
+            ),
+          )
+        Ok(None) => ()
+        Err(err) => return Err(err)
+      }
+
+      // Default lookup
+      let raw = get_attr_raw_from_value(target, attr, globals, builtins, io)
+      match raw {
+        Ok(v) => Ok(v)
+        Err(err0) => {
+          // __getattr__ fallback
+          match lookup_class_attr(inst.class, "__getattr__") {
+            Ok(Some(Value::Function(f))) => {
+              let name_val = Value::Str(attr)
+              (eval_function_with_kwargs_ref.val)(
+                f,
+                [target, name_val],
+                [],
+                globals,
+                builtins,
+                io,
+              )
+            }
+            Ok(Some(_)) =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__getattr__ must be a function".to_string(),
+                ),
+              )
+            Ok(None) => Err(err0)
+            Err(err) => Err(err)
+          }
+        }
+      }
+    }
+    _ => get_attr_raw_from_value(target, attr, globals, builtins, io)
+  }
+}
+
+///|
 fn set_attr_on_value(
   target : Value,
   attr : String,
@@ -435,6 +511,36 @@ fn set_attr_on_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Unit, RuntimeError] {
+  // __setattr__ (instance hook)
+  match target {
+    Value::Instance(inst) =>
+      match lookup_class_attr(inst.class, "__setattr__") {
+        Ok(Some(Value::Function(f))) => {
+          let _ = match (eval_function_with_kwargs_ref.val)(
+            f,
+            [target, Value::Str(attr), value],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(())
+        }
+        Ok(Some(_)) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__setattr__ must be a function".to_string(),
+            ),
+          )
+        Ok(None) => ()
+        Err(err) => return Err(err)
+      }
+    _ => ()
+  }
   fn apply_descriptor_set(
     class_attr : Value,
     obj : Value,
@@ -939,7 +1045,7 @@ fn call_callable_with_env(
         Some(value) => {
           // Reuse the regular attribute lookup path so we also get descriptor
           // behavior and method binding.
-          let bound = match get_attr_from_value(callee, "__call__", globals, builtins, io) {
+          let bound = match get_attr_raw_from_value(callee, "__call__", globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }

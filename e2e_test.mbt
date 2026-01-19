@@ -756,6 +756,44 @@ test "e2e/builtin_classmethod" {
 }
 
 ///|
+test "e2e/dunder_getattr" {
+  let source =
+    #|class A:
+    #|  def __getattr__(self, name):
+    #|    if name == "x":
+    #|      return 7
+    #|    return 0
+    #|a = A()
+    #|print(a.x, a.y)
+  inspect(e2e_stdout([], source), content="7 0\n")
+}
+
+///|
+test "e2e/dunder_getattribute" {
+  let source =
+    #|class A:
+    #|  def __getattribute__(self, name):
+    #|    return 3
+    #|a = A()
+    #|print(a.x)
+  inspect(e2e_stdout([], source), content="3\n")
+}
+
+///|
+test "e2e/dunder_setattr" {
+  let source =
+    #|log = []
+    #|class A:
+    #|  def __setattr__(self, name, value):
+    #|    global log
+    #|    log = log + [name + "=" + str(value)]
+    #|a = A()
+    #|a.x = 5
+    #|print(",".join(log))
+  inspect(e2e_stdout([], source), content="x=5\n")
+}
+
+///|
 test "e2e/descriptor_property_like" {
   let source =
     #|class P:
