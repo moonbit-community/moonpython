@@ -106,6 +106,185 @@ fn fstring_value_to_text(
 }
 
 ///|
+fn format_string_width(
+  text : String,
+  spec : String,
+  default_align : Char,
+) -> String? {
+  if spec.length() == 0 {
+    return None
+  }
+  let chars = spec.to_array()
+  let mut fill = ' '
+  let mut align : Char? = None
+  let mut i = 0
+  if chars.length() >= 2 &&
+    (chars[1] == '<' || chars[1] == '>' || chars[1] == '^') {
+    fill = chars[0]
+    align = Some(chars[1])
+    i = 2
+  } else if chars[0] == '<' || chars[0] == '>' || chars[0] == '^' {
+    align = Some(chars[0])
+    i = 1
+  } else if is_digit(chars[0]) {
+    align = Some(default_align)
+    i = 0
+  } else {
+    return None
+  }
+  let start = i
+  while i < chars.length() && is_digit(chars[i]) {
+    i += 1
+  }
+  if start == i || i != chars.length() {
+    return None
+  }
+  let width_text = substring(spec, start, i)
+  let width = parse_decimal_int(width_text)
+  if width <= 0 {
+    return Some(text)
+  }
+  let len = text.length()
+  if len >= width {
+    return Some(text)
+  }
+  let pad = width - len
+  let left = match align.unwrap_or(default_align) {
+    '<' => 0
+    '>' => pad
+    '^' => pad / 2
+    _ => 0
+  }
+  let right = pad - left
+  let buf = StringBuilder::new()
+  for i = 0; i < left; i = i + 1 {
+    buf.write_char(fill)
+  }
+  buf.write_string(text)
+  for i = 0; i < right; i = i + 1 {
+    buf.write_char(fill)
+  }
+  Some(buf.to_string())
+}
+
+///|
+fn parse_decimal_int(text : String) -> Int {
+  let chars = text.to_array()
+  let mut n = 0
+  for c in chars {
+    if is_digit(c) {
+      n = n * 10 + (c.to_int() - 48)
+    }
+  }
+  n
+}
+
+///|
+fn fstring_int_to_base_string(
+  value : Int64,
+  base : Int,
+  uppercase : Bool,
+) -> String {
+  if value == 0L {
+    return "0"
+  }
+  let mut n = value
+  let digits : Array[Char] = []
+  while n > 0L {
+    let d = (n % base.to_int64()).to_int()
+    let c = if d < 10 {
+      (48 + d).to_char().unwrap_or('0')
+    } else {
+      let offset = if uppercase { 55 } else { 87 }
+      (offset + d).to_char().unwrap_or('0')
+    }
+    digits.push(c)
+    n = n / base.to_int64()
+  }
+  let buf = StringBuilder::new()
+  let mut i = digits.length()
+  while i > 0 {
+    i = i - 1
+    buf.write_char(digits[i])
+  }
+  buf.to_string()
+}
+
+///|
+fn format_int_with_spec(value : Int64, spec : String) -> String? {
+  if spec.length() == 0 {
+    return None
+  }
+  let chars = spec.to_array()
+  let mut i = 0
+  let mut alternate = false
+  if chars[0] == '#' {
+    alternate = true
+    i = 1
+  }
+  let mut zero_pad = false
+  if i < chars.length() && chars[i] == '0' {
+    zero_pad = true
+    i += 1
+  }
+  let width_start = i
+  while i < chars.length() && is_digit(chars[i]) {
+    i += 1
+  }
+  let width = if i > width_start {
+    parse_decimal_int(substring(spec, width_start, i))
+  } else {
+    0
+  }
+  if i >= chars.length() {
+    return None
+  }
+  let typ = chars[i]
+  if i + 1 != chars.length() {
+    return None
+  }
+  let neg = value < 0L
+  let abs_value = if neg { -value } else { value }
+  let (prefix, base, uppercase, decimal) = match typ {
+    'd' => ("", 10, false, true)
+    'x' => ("0x", 16, false, false)
+    'X' => ("0X", 16, true, false)
+    'o' => ("0o", 8, false, false)
+    'b' => ("0b", 2, false, false)
+    _ => return None
+  }
+  let digits = if decimal {
+    abs_value.to_string()
+  } else {
+    fstring_int_to_base_string(abs_value, base, uppercase)
+  }
+  let sign = if neg { "-" } else { "" }
+  let alt_prefix = if alternate && !decimal { prefix } else { "" }
+  let mut core = sign.to_string() + alt_prefix + digits
+  if width > 0 && core.length() < width {
+    let pad = width - core.length()
+    if zero_pad {
+      let buf = StringBuilder::new()
+      buf.write_string(sign)
+      buf.write_string(alt_prefix)
+      for i = 0; i < pad; i = i + 1 {
+        buf.write_char('0')
+      }
+      buf.write_string(digits)
+      core = buf.to_string()
+    } else {
+      let buf = StringBuilder::new()
+      for i = 0; i < pad; i = i + 1 {
+        buf.write_char(' ')
+      }
+      buf.write_string(core)
+      core = buf.to_string()
+    }
+  }
+  Some(core)
+}
+
+///|
 fn eval_binary_op_values(
   op : BinaryOp,
   left_val : Value,
@@ -435,7 +614,7 @@ fn eval_expr_with_env(
         let close = close.unwrap()
         let inner = substring(after_open, 0, close)
         let remaining = substring(after_open, close + 1, after_open.length())
-        let (expr_and_conv, _format_spec) = match
+        let (expr_and_conv, format_spec_raw) = match
           find_top_level_format_colon(inner) {
           Some(pos) =>
             (
@@ -489,12 +668,43 @@ fn eval_expr_with_env(
           Ok(v) => v
           Err(err) => return Err(err)
         }
+        let formatted = if format_spec_raw.trim(chars=" \t").length() == 0 ||
+          format_spec_raw.contains("{") ||
+          format_spec_raw.contains("}") {
+          rendered
+        } else {
+          match conv {
+            Some(_) =>
+              match format_string_width(rendered, format_spec_raw, '<') {
+                Some(v) => v
+                None => rendered
+              }
+            None =>
+              match value {
+                Value::Int(n) =>
+                  match format_int_with_spec(n, format_spec_raw) {
+                    Some(v) => v
+                    None =>
+                      match
+                        format_string_width(rendered, format_spec_raw, '>') {
+                        Some(v) => v
+                        None => rendered
+                      }
+                  }
+                _ =>
+                  match format_string_width(rendered, format_spec_raw, '<') {
+                    Some(v) => v
+                    None => rendered
+                  }
+              }
+          }
+        }
         match debug_prefix {
           Some(prefix) => {
             buf.write_string(prefix)
-            buf.write_string(rendered)
+            buf.write_string(formatted)
           }
-          None => buf.write_string(rendered)
+          None => buf.write_string(formatted)
         }
         rest = remaining
       }
