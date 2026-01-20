@@ -1036,34 +1036,6 @@ fn tokenize_expr(
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
         }
         i = next_i
-        if f_prefix && value.contains("{}") {
-          let mut err_line = current_line
-          let mut err_col = start - line_start + 1
-          let mut k = start
-          while k < i {
-            if chars[k] == '\n' {
-              err_line += 1
-              err_col = 1
-            } else {
-              err_col += 1
-            }
-            k += 1
-          }
-          let token = {
-            kind: Eof,
-            start: base_offset + i - 1,
-            end: base_offset + i,
-            line: err_line,
-            column: err_col,
-          }
-          return Err(
-            make_parse_error(
-              ParseErrorKind::Syntax,
-              "f-string: empty expression not allowed".to_string(),
-              token,
-            ),
-          )
-        }
         let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }
         tokens.push({
           kind,

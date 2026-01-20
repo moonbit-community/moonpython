@@ -50,3 +50,43 @@ test "fstring/int_format_hex_and_padding" {
     #|print(f"{n:#06x}")
   inspect(run_stdout_fstring(source), content="0x400\n000400\n0x0400\n")
 }
+
+///|
+test "fstring/escaped_braces" {
+  let source =
+    #|print(f"{{}}")
+    #|print(f"{{x}}")
+    #|print(f"{{{{}}}}")
+    #|print(f"{{{1}}}")
+  inspect(run_stdout_fstring(source), content="{}\n{x}\n{{}}\n{1}\n")
+}
+
+///|
+test "fstring/nested_format_spec" {
+  let source =
+    #|width = 4
+    #|print(f"{1:{width}}")
+  inspect(run_stdout_fstring(source), content="   1\n")
+}
+
+///|
+test "fstring/errors" {
+  let empty_expr =
+    #|print(f"{ }")
+  let missing_close =
+    #|print(f"{1")
+  let stray_close =
+    #|print(f"}")
+  inspect(
+    run_stdout_fstring(empty_expr),
+    content="ERR: SyntaxError: f-string: empty expression not allowed",
+  )
+  inspect(
+    run_stdout_fstring(missing_close),
+    content="ERR: SyntaxError: f-string: expecting '}'",
+  )
+  inspect(
+    run_stdout_fstring(stray_close),
+    content="ERR: SyntaxError: f-string: single '}' is not allowed",
+  )
+}

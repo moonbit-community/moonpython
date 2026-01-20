@@ -283,6 +283,170 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
 }
 
 ///|
+fn eval_fstring_text(
+  text : String,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[String, RuntimeError] {
+  let buf = StringBuilder::new()
+  let chars = text.to_array()
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    if c == '{' {
+      if i + 1 < chars.length() && chars[i + 1] == '{' {
+        buf.write_char('{')
+        i += 2
+        continue
+      }
+      let after_open = substring(text, i + 1, text.length())
+      let close_rel = find_fstring_expr_close(after_open)
+      if close_rel is None {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: f-string: expecting '}'".to_string(),
+          ),
+        )
+      }
+      let close = i + 1 + close_rel.unwrap()
+      let inner = substring(text, i + 1, close)
+      if inner.trim(chars=" \t").length() == 0 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: f-string: empty expression not allowed".to_string(),
+          ),
+        )
+      }
+      let (expr_and_conv, format_spec_raw) = match
+        find_top_level_format_colon(inner) {
+        Some(pos) =>
+          (substring(inner, 0, pos), substring(inner, pos + 1, inner.length()))
+        None => (inner, "".to_string())
+      }
+      let (expr_raw, conv) = match
+        find_top_level_fstring_conversion_bang(expr_and_conv) {
+        Some(pos) =>
+          if pos + 1 < expr_and_conv.length() {
+            let conv_char = expr_and_conv.to_array()[pos + 1]
+            (substring(expr_and_conv, 0, pos), Some(conv_char))
+          } else {
+            (expr_and_conv, None)
+          }
+        None => (expr_and_conv, None)
+      }
+      let debug_eq = find_top_level_fstring_debug_equal(expr_raw)
+      let (expr_text, debug_prefix) = match debug_eq {
+        Some(pos) => {
+          let mut prefix_end = pos + 1
+          let expr_chars = expr_raw.to_array()
+          while prefix_end < expr_chars.length() {
+            let c = expr_chars[prefix_end]
+            if c == ' ' || c == '\t' {
+              prefix_end += 1
+            } else {
+              break
+            }
+          }
+          (
+            substring(expr_raw, 0, pos).trim(chars=" \t").to_string(),
+            Some(substring(expr_raw, 0, prefix_end)),
+          )
+        }
+        None => (expr_raw.trim(chars=" \t").to_string(), None)
+      }
+      let expr = match parse_expr(expr_text) {
+        Ok(value) => value
+        Err(_) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: f-string: invalid syntax".to_string(),
+            ),
+          )
+      }
+      let value = match
+        eval_expr_with_env(expr, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let rendered = match
+        fstring_value_to_text(value, conv, locals, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let format_spec = if format_spec_raw.trim(chars=" \t").length() == 0 {
+        "".to_string()
+      } else if format_spec_raw.contains("{") || format_spec_raw.contains("}") {
+        match
+          eval_fstring_text(format_spec_raw, locals, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+      } else {
+        format_spec_raw
+      }
+      let formatted = if format_spec.length() == 0 {
+        rendered
+      } else {
+        match conv {
+          Some(_) =>
+            match format_string_width(rendered, format_spec, '<') {
+              Some(v) => v
+              None => rendered
+            }
+          None =>
+            match value {
+              Value::Int(n) =>
+                match format_int_with_spec(n, format_spec) {
+                  Some(v) => v
+                  None =>
+                    match format_string_width(rendered, format_spec, '>') {
+                      Some(v) => v
+                      None => rendered
+                    }
+                }
+              _ =>
+                match format_string_width(rendered, format_spec, '<') {
+                  Some(v) => v
+                  None => rendered
+                }
+            }
+        }
+      }
+      match debug_prefix {
+        Some(prefix) => {
+          buf.write_string(prefix)
+          buf.write_string(formatted)
+        }
+        None => buf.write_string(formatted)
+      }
+      i = close + 1
+      continue
+    }
+    if c == '}' {
+      if i + 1 < chars.length() && chars[i + 1] == '}' {
+        buf.write_char('}')
+        i += 2
+        continue
+      }
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: f-string: single '}' is not allowed".to_string(),
+        ),
+      )
+    }
+    buf.write_char(c)
+    i += 1
+  }
+  Ok(buf.to_string())
+}
+
+///|
 fn bytes_subsequence_contains(
   haystack : Array[Int],
   needle : Array[Int],
@@ -1105,121 +1269,11 @@ fn eval_expr_with_env(
         Literal::Str(value) => Ok(Value::Str(value))
       }
     Expr::Name(name) => lookup_name_value(name, locals, globals, builtins)
-    Expr::FString(text) => {
-      let buf = StringBuilder::new()
-      let mut rest = text
-      while true {
-        let open = find_char(rest, '{')
-        if open is None {
-          buf.write_string(rest)
-          break
-        }
-        let open = open.unwrap()
-        buf.write_string(substring(rest, 0, open))
-        let after_open = substring(rest, open + 1, rest.length())
-        let close = find_fstring_expr_close(after_open)
-        if close is None {
-          return Ok(Value::Str(text))
-        }
-        let close = close.unwrap()
-        let inner = substring(after_open, 0, close)
-        let remaining = substring(after_open, close + 1, after_open.length())
-        let (expr_and_conv, format_spec_raw) = match
-          find_top_level_format_colon(inner) {
-          Some(pos) =>
-            (
-              substring(inner, 0, pos),
-              substring(inner, pos + 1, inner.length()),
-            )
-          None => (inner, "".to_string())
-        }
-        let (expr_raw, conv) = match
-          find_top_level_fstring_conversion_bang(expr_and_conv) {
-          Some(pos) =>
-            if pos + 1 < expr_and_conv.length() {
-              let conv_char = expr_and_conv.to_array()[pos + 1]
-              (substring(expr_and_conv, 0, pos), Some(conv_char))
-            } else {
-              (expr_and_conv, None)
-            }
-          None => (expr_and_conv, None)
-        }
-        let debug_eq = find_top_level_fstring_debug_equal(expr_raw)
-        let (expr_text, debug_prefix) = match debug_eq {
-          Some(pos) => {
-            let mut prefix_end = pos + 1
-            let chars = expr_raw.to_array()
-            while prefix_end < chars.length() {
-              let c = chars[prefix_end]
-              if c == ' ' || c == '\t' {
-                prefix_end += 1
-              } else {
-                break
-              }
-            }
-            (
-              substring(expr_raw, 0, pos).trim(chars=" \t").to_string(),
-              Some(substring(expr_raw, 0, prefix_end)),
-            )
-          }
-          None => (expr_raw.trim(chars=" \t").to_string(), None)
-        }
-        let expr = match parse_expr(expr_text) {
-          Ok(value) => value
-          Err(_) => return Ok(Value::Str(text))
-        }
-        let value = match
-          eval_expr_with_env(expr, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        let rendered = match
-          fstring_value_to_text(value, conv, locals, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let formatted = if format_spec_raw.trim(chars=" \t").length() == 0 ||
-          format_spec_raw.contains("{") ||
-          format_spec_raw.contains("}") {
-          rendered
-        } else {
-          match conv {
-            Some(_) =>
-              match format_string_width(rendered, format_spec_raw, '<') {
-                Some(v) => v
-                None => rendered
-              }
-            None =>
-              match value {
-                Value::Int(n) =>
-                  match format_int_with_spec(n, format_spec_raw) {
-                    Some(v) => v
-                    None =>
-                      match
-                        format_string_width(rendered, format_spec_raw, '>') {
-                        Some(v) => v
-                        None => rendered
-                      }
-                  }
-                _ =>
-                  match format_string_width(rendered, format_spec_raw, '<') {
-                    Some(v) => v
-                    None => rendered
-                  }
-              }
-          }
-        }
-        match debug_prefix {
-          Some(prefix) => {
-            buf.write_string(prefix)
-            buf.write_string(formatted)
-          }
-          None => buf.write_string(formatted)
-        }
-        rest = remaining
+    Expr::FString(text) =>
+      match eval_fstring_text(text, locals, globals, builtins, io) {
+        Ok(value) => Ok(Value::Str(value))
+        Err(err) => Err(err)
       }
-      Ok(Value::Str(buf.to_string()))
-    }
     Expr::NamedExpr(name~, value~) => {
       let evaluated = match
         eval_expr_with_env(value, locals, globals, builtins, io) {
