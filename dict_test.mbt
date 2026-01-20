@@ -50,3 +50,17 @@ test "dict/keys_values_items" {
     #|print(d.items())
   inspect(run_stdout(source), content="[a, b]\n[1, 2]\n[(a, 1), (b, 2)]\n")
 }
+
+///|
+test "dict/update_clear" {
+  let source =
+    #|d = {"a": 1}
+    #|r = d.update()
+    #|d.update({"a": 2, "b": 3})
+    #|d.update([("c", 4)])
+    #|print(r)
+    #|print(d)
+    #|d.clear()
+    #|print(d)
+  inspect(run_stdout(source), content="None\n{a: 2, b: 3, c: 4}\n{}\n")
+}

@@ -488,6 +488,70 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "extend" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "extend",
+              params: ["self", "iterable"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "insert" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "insert",
+              params: ["self", "index", "object"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "remove" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "remove",
+              params: ["self", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "clear" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "clear",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "pop" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -597,6 +661,38 @@ fn get_attr_raw_from_value(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
               name: "items",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "update" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "update",
+              params: ["self", "other"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "clear" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "clear",
               params: ["self"],
               defaults: [],
               body: [],
@@ -1491,6 +1587,98 @@ fn call_callable_with_env(
                   values.push(positional[0])
                   return Ok(Value::None)
                 }
+              "extend" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "extend() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let items = match iterable_values(positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  let to_add : Array[Value] = []
+                  for item in items {
+                    to_add.push(item)
+                  }
+                  for item in to_add {
+                    values.push(item)
+                  }
+                  return Ok(Value::None)
+                }
+              "insert" =>
+                if positional.length() != 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "insert() takes exactly two arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let idx = match index_from_value(positional[0], 0) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  let len = values.length()
+                  let mut pos = normalize_index(idx, len)
+                  if pos < 0 {
+                    pos = 0
+                  }
+                  if pos > len {
+                    pos = len
+                  }
+                  values.push(Value::None)
+                  let mut i = len
+                  while i > pos {
+                    values[i] = values[i - 1]
+                    i = i - 1
+                  }
+                  values[pos] = positional[1]
+                  return Ok(Value::None)
+                }
+              "remove" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "remove() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let needle = positional[0]
+                  for i = 0; i < values.length(); i = i + 1 {
+                    if eq_value(values[i], needle) {
+                      let _ = values.remove(i)
+                      return Ok(Value::None)
+                    }
+                  }
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "ValueError: list.remove(x): x not in list".to_string(),
+                    ),
+                  )
+                }
+              "clear" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "clear() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let mut i = values.length()
+                  while i > 0 {
+                    i = i - 1
+                    let _ = values.remove(i)
+
+                  }
+                  return Ok(Value::None)
+                }
               "pop" => {
                 if positional.length() > 1 {
                   return Err(
@@ -1669,6 +1857,87 @@ fn call_callable_with_env(
                   out.push(Value::Tuple([pair.0, pair.1]))
                 }
                 return Ok(Value::List(out))
+              }
+              "update" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "update() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                if positional.length() == 0 || positional[0] is Value::None {
+                  return Ok(Value::None)
+                }
+                let other = positional[0]
+                let entries : Array[(Value, Value)] = []
+                match other {
+                  Value::Dict(other_pairs) =>
+                    for pair in other_pairs {
+                      entries.push(pair)
+                    }
+                  _ =>
+                    match iterable_values(other) {
+                      Ok(items) =>
+                        for item in items {
+                          match item {
+                            Value::Tuple(values) | Value::List(values) =>
+                              if values.length() != 2 {
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "update() sequence element has wrong length".to_string(),
+                                  ),
+                                )
+                              } else {
+                                entries.push((values[0], values[1]))
+                              }
+                            _ =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Type,
+                                  "update() expects (key, value) pairs".to_string(),
+                                ),
+                              )
+                          }
+                        }
+                      Err(err) => return Err(err)
+                    }
+                }
+                for entry in entries {
+                  let key = entry.0
+                  let value = entry.1
+                  let mut found = false
+                  for i = 0; i < pairs.length(); i = i + 1 {
+                    if eq_value(pairs[i].0, key) {
+                      pairs[i] = (pairs[i].0, value)
+                      found = true
+                      break
+                    }
+                  }
+                  if !found {
+                    pairs.push((key, value))
+                  }
+                }
+                return Ok(Value::None)
+              }
+              "clear" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "clear() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                let mut i = pairs.length()
+                while i > 0 {
+                  i = i - 1
+                  let _ = pairs.remove(i)
+
+                }
+                return Ok(Value::None)
               }
               _ => ()
             }
