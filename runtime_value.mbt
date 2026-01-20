@@ -9,6 +9,9 @@ fn bool_from_value(value : Value) -> Bool {
     Value::Int(v) => v != 0N
     Value::Float(v) => v != 0.0
     Value::Str(v) => v.length() > 0
+    Value::Bytes(v) => v.length() > 0
+    Value::ByteArray(v) => v.length() > 0
+    Value::MemoryView(v) => v.length() > 0
     Value::List(v) => v.length() > 0
     Value::Tuple(v) => v.length() > 0
     Value::Dict(v) => v.length() > 0
@@ -28,6 +31,9 @@ fn type_name_from_value(value : Value) -> String {
     Value::Int(_) => "int"
     Value::Float(_) => "float"
     Value::Str(_) => "str"
+    Value::Bytes(_) => "bytes"
+    Value::ByteArray(_) => "bytearray"
+    Value::MemoryView(_) => "memoryview"
     Value::List(_) => "list"
     Value::Tuple(_) => "tuple"
     Value::Dict(_) => "dict"
@@ -83,6 +89,52 @@ fn lookup_instance_field(
 }
 
 ///|
+fn bytes_hex_digit(n : Int) -> Char {
+  if n < 10 {
+    ('0'.to_int() + n).to_char().unwrap()
+  } else {
+    ('a'.to_int() + (n - 10)).to_char().unwrap()
+  }
+}
+
+///|
+fn bytes_hex_byte(value : Int) -> String {
+  let buf = StringBuilder::new()
+  let hi = (value >> 4) & 0xF
+  let lo = value & 0xF
+  buf.write_char(bytes_hex_digit(hi))
+  buf.write_char(bytes_hex_digit(lo))
+  buf.to_string()
+}
+
+///|
+fn bytes_repr(bytes : Array[Int]) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("b'")
+  for byte in bytes {
+    let v = byte & 0xFF
+    if v == 0x5c {
+      buf.write_string("\\\\")
+    } else if v == 0x27 {
+      buf.write_string("\\'")
+    } else if v == 0x09 {
+      buf.write_string("\\t")
+    } else if v == 0x0a {
+      buf.write_string("\\n")
+    } else if v == 0x0d {
+      buf.write_string("\\r")
+    } else if v >= 0x20 && v <= 0x7e {
+      buf.write_char(v.to_char().unwrap())
+    } else {
+      buf.write_string("\\x")
+      buf.write_string(bytes_hex_byte(v))
+    }
+  }
+  buf.write_char('\'')
+  buf.to_string()
+}
+
+///|
 fn value_to_string(value : Value) -> String {
   match value {
     Value::None => "None"
@@ -90,6 +142,9 @@ fn value_to_string(value : Value) -> String {
     Value::Int(v) => v.to_string()
     Value::Float(v) => v.to_string()
     Value::Str(v) => v
+    Value::Bytes(values) => bytes_repr(values)
+    Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
+    Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
     Value::List(values) => {
       let buf = StringBuilder::new()
       buf.write_char('[')
@@ -436,6 +491,27 @@ fn eq_value(a : Value, b : Value) -> Bool {
     (Value::Int(a), Value::Int(b)) => a == b
     (Value::Float(a), Value::Float(b)) => a == b
     (Value::Str(a), Value::Str(b)) => a == b
+    (Value::Bytes(a), Value::Bytes(b))
+    | (Value::ByteArray(a), Value::ByteArray(b))
+    | (Value::MemoryView(a), Value::MemoryView(b))
+    | (Value::Bytes(a), Value::ByteArray(b))
+    | (Value::Bytes(a), Value::MemoryView(b))
+    | (Value::ByteArray(a), Value::Bytes(b))
+    | (Value::ByteArray(a), Value::MemoryView(b))
+    | (Value::MemoryView(a), Value::Bytes(b))
+    | (Value::MemoryView(a), Value::ByteArray(b)) =>
+      if a.length() != b.length() {
+        false
+      } else {
+        let mut equal = true
+        for i = 0; i < a.length(); i = i + 1 {
+          if a[i] != b[i] {
+            equal = false
+            break
+          }
+        }
+        equal
+      }
     (Value::List(a), Value::List(b)) =>
       if a.length() != b.length() {
         false

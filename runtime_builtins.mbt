@@ -452,6 +452,10 @@ fn builtin_len(
   let target = positional[0]
   match target {
     Value::Str(text) => Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
     Value::List(values) =>
       Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
     Value::Tuple(values) =>
@@ -1199,6 +1203,383 @@ fn builtin_str(
 }
 
 ///|
+fn copy_ints(values : Array[Int]) -> Array[Int] {
+  let out : Array[Int] = []
+  for value in values {
+    out.push(value)
+  }
+  out
+}
+
+///|
+fn encode_string_utf8(text : String) -> Array[Int] {
+  let out : Array[Int] = []
+  for ch in text.to_array() {
+    let code = ch.to_int()
+    if code <= 0x7F {
+      out.push(code)
+    } else if code <= 0x7FF {
+      out.push(0xC0 | (code >> 6))
+      out.push(0x80 | (code & 0x3F))
+    } else if code <= 0xFFFF {
+      out.push(0xE0 | (code >> 12))
+      out.push(0x80 | ((code >> 6) & 0x3F))
+      out.push(0x80 | (code & 0x3F))
+    } else {
+      out.push(0xF0 | (code >> 18))
+      out.push(0x80 | ((code >> 12) & 0x3F))
+      out.push(0x80 | ((code >> 6) & 0x3F))
+      out.push(0x80 | (code & 0x3F))
+    }
+  }
+  out
+}
+
+///|
+fn encode_string_ascii(text : String) -> Result[Array[Int], RuntimeError] {
+  let out : Array[Int] = []
+  for ch in text.to_array() {
+    let code = ch.to_int()
+    if code > 0x7F {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "UnicodeEncodeError: 'ascii' codec can't encode character".to_string(),
+        ),
+      )
+    }
+    out.push(code)
+  }
+  Ok(out)
+}
+
+///|
+fn encode_string_with_encoding(
+  name : String,
+  text : String,
+  encoding_value : Value,
+  errors_value : Value?,
+) -> Result[Array[Int], RuntimeError] {
+  let encoding = match encoding_value {
+    Value::Str(value) => value
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() encoding must be str".to_string(),
+        ),
+      )
+  }
+  match errors_value {
+    Some(Value::Str(errs)) =>
+      if errs != "strict" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "LookupError: unknown error handler".to_string(),
+          ),
+        )
+      }
+    Some(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() errors must be str".to_string(),
+        ),
+      )
+    None => ()
+  }
+  if encoding == "utf-8" || encoding == "utf8" {
+    Ok(encode_string_utf8(text))
+  } else if encoding == "ascii" {
+    encode_string_ascii(text)
+  } else {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "LookupError: unknown encoding".to_string(),
+      ),
+    )
+  }
+}
+
+///|
+fn byte_from_value(name : String, value : Value) -> Result[Int, RuntimeError] {
+  match value {
+    Value::Int(v) => {
+      let int_val = match bigint_to_int_checked(v) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if int_val < 0 || int_val > 255 {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: byte must be in range(0, 256)".to_string(),
+          ),
+        )
+      } else {
+        Ok(int_val)
+      }
+    }
+    Value::Bool(v) => Ok(if v { 1 } else { 0 })
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() an integer is required".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn bytes_from_iterable(
+  name : String,
+  value : Value,
+) -> Result[Array[Int], RuntimeError] {
+  let items = match iterable_values(value) {
+    Ok(values) => values
+    Err(err) => return Err(err)
+  }
+  let out : Array[Int] = []
+  for item in items {
+    let byte = match byte_from_value(name, item) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    out.push(byte)
+  }
+  Ok(out)
+}
+
+///|
+fn bytes_from_count(
+  name : String,
+  count : @bigint.BigInt,
+) -> Result[Array[Int], RuntimeError] {
+  if count < 0N {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: negative count".to_string(),
+      ),
+    )
+  }
+  let count_i = match bigint_to_int_checked(count) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let out : Array[Int] = []
+  for i = 0; i < count_i; i = i + 1 {
+    out.push(0)
+  }
+  Ok(out)
+}
+
+///|
+fn builtin_bytes(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytes", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Ok(Value::Bytes([]))
+  }
+  if positional.length() > 3 {
+    return Err(too_many_arguments_error("bytes", positional.length()))
+  }
+  if positional.length() == 1 {
+    match positional[0] {
+      Value::Int(count) =>
+        return Ok(
+          Value::Bytes(
+            match bytes_from_count("bytes", count) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            },
+          ),
+        )
+      Value::Bytes(values) => return Ok(Value::Bytes(copy_ints(values)))
+      Value::ByteArray(values) => return Ok(Value::Bytes(copy_ints(values)))
+      Value::MemoryView(values) => return Ok(Value::Bytes(copy_ints(values)))
+      Value::Str(_) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "string argument without an encoding".to_string(),
+          ),
+        )
+      other =>
+        return Ok(
+          Value::Bytes(
+            match bytes_from_iterable("bytes", other) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            },
+          ),
+        )
+    }
+  }
+  match positional[0] {
+    Value::Str(text) => {
+      let encoding = positional[1]
+      let errors_value = if positional.length() > 2 {
+        Some(positional[2])
+      } else {
+        None
+      }
+      let bytes = match
+        encode_string_with_encoding("bytes", text, encoding, errors_value) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Value::Bytes(bytes))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "encoding without a string argument".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_bytearray(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytearray", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Ok(Value::ByteArray([]))
+  }
+  if positional.length() > 3 {
+    return Err(too_many_arguments_error("bytearray", positional.length()))
+  }
+  if positional.length() == 1 {
+    match positional[0] {
+      Value::Int(count) =>
+        return Ok(
+          Value::ByteArray(
+            match bytes_from_count("bytearray", count) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            },
+          ),
+        )
+      Value::Bytes(values) => return Ok(Value::ByteArray(copy_ints(values)))
+      Value::ByteArray(values) => return Ok(Value::ByteArray(copy_ints(values)))
+      Value::MemoryView(values) =>
+        return Ok(Value::ByteArray(copy_ints(values)))
+      Value::Str(_) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "string argument without an encoding".to_string(),
+          ),
+        )
+      other =>
+        return Ok(
+          Value::ByteArray(
+            match bytes_from_iterable("bytearray", other) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            },
+          ),
+        )
+    }
+  }
+  match positional[0] {
+    Value::Str(text) => {
+      let encoding = positional[1]
+      let errors_value = if positional.length() > 2 {
+        Some(positional[2])
+      } else {
+        None
+      }
+      let bytes = match
+        encode_string_with_encoding("bytearray", text, encoding, errors_value) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      Ok(Value::ByteArray(bytes))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "encoding without a string argument".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_memoryview(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("memoryview", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "memoryview() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Bytes(values) => Ok(Value::MemoryView(copy_ints(values)))
+    Value::ByteArray(values) => Ok(Value::MemoryView(copy_ints(values)))
+    Value::MemoryView(values) => Ok(Value::MemoryView(copy_ints(values)))
+    other =>
+      Ok(
+        Value::MemoryView(
+          match bytes_from_iterable("memoryview", other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          },
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_int(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1564,6 +1945,15 @@ fn hash_string(text : String) -> Int64 {
   let mut h : Int64 = 0L
   for ch in text.to_array() {
     h = h * 131L + ch.to_int().to_int64()
+  }
+  h
+}
+
+///|
+fn hash_bytes(values : Array[Int]) -> Int64 {
+  let mut h : Int64 = 0L
+  for value in values {
+    h = h * 131L + value.to_int64()
   }
   h
 }
@@ -2363,6 +2753,21 @@ fn builtin_isinstance(
               Value::Str(_) => true
               _ => false
             }
+          "bytes" =>
+            match obj {
+              Value::Bytes(_) => true
+              _ => false
+            }
+          "bytearray" =>
+            match obj {
+              Value::ByteArray(_) => true
+              _ => false
+            }
+          "memoryview" =>
+            match obj {
+              Value::MemoryView(_) => true
+              _ => false
+            }
           "list" =>
             match obj {
               Value::List(_) => true
@@ -2504,6 +2909,8 @@ fn builtin_hash(
     Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
     Value::Str(text) =>
       Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
+    Value::Bytes(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(hash_bytes(values))))
     other =>
       Err(
         make_runtime_error(
@@ -3542,6 +3949,9 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "sorted", run: builtin_sorted },
     BuiltinDef::{ name: "input", run: builtin_input },
     BuiltinDef::{ name: "str", run: builtin_str },
+    BuiltinDef::{ name: "bytes", run: builtin_bytes },
+    BuiltinDef::{ name: "bytearray", run: builtin_bytearray },
+    BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "list", run: builtin_list },

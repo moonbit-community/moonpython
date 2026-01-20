@@ -283,6 +283,71 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
 }
 
 ///|
+fn bytes_subsequence_contains(
+  haystack : Array[Int],
+  needle : Array[Int],
+) -> Bool {
+  if needle.length() == 0 {
+    return true
+  }
+  if needle.length() > haystack.length() {
+    return false
+  }
+  let limit = haystack.length() - needle.length()
+  let mut i = 0
+  while i <= limit {
+    let mut matched = true
+    let mut j = 0
+    while j < needle.length() {
+      if haystack[i + j] != needle[j] {
+        matched = false
+        break
+      }
+      j = j + 1
+    }
+    if matched {
+      return true
+    }
+    i = i + 1
+  }
+  false
+}
+
+///|
+fn bytes_contains(haystack : Array[Int], needle : Value) -> Bool {
+  match needle {
+    Value::Int(v) => {
+      let idx = match bigint_to_int_checked(v) {
+        Ok(value) => value
+        Err(_) => return false
+      }
+      if idx < 0 || idx > 255 {
+        return false
+      }
+      for byte in haystack {
+        if byte == idx {
+          return true
+        }
+      }
+      false
+    }
+    Value::Bool(v) => {
+      let idx = if v { 1 } else { 0 }
+      for byte in haystack {
+        if byte == idx {
+          return true
+        }
+      }
+      false
+    }
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => bytes_subsequence_contains(haystack, values)
+    _ => false
+  }
+}
+
+///|
 fn eval_binary_op_values(
   op : BinaryOp,
   left_val : Value,
@@ -311,6 +376,26 @@ fn eval_binary_op_values(
           Ok(Value::Float(a + bb))
         }
         (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + b))
+        (Value::Bytes(a), Value::Bytes(b)) => {
+          let merged : Array[Int] = []
+          for item in a {
+            merged.push(item)
+          }
+          for item in b {
+            merged.push(item)
+          }
+          Ok(Value::Bytes(merged))
+        }
+        (Value::ByteArray(a), Value::ByteArray(b)) => {
+          let merged : Array[Int] = []
+          for item in a {
+            merged.push(item)
+          }
+          for item in b {
+            merged.push(item)
+          }
+          Ok(Value::ByteArray(merged))
+        }
         (Value::List(a), Value::List(b)) => {
           let merged : Array[Value] = []
           for item in a {
@@ -428,6 +513,40 @@ fn eval_binary_op_values(
               buf.write_string(text)
             }
             Ok(Value::Str(buf.to_string()))
+          }
+        (Value::Bytes(bytes), Value::Int(count))
+        | (Value::Int(count), Value::Bytes(bytes)) =>
+          if count <= 0N {
+            Ok(Value::Bytes([]))
+          } else {
+            let count_i = match bigint_to_int_checked(count) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let out : Array[Int] = []
+            for i = 0; i < count_i; i = i + 1 {
+              for byte in bytes {
+                out.push(byte)
+              }
+            }
+            Ok(Value::Bytes(out))
+          }
+        (Value::ByteArray(bytes), Value::Int(count))
+        | (Value::Int(count), Value::ByteArray(bytes)) =>
+          if count <= 0N {
+            Ok(Value::ByteArray([]))
+          } else {
+            let count_i = match bigint_to_int_checked(count) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let out : Array[Int] = []
+            for i = 0; i < count_i; i = i + 1 {
+              for byte in bytes {
+                out.push(byte)
+              }
+            }
+            Ok(Value::ByteArray(out))
           }
         _ =>
           Err(
@@ -1679,6 +1798,45 @@ fn eval_expr_with_env(
               }
               Ok(Value::Str(slice_string_by_indices(chars, indices)))
             }
+            Value::Bytes(bytes) => {
+              let indices = match
+                slice_indices_from_values(
+                  bytes.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              Ok(Value::Bytes(slice_ints_by_indices(bytes, indices)))
+            }
+            Value::ByteArray(bytes) => {
+              let indices = match
+                slice_indices_from_values(
+                  bytes.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              Ok(Value::ByteArray(slice_ints_by_indices(bytes, indices)))
+            }
+            Value::MemoryView(bytes) => {
+              let indices = match
+                slice_indices_from_values(
+                  bytes.length(),
+                  start_value,
+                  end_value,
+                  step_value,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              Ok(Value::MemoryView(slice_ints_by_indices(bytes, indices)))
+            }
             _ =>
               Err(
                 make_runtime_error(
@@ -1745,6 +1903,21 @@ fn eval_expr_with_env(
                   let norm = normalize_index(idx, chars.length())
                   if norm >= 0 && norm < chars.length() {
                     Ok(Value::Str(char_to_string(chars[norm])))
+                  } else {
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "index out of range".to_string(),
+                      ),
+                    )
+                  }
+                }
+                Value::Bytes(bytes)
+                | Value::ByteArray(bytes)
+                | Value::MemoryView(bytes) => {
+                  let norm = normalize_index(idx, bytes.length())
+                  if norm >= 0 && norm < bytes.length() {
+                    Ok(Value::Int(@bigint.BigInt::from_int(bytes[norm])))
                   } else {
                     Err(
                       make_runtime_error(
@@ -1958,6 +2131,9 @@ fn eval_expr_with_env(
                 }
                 found
               }
+              Value::Bytes(bytes)
+              | Value::ByteArray(bytes)
+              | Value::MemoryView(bytes) => bytes_contains(bytes, previous)
               Value::Dict(pairs) => {
                 let mut found = false
                 for pair in pairs {
@@ -2074,6 +2250,9 @@ fn eval_expr_with_env(
                 }
                 found
               }
+              Value::Bytes(bytes)
+              | Value::ByteArray(bytes)
+              | Value::MemoryView(bytes) => bytes_contains(bytes, previous)
               Value::Dict(pairs) => {
                 let mut found = false
                 for pair in pairs {

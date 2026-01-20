@@ -179,9 +179,9 @@ pub fn Interpreter::new_spec() -> Interpreter {
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
-    "str", "int", "float", "list", "dict", "set", "tuple", "enumerate", "zip", "map",
-    "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super", "eval", "exec", "__import__",
+    "str", "bytes", "bytearray", "memoryview", "int", "float", "list", "dict", "set",
+    "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum", "property",
+    "staticmethod", "classmethod", "delattr", "super", "eval", "exec", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -394,6 +394,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_asyncgen_close", function_stub("__mpython_asyncgen_close")),
     ("str", function_stub("str")),
     ("bytes", function_stub("bytes")),
+    ("bytearray", function_stub("bytearray")),
+    ("memoryview", function_stub("memoryview")),
     ("dict", function_stub("dict")),
     ("list", function_stub("list")),
     ("tuple", function_stub("tuple")),

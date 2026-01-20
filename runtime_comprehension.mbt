@@ -49,6 +49,13 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
       }
       Ok(items)
     }
+    Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) => {
+      let items : Array[Value] = []
+      for byte in bytes {
+        items.push(Value::Int(@bigint.BigInt::from_int(byte)))
+      }
+      Ok(items)
+    }
     Value::Instance(inst) =>
       if inst.class.name == "iterator" {
         let items = match lookup_iterable_field(inst.dict, "items") {

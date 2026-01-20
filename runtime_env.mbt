@@ -228,6 +228,20 @@ fn slice_values_by_indices(
 }
 
 ///|
+fn slice_ints_by_indices(
+  values : Array[Int],
+  indices : Array[Int],
+) -> Array[Int] {
+  let out : Array[Int] = []
+  for idx in indices {
+    if idx >= 0 && idx < values.length() {
+      out.push(values[idx])
+    }
+  }
+  out
+}
+
+///|
 fn slice_string_by_indices(chars : Array[Char], indices : Array[Int]) -> String {
   let buf = StringBuilder::new()
   for idx in indices {
