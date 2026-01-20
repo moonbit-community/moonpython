@@ -64,7 +64,7 @@
 - [x] `complex` numbers.
 - [x] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
 - [x] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
-- [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
+- [x] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
 - [x] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
 - [x] Negative indexing for list/tuple/str subscripts.
 - [ ] Slicing assignment semantics parity (step slicing, extended slices, error types).
