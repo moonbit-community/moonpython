@@ -172,3 +172,65 @@ test "raise/from_rejects_non_exception_cause" {
     content="TypeError: exceptions must derive from BaseException",
   )
 }
+
+///|
+test "except_star_handles_groups" {
+  let source =
+    #|log = []
+    #|try:
+    #|  raise ExceptionGroup("boom", [ValueError("a"), KeyError("b")])
+    #|except* ValueError:
+    #|  log.append("value")
+    #|except* KeyError:
+    #|  log.append("key")
+    #|print(log)
+  inspect(run_stdout_try(source), content="[value, key]\n")
+}
+
+///|
+test "except_star_reraises_remaining" {
+  let source =
+    #|log = []
+    #|try:
+    #|  try:
+    #|    raise ExceptionGroup("boom", [ValueError("a"), KeyError("b")])
+    #|  except* ValueError:
+    #|    log.append("value")
+    #|except* KeyError:
+    #|  log.append("key")
+    #|print(log)
+  inspect(run_stdout_try(source), content="[value, key]\n")
+}
+
+///|
+test "except_star_binds_group" {
+  let source =
+    #|count = 0
+    #|try:
+    #|  raise ExceptionGroup("boom", [ValueError("a"), ValueError("b")])
+    #|except* ValueError as eg:
+    #|  count = len(eg.exceptions)
+  inspect(test_exec_global(source, "count"), content="2")
+}
+
+///|
+test "except_star_requires_type" {
+  let source =
+    #|try:
+    #|  pass
+    #|except*:
+    #|  pass
+  inspect(test_exec_error(source), content="line 3:1 invalid syntax")
+}
+
+///|
+test "except_star_cannot_mix_with_except" {
+  let source =
+    #|try:
+    #|  pass
+    #|except* ValueError:
+    #|  pass
+    #|except Exception:
+    #|  pass
+  inspect(test_exec_error(source), content="line 5:1 invalid syntax")
+}

@@ -132,6 +132,219 @@ fn exception_matches_handler(
 }
 
 ///|
+fn exception_value_matches_handler(
+  exc_value : Value,
+  handler_class : ClassValue,
+  builtins : Array[(String, Value)],
+) -> Result[Bool, RuntimeError] {
+  if handler_class.name == "Exception" || handler_class.name == "BaseException" {
+    return Ok(true)
+  }
+  let exc_class = match exc_value {
+    Value::Instance(inst) => Some(inst.class)
+    Value::Class(klass) => Some(klass)
+    _ => None
+  }
+  match exc_class {
+    Some(err_class) => {
+      let mro = match class_mro(err_class) {
+        Ok(value) => value
+        Err(e) => return Err(e)
+      }
+      for cls in mro {
+        if cls.name == handler_class.name {
+          return Ok(true)
+        }
+      }
+      Ok(false)
+    }
+    None => Ok(false)
+  }
+}
+
+///|
+fn handler_classes_from_value(value : Value) -> Array[ClassValue] {
+  let classes : Array[ClassValue] = []
+  match value {
+    Value::Class(klass) => classes.push(klass)
+    Value::Tuple(items) =>
+      for item in items {
+        match item {
+          Value::Class(klass) => classes.push(klass)
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  classes
+}
+
+///|
+fn exception_group_message_value(inst : InstanceValue) -> Value {
+  match get_named_value(inst.dict, "message") {
+    Some(v) => v
+    None => Value::Str("")
+  }
+}
+
+///|
+fn exception_group_exceptions(
+  inst : InstanceValue,
+) -> Result[Array[Value], RuntimeError] {
+  match get_named_value(inst.dict, "exceptions") {
+    Some(Value::List(values)) => Ok(values)
+    Some(Value::Tuple(values)) => Ok(values)
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "ExceptionGroup exceptions must be a list".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn exception_group_make(
+  klass : ClassValue,
+  message : Value,
+  exceptions : Array[Value],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  call_callable_with_env(
+    Value::Class(klass),
+    [message, Value::List(exceptions)],
+    [],
+    globals,
+    builtins,
+    io,
+  )
+}
+
+///|
+fn exception_group_split_by_classes(
+  group_value : Value,
+  handler_classes : Array[ClassValue],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[(Value?, Value?), RuntimeError] {
+  if handler_classes.length() == 0 {
+    return Ok((None, Some(group_value)))
+  }
+  let inst = match group_value {
+    Value::Instance(inst) => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "except* requires an ExceptionGroup".to_string(),
+        ),
+      )
+  }
+  if inst.class.name != "ExceptionGroup" &&
+    inst.class.name != "BaseExceptionGroup" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "except* requires an ExceptionGroup".to_string(),
+      ),
+    )
+  }
+  let exceptions = match exception_group_exceptions(inst) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let matched : Array[Value] = []
+  let remaining : Array[Value] = []
+  for exc in exceptions {
+    let mut is_match = false
+    for klass in handler_classes {
+      match exception_value_matches_handler(exc, klass, builtins) {
+        Ok(true) => {
+          is_match = true
+          break
+        }
+        Ok(false) => ()
+        Err(err) => return Err(err)
+      }
+    }
+    if is_match {
+      matched.push(exc)
+    } else {
+      remaining.push(exc)
+    }
+  }
+  if matched.length() == 0 {
+    return Ok((None, Some(group_value)))
+  }
+  let message = exception_group_message_value(inst)
+  let matched_group = match
+    exception_group_make(inst.class, message, matched, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let remaining_group = if remaining.length() > 0 {
+    match
+      exception_group_make(
+        inst.class,
+        message,
+        remaining,
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(v) => Some(v)
+      Err(err) => return Err(err)
+    }
+  } else {
+    None
+  }
+  Ok((Some(matched_group), remaining_group))
+}
+
+///|
+fn exception_group_from_runtime_error(
+  err : RuntimeError,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let err_value = exception_value_from_runtime_error(err, globals, builtins, io)
+  if err.exc_type == "ExceptionGroup" || err.exc_type == "BaseExceptionGroup" {
+    match err_value {
+      Value::Instance(inst) => return Ok(Value::Instance(inst))
+      _ => ()
+    }
+  }
+  let exc_value = match
+    ensure_exception_instance_from_value(err_value, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match get_named_value(builtins, "ExceptionGroup") {
+    Some(Value::Class(klass)) =>
+      exception_group_make(
+        klass,
+        Value::Str(""),
+        [exc_value],
+        globals,
+        builtins,
+        io,
+      )
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: ExceptionGroup is not available".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
   let mut message = "".to_string()
   match get_named_value(inst.dict, "message") {
@@ -155,6 +368,9 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
         }
       _ => Some(Value::None)
     }
+  } else if inst.class.name == "ExceptionGroup" ||
+    inst.class.name == "BaseExceptionGroup" {
+    Some(Value::Instance(inst))
   } else {
     None
   }
@@ -205,6 +421,10 @@ fn exception_value_from_runtime_error(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Value {
+  match err.exc_value {
+    Some(Value::Instance(inst)) => return Value::Instance(inst)
+    _ => ()
+  }
   let positional : Array[Value] = []
   if err.exc_type == "StopIteration" {
     match err.exc_value {
@@ -895,88 +1115,201 @@ fn eval_block_flow(
               Ok(flow)
             }
           Err(err) => {
-            let mut handled = false
-            let mut handled_result : Result[BlockFlow, RuntimeError] = Err(err)
+            let mut has_star = false
             for handler in handlers {
-              let exc_expr_opt = handler.0
-              let name_opt = handler.1
-              let handler_body = handler.2
-              let mut matches = false
-              match exc_expr_opt {
-                None => matches = true
-                Some(expr) => {
-                  let exc_value = match
-                    eval_expr_with_env(expr, locals, globals, builtins, io) {
-                    Ok(value) => value
-                    Err(e) => {
-                      handled = true
-                      handled_result = Err(e)
-                      break
+              if handler.is_star {
+                has_star = true
+                break
+              }
+            }
+            if !has_star {
+              let mut handled = false
+              let mut handled_result : Result[BlockFlow, RuntimeError] = Err(
+                err,
+              )
+              for handler in handlers {
+                let exc_expr_opt = handler.exc
+                let name_opt = handler.name
+                let handler_body = handler.body
+                let mut matches = false
+                match exc_expr_opt {
+                  None => matches = true
+                  Some(expr) => {
+                    let exc_value = match
+                      eval_expr_with_env(expr, locals, globals, builtins, io) {
+                      Ok(value) => value
+                      Err(e) => {
+                        handled = true
+                        handled_result = Err(e)
+                        break
+                      }
+                    }
+                    match exc_value {
+                      Value::Class(klass) =>
+                        match exception_matches_handler(err, klass, builtins) {
+                          Ok(true) => matches = true
+                          Ok(false) => ()
+                          Err(e) => {
+                            handled = true
+                            handled_result = Err(e)
+                            break
+                          }
+                        }
+                      Value::Tuple(items) =>
+                        for item in items {
+                          match item {
+                            Value::Class(klass) =>
+                              match
+                                exception_matches_handler(err, klass, builtins) {
+                                Ok(true) => {
+                                  matches = true
+                                  break
+                                }
+                                Ok(false) => ()
+                                Err(e) => {
+                                  handled = true
+                                  handled_result = Err(e)
+                                  break
+                                }
+                              }
+                            _ => ()
+                          }
+                        }
+                      _ => ()
                     }
                   }
-                  match exc_value {
-                    Value::Class(klass) =>
-                      match exception_matches_handler(err, klass, builtins) {
-                        Ok(true) => matches = true
-                        Ok(false) => ()
-                        Err(e) => {
-                          handled = true
-                          handled_result = Err(e)
-                          break
-                        }
+                }
+                if !matches {
+                  continue
+                }
+                handled = true
+                match name_opt {
+                  Some(name) =>
+                    set_scoped_value(
+                      locals,
+                      globals,
+                      name,
+                      exception_value_from_runtime_error(
+                        err, globals, builtins, io,
+                      ),
+                    )
+                  None => ()
+                }
+                active_exception_stack.val.push(err)
+                let next_result = eval_block_flow(
+                  handler_body, locals, globals, builtins, io, config, loop_depth,
+                )
+                let _ = active_exception_stack.val.pop()
+                handled_result = next_result
+                break
+              }
+              if handled {
+                handled_result
+              } else {
+                Err(err)
+              }
+            } else {
+              let mut remaining_group : Value? = None
+              let mut handled = false
+              let mut last_flow : BlockFlow = BlockFlow::Normal(Value::None)
+              let mut handler_error : RuntimeError? = None
+              for handler in handlers {
+                let handler_classes = match handler.exc {
+                  Some(expr) => {
+                    let exc_value = match
+                      eval_expr_with_env(expr, locals, globals, builtins, io) {
+                      Ok(value) => value
+                      Err(e) => {
+                        handler_error = Some(e)
+                        break
                       }
-                    Value::Tuple(items) =>
-                      for item in items {
-                        match item {
-                          Value::Class(klass) =>
-                            match
-                              exception_matches_handler(err, klass, builtins) {
-                              Ok(true) => {
-                                matches = true
-                                break
-                              }
-                              Ok(false) => ()
-                              Err(e) => {
-                                handled = true
-                                handled_result = Err(e)
-                                break
-                              }
-                            }
-                          _ => ()
-                        }
+                    }
+                    handler_classes_from_value(exc_value)
+                  }
+                  None => []
+                }
+                let group_value = match remaining_group {
+                  Some(v) => v
+                  None => {
+                    let base_group = match
+                      exception_group_from_runtime_error(
+                        err, globals, builtins, io,
+                      ) {
+                      Ok(v) => v
+                      Err(e) => {
+                        handler_error = Some(e)
+                        break
                       }
-                    _ => ()
+                    }
+                    remaining_group = Some(base_group)
+                    base_group
                   }
                 }
+                let (matched_opt, remaining_opt) = match
+                  exception_group_split_by_classes(
+                    group_value, handler_classes, globals, builtins, io,
+                  ) {
+                  Ok(v) => v
+                  Err(e) => {
+                    handler_error = Some(e)
+                    break
+                  }
+                }
+                let matched_group = match matched_opt {
+                  Some(v) => v
+                  None => continue
+                }
+                handled = true
+                match handler.name {
+                  Some(name) =>
+                    set_scoped_value(locals, globals, name, matched_group)
+                  None => ()
+                }
+                let match_err = match matched_group {
+                  Value::Instance(inst) =>
+                    runtime_error_from_exception_instance(inst)
+                  _ => err
+                }
+                active_exception_stack.val.push(match_err)
+                let next_result = eval_block_flow(
+                  handler.body,
+                  locals,
+                  globals,
+                  builtins,
+                  io,
+                  config,
+                  loop_depth,
+                )
+                let _ = active_exception_stack.val.pop()
+                match next_result {
+                  Ok(flow) => last_flow = flow
+                  Err(e) => {
+                    handler_error = Some(e)
+                    break
+                  }
+                }
+                remaining_group = remaining_opt
+                if remaining_group is None {
+                  break
+                }
+                match last_flow {
+                  BlockFlow::Normal(_) => ()
+                  _ => break
+                }
               }
-              if !matches {
-                continue
+              if handler_error is Some(e) {
+                Err(e)
+              } else if remaining_group is Some(rem) {
+                match rem {
+                  Value::Instance(inst) =>
+                    Err(runtime_error_from_exception_instance(inst))
+                  _ => Err(err)
+                }
+              } else if handled {
+                Ok(last_flow)
+              } else {
+                Err(err)
               }
-              handled = true
-              match name_opt {
-                Some(name) =>
-                  set_scoped_value(
-                    locals,
-                    globals,
-                    name,
-                    exception_value_from_runtime_error(
-                      err, globals, builtins, io,
-                    ),
-                  )
-                None => ()
-              }
-              active_exception_stack.val.push(err)
-              let next_result = eval_block_flow(
-                handler_body, locals, globals, builtins, io, config, loop_depth,
-              )
-              let _ = active_exception_stack.val.pop()
-              handled_result = next_result
-              break
-            }
-            if handled {
-              handled_result
-            } else {
-              Err(err)
             }
           }
         }

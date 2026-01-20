@@ -440,6 +440,10 @@ fn get_attr_raw_from_value(
         }
       }
       if inst.class.name == "async_generator" {
+        let has_gen_id = match get_named_value(inst.dict, "gen_id") {
+          Some(_) => true
+          None => false
+        }
         if attr == "__aiter__" {
           return Ok(
             Value::BoundMethod(BoundMethodValue::{
@@ -471,6 +475,56 @@ fn get_attr_raw_from_value(
               self: Value::Instance(inst),
             }),
           )
+        }
+        if has_gen_id {
+          if attr == "asend" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "asend",
+                  params: ["self", "value"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          }
+          if attr == "athrow" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "athrow",
+                  params: ["self", "exc", "val", "tb"],
+                  defaults: [Value::None, Value::None],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          }
+          if attr == "aclose" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "aclose",
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          }
         }
       }
       let class_attr = match lookup_class_attr(inst.class, attr) {
@@ -1375,11 +1429,8 @@ fn call_callable_with_env(
     Value::Function(func) =>
       if func.is_async {
         if func.is_generator {
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::NotImplemented,
-              "async generators are not supported".to_string(),
-            ),
+          (eval_generator_with_kwargs_ref.val)(
+            func, positional, keywords, globals, builtins, io,
           )
         } else {
           (eval_function_with_kwargs_ref.val)(
@@ -1772,6 +1823,10 @@ fn call_callable_with_env(
             }
           } else if inst.class.name == "async_generator" &&
             method.function.body.length() == 0 {
+            let has_gen_id = match get_named_value(inst.dict, "gen_id") {
+              Some(_) => true
+              None => false
+            }
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
@@ -1802,8 +1857,98 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
+                  if has_gen_id {
+                    return Ok(
+                      async_generator_make_anext_coroutine(
+                        method.self,
+                        globals,
+                        builtins,
+                        io,
+                      ),
+                    )
+                  }
                   return Ok(
                     async_genexp_make_anext_coroutine(
+                      method.self,
+                      globals,
+                      builtins,
+                      io,
+                    ),
+                  )
+                }
+              "asend" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "asend() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  if !has_gen_id {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Attribute,
+                        "'async_generator' object has no attribute 'asend'",
+                      ),
+                    )
+                  }
+                  return Ok(
+                    async_generator_make_asend_coroutine(
+                      method.self,
+                      positional[0],
+                      globals,
+                      builtins,
+                      io,
+                    ),
+                  )
+                }
+              "athrow" =>
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "athrow() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  if !has_gen_id {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Attribute,
+                        "'async_generator' object has no attribute 'athrow'",
+                      ),
+                    )
+                  }
+                  return Ok(
+                    async_generator_make_athrow_coroutine(
+                      method.self,
+                      positional[0],
+                      globals,
+                      builtins,
+                      io,
+                    ),
+                  )
+                }
+              "aclose" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "aclose() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  if !has_gen_id {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Attribute,
+                        "'async_generator' object has no attribute 'aclose'",
+                      ),
+                    )
+                  }
+                  return Ok(
+                    async_generator_make_aclose_coroutine(
                       method.self,
                       globals,
                       builtins,
@@ -2224,6 +2369,95 @@ fn call_callable_with_env(
       )
     }
     Value::Class(klass) => {
+      if klass.name == "BaseExceptionGroup" || klass.name == "ExceptionGroup" {
+        if positional.length() != 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              klass.name + "() requires a message and exceptions".to_string(),
+            ),
+          )
+        }
+        let message = positional[0]
+        let raw_exceptions = match positional[1] {
+          Value::List(values) => values
+          Value::Tuple(values) => values
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                klass.name + " exceptions must be a list".to_string(),
+              ),
+            )
+        }
+        if raw_exceptions.length() == 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              klass.name + " requires at least one exception".to_string(),
+            ),
+          )
+        }
+        let mut require_exception = false
+        if klass.name == "ExceptionGroup" {
+          require_exception = true
+        }
+        let exceptions : Array[Value] = []
+        for exc in raw_exceptions {
+          let exc_value = match
+            ensure_exception_instance_from_value(exc, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let inst = match exc_value {
+            Value::Instance(inst) => inst
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "exceptions must derive from BaseException".to_string(),
+                ),
+              )
+          }
+          if require_exception {
+            let mro = match class_mro(inst.class) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let mut ok = false
+            for cls in mro {
+              if cls.name == "Exception" {
+                ok = true
+                break
+              }
+            }
+            if !ok {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "ExceptionGroup exceptions must derive from Exception".to_string(),
+                ),
+              )
+            }
+          }
+          exceptions.push(Value::Instance(inst))
+        }
+        let exception_tuple : Array[Value] = []
+        for item in exceptions {
+          exception_tuple.push(item)
+        }
+        let dict : Array[(String, Value)] = []
+        dict.push(("__traceback__", Value::None))
+        dict.push(
+          ("args", Value::Tuple([message, Value::Tuple(exception_tuple)])),
+        )
+        dict.push(("__cause__", Value::None))
+        dict.push(("__context__", Value::None))
+        dict.push(("__suppress_context__", Value::Bool(false)))
+        dict.push(("message", message))
+        dict.push(("exceptions", Value::List(exceptions)))
+        return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+      }
       // Minimal exception instance payload.
       if klass.name == "BaseException" ||
         klass.name == "Exception" ||

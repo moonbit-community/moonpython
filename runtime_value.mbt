@@ -48,6 +48,8 @@ fn not_callable_message(value : Value) -> String {
 fn is_exception_class_name(name : String) -> Bool {
   name == "BaseException" ||
   name == "Exception" ||
+  name == "BaseExceptionGroup" ||
+  name == "ExceptionGroup" ||
   name == "RuntimeError" ||
   name == "NameError" ||
   name == "UnboundLocalError" ||

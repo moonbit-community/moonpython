@@ -58,6 +58,14 @@ fn make_math_module() -> Value {
 }
 
 ///|
+fn make_asyncio_module() -> Value {
+  make_module_instance("asyncio", [
+    ("run", module_function_stub("asyncio.run")),
+    ("gather", module_function_stub("asyncio.gather")),
+  ])
+}
+
+///|
 fn make_python_module(
   name : String,
   source : String,
@@ -181,6 +189,11 @@ fn import_module(
   // Built-in shim modules.
   if module_name == "math" {
     let v = make_math_module()
+    module_cache_set(module_name, v)
+    return Ok(v)
+  }
+  if module_name == "asyncio" && config.allow_filesystem_imports {
+    let v = make_asyncio_module()
     module_cache_set(module_name, v)
     return Ok(v)
   }

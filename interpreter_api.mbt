@@ -161,12 +161,27 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
+  let base_exception_group_class = ClassValue::{
+    name: "BaseExceptionGroup",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let exception_group_class = ClassValue::{
+    name: "ExceptionGroup",
+    bases: [
+      Value::Class(base_exception_group_class),
+      Value::Class(exception_class),
+    ],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = []
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
-    "__mpython_run", "__mpython_asyncgenexp_next", "print", "len", "range", "str",
-    "int", "float", "list", "dict", "set", "tuple", "enumerate", "zip", "map", "filter",
-    "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr", "super",
+    "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
+    "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
+    "str", "int", "float", "list", "dict", "set", "tuple", "enumerate", "zip", "map",
+    "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
+    "super",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -174,6 +189,10 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("object", Value::Class(object_class)))
   builtins.push(("BaseException", Value::Class(base_exception_class)))
   builtins.push(("Exception", Value::Class(exception_class)))
+  builtins.push(
+    ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
+  )
+  builtins.push(("ExceptionGroup", Value::Class(exception_group_class)))
   Interpreter::with_builtins(builtins, config)
 }
 
@@ -258,6 +277,19 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let exception_class = ClassValue::{
     name: "Exception",
     bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let base_exception_group_class = ClassValue::{
+    name: "BaseExceptionGroup",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let exception_group_class = ClassValue::{
+    name: "ExceptionGroup",
+    bases: [
+      Value::Class(base_exception_group_class),
+      Value::Class(exception_class),
+    ],
     dict: [],
   }
   let name_error_class = ClassValue::{
@@ -356,6 +388,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__debug__", Value::Bool(true)),
     ("__mpython_run", function_stub("__mpython_run")),
     ("__mpython_asyncgenexp_next", function_stub("__mpython_asyncgenexp_next")),
+    ("__mpython_asyncgen_next", function_stub("__mpython_asyncgen_next")),
+    ("__mpython_asyncgen_send", function_stub("__mpython_asyncgen_send")),
+    ("__mpython_asyncgen_throw", function_stub("__mpython_asyncgen_throw")),
+    ("__mpython_asyncgen_close", function_stub("__mpython_asyncgen_close")),
     ("str", function_stub("str")),
     ("bytes", function_stub("bytes")),
     ("dict", function_stub("dict")),
@@ -409,6 +445,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("object", Value::Class(object_class)),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
+    ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
+    ("ExceptionGroup", Value::Class(exception_group_class)),
     ("NameError", Value::Class(name_error_class)),
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),

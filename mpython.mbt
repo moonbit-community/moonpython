@@ -2589,9 +2589,9 @@ fn collect_scope_decl_names(
           walk(s)
         }
         for handler in handlers {
-          let _ = handler.0
-          let _ = handler.1
-          for s in handler.2 {
+          let _ = handler.exc
+          let _ = handler.name
+          for s in handler.body {
             walk(s)
           }
         }
@@ -2898,12 +2898,12 @@ fn collect_function_local_names(
           walk_stmt(s)
         }
         for handler in handlers {
-          let _ = handler.0
-          match handler.1 {
+          let _ = handler.exc
+          match handler.name {
             Some(name) => add_local(name)
             None => ()
           }
-          for s in handler.2 {
+          for s in handler.body {
             walk_stmt(s)
           }
         }
@@ -3044,10 +3044,16 @@ fn eval_function_with_kwargs(
   )
   if func.is_async {
     if func.is_generator {
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::NotImplemented,
-          "async generators are not supported".to_string(),
+      return Ok(
+        async_generator_new(
+          func.body,
+          locals,
+          globals,
+          builtins,
+          io,
+          global_names,
+          nonlocal_names,
+          func.closure,
         ),
       )
     }
@@ -3191,14 +3197,6 @@ fn eval_generator_with_kwargs(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  if func.is_async {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::NotImplemented,
-        "async generators are not supported".to_string(),
-      ),
-    )
-  }
   let locals = match
     bind_function_args_with_kwargs(func, positional, keywords) {
     Ok(value) => value
@@ -3217,18 +3215,33 @@ fn eval_generator_with_kwargs(
     global_names,
     nonlocal_names,
   )
-  Ok(
-    generator_new(
-      func.body,
-      locals,
-      globals,
-      builtins,
-      io,
-      global_names,
-      nonlocal_names,
-      func.closure,
-    ),
-  )
+  if func.is_async {
+    Ok(
+      async_generator_new(
+        func.body,
+        locals,
+        globals,
+        builtins,
+        io,
+        global_names,
+        nonlocal_names,
+        func.closure,
+      ),
+    )
+  } else {
+    Ok(
+      generator_new(
+        func.body,
+        locals,
+        globals,
+        builtins,
+        io,
+        global_names,
+        nonlocal_names,
+        func.closure,
+      ),
+    )
+  }
 }
 
 ///|

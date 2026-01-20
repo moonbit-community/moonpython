@@ -35,6 +35,7 @@ priv struct GeneratorState {
   global_names : Array[String]
   nonlocal_names : Array[String]
   closure : Array[(String, Value)]
+  is_async : Bool
   mut started : Bool
   mut done : Bool
 }
@@ -51,10 +52,33 @@ fn make_generator_instance(id : Int) -> Value {
 }
 
 ///|
+fn make_async_generator_instance(id : Int) -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "async_generator", bases: [], dict: [] },
+    dict: [("gen_id", Value::Int(@bigint.BigInt::from_int(id)))],
+  })
+}
+
+///|
 fn generator_id_from_instance(
   inst : InstanceValue,
 ) -> Result[Int?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
+    Some(Value::Int(v)) =>
+      match bigint_to_int_checked(v) {
+        Ok(i) => Ok(Some(i))
+        Err(err) => Err(err)
+      }
+    Some(Value::Bool(v)) => Ok(Some(if v { 1 } else { 0 }))
+    _ => Ok(None)
+  }
+}
+
+///|
+fn async_generator_id_from_instance(
+  inst : InstanceValue,
+) -> Result[Int?, RuntimeError] {
+  match get_named_value(inst.dict, "gen_id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {
         Ok(i) => Ok(Some(i))
@@ -87,6 +111,7 @@ fn generator_new(
       global_names,
       nonlocal_names,
       closure,
+      is_async: false,
       started: false,
       done: false,
     },
@@ -94,6 +119,38 @@ fn generator_new(
   let id = generator_registry.val.length()
   generator_registry.val.push(state)
   make_generator_instance(id)
+}
+
+///|
+fn async_generator_new(
+  body : Array[Stmt],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+  global_names : Array[String],
+  nonlocal_names : Array[String],
+  closure : Array[(String, Value)],
+) -> Value {
+  let frames : Array[GenFrame] = [GenFrame::Block(body~, index=0, loop_depth=0)]
+  let state : Ref[GeneratorState] = {
+    val: GeneratorState::{
+      frames,
+      locals,
+      globals,
+      builtins,
+      io,
+      global_names,
+      nonlocal_names,
+      closure,
+      is_async: true,
+      started: false,
+      done: false,
+    },
+  }
+  let id = generator_registry.val.length()
+  generator_registry.val.push(state)
+  make_async_generator_instance(id)
 }
 
 ///|
@@ -165,6 +222,54 @@ fn generator_state_from_value(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "object is not a generator".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn async_generator_state_from_value(
+  generator_value : Value,
+) -> Result[Ref[GeneratorState], RuntimeError] {
+  match generator_value {
+    Value::Instance(inst) =>
+      if inst.class.name != "async_generator" {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "'" + inst.class.name + "' object is not an async generator",
+          ),
+        )
+      } else {
+        let id_opt = match async_generator_id_from_instance(inst) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let id = match id_opt {
+          Some(id) => id
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "RuntimeError: invalid async generator".to_string(),
+              ),
+            )
+        }
+        if id < 0 || id >= generator_registry.val.length() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "RuntimeError: invalid async generator id".to_string(),
+            ),
+          )
+        }
+        Ok(generator_registry.val[id])
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "object is not an async generator".to_string(),
         ),
       )
   }
@@ -981,7 +1086,13 @@ fn generator_resume(
     state.val.global_names,
     state.val.nonlocal_names,
   )
+  if state.val.is_async {
+    coroutine_enter_context()
+  }
   let result = generator_resume_inner(state, sent_value_in)
+  if state.val.is_async {
+    coroutine_leave_context()
+  }
   pop_scope_decls()
   pop_closure_env()
   result
@@ -1056,4 +1167,217 @@ fn generator_throw(
       )
   }
   Err(err)
+}
+
+///|
+fn async_generator_stop_iteration() -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Runtime,
+    "StopAsyncIteration".to_string(),
+  )
+}
+
+///|
+fn async_generator_next(generator_value : Value) -> Result[Value, RuntimeError] {
+  let state = match async_generator_state_from_value(generator_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match generator_resume(state, Value::None) {
+    Ok(value) => Ok(value)
+    Err(err) =>
+      if is_stop_iteration(err) {
+        Err(async_generator_stop_iteration())
+      } else {
+        Err(err)
+      }
+  }
+}
+
+///|
+fn async_generator_send(
+  generator_value : Value,
+  value : Value,
+) -> Result[Value, RuntimeError] {
+  let state = match async_generator_state_from_value(generator_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match generator_resume(state, value) {
+    Ok(value) => Ok(value)
+    Err(err) =>
+      if is_stop_iteration(err) {
+        Err(async_generator_stop_iteration())
+      } else {
+        Err(err)
+      }
+  }
+}
+
+///|
+fn async_generator_close(
+  generator_value : Value,
+) -> Result[Value, RuntimeError] {
+  let state = match async_generator_state_from_value(generator_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  state.val.done = true
+  state.val.frames = []
+  Ok(Value::None)
+}
+
+///|
+fn async_generator_throw(
+  generator_value : Value,
+  exc : Value,
+) -> Result[Value, RuntimeError] {
+  let _ = match async_generator_close(generator_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let err = match exc {
+    Value::Instance(inst) => runtime_error_from_exception_instance(inst)
+    Value::Class(klass) =>
+      make_runtime_error(RuntimeErrorKind::Runtime, klass.name)
+    Value::Str(text) => make_runtime_error(RuntimeErrorKind::Runtime, text)
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "exceptions must derive from BaseException".to_string(),
+        ),
+      )
+  }
+  Err(err)
+}
+
+///|
+fn async_generator_make_anext_coroutine(
+  generator_value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Value {
+  let body : Array[Stmt] = [
+    Stmt::Return(
+      Some(
+        Expr::Call(callee=Expr::Name("__mpython_asyncgen_next"), args=[
+          Expr::Name("self"),
+        ]),
+      ),
+    ),
+  ]
+  let locals : Array[(String, Value)] = [("self", generator_value)]
+  coroutine_new(
+    body,
+    locals,
+    globals,
+    builtins,
+    io,
+    [],
+    [],
+    [],
+    Config::default(),
+  )
+}
+
+///|
+fn async_generator_make_asend_coroutine(
+  generator_value : Value,
+  send_value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Value {
+  let body : Array[Stmt] = [
+    Stmt::Return(
+      Some(
+        Expr::Call(callee=Expr::Name("__mpython_asyncgen_send"), args=[
+          Expr::Name("self"),
+          Expr::Name("value"),
+        ]),
+      ),
+    ),
+  ]
+  let locals : Array[(String, Value)] = [
+    ("self", generator_value),
+    ("value", send_value),
+  ]
+  coroutine_new(
+    body,
+    locals,
+    globals,
+    builtins,
+    io,
+    [],
+    [],
+    [],
+    Config::default(),
+  )
+}
+
+///|
+fn async_generator_make_athrow_coroutine(
+  generator_value : Value,
+  exc : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Value {
+  let body : Array[Stmt] = [
+    Stmt::Return(
+      Some(
+        Expr::Call(callee=Expr::Name("__mpython_asyncgen_throw"), args=[
+          Expr::Name("self"),
+          Expr::Name("exc"),
+        ]),
+      ),
+    ),
+  ]
+  let locals : Array[(String, Value)] = [
+    ("self", generator_value),
+    ("exc", exc),
+  ]
+  coroutine_new(
+    body,
+    locals,
+    globals,
+    builtins,
+    io,
+    [],
+    [],
+    [],
+    Config::default(),
+  )
+}
+
+///|
+fn async_generator_make_aclose_coroutine(
+  generator_value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Value {
+  let body : Array[Stmt] = [
+    Stmt::Return(
+      Some(
+        Expr::Call(callee=Expr::Name("__mpython_asyncgen_close"), args=[
+          Expr::Name("self"),
+        ]),
+      ),
+    ),
+  ]
+  let locals : Array[(String, Value)] = [("self", generator_value)]
+  coroutine_new(
+    body,
+    locals,
+    globals,
+    builtins,
+    io,
+    [],
+    [],
+    [],
+    Config::default(),
+  )
 }

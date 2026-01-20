@@ -21926,7 +21926,7 @@ test "generated/program/0326" {
     #|    ImportError('eggs'),
     #|])
   let result = Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"NameError: name 'ExceptionGroup' is not defined\"]"
+  let expected = "[\"err\", \"NameError: name 'ImportError' is not defined\"]"
   assert_run(result, expected)
 }
 
@@ -24303,7 +24303,7 @@ test "generated/program/0495" {
     #|try: ...
     #|except* Exception: ...
   let result = Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"line 2:1 invalid syntax\"]"
+  let expected = "[\"ok\", \"None\", \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -30226,7 +30226,7 @@ test "generated/program/0956" {
     #|else:
     #|    c
   let result = Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"line 3:1 invalid syntax\"]"
+  let expected = "[\"err\", \"NameError: name 'ImportError' is not defined\"]"
   assert_run(result, expected)
 }
 
@@ -30240,7 +30240,7 @@ test "generated/program/0957" {
     #|else:
     #|    c
   let result = Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"line 3:1 invalid syntax\"]"
+  let expected = "[\"err\", \"NameError: name 'ImportError' is not defined\"]"
   assert_run(result, expected)
 }
 
@@ -30254,7 +30254,7 @@ test "generated/program/0958" {
     #|finally:
     #|    c
   let result = Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"line 3:1 invalid syntax\"]"
+  let expected = "[\"err\", \"NameError: name 'c' is not defined\"]"
   assert_run(result, expected)
 }
 

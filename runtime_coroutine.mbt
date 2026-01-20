@@ -27,6 +27,16 @@ pub fn coroutine_is_active() -> Bool {
 }
 
 ///|
+fn coroutine_enter_context() -> Unit {
+  coroutine_active_depth.val = coroutine_active_depth.val + 1
+}
+
+///|
+fn coroutine_leave_context() -> Unit {
+  coroutine_active_depth.val = coroutine_active_depth.val - 1
+}
+
+///|
 fn make_coroutine_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "coroutine", bases: [], dict: [] },
@@ -149,7 +159,7 @@ pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
     state.val.global_names,
     state.val.nonlocal_names,
   )
-  coroutine_active_depth.val = coroutine_active_depth.val + 1
+  coroutine_enter_context()
   let result = eval_block(
     state.val.body,
     state.val.locals,
@@ -158,7 +168,7 @@ pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
     state.val.io,
     state.val.config,
   )
-  coroutine_active_depth.val = coroutine_active_depth.val - 1
+  coroutine_leave_context()
   pop_scope_decls()
   pop_closure_env()
   state.val.done = true

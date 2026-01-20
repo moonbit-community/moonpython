@@ -2888,6 +2888,220 @@ fn builtin_mpython_asyncgenexp_next(
 }
 
 ///|
+fn builtin_mpython_asyncgen_next(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("__mpython_asyncgen_next", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_asyncgen_next() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  async_generator_next(positional[0])
+}
+
+///|
+fn builtin_mpython_asyncgen_send(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("__mpython_asyncgen_send", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_asyncgen_send() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  async_generator_send(positional[0], positional[1])
+}
+
+///|
+fn builtin_mpython_asyncgen_throw(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("__mpython_asyncgen_throw", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_asyncgen_throw() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  async_generator_throw(positional[0], positional[1])
+}
+
+///|
+fn builtin_mpython_asyncgen_close(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("__mpython_asyncgen_close", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_asyncgen_close() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  async_generator_close(positional[0])
+}
+
+///|
+fn builtin_asyncio_run(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("asyncio.run", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "asyncio.run() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) =>
+      if inst.class.name == "coroutine" {
+        coroutine_await(positional[0])
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "'" +
+            type_name_from_value(positional[0]) +
+            "' object can't be used in 'await' expression",
+          ),
+        )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "'" +
+          type_name_from_value(positional[0]) +
+          "' object can't be used in 'await' expression",
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_asyncio_gather(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("asyncio.gather", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  for coro in positional {
+    let value = match coro {
+      Value::Instance(inst) =>
+        if inst.class.name == "coroutine" {
+          match coroutine_await(coro) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        } else {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "'" +
+              type_name_from_value(coro) +
+              "' object can't be used in 'await' expression",
+            ),
+          )
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "'" +
+            type_name_from_value(coro) +
+            "' object can't be used in 'await' expression",
+          ),
+        )
+    }
+    results.push(value)
+  }
+  Ok(Value::List(results))
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -2917,6 +3131,24 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "__mpython_asyncgenexp_next",
       run: builtin_mpython_asyncgenexp_next,
     },
+    BuiltinDef::{
+      name: "__mpython_asyncgen_next",
+      run: builtin_mpython_asyncgen_next,
+    },
+    BuiltinDef::{
+      name: "__mpython_asyncgen_send",
+      run: builtin_mpython_asyncgen_send,
+    },
+    BuiltinDef::{
+      name: "__mpython_asyncgen_throw",
+      run: builtin_mpython_asyncgen_throw,
+    },
+    BuiltinDef::{
+      name: "__mpython_asyncgen_close",
+      run: builtin_mpython_asyncgen_close,
+    },
+    BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
+    BuiltinDef::{ name: "asyncio.gather", run: builtin_asyncio_gather },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
     BuiltinDef::{ name: "range", run: builtin_range },

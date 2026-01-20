@@ -139,6 +139,15 @@ pub enum Pattern {
 } derive(ToJson)
 
 ///|
+/// Try/except handler (supports except*)
+pub struct ExceptHandler {
+  is_star : Bool
+  exc : Expr?
+  name : String?
+  body : Array[Stmt]
+} derive(ToJson)
+
+///|
 /// Statement nodes
 pub enum Stmt {
   ExprStmt(Expr)
@@ -185,7 +194,7 @@ pub enum Stmt {
   AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(
     body~ : Array[Stmt],
-    handlers~ : Array[(Expr?, String?, Array[Stmt])],
+    handlers~ : Array[ExceptHandler],
     else_body~ : Array[Stmt],
     finally_body~ : Array[Stmt]
   )

@@ -3443,11 +3443,11 @@ fn stmt_has_async_comprehension(stmt : Stmt) -> Bool {
         }
       }
       for handler in handlers {
-        match handler.0 {
+        match handler.exc {
           Some(v) => if expr_has_async_comprehension(v) { return true }
           None => ()
         }
-        for s in handler.2 {
+        for s in handler.body {
           if stmt_has_async_comprehension(s) {
             return true
           }
@@ -6139,6 +6139,25 @@ fn LineParser::parse_block(
           if body_indent < next_indent {
             break
           }
+          if trimmed.has_prefix("def ") ||
+            trimmed.has_prefix("async def ") ||
+            trimmed.has_prefix("class ") {
+            let def_indent = body_indent
+            idx += 1
+            while idx < self.lines.length() {
+              let next_line = self.lines[idx]
+              let next_trimmed = next_line.trim(chars=" \t").to_string()
+              if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+                idx += 1
+                continue
+              }
+              if count_indent(next_line) <= def_indent {
+                break
+              }
+              idx += 1
+            }
+            continue
+          }
           if trimmed.has_prefix("yield from") {
             let token = {
               kind: Eof,
@@ -6169,6 +6188,25 @@ fn LineParser::parse_block(
             let body_indent = count_indent(body_line)
             if body_indent < next_indent {
               break
+            }
+            if trimmed.has_prefix("def ") ||
+              trimmed.has_prefix("async def ") ||
+              trimmed.has_prefix("class ") {
+              let def_indent = body_indent
+              idx += 1
+              while idx < self.lines.length() {
+                let next_line = self.lines[idx]
+                let next_trimmed = next_line.trim(chars=" \t").to_string()
+                if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+                  idx += 1
+                  continue
+                }
+                if count_indent(next_line) <= def_indent {
+                  break
+                }
+                idx += 1
+              }
+              continue
             }
             if trimmed.has_prefix("return ") {
               let token = {
@@ -7046,10 +7084,12 @@ fn LineParser::parse_block(
           try_body.push(stmt)
         }
       }
-      let handlers : Array[(Expr?, String?, Array[Stmt])] = []
+      let handlers : Array[ExceptHandler] = []
       let else_body : Array[Stmt] = []
       let finally_body : Array[Stmt] = []
       let mut saw_except = false
+      let mut saw_star_except = false
+      let mut saw_plain_except = false
       let mut saw_else = false
       let mut saw_finally = false
       while self.index < self.lines.length() {
@@ -7097,21 +7137,43 @@ fn LineParser::parse_block(
           )
         }
         if next_trimmed.has_prefix("except") {
-          if next_trimmed.has_prefix("except*") {
-            let token = {
-              kind: Eof,
-              start: self.offsets[self.index] + current_indent + 6,
-              end: self.offsets[self.index] + current_indent + 7,
-              line: self.index + 1,
-              column: current_indent + 7,
+          let is_star = next_trimmed.has_prefix("except*")
+          if is_star {
+            saw_star_except = true
+            if saw_plain_except {
+              let token = {
+                kind: Eof,
+                start: self.offsets[self.index] + current_indent,
+                end: self.offsets[self.index] + current_indent + 1,
+                line: self.index + 1,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  token,
+                ),
+              )
             }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Syntax,
-                "invalid syntax".to_string(),
-                token,
-              ),
-            )
+          } else {
+            saw_plain_except = true
+            if saw_star_except {
+              let token = {
+                kind: Eof,
+                start: self.offsets[self.index] + current_indent,
+                end: self.offsets[self.index] + current_indent + 1,
+                line: self.index + 1,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  token,
+                ),
+              )
+            }
           }
           let colon_pos = find_last_char(next_trimmed, ':')
           if colon_pos is None {
@@ -7131,10 +7193,29 @@ fn LineParser::parse_block(
             )
           }
           saw_except = true
+          let header_offset = if is_star { 7 } else { 6 }
           let header_text = match colon_pos {
             Some(pos) =>
-              substring(next_trimmed, 6, pos).trim(chars=" \t").to_string()
+              substring(next_trimmed, header_offset, pos)
+              .trim(chars=" \t")
+              .to_string()
             None => "".to_string()
+          }
+          if is_star && header_text.length() == 0 {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + current_indent,
+              end: self.offsets[self.index] + current_indent + 1,
+              line: self.index + 1,
+              column: 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
           }
           if has_top_level_comma(header_text) &&
             !header_text.trim(chars=" \t").to_string().has_prefix("(") {
@@ -7162,7 +7243,9 @@ fn LineParser::parse_block(
             }
             let expr_text = parts[0].trim(chars=" \t").to_string()
             if expr_text.length() > 0 {
-              let base_offset = self.offsets[self.index] + current_indent + 6
+              let base_offset = self.offsets[self.index] +
+                current_indent +
+                header_offset
               let tokens = match
                 tokenize_expr(expr_text, self.index + 1, base_offset) {
                 Ok(value) => value
@@ -7250,7 +7333,12 @@ fn LineParser::parse_block(
               handler_body.push(stmt)
             }
           }
-          handlers.push((exc_expr_opt, name_opt, handler_body))
+          handlers.push(ExceptHandler::{
+            is_star,
+            exc: exc_expr_opt,
+            name: name_opt,
+            body: handler_body,
+          })
           continue
         }
         if next_trimmed.has_prefix("else") {

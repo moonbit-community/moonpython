@@ -2,6 +2,14 @@
 /// Async/await baseline tests.
 
 ///|
+fn run_stdout_allow_imports(source : String) -> String {
+  match Interpreter::new().exec_source(source) {
+    Ok(run) => run.stdout
+    Err(err) => "ERR: " + format_runtime_error(err)
+  }
+}
+
+///|
 test "async/call_returns_coroutine_does_not_run_body" {
   let source =
     #|async def f():
@@ -241,4 +249,58 @@ test "async/genexpr_outside_async_function_is_syntax_error" {
     #|    raise StopAsyncIteration
     #|xs = (x async for x in It())
   inspect(test_exec_error(source), content="line 6:1 invalid syntax")
+}
+
+///|
+test "async/async_generator_basic" {
+  let source =
+    #|async def gen():
+    #|  yield 1
+    #|  yield 2
+    #|async def f():
+    #|  out = []
+    #|  async for x in gen():
+    #|    out = out + [x]
+    #|  return out
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[1, 2]\n")
+}
+
+///|
+test "async/async_generator_awaits" {
+  let source =
+    #|async def inner():
+    #|  return 3
+    #|async def gen():
+    #|  v = await inner()
+    #|  yield v
+    #|async def f():
+    #|  out = []
+    #|  async for x in gen():
+    #|    out = out + [x]
+    #|  return out
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[3]\n")
+}
+
+///|
+test "async/asyncio_run" {
+  let source =
+    #|import asyncio
+    #|async def f():
+    #|  return 9
+    #|print(asyncio.run(f()))
+  inspect(run_stdout_allow_imports(source), content="9\n")
+}
+
+///|
+test "async/asyncio_gather" {
+  let source =
+    #|import asyncio
+    #|async def f():
+    #|  return 1
+    #|async def g():
+    #|  return 2
+    #|print(asyncio.gather(f(), g()))
+  inspect(run_stdout_allow_imports(source), content="[1, 2]\n")
 }

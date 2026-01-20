@@ -34,12 +34,12 @@
 - [x] `async for`, `async with`.
 - [x] Async comprehensions (`[x async for ...]`, `{...}`).
 - [x] Async generator expressions (`(x async for ...)`).
-- [ ] Coroutine scheduling/event loop story (even if test-only).
-- [ ] Async generators (`async def` + `yield`) (currently not supported).
+- [x] Coroutine scheduling/event loop story (even if test-only).
+- [x] Async generators (`async def` + `yield`).
 
 ### 3) Exceptions (correctness + compatibility)
 - [x] Exception chaining: `raise ... from ...`, `__cause__`, `__context__`, `__suppress_context__`.
-- [ ] Exception groups + `except*` (PEP 654; required for 3.12 compatibility).
+- [x] Exception groups + `except*` (PEP 654; required for 3.12 compatibility).
 - [x] More accurate exception matching (subclass checks, tuples of exception types).
 - [ ] Tracebacks with file/line/column spans and stack frames (not just a formatted message).
 
@@ -88,7 +88,7 @@
 
 ### Milestone C — “3.12-focused features”
 - [ ] PEP 701 f-strings (parser + runtime).
-- [ ] PEP 654 exception groups + `except*`.
+- [x] PEP 654 exception groups + `except*`.
 - [ ] PEP 695 syntax support (parse/AST first, semantics later).
 
 ## Conformance approach
