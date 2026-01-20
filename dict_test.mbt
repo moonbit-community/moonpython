@@ -1,0 +1,52 @@
+///|
+/// Dict method tests.
+
+///|
+test "dict/get" {
+  let source =
+    #|d = {"a": 1, "b": 2}
+    #|print(d.get("a"))
+    #|print(d.get("c"))
+    #|print(d.get("c", 7))
+  inspect(run_stdout(source), content="1\nNone\n7\n")
+}
+
+///|
+test "dict/pop" {
+  let source =
+    #|d = {"a": 1, "b": 2}
+    #|print(d.pop("a"))
+    #|print(d)
+    #|print(d.pop("missing", 9))
+    #|print(d)
+  inspect(run_stdout(source), content="1\n{b: 2}\n9\n{b: 2}\n")
+}
+
+///|
+test "dict/pop_missing_raises" {
+  let source =
+    #|d = {"a": 1}
+    #|d.pop("missing")
+  inspect(test_exec_error(source), content="KeyError: key not found")
+}
+
+///|
+test "dict/setdefault" {
+  let source =
+    #|d = {}
+    #|print(d.setdefault("a", 1))
+    #|print(d)
+    #|print(d.setdefault("a", 2))
+    #|print(d)
+  inspect(run_stdout(source), content="1\n{a: 1}\n1\n{a: 1}\n")
+}
+
+///|
+test "dict/keys_values_items" {
+  let source =
+    #|d = {"a": 1, "b": 2}
+    #|print(d.keys())
+    #|print(d.values())
+    #|print(d.items())
+  inspect(run_stdout(source), content="[a, b]\n[1, 2]\n[(a, 1), (b, 2)]\n")
+}

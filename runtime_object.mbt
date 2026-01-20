@@ -511,6 +511,110 @@ fn get_attr_raw_from_value(
         ),
       )
     }
+    Value::Dict(_) => {
+      if attr == "get" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "get",
+              params: ["self", "key", "default"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "pop" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "pop",
+              params: ["self", "key", "default"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "setdefault" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "setdefault",
+              params: ["self", "key", "default"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "keys" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "keys",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "values" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "values",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "items" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "items",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'dict' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
     Value::Class(klass) =>
       match lookup_class_attr(klass, attr) {
         Ok(Some(value)) =>
@@ -1434,6 +1538,137 @@ fn call_callable_with_env(
                 }
                 let item = values.remove(idx)
                 return Ok(item)
+              }
+              _ => ()
+            }
+          }
+        Value::Dict(pairs) =>
+          if method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match method.function.name {
+              "get" => {
+                if positional.length() == 0 || positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "get() takes 1 or 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let key = positional[0]
+                let default_value = if positional.length() == 2 {
+                  positional[1]
+                } else {
+                  Value::None
+                }
+                for pair in pairs {
+                  if eq_value(pair.0, key) {
+                    return Ok(pair.1)
+                  }
+                }
+                return Ok(default_value)
+              }
+              "pop" => {
+                if positional.length() == 0 || positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "pop() takes 1 or 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let key = positional[0]
+                for i = 0; i < pairs.length(); i = i + 1 {
+                  if eq_value(pairs[i].0, key) {
+                    let removed = pairs.remove(i)
+                    return Ok(removed.1)
+                  }
+                }
+                if positional.length() == 2 {
+                  return Ok(positional[1])
+                }
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Key,
+                    "key not found".to_string(),
+                  ),
+                )
+              }
+              "setdefault" => {
+                if positional.length() == 0 || positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "setdefault() takes 1 or 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let key = positional[0]
+                let default_value = if positional.length() == 2 {
+                  positional[1]
+                } else {
+                  Value::None
+                }
+                for pair in pairs {
+                  if eq_value(pair.0, key) {
+                    return Ok(pair.1)
+                  }
+                }
+                pairs.push((key, default_value))
+                return Ok(default_value)
+              }
+              "keys" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "keys() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                let out : Array[Value] = []
+                for pair in pairs {
+                  out.push(pair.0)
+                }
+                return Ok(Value::List(out))
+              }
+              "values" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "values() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                let out : Array[Value] = []
+                for pair in pairs {
+                  out.push(pair.1)
+                }
+                return Ok(Value::List(out))
+              }
+              "items" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "items() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                let out : Array[Value] = []
+                for pair in pairs {
+                  out.push(Value::Tuple([pair.0, pair.1]))
+                }
+                return Ok(Value::List(out))
               }
               _ => ()
             }
