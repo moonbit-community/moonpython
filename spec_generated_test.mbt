@@ -5761,7 +5761,7 @@ test "generated/expr/0633" {
   let source =
     #|0777j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 777], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -5770,7 +5770,7 @@ test "generated/expr/0634" {
   let source =
     #|00j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -5779,7 +5779,7 @@ test "generated/expr/0635" {
   let source =
     #|090000000000000j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 90000000000000], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -11766,7 +11766,7 @@ test "generated/expr/1300" {
   let source =
     #|0777j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 777], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -11775,7 +11775,7 @@ test "generated/expr/1301" {
   let source =
     #|00j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 0], \"\", \"\"]"
   assert_run(result, expected)
 }
 
@@ -11784,7 +11784,7 @@ test "generated/expr/1302" {
   let source =
     #|090000000000000j
   let result = Interpreter::new_spec().eval_source(source)
-  let expected = "[\"err\", \"ValueError: unsupported value\"]"
+  let expected = "[\"ok\", [\"Complex\", 0, 90000000000000], \"\", \"\"]"
   assert_run(result, expected)
 }
 

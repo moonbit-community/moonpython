@@ -5,3 +5,4 @@ target
 .mooncakes/
 .moonagent/
 cpython-tests
+scripts/reference_cache/

@@ -1673,6 +1673,85 @@ fn builtin_float(
 }
 
 ///|
+fn builtin_complex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("complex", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Ok(Value::Complex(0.0, 0.0))
+  }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "complex() takes at most two arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 1 {
+    match positional[0] {
+      Value::Complex(real, imag) => Ok(Value::Complex(real, imag))
+      Value::Float(v) => Ok(Value::Complex(v, 0.0))
+      Value::Int(v) =>
+        match bigint_to_double_checked(v) {
+          Ok(value) => Ok(Value::Complex(value, 0.0))
+          Err(err) => Err(err)
+        }
+      Value::Bool(v) => Ok(Value::Complex(if v { 1.0 } else { 0.0 }, 0.0))
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "complex() argument must be a number".to_string(),
+          ),
+        )
+    }
+  } else {
+    let real = match positional[0] {
+      Value::Complex(_, _) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "complex() can't take second arg if first is complex".to_string(),
+          ),
+        )
+      _ =>
+        match number_value(positional[0]) {
+          Ok((_, value)) => value
+          Err(err) => return Err(err)
+        }
+    }
+    let imag = match positional[1] {
+      Value::Complex(_, _) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "complex() second argument must be a real number".to_string(),
+          ),
+        )
+      _ =>
+        match number_value(positional[1]) {
+          Ok((_, value)) => value
+          Err(err) => return Err(err)
+        }
+    }
+    Ok(Value::Complex(real, imag))
+  }
+}
+
+///|
 fn builtin_list(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1959,6 +2038,13 @@ fn hash_bytes(values : Array[Int]) -> Int64 {
 }
 
 ///|
+fn hash_complex(real : Double, imag : Double) -> Int64 {
+  let r = real.to_int64()
+  let i = imag.to_int64()
+  r * 131L + i
+}
+
+///|
 fn escape_string_for_repr(text : String) -> String {
   let buf = StringBuilder::new()
   for ch in text.to_array() {
@@ -2173,6 +2259,8 @@ fn builtin_abs(
     Value::Int(v) => Ok(Value::Int(if v < 0N { -v } else { v }))
     Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Float(v) => Ok(Value::Float(if v < 0.0 { -v } else { v }))
+    Value::Complex(real, imag) =>
+      Ok(Value::Float(@math.pow(real * real + imag * imag, 0.5)))
     _ =>
       Err(
         make_runtime_error(
@@ -2748,6 +2836,11 @@ fn builtin_isinstance(
               Value::Float(_) => true
               _ => false
             }
+          "complex" =>
+            match obj {
+              Value::Complex(_, _) => true
+              _ => false
+            }
           "str" =>
             match obj {
               Value::Str(_) => true
@@ -2911,6 +3004,8 @@ fn builtin_hash(
       Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
     Value::Bytes(values) =>
       Ok(Value::Int(@bigint.BigInt::from_int64(hash_bytes(values))))
+    Value::Complex(real, imag) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(hash_complex(real, imag))))
     other =>
       Err(
         make_runtime_error(
@@ -3954,6 +4049,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "float", run: builtin_float },
+    BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
     BuiltinDef::{ name: "set", run: builtin_set },

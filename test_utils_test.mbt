@@ -58,12 +58,28 @@ fn bytes_repr(values : Array[Int]) -> String {
 }
 
 ///|
+fn complex_to_string(real : Double, imag : Double) -> String {
+  if real == 0.0 {
+    if imag == 0.0 {
+      "0j"
+    } else {
+      imag.to_string() + "j"
+    }
+  } else {
+    let sign = if imag >= 0.0 { "+" } else { "-" }
+    let imag_abs = if imag < 0.0 { -imag } else { imag }
+    "(" + real.to_string() + sign + imag_abs.to_string() + "j)"
+  }
+}
+
+///|
 fn test_value_repr(value : Value) -> String {
   match value {
     Value::None => "None"
     Value::Bool(v) => if v { "True" } else { "False" }
     Value::Int(v) => v.to_string()
     Value::Float(v) => v.to_string()
+    Value::Complex(real, imag) => complex_to_string(real, imag)
     Value::Str(v) => v
     Value::Bytes(values) => bytes_repr(values)
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"

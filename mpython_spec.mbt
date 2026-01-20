@@ -21,6 +21,7 @@ pub enum Literal {
   Bool(Bool)
   Int(@bigint.BigInt)
   Float(Double)
+  Complex(Double, Double)
   Str(String)
 } derive(ToJson)
 
@@ -344,6 +345,7 @@ pub enum Value {
   Bool(Bool)
   Int(@bigint.BigInt)
   Float(Double)
+  Complex(Double, Double)
   Str(String)
   Bytes(Array[Int])
   ByteArray(Array[Int])

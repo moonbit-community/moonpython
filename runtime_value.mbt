@@ -8,6 +8,7 @@ fn bool_from_value(value : Value) -> Bool {
     Value::Bool(v) => v
     Value::Int(v) => v != 0N
     Value::Float(v) => v != 0.0
+    Value::Complex(real, imag) => real != 0.0 || imag != 0.0
     Value::Str(v) => v.length() > 0
     Value::Bytes(v) => v.length() > 0
     Value::ByteArray(v) => v.length() > 0
@@ -30,6 +31,7 @@ fn type_name_from_value(value : Value) -> String {
     Value::Bool(_) => "bool"
     Value::Int(_) => "int"
     Value::Float(_) => "float"
+    Value::Complex(_, _) => "complex"
     Value::Str(_) => "str"
     Value::Bytes(_) => "bytes"
     Value::ByteArray(_) => "bytearray"
@@ -135,12 +137,28 @@ fn bytes_repr(bytes : Array[Int]) -> String {
 }
 
 ///|
+fn complex_to_string(real : Double, imag : Double) -> String {
+  if real == 0.0 {
+    if imag == 0.0 {
+      "0j"
+    } else {
+      imag.to_string() + "j"
+    }
+  } else {
+    let sign = if imag >= 0.0 { "+" } else { "-" }
+    let imag_abs = if imag < 0.0 { -imag } else { imag }
+    "(" + real.to_string() + sign + imag_abs.to_string() + "j)"
+  }
+}
+
+///|
 fn value_to_string(value : Value) -> String {
   match value {
     Value::None => "None"
     Value::Bool(v) => if v { "True" } else { "False" }
     Value::Int(v) => v.to_string()
     Value::Float(v) => v.to_string()
+    Value::Complex(real, imag) => complex_to_string(real, imag)
     Value::Str(v) => v
     Value::Bytes(values) => bytes_repr(values)
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
@@ -490,6 +508,31 @@ fn eq_value(a : Value, b : Value) -> Bool {
     (Value::Bool(a), Value::Bool(b)) => a == b
     (Value::Int(a), Value::Int(b)) => a == b
     (Value::Float(a), Value::Float(b)) => a == b
+    (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi
+    (Value::Complex(ar, ai), Value::Float(b)) => ai == 0.0 && ar == b
+    (Value::Complex(ar, ai), Value::Bool(b)) =>
+      ai == 0.0 && ar == (if b { 1.0 } else { 0.0 })
+    (Value::Float(a), Value::Complex(br, bi)) => bi == 0.0 && a == br
+    (Value::Bool(a), Value::Complex(br, bi)) =>
+      bi == 0.0 && (if a { 1.0 } else { 0.0 }) == br
+    (Value::Complex(ar, ai), Value::Int(b)) =>
+      if ai == 0.0 {
+        match bigint_to_double_checked(b) {
+          Ok(value) => ar == value
+          Err(_) => false
+        }
+      } else {
+        false
+      }
+    (Value::Int(a), Value::Complex(br, bi)) =>
+      if bi == 0.0 {
+        match bigint_to_double_checked(a) {
+          Ok(value) => value == br
+          Err(_) => false
+        }
+      } else {
+        false
+      }
     (Value::Str(a), Value::Str(b)) => a == b
     (Value::Bytes(a), Value::Bytes(b))
     | (Value::ByteArray(a), Value::ByteArray(b))

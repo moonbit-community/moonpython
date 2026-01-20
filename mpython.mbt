@@ -348,6 +348,27 @@ fn bytes_contains(haystack : Array[Int], needle : Value) -> Bool {
 }
 
 ///|
+fn to_complex(value : Value) -> Result[(Double, Double), RuntimeError] {
+  match value {
+    Value::Complex(real, imag) => Ok((real, imag))
+    Value::Float(v) => Ok((v, 0.0))
+    Value::Int(v) =>
+      match bigint_to_double_checked(v) {
+        Ok(value) => Ok((value, 0.0))
+        Err(err) => Err(err)
+      }
+    Value::Bool(v) => Ok((if v { 1.0 } else { 0.0 }, 0.0))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn eval_binary_op_values(
   op : BinaryOp,
   left_val : Value,
@@ -359,6 +380,22 @@ fn eval_binary_op_values(
   match op {
     BinaryOp::Add =>
       match (left_val, right_val) {
+        (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
+          Ok(Value::Complex(ar + br, ai + bi))
+        (Value::Complex(ar, ai), other) => {
+          let (br, bi) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar + br, ai + bi))
+        }
+        (other, Value::Complex(br, bi)) => {
+          let (ar, ai) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar + br, ai + bi))
+        }
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b))
         (Value::Int(a), Value::Float(b)) => {
@@ -447,6 +484,22 @@ fn eval_binary_op_values(
       }
     BinaryOp::Sub =>
       match (left_val, right_val) {
+        (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
+          Ok(Value::Complex(ar - br, ai - bi))
+        (Value::Complex(ar, ai), other) => {
+          let (br, bi) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar - br, ai - bi))
+        }
+        (other, Value::Complex(br, bi)) => {
+          let (ar, ai) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar - br, ai - bi))
+        }
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b))
         (Value::Int(a), Value::Float(b)) => {
@@ -483,6 +536,22 @@ fn eval_binary_op_values(
       }
     BinaryOp::Mul =>
       match (left_val, right_val) {
+        (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
+          Ok(Value::Complex(ar * br - ai * bi, ar * bi + ai * br))
+        (Value::Complex(ar, ai), other) => {
+          let (br, bi) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar * br - ai * bi, ar * bi + ai * br))
+        }
+        (other, Value::Complex(br, bi)) => {
+          let (ar, ai) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Complex(ar * br - ai * bi, ar * bi + ai * br))
+        }
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b))
         (Value::Int(a), Value::Float(b)) => {
@@ -556,25 +625,87 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::Div => {
-      let (_, left_num) = match number_value(left_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+    BinaryOp::Div =>
+      match (left_val, right_val) {
+        (Value::Complex(ar, ai), Value::Complex(br, bi)) => {
+          let denom = br * br + bi * bi
+          if denom == 0.0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "division by zero".to_string(),
+              ),
+            )
+          }
+          Ok(
+            Value::Complex(
+              (ar * br + ai * bi) / denom,
+              (ai * br - ar * bi) / denom,
+            ),
+          )
+        }
+        (Value::Complex(ar, ai), other) => {
+          let (br, bi) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let denom = br * br + bi * bi
+          if denom == 0.0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "division by zero".to_string(),
+              ),
+            )
+          }
+          Ok(
+            Value::Complex(
+              (ar * br + ai * bi) / denom,
+              (ai * br - ar * bi) / denom,
+            ),
+          )
+        }
+        (other, Value::Complex(br, bi)) => {
+          let (ar, ai) = match to_complex(other) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let denom = br * br + bi * bi
+          if denom == 0.0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "division by zero".to_string(),
+              ),
+            )
+          }
+          Ok(
+            Value::Complex(
+              (ar * br + ai * bi) / denom,
+              (ai * br - ar * bi) / denom,
+            ),
+          )
+        }
+        _ => {
+          let (_, left_num) = match number_value(left_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let (_, right_num) = match number_value(right_val) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          if right_num == 0.0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::ZeroDivision,
+                "division by zero".to_string(),
+              ),
+            )
+          }
+          Ok(Value::Float(left_num / right_num))
+        }
       }
-      let (_, right_num) = match number_value(right_val) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      if right_num == 0.0 {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::ZeroDivision,
-            "division by zero".to_string(),
-          ),
-        )
-      }
-      Ok(Value::Float(left_num / right_num))
-    }
     BinaryOp::FloorDiv =>
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => {
@@ -970,6 +1101,7 @@ fn eval_expr_with_env(
         Literal::Bool(value) => Ok(Value::Bool(value))
         Literal::Int(value) => Ok(Value::Int(value))
         Literal::Float(value) => Ok(Value::Float(value))
+        Literal::Complex(real, imag) => Ok(Value::Complex(real, imag))
         Literal::Str(value) => Ok(Value::Str(value))
       }
     Expr::Name(name) => lookup_name_value(name, locals, globals, builtins)
@@ -1960,6 +2092,11 @@ fn eval_expr_with_env(
       }
       match op {
         UnaryOp::Neg => {
+          match value {
+            Value::Complex(real, imag) =>
+              return Ok(Value::Complex(-real, -imag))
+            _ => ()
+          }
           let (is_float, num) = match number_value(value) {
             Ok(value) => value
             Err(err) => return Err(err)

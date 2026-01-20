@@ -5,7 +5,7 @@
 priv enum TokenKind {
   IntLit(@bigint.BigInt)
   FloatLit(Double)
-  ComplexLit
+  ComplexLit(Double)
   StrLit(String)
   FStrLit(String)
   BoolLit(Bool)
@@ -105,7 +105,7 @@ fn token_text(token : Token) -> String {
   match token.kind {
     TokenKind::IntLit(value) => value.to_string()
     TokenKind::FloatLit(value) => value.to_string()
-    TokenKind::ComplexLit => "<complex>"
+    TokenKind::ComplexLit(_) => "<complex>"
     TokenKind::StrLit(value) => "\"" + value + "\""
     TokenKind::FStrLit(value) => "f\"" + value + "\""
     TokenKind::BoolLit(value) => if value { "True" } else { "False" }
@@ -899,8 +899,29 @@ fn tokenize_expr(
         }
       }
       let text = substring(source, start, i)
+      if is_complex && is_prefixed {
+        let token = {
+          kind: Eof,
+          start: base_offset + start,
+          end: base_offset + start + 1,
+          line: current_line,
+          column: start - line_start + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid decimal literal".to_string(),
+            token,
+          ),
+        )
+      }
+      let complex_value = if is_complex {
+        parse_float_literal(text)
+      } else {
+        0.0
+      }
       let kind = if is_complex {
-        ComplexLit
+        ComplexLit(complex_value)
       } else if is_prefixed {
         IntLit(parse_int_literal(text))
       } else if has_dot || has_exp {

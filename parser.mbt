@@ -1084,12 +1084,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       let _ = self.advance()
       Expr::Literal(Literal::Float(value))
     }
-    ComplexLit => {
+    ComplexLit(value) => {
       let _ = self.advance()
-      Expr::Attribute(
-        value=Expr::Literal(Literal::Str("<complex>")),
-        attr="__class__",
-      )
+      Expr::Literal(Literal::Complex(0.0, value))
     }
     StrLit(value) => {
       let _ = self.advance()

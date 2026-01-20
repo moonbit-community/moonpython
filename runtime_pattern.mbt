@@ -11,6 +11,7 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
         Literal::Bool(v) => Value::Bool(v)
         Literal::Int(v) => Value::Int(v)
         Literal::Float(v) => Value::Float(v)
+        Literal::Complex(real, imag) => Value::Complex(real, imag)
         Literal::Str(v) => Value::Str(v)
       }
       if eq_value(value, lit_value) {

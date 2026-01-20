@@ -61,7 +61,7 @@
 ### 6) Data model and core types (fill the big holes)
 - [x] Arbitrary-precision integers (`int`) (`Value::Int` is `@bigint.BigInt`).
 - [x] `bytes`/`bytearray`/`memoryview`.
-- [ ] `complex` numbers.
+- [x] `complex` numbers.
 - [ ] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
 - [x] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
 - [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).

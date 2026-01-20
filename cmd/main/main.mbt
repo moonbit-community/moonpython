@@ -45,12 +45,28 @@ fn bytes_repr(values : Array[Int]) -> String {
 }
 
 ///|
+fn complex_to_string(real : Double, imag : Double) -> String {
+  if real == 0.0 {
+    if imag == 0.0 {
+      "0j"
+    } else {
+      imag.to_string() + "j"
+    }
+  } else {
+    let sign = if imag >= 0.0 { "+" } else { "-" }
+    let imag_abs = if imag < 0.0 { -imag } else { imag }
+    "(" + real.to_string() + sign + imag_abs.to_string() + "j)"
+  }
+}
+
+///|
 fn value_to_string(value : @mpython.Value) -> String {
   match value {
     @mpython.Value::None => "None"
     @mpython.Value::Bool(v) => if v { "True" } else { "False" }
     @mpython.Value::Int(v) => v.to_string()
     @mpython.Value::Float(v) => v.to_string()
+    @mpython.Value::Complex(real, imag) => complex_to_string(real, imag)
     @mpython.Value::Str(v) => v
     @mpython.Value::Bytes(values) => bytes_repr(values)
     @mpython.Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
