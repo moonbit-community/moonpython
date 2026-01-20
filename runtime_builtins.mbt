@@ -36,6 +36,32 @@ fn reverse_values(items : Array[Value]) -> Array[Value] {
 }
 
 ///|
+fn collect_items_from_iterable(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Array[Value], RuntimeError] {
+  let iterator = match iter_value_to_iterator(value, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let out : Array[Value] = []
+  while true {
+    match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(item) => out.push(item)
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(out)
+}
+
+///|
 fn sort_kind_for_sorted(value : Value) -> Bool? {
   match value {
     Value::Int(_) | Value::Float(_) | Value::Bool(_) => Some(true)
@@ -1094,7 +1120,8 @@ fn builtin_list(
   if positional.length() == 0 {
     Ok(Value::List([]))
   } else {
-    let items = match iterable_values(positional[0]) {
+    let items = match
+      collect_items_from_iterable(positional[0], globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -1118,7 +1145,8 @@ fn builtin_tuple(
   if positional.length() == 0 {
     Ok(Value::Tuple([]))
   } else {
-    let items = match iterable_values(positional[0]) {
+    let items = match
+      collect_items_from_iterable(positional[0], globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -1142,7 +1170,8 @@ fn builtin_set(
   if positional.length() == 0 {
     Ok(Value::Set([]))
   } else {
-    let items = match iterable_values(positional[0]) {
+    let items = match
+      collect_items_from_iterable(positional[0], globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
@@ -1207,13 +1236,37 @@ fn builtin_dict(
         }
         Ok(Value::Dict(pairs))
       }
-      _ =>
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "cannot convert to dict".to_string(),
-          ),
-        )
+      other => {
+        let items = match
+          collect_items_from_iterable(other, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let pairs : Array[(Value, Value)] = []
+        for item in items {
+          match item {
+            Value::Tuple(values) | Value::List(values) =>
+              if values.length() == 2 {
+                pairs.push((values[0], values[1]))
+              } else {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "ValueError: dictionary update sequence element has wrong length".to_string(),
+                  ),
+                )
+              }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "cannot convert to dict".to_string(),
+                ),
+              )
+          }
+        }
+        Ok(Value::Dict(pairs))
+      }
     }
   }
 }

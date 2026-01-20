@@ -91,3 +91,38 @@ test "protocol/len_calls_dunder_len" {
     #|print(len(L()))
   inspect(run_stdout(source), content="5\n")
 }
+
+///|
+test "protocol/constructors_accept_custom_iterable" {
+  let source =
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __iter__(self):
+    #|    return self
+    #|  def __next__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 3:
+    #|      return self.i
+    #|    raise StopIteration
+    #|print(list(It()))
+    #|print(tuple(It()))
+    #|print(set(It()))
+    #|class Pairs:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __iter__(self):
+    #|    return self
+    #|  def __next__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i == 1:
+    #|      return ("a", 1)
+    #|    if self.i == 2:
+    #|      return ("b", 2)
+    #|    raise StopIteration
+    #|print(dict(Pairs()))
+  inspect(
+    run_stdout(source),
+    content="[1, 2, 3]\n(1, 2, 3)\n{1, 2, 3}\n{a: 1, b: 2}\n",
+  )
+}
