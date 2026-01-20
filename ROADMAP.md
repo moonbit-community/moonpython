@@ -83,7 +83,7 @@
 - [x] Basic tracebacks/stack frames (beyond formatted messages).
 
 ### Milestone B — “Can run small programs”
-- [ ] Real module/import system (file or embedded), with a minimal stdlib shim.
+- [x] Real module/import system (file or embedded), with a minimal stdlib shim.
 - [ ] Expand builtins and core types where tests demand it.
 
 ### Milestone C — “3.12-focused features”
