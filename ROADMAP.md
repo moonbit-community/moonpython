@@ -46,9 +46,9 @@
 - [x] Function assignments default to locals (module uses globals).
 - [x] `global` statement routing for reads/writes/deletes (runtime-scanned per function).
 - [x] Comprehension scope rules with cell bindings for loop targets (enables CPython-style lambda capture tests).
-- [ ] Full closures + cell vars for general nested functions (not only comprehension targets).
-- [ ] `nonlocal` behavior enforcement and runtime effects.
-- [ ] UnboundLocalError / compile-time local analysis (reads before assignment).
+- [x] Full closures + cell vars for general nested functions (not only comprehension targets).
+- [x] `nonlocal` behavior enforcement and runtime effects.
+- [x] UnboundLocalError / compile-time local analysis (reads before assignment).
 - [ ] `exec`/`eval` scoping rules (if supported).
 
 ### 5) Modules and imports (minimal but real)
@@ -62,9 +62,9 @@
 - [ ] `bytes`/`bytearray`/`memoryview`.
 - [ ] `complex` numbers.
 - [ ] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
-- [ ] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
+- [x] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
 - [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
-- [ ] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
+- [x] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
 - [x] Negative indexing for list/tuple/str subscripts.
 - [ ] Slicing assignment semantics parity (step slicing, extended slices, error types).
 

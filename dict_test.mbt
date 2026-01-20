@@ -45,9 +45,9 @@ test "dict/setdefault" {
 test "dict/keys_values_items" {
   let source =
     #|d = {"a": 1, "b": 2}
-    #|print(d.keys())
-    #|print(d.values())
-    #|print(d.items())
+    #|print(list(d.keys()))
+    #|print(list(d.values()))
+    #|print(list(d.items()))
   inspect(run_stdout(source), content="[a, b]\n[1, 2]\n[(a, 1), (b, 2)]\n")
 }
 

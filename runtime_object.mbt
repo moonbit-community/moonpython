@@ -1273,6 +1273,62 @@ fn set_eval_generator_with_kwargs_callback(
 }
 
 ///|
+fn make_dict_view_class(name : String) -> ClassValue {
+  let dict : Array[(String, Value)] = []
+  dict.push(
+    (
+      "__iter__",
+      Value::Function(FunctionValue::{
+        name: "__iter__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  dict.push(
+    (
+      "__len__",
+      Value::Function(FunctionValue::{
+        name: "__len__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  dict.push(
+    (
+      "__contains__",
+      Value::Function(FunctionValue::{
+        name: "__contains__",
+        params: ["self", "item"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  ClassValue::{ name, bases: [], dict }
+}
+
+///|
+fn make_dict_view_instance(view_name : String, dict_value : Value) -> Value {
+  Value::Instance(InstanceValue::{
+    class: make_dict_view_class(view_name),
+    dict: [("dict", dict_value)],
+  })
+}
+
+///|
 fn call_callable_with_env(
   callee : Value,
   positional : Array[Value],
@@ -1515,7 +1571,125 @@ fn call_callable_with_env(
       }
       match method.self {
         Value::Instance(inst) =>
-          if inst.class.name == "generator" &&
+          if (
+              inst.class.name == "dict_keys" ||
+              inst.class.name == "dict_values" ||
+              inst.class.name == "dict_items"
+            ) &&
+            method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            let dict_value = match get_named_value(inst.dict, "dict") {
+              Some(v) => v
+              None =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "RuntimeError: bad dict view".to_string(),
+                  ),
+                )
+            }
+            let pairs = match dict_value {
+              Value::Dict(pairs) => pairs
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "dict view expects a dict".to_string(),
+                  ),
+                )
+            }
+            match method.function.name {
+              "__len__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__len__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(
+                    Value::Int(@bigint.BigInt::from_int(pairs.length())),
+                  )
+                }
+              "__iter__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__iter__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let items : Array[Value] = []
+                  if inst.class.name == "dict_keys" {
+                    for pair in pairs {
+                      items.push(pair.0)
+                    }
+                  } else if inst.class.name == "dict_values" {
+                    for pair in pairs {
+                      items.push(pair.1)
+                    }
+                  } else {
+                    for pair in pairs {
+                      items.push(Value::Tuple([pair.0, pair.1]))
+                    }
+                  }
+                  return Ok(make_iterator(items))
+                }
+              "__contains__" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__contains__() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let item = positional[0]
+                  if inst.class.name == "dict_keys" {
+                    for pair in pairs {
+                      if eq_value(pair.0, item) {
+                        return Ok(Value::Bool(true))
+                      }
+                    }
+                    return Ok(Value::Bool(false))
+                  } else if inst.class.name == "dict_values" {
+                    for pair in pairs {
+                      if eq_value(pair.1, item) {
+                        return Ok(Value::Bool(true))
+                      }
+                    }
+                    return Ok(Value::Bool(false))
+                  } else {
+                    match item {
+                      Value::Tuple(values) | Value::List(values) =>
+                        if values.length() != 2 {
+                          return Ok(Value::Bool(false))
+                        } else {
+                          for pair in pairs {
+                            if eq_value(pair.0, values[0]) &&
+                              eq_value(pair.1, values[1]) {
+                              return Ok(Value::Bool(true))
+                            }
+                          }
+                          return Ok(Value::Bool(false))
+                        }
+                      _ => return Ok(Value::Bool(false))
+                    }
+                  }
+                }
+              _ => ()
+            }
+          } else if inst.class.name == "generator" &&
             method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
@@ -1831,11 +2005,9 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let out : Array[Value] = []
-                for pair in pairs {
-                  out.push(pair.0)
-                }
-                return Ok(Value::List(out))
+                return Ok(
+                  make_dict_view_instance("dict_keys", Value::Dict(pairs)),
+                )
               }
               "values" => {
                 if positional.length() != 0 {
@@ -1846,11 +2018,9 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let out : Array[Value] = []
-                for pair in pairs {
-                  out.push(pair.1)
-                }
-                return Ok(Value::List(out))
+                return Ok(
+                  make_dict_view_instance("dict_values", Value::Dict(pairs)),
+                )
               }
               "items" => {
                 if positional.length() != 0 {
@@ -1861,11 +2031,9 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let out : Array[Value] = []
-                for pair in pairs {
-                  out.push(Value::Tuple([pair.0, pair.1]))
-                }
-                return Ok(Value::List(out))
+                return Ok(
+                  make_dict_view_instance("dict_items", Value::Dict(pairs)),
+                )
               }
               "update" => {
                 if positional.length() > 1 {
