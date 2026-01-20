@@ -2284,6 +2284,165 @@ fn split_top_level_commas(text : String) -> Array[String] {
 }
 
 ///|
+fn find_top_level_paren_span(text : String) -> (Int, Int)? {
+  let chars = text.to_array()
+  let mut quote : Char? = None
+  let mut escaped = false
+  let mut square_depth = 0
+  let mut curly_depth = 0
+  let mut paren_depth = 0
+  let mut open : Int? = None
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '[' {
+          square_depth += 1
+        } else if c == ']' {
+          if square_depth > 0 {
+            square_depth -= 1
+          }
+        } else if c == '{' {
+          curly_depth += 1
+        } else if c == '}' {
+          if curly_depth > 0 {
+            curly_depth -= 1
+          }
+        } else if square_depth == 0 && curly_depth == 0 && c == '(' {
+          if open is None {
+            open = Some(i)
+          }
+          paren_depth += 1
+        } else if square_depth == 0 && curly_depth == 0 && c == ')' {
+          if paren_depth > 0 {
+            paren_depth -= 1
+          }
+          if paren_depth == 0 && open is Some(open_idx) {
+            return Some((open_idx, i))
+          }
+        }
+    }
+  }
+  None
+}
+
+///|
+fn parse_type_param_header(
+  header : String,
+  token : Token,
+) -> Result[(String, Array[String]), ParseError] {
+  let trimmed = header.trim(chars=" \t").to_string()
+  let open = find_char(trimmed, '[')
+  if open is None {
+    return Ok((trimmed, []))
+  }
+  let open = open.unwrap()
+  let chars = trimmed.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  let mut close : Int? = None
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '[' {
+          depth += 1
+        } else if c == ']' {
+          if depth > 0 {
+            depth -= 1
+          }
+          if depth == 0 {
+            close = Some(i)
+            break
+          }
+        }
+    }
+    i += 1
+  }
+  if close is None {
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  let close = close.unwrap()
+  let tail = substring(trimmed, close + 1, trimmed.length())
+    .trim(chars=" \t")
+    .to_string()
+  if tail.length() > 0 {
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  let name = substring(trimmed, 0, open).trim(chars=" \t").to_string()
+  if name.length() == 0 {
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  let params_text = substring(trimmed, open + 1, close)
+    .trim(chars=" \t\n\r")
+    .to_string()
+  if params_text.length() == 0 {
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+  let params : Array[String] = []
+  for part in split_top_level_commas(params_text) {
+    let param = part.trim(chars=" \t\n\r").to_string()
+    if param.length() == 0 {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    params.push(param)
+  }
+  Ok((name, params))
+}
+
+///|
 fn split_statements(line : String) -> Array[(String, Int)] {
   let segments : Array[(String, Int)] = []
   let chars = line.to_array()
@@ -4111,6 +4270,153 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
+  if trimmed.has_prefix("type ") {
+    let rest = substring(trimmed, 5, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if rest.length() == 0 {
+      let token = {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: base_offset - line_start_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let chars = rest.to_array()
+    let mut quote : Char? = None
+    let mut escaped = false
+    let mut depth = 0
+    let mut eq_pos : Int? = None
+    for i = 0; i < chars.length(); i = i + 1 {
+      let c = chars[i]
+      match quote {
+        Some(q) =>
+          if escaped {
+            escaped = false
+          } else if c == '\\' {
+            escaped = true
+          } else if c == q {
+            quote = None
+          }
+        None =>
+          if c == '\'' || c == '"' {
+            quote = Some(c)
+            escaped = false
+          } else if c == '(' || c == '[' || c == '{' {
+            depth += 1
+          } else if c == ')' || c == ']' || c == '}' {
+            if depth > 0 {
+              depth -= 1
+            }
+          } else if c == '=' && depth == 0 {
+            eq_pos = Some(i)
+            break
+          }
+      }
+    }
+    if eq_pos is None {
+      let token = {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: base_offset - line_start_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let eq_pos = eq_pos.unwrap()
+    let name_raw = substring(rest, 0, eq_pos)
+    let value_raw = substring(rest, eq_pos + 1, rest.length())
+    let mut name_leading = 0
+    let name_raw_chars = name_raw.to_array()
+    while name_leading < name_raw_chars.length() &&
+          name_raw_chars[name_leading] == ' ' {
+      name_leading += 1
+    }
+    let name_text = name_raw.trim(chars=" \t").to_string()
+    let mut value_leading = 0
+    let value_raw_chars = value_raw.to_array()
+    while value_leading < value_raw_chars.length() &&
+          value_raw_chars[value_leading] == ' ' {
+      value_leading += 1
+    }
+    let value_text = value_raw.trim(chars=" \t").to_string()
+    if name_text.length() == 0 || value_text.length() == 0 {
+      let token = {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: base_offset - line_start_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    let name_token = {
+      kind: Eof,
+      start: base_offset + 5 + name_leading,
+      end: base_offset + 5 + name_leading + 1,
+      line: line_index + 1,
+      column: base_offset + 5 + name_leading - line_start_offset + 1,
+    }
+    let (name, type_params) = match
+      parse_type_param_header(name_text, name_token) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let name_chars = name.to_array()
+    for i = 0; i < name_chars.length(); i = i + 1 {
+      let c = name_chars[i]
+      if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+        let token = {
+          kind: Eof,
+          start: base_offset + 5 + name_leading + i,
+          end: base_offset + 5 + name_leading + i + 1,
+          line: line_index + 1,
+          column: base_offset + 5 + name_leading + i - line_start_offset + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+    }
+    let value_offset = base_offset + 5 + eq_pos + 1 + value_leading
+    let tokens = match tokenize_expr(value_text, line_index + 1, value_offset) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let value_expr = match parse_tokens_expr(tokens) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    stmts.push(Stmt::TypeAlias(name~, type_params~, value=value_expr))
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, span, base_offset,
+    )
+  }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
     let rest = substring(trimmed, 6, trimmed.length())
       .trim(chars=" \t")
@@ -5252,17 +5558,40 @@ fn LineParser::parse_block(
       let header = substring(line_text, 6, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
-      let name_end = find_char(header, '(')
-      let close_paren = find_last_char(header, ')')
-      let name = match name_end {
-        Some(pos) => substring(header, 0, pos).trim(chars=" \t").to_string()
+      let paren_span = find_top_level_paren_span(header)
+      let name_part = match paren_span {
+        Some(span) => substring(header, 0, span.0).trim(chars=" \t").to_string()
         None => header
+      }
+      let name_token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent + 6,
+        end: self.offsets[self.index] + current_indent + 7,
+        line: self.index + 1,
+        column: current_indent + 7,
+      }
+      let (name, type_params) = match
+        parse_type_param_header(name_part, name_token) {
+        Ok(value) => value
+        Err(err) => return Err(err)
       }
       let bases : Array[Expr] = []
       let keywords : Array[(String, Expr)] = []
-      if name_end is Some(open_pos) &&
-        close_paren is Some(close_pos) &&
-        close_pos > open_pos {
+      if paren_span is Some(span) {
+        let open_pos = span.0
+        let close_pos = span.1
+        let tail = substring(header, close_pos + 1, header.length())
+          .trim(chars=" \t")
+          .to_string()
+        if tail.length() > 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              name_token,
+            ),
+          )
+        }
         let bases_text = substring(header, open_pos + 1, close_pos)
           .trim(chars=" \t")
           .to_string()
@@ -5403,7 +5732,14 @@ fn LineParser::parse_block(
             self.offsets,
             line_index,
             current_indent,
-            Stmt::Class(name~, decorators~, bases~, keywords~, body~),
+            Stmt::Class(
+              name~,
+              decorators~,
+              type_params~,
+              bases~,
+              keywords~,
+              body~,
+            ),
           ),
         )
         self.index = next_index
@@ -5439,7 +5775,14 @@ fn LineParser::parse_block(
           self.offsets,
           line_index,
           current_indent,
-          Stmt::Class(name~, decorators~, bases~, keywords~, body~),
+          Stmt::Class(
+            name~,
+            decorators~,
+            type_params~,
+            bases~,
+            keywords~,
+            body~,
+          ),
         ),
       )
       continue
@@ -5887,10 +6230,13 @@ fn LineParser::parse_block(
       pending_decorators = []
       pending_decorator_token = None
       let header = substring(line_text, 4, line_text.length())
-      let name_end = find_char(header, '(')
-      let close_pos = find_last_char(header, ')')
+      let paren_span = find_top_level_paren_span(header)
+      let close_pos = match paren_span {
+        Some(span) => Some(span.1)
+        None => None
+      }
       let colon_pos = find_last_char(header, ':')
-      if name_end is None || close_pos is None || colon_pos is None {
+      if paren_span is None || close_pos is None || colon_pos is None {
         let token = {
           kind: Eof,
           start: self.offsets[self.index],
@@ -5906,9 +6252,22 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let name = substring(header, 0, name_end.unwrap())
-        .trim(chars=" \t")
-        .to_string()
+      let name_part = match paren_span {
+        Some(span) => substring(header, 0, span.0).trim(chars=" \t").to_string()
+        None => "".to_string()
+      }
+      let name_token = {
+        kind: Eof,
+        start: self.offsets[self.index] + current_indent + 4,
+        end: self.offsets[self.index] + current_indent + 5,
+        line: self.index + 1,
+        column: current_indent + 5,
+      }
+      let (name, type_params) = match
+        parse_type_param_header(name_part, name_token) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
       let name_chars = name.to_array()
       for i = 0; i < name_chars.length(); i = i + 1 {
         let c = name_chars[i]
@@ -5929,11 +6288,11 @@ fn LineParser::parse_block(
           )
         }
       }
-      let params_text = substring(
-        header,
-        name_end.unwrap() + 1,
-        close_pos.unwrap(),
-      )
+      let name_end = match paren_span {
+        Some(span) => span.0
+        None => 0
+      }
+      let params_text = substring(header, name_end + 1, close_pos.unwrap())
       let params : Array[String] = []
       let defaults : Array[Expr] = []
       let seen : Array[String] = []
@@ -5942,7 +6301,7 @@ fn LineParser::parse_block(
       let params_chars = params_text.to_array()
       let mut param_start = 0
       let mut idx = 0
-      let param_base = current_indent + 4 + name_end.unwrap() + 1
+      let param_base = current_indent + 4 + name_end + 1
       while idx <= params_chars.length() {
         let end_reached = idx == params_chars.length()
         if end_reached || params_chars[idx] == ',' {
@@ -6221,6 +6580,7 @@ fn LineParser::parse_block(
             Stmt::Function(
               name~,
               decorators~,
+              type_params~,
               params~,
               defaults~,
               body~,
@@ -6423,6 +6783,7 @@ fn LineParser::parse_block(
           Stmt::Function(
             name~,
             decorators~,
+            type_params~,
             params~,
             defaults~,
             body~,

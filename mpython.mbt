@@ -3007,7 +3007,7 @@ fn collect_scope_decl_names(
           }
         }
       }
-      Stmt::Function(..) | Stmt::Class(..) => ()
+      Stmt::Function(..) | Stmt::Class(..) | Stmt::TypeAlias(..) => ()
       _ => ()
     }
   }
@@ -3230,6 +3230,11 @@ fn collect_function_local_names(
         add_target(target)
         walk_expr(value)
       }
+      Stmt::TypeAlias(name~, type_params~, value~) => {
+        let _ = type_params
+        add_local(name)
+        walk_expr(value)
+      }
       Stmt::Del(targets) =>
         for t in targets {
           add_target(t)
@@ -3348,6 +3353,7 @@ fn collect_function_local_names(
       Stmt::Function(
         name~,
         decorators~,
+        type_params~,
         params~,
         defaults~,
         body~,
@@ -3361,13 +3367,14 @@ fn collect_function_local_names(
         for d in defaults {
           walk_expr(d)
         }
+        let _ = type_params
         let _ = params
         let _ = body
         let _ = is_generator
         let _ = is_async
 
       }
-      Stmt::Class(name~, decorators~, bases~, keywords~, body~) => {
+      Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
         add_local(name)
         for dec in decorators {
           walk_expr(dec)
@@ -3379,6 +3386,7 @@ fn collect_function_local_names(
           let _ = kw.0
           walk_expr(kw.1)
         }
+        let _ = type_params
         let _ = body
 
       }

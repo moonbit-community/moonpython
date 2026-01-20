@@ -154,6 +154,7 @@ pub enum Stmt {
   ExprStmt(Expr)
   Assign(target~ : Target, value~ : Expr)
   AugAssign(target~ : Target, op~ : BinaryOp, value~ : Expr)
+  TypeAlias(name~ : String, type_params~ : Array[String], value~ : Expr)
   Return(Expr?)
   Yield(Expr?)
   YieldFrom(Expr)
@@ -177,6 +178,7 @@ pub enum Stmt {
   Function(
     name~ : String,
     decorators~ : Array[Expr],
+    type_params~ : Array[String],
     params~ : Array[String],
     defaults~ : Array[Expr],
     body~ : Array[Stmt],
@@ -202,6 +204,7 @@ pub enum Stmt {
   Class(
     name~ : String,
     decorators~ : Array[Expr],
+    type_params~ : Array[String],
     bases~ : Array[Expr],
     keywords~ : Array[(String, Expr)],
     body~ : Array[Stmt]

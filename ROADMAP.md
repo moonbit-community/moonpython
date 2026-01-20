@@ -72,7 +72,7 @@
 ### 7) Python 3.12 language additions / syntax parity
 - [x] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, better error reporting.
 - [x] f-string conversions (`!r/!s/!a`) and debug `=` runtime behavior.
-- [ ] Type parameter syntax and `type` statements (PEP 695): accept/parse (even if runtime ignores), and preserve AST fidelity.
+- [x] Type parameter syntax and `type` statements (PEP 695): accept/parse (even if runtime ignores), and preserve AST fidelity.
 - [ ] Improved parser error recovery to better match CPython’s SyntaxError locations/messages (pragmatic alignment).
 
 ## Milestones (checklist)
@@ -89,7 +89,7 @@
 ### Milestone C — “3.12-focused features”
 - [x] PEP 701 f-strings (parser + runtime).
 - [x] PEP 654 exception groups + `except*`.
-- [ ] PEP 695 syntax support (parse/AST first, semantics later).
+- [x] PEP 695 syntax support (parse/AST first, semantics later).
 
 ## Conformance approach
 

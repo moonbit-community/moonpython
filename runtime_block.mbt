@@ -699,6 +699,12 @@ fn eval_block_flow(
         }
         last = Value::None
       }
+      Stmt::TypeAlias(name~, type_params~, value~) => {
+        let _ = type_params
+        let _ = value
+        set_scoped_value(locals, globals, name, Value::None)
+        last = Value::None
+      }
       Stmt::Return(expr) => {
         if expr is Some(expr) {
           let value = match
@@ -720,12 +726,14 @@ fn eval_block_flow(
       Stmt::Function(
         name~,
         decorators~,
+        type_params~,
         params~,
         defaults~,
         body~,
         is_generator~,
         is_async~
       ) => {
+        let _ = type_params
         let default_values : Array[Value] = []
         for expr in defaults {
           let value = match
@@ -1423,7 +1431,8 @@ fn eval_block_flow(
           Err(err) => return Err(err)
         }
       }
-      Stmt::Class(name~, decorators~, bases~, keywords~, body~) => {
+      Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
+        let _ = type_params
         let decorator_values : Array[Value] = []
         for dec_expr in decorators {
           let dec_value = match
