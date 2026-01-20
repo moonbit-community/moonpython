@@ -79,7 +79,7 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
       } else if inst.class.name == "generator" {
         let out : Array[Value] = []
         while true {
-          match iterator_next(Value::Instance(inst), None) {
+          match generator_next(Value::Instance(inst), None) {
             Ok(v) => out.push(v)
             Err(err) =>
               if err.exc_type == "StopIteration" {
@@ -197,11 +197,21 @@ fn eval_list_comp_walk(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let items = match iterable_values(iter_value) {
-    Ok(value) => value
+  let iterator = match
+    iter_value_to_iterator(iter_value, globals, builtins, io) {
+    Ok(v) => v
     Err(err) => return Err(err)
   }
-  for item in items {
+  while true {
+    let item = match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(v) => v
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
     let _ = match bind_comp_targets(locals, globals, clause.0, item) {
       Ok(_) => ()
       Err(err) => return Err(err)
@@ -263,11 +273,21 @@ fn eval_dict_comp_walk(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let items = match iterable_values(iter_value) {
-    Ok(value) => value
+  let iterator = match
+    iter_value_to_iterator(iter_value, globals, builtins, io) {
+    Ok(v) => v
     Err(err) => return Err(err)
   }
-  for item in items {
+  while true {
+    let item = match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(v) => v
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
     let _ = match bind_comp_targets(locals, globals, clause.0, item) {
       Ok(_) => ()
       Err(err) => return Err(err)

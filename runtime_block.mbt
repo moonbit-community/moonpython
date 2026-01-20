@@ -1191,12 +1191,14 @@ fn eval_block_flow(
           Err(err) => return Err(err)
         }
         let mut broke = false
-        let iterator = match iter_value_to_iterator(iter_value) {
+        let iterator = match
+          iter_value_to_iterator(iter_value, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
         while true {
-          let item = match iterator_next(iterator, None) {
+          let item = match
+            iterator_next(iterator, None, globals, builtins, io) {
             Ok(value) => value
             Err(err) =>
               if err.exc_type == "StopIteration" {

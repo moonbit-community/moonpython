@@ -17,17 +17,42 @@ fn make_iterator(items_in : Array[Value]) -> Value {
 }
 
 ///|
-fn iter_value_to_iterator(value : Value) -> Result[Value, RuntimeError] {
+fn iter_value_to_iterator(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
   match value {
     Value::Instance(inst) =>
       if inst.class.name == "iterator" || inst.class.name == "generator" {
         Ok(Value::Instance(inst))
       } else {
-        let items = match iterable_values(Value::Instance(inst)) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        // Try the Python protocol first: obj.__iter__() -> iterator
+        match
+          get_attr_from_value(
+            Value::Instance(inst),
+            "__iter__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(iter_method) =>
+            call_callable_with_env(iter_method, [], [], globals, builtins, io)
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => {
+                // Fallback to the internal materialization path (builtins + our
+                // internal iterator/generator types).
+                let items = match iterable_values(Value::Instance(inst)) {
+                  Ok(v) => v
+                  Err(e) => return Err(e)
+                }
+                Ok(make_iterator(items))
+              }
+              _ => Err(err)
+            }
         }
-        Ok(make_iterator(items))
       }
     other => {
       let items = match iterable_values(other) {
@@ -43,6 +68,9 @@ fn iter_value_to_iterator(value : Value) -> Result[Value, RuntimeError] {
 fn iterator_next(
   iterator_value : Value,
   default_value : Value?,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Value, RuntimeError] {
   match iterator_value {
     Value::Instance(inst) =>
@@ -81,12 +109,36 @@ fn iterator_next(
       } else if inst.class.name == "generator" {
         generator_next(Value::Instance(inst), default_value)
       } else {
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "'" + inst.class.name + "' object is not an iterator",
-          ),
-        )
+        let next_method = match
+          get_attr_from_value(
+            Value::Instance(inst),
+            "__next__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(_) =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "'" + inst.class.name + "' object is not an iterator",
+              ),
+            )
+        }
+        match
+          call_callable_with_env(next_method, [], [], globals, builtins, io) {
+          Ok(v) => Ok(v)
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              match default_value {
+                Some(v) => Ok(v)
+                None => Err(err)
+              }
+            } else {
+              Err(err)
+            }
+        }
       }
     other =>
       Err(
@@ -102,6 +154,9 @@ fn iterator_next(
 fn iterator_send(
   iterator_value : Value,
   sent_value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Value, RuntimeError] {
   match iterator_value {
     Value::Instance(inst) =>
@@ -109,7 +164,8 @@ fn iterator_send(
         generator_send(Value::Instance(inst), sent_value)
       } else if inst.class.name == "iterator" {
         match sent_value {
-          Value::None => iterator_next(Value::Instance(inst), None)
+          Value::None =>
+            iterator_next(Value::Instance(inst), None, globals, builtins, io)
           _ =>
             Err(
               make_runtime_error(
@@ -119,12 +175,17 @@ fn iterator_send(
             )
         }
       } else {
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "'" + inst.class.name + "' object is not an iterator",
-          ),
-        )
+        match sent_value {
+          Value::None =>
+            iterator_next(Value::Instance(inst), None, globals, builtins, io)
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "'" + inst.class.name + "' object does not support send()",
+              ),
+            )
+        }
       }
     other =>
       Err(

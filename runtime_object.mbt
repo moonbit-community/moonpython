@@ -1596,13 +1596,22 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  let items = match iterable_values(positional[0]) {
+                  let to_add : Array[Value] = []
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
                     Ok(v) => v
                     Err(err) => return Err(err)
                   }
-                  let to_add : Array[Value] = []
-                  for item in items {
-                    to_add.push(item)
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) => to_add.push(item)
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
                   }
                   for item in to_add {
                     values.push(item)
@@ -1877,33 +1886,45 @@ fn call_callable_with_env(
                     for pair in other_pairs {
                       entries.push(pair)
                     }
-                  _ =>
-                    match iterable_values(other) {
-                      Ok(items) =>
-                        for item in items {
-                          match item {
-                            Value::Tuple(values) | Value::List(values) =>
-                              if values.length() != 2 {
-                                return Err(
-                                  make_runtime_error(
-                                    RuntimeErrorKind::Type,
-                                    "update() sequence element has wrong length".to_string(),
-                                  ),
-                                )
-                              } else {
-                                entries.push((values[0], values[1]))
-                              }
-                            _ =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Type,
-                                  "update() expects (key, value) pairs".to_string(),
-                                ),
-                              )
-                          }
-                        }
+                  _ => {
+                    let iterator = match
+                      iter_value_to_iterator(other, globals, builtins, io) {
+                      Ok(v) => v
                       Err(err) => return Err(err)
                     }
+                    while true {
+                      let item = match
+                        iterator_next(iterator, None, globals, builtins, io) {
+                        Ok(v) => v
+                        Err(err) =>
+                          if err.exc_type == "StopIteration" {
+                            break
+                          } else {
+                            return Err(err)
+                          }
+                      }
+                      match item {
+                        Value::Tuple(values) | Value::List(values) =>
+                          if values.length() != 2 {
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Type,
+                                "update() sequence element has wrong length".to_string(),
+                              ),
+                            )
+                          } else {
+                            entries.push((values[0], values[1]))
+                          }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "update() expects (key, value) pairs".to_string(),
+                            ),
+                          )
+                      }
+                    }
+                  }
                 }
                 for entry in entries {
                   let key = entry.0

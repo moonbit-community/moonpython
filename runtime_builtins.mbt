@@ -236,7 +236,8 @@ fn builtin_len(
       ),
     )
   }
-  match positional[0] {
+  let target = positional[0]
+  match target {
     Value::Str(text) => Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
     Value::List(values) =>
       Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
@@ -246,6 +247,56 @@ fn builtin_len(
       Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
     Value::Set(values) =>
       Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Instance(inst) => {
+      let _ = locals
+      let len_method = match
+        get_attr_from_value(
+          Value::Instance(inst),
+          "__len__",
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(v) => v
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "object has no len()".to_string(),
+                ),
+              )
+            _ => return Err(err)
+          }
+      }
+      let value = match
+        call_callable_with_env(len_method, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match value {
+        Value::Int(v) =>
+          if v < 0N {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: __len__() should return >= 0".to_string(),
+              ),
+            )
+          } else {
+            Ok(Value::Int(v))
+          }
+        Value::Bool(b) => Ok(Value::Int(if b { 1N } else { 0N }))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__len__() should return an int".to_string(),
+            ),
+          )
+      }
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -1191,10 +1242,7 @@ fn builtin_iter(
     )
   }
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
-  iter_value_to_iterator(positional[0])
+  iter_value_to_iterator(positional[0], globals, builtins, io)
 }
 
 ///|
@@ -1224,10 +1272,7 @@ fn builtin_next(
     None
   }
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
-  iterator_next(positional[0], default_value)
+  iterator_next(positional[0], default_value, globals, builtins, io)
 }
 
 ///|

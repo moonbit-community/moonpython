@@ -264,7 +264,13 @@ fn generator_step_statement(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let iterator = match iter_value_to_iterator(iter_value) {
+          let iterator = match
+            iter_value_to_iterator(
+              iter_value,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -318,7 +324,13 @@ fn generator_step_statement(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let iterator = match iter_value_to_iterator(iter_value) {
+          let iterator = match
+            iter_value_to_iterator(
+              iter_value,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -478,7 +490,13 @@ fn generator_step_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let iterator = match iter_value_to_iterator(iter_value) {
+      let iterator = match
+        iter_value_to_iterator(
+          iter_value,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -531,7 +549,13 @@ fn generator_step_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let iterator = match iter_value_to_iterator(iter_value) {
+      let iterator = match
+        iter_value_to_iterator(
+          iter_value,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -795,7 +819,14 @@ fn generator_resume_inner(
         continue
       }
       GenFrame::YieldFrom(iterator~) =>
-        match iterator_send(iterator, sent_value) {
+        match
+          iterator_send(
+            iterator,
+            sent_value,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
           Ok(value) => return Ok(value)
           Err(err) =>
             if is_stop_iteration(err) {
@@ -855,7 +886,14 @@ fn generator_resume_inner(
           let _ = state.val.frames.pop()
           continue
         }
-        match iterator_next(iterator, None) {
+        match
+          iterator_next(
+            iterator,
+            None,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
           Ok(item) => {
             let _ = match
               assign_target_with_env(

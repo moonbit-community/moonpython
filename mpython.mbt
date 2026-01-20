@@ -1021,7 +1021,8 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let first_iterator = match iter_value_to_iterator(first_iter_value) {
+      let first_iterator = match
+        iter_value_to_iterator(first_iter_value, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1727,7 +1728,94 @@ fn eval_expr_with_env(
                   Value::Str(needle) => text.contains(needle)
                   _ => false
                 }
-              _ => false
+              _ =>
+                // 1) Prefer `__contains__` when available.
+                match current {
+                  Value::Instance(_) =>
+                    match
+                      get_attr_from_value(
+                        current, "__contains__", globals, builtins, io,
+                      ) {
+                      Ok(contains_method) => {
+                        let result = match
+                          call_callable_with_env(
+                            contains_method,
+                            [previous],
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        bool_from_value(result)
+                      }
+                      Err(err) =>
+                        match err.kind {
+                          RuntimeErrorKind::Attribute => {
+                            // Fall back to iteration.
+                            let iterator = match
+                              iter_value_to_iterator(
+                                current, globals, builtins, io,
+                              ) {
+                              Ok(v) => v
+                              Err(e) => return Err(e)
+                            }
+                            let mut found = false
+                            while true {
+                              match
+                                iterator_next(
+                                  iterator,
+                                  None,
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(item) =>
+                                  if eq_value(item, previous) {
+                                    found = true
+                                    break
+                                  }
+                                Err(e) =>
+                                  if e.exc_type == "StopIteration" {
+                                    break
+                                  } else {
+                                    return Err(e)
+                                  }
+                              }
+                            }
+                            found
+                          }
+                          _ => return Err(err)
+                        }
+                    }
+                  _ => {
+                    let iterator = match
+                      iter_value_to_iterator(current, globals, builtins, io) {
+                      Ok(v) => v
+                      Err(e) => return Err(e)
+                    }
+                    let mut found = false
+                    while true {
+                      match
+                        iterator_next(iterator, None, globals, builtins, io) {
+                        Ok(item) =>
+                          if eq_value(item, previous) {
+                            found = true
+                            break
+                          }
+                        Err(e) =>
+                          if e.exc_type == "StopIteration" {
+                            break
+                          } else {
+                            return Err(e)
+                          }
+                      }
+                    }
+                    found
+                  }
+                }
             }
           CompareOp::NotIn =>
             !(match current {
@@ -1756,7 +1844,92 @@ fn eval_expr_with_env(
                   Value::Str(needle) => text.contains(needle)
                   _ => false
                 }
-              _ => false
+              _ =>
+                match current {
+                  Value::Instance(_) =>
+                    match
+                      get_attr_from_value(
+                        current, "__contains__", globals, builtins, io,
+                      ) {
+                      Ok(contains_method) => {
+                        let result = match
+                          call_callable_with_env(
+                            contains_method,
+                            [previous],
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        bool_from_value(result)
+                      }
+                      Err(err) =>
+                        match err.kind {
+                          RuntimeErrorKind::Attribute => {
+                            let iterator = match
+                              iter_value_to_iterator(
+                                current, globals, builtins, io,
+                              ) {
+                              Ok(v) => v
+                              Err(e) => return Err(e)
+                            }
+                            let mut found = false
+                            while true {
+                              match
+                                iterator_next(
+                                  iterator,
+                                  None,
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(item) =>
+                                  if eq_value(item, previous) {
+                                    found = true
+                                    break
+                                  }
+                                Err(e) =>
+                                  if e.exc_type == "StopIteration" {
+                                    break
+                                  } else {
+                                    return Err(e)
+                                  }
+                              }
+                            }
+                            found
+                          }
+                          _ => return Err(err)
+                        }
+                    }
+                  _ => {
+                    let iterator = match
+                      iter_value_to_iterator(current, globals, builtins, io) {
+                      Ok(v) => v
+                      Err(e) => return Err(e)
+                    }
+                    let mut found = false
+                    while true {
+                      match
+                        iterator_next(iterator, None, globals, builtins, io) {
+                        Ok(item) =>
+                          if eq_value(item, previous) {
+                            found = true
+                            break
+                          }
+                        Err(e) =>
+                          if e.exc_type == "StopIteration" {
+                            break
+                          } else {
+                            return Err(e)
+                          }
+                      }
+                    }
+                    found
+                  }
+                }
             })
           _ => false
         }
