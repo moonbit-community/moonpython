@@ -67,7 +67,7 @@
 - [x] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
 - [x] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
 - [x] Negative indexing for list/tuple/str subscripts.
-- [ ] Slicing assignment semantics parity (step slicing, extended slices, error types).
+- [x] Slicing assignment semantics parity (step slicing, extended slices, error types).
 
 ### 7) Python 3.12 language additions / syntax parity
 - [ ] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, better error reporting.
