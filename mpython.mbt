@@ -2169,7 +2169,24 @@ fn collect_scope_decl_names(
           walk(s)
         }
       }
+      Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+        let _ = target
+        let _ = iter
+        for s in body {
+          walk(s)
+        }
+        for s in else_body {
+          walk(s)
+        }
+      }
       Stmt::With(context~, target~, body~) => {
+        let _ = context
+        let _ = target
+        for s in body {
+          walk(s)
+        }
+      }
+      Stmt::AsyncWith(context~, target~, body~) => {
         let _ = context
         let _ = target
         for s in body {

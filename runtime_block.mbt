@@ -798,19 +798,100 @@ fn eval_block_flow(
         }
       }
       Stmt::AsyncWith(context~, target~, body~) => {
-        let _ = target
-        let _ = body
-        let _ = match
+        // Roughly mirrors CPython:
+        // mgr = (EXPR); aenter = type(mgr).__aenter__; aexit = type(mgr).__aexit__
+        // value = await aenter(mgr); [TARGET = value];
+        // try: SUITE; except: if not await aexit(mgr, *exc): raise; finally: await aexit(mgr, None, None, None)
+        let mgr = match
           eval_expr_with_env(context, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "NotImplementedError: async with is not supported".to_string(),
-          ),
+        let aenter = match
+          get_attr_from_value(mgr, "__aenter__", globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let aexit = match
+          get_attr_from_value(mgr, "__aexit__", globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let entered = match
+          call_callable_with_env(aenter, [], [], globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let value = match coroutine_await(entered) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match target {
+          Some(name) => set_scoped_value(locals, globals, name, value)
+          None => ()
+        }
+        let body_result = eval_block_flow(
+          body, locals, globals, builtins, io, config, loop_depth,
         )
+        match body_result {
+          Ok(flow) => {
+            // normal exit: await aexit(mgr, None, None, None)
+            let exit_res = match
+              call_callable_with_env(
+                aexit,
+                [Value::None, Value::None, Value::None],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let _ = match coroutine_await(exit_res) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            match flow {
+              BlockFlow::Normal(_) => {
+                last = Value::None
+                ()
+              }
+              BlockFlow::Return(v) => return Ok(BlockFlow::Return(v))
+              BlockFlow::Break => return Ok(BlockFlow::Break)
+              BlockFlow::Continue => return Ok(BlockFlow::Continue)
+            }
+          }
+          Err(err) => {
+            // exception exit: suppress if await aexit(...) is truthy
+            let exit_call = match
+              call_callable_with_env(
+                aexit,
+                [
+                  Value::Str(err.exc_type),
+                  Value::Str(format_runtime_error(err)),
+                  Value::None,
+                ],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            let exit_value = match coroutine_await(exit_call) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if bool_from_value(exit_value) {
+              last = Value::None
+              ()
+            } else {
+              return Err(err)
+            }
+          }
+        }
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
         let outcome : Result[BlockFlow, RuntimeError] = match
@@ -1164,19 +1245,85 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
-        let _ = target
-        let _ = body
-        let _ = else_body
-        let _ = match eval_expr_with_env(iter, locals, globals, builtins, io) {
+        // Minimal async-for semantics:
+        // it = (ITER); it = type(it).__aiter__(it)
+        // loop: value = await type(it).__anext__(it); assign target; exec body
+        // StopAsyncIteration => break; optional else_body if not broken
+        let iter_value = match
+          eval_expr_with_env(iter, locals, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "NotImplementedError: async for is not supported".to_string(),
-          ),
-        )
+        let aiter_value = match
+          get_attr_from_value(iter_value, "__aiter__", globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let iterator0 = match
+          call_callable_with_env(aiter_value, [], [], globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let iterator = iterator0
+        let mut broke = false
+        while true {
+          let anext_value = match
+            get_attr_from_value(iterator, "__anext__", globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let next_awaitable = match
+            call_callable_with_env(anext_value, [], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let item = match coroutine_await(next_awaitable) {
+            Ok(v) => v
+            Err(err) => {
+              if err.exc_type == "StopAsyncIteration" {
+                break
+              }
+              return Err(err)
+            }
+          }
+          let _ = match
+            assign_target_with_env(target, item, locals, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match
+            eval_block_flow(
+              body,
+              locals,
+              globals,
+              builtins,
+              io,
+              config,
+              loop_depth + 1,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Continue) => continue
+            Ok(BlockFlow::Break) => {
+              broke = true
+              break
+            }
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Err(err) => return Err(err)
+          }
+        }
+        if !broke && else_body.length() > 0 {
+          match
+            eval_block_flow(
+              else_body, locals, globals, builtins, io, config, loop_depth,
+            ) {
+            Ok(BlockFlow::Normal(_)) => ()
+            Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+            Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+            Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+            Err(err) => return Err(err)
+          }
+        }
+        last = Value::None
       }
       Stmt::Break => {
         if loop_depth > 0 {

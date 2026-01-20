@@ -1356,7 +1356,8 @@ fn call_callable_with_env(
         klass.name == "SyntaxError" ||
         klass.name == "IndentationError" ||
         klass.name == "EOFError" ||
-        klass.name == "StopIteration" {
+        klass.name == "StopIteration" ||
+        klass.name == "StopAsyncIteration" {
         let dict : Array[(String, Value)] = []
         dict.push(("__traceback__", Value::None))
         dict.push(("args", Value::Tuple(positional)))
@@ -1366,7 +1367,7 @@ fn call_callable_with_env(
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
         }
-        if klass.name == "StopIteration" {
+        if klass.name == "StopIteration" || klass.name == "StopAsyncIteration" {
           let value = if positional.length() > 0 {
             positional[0]
           } else {

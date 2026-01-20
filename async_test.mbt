@@ -64,3 +64,94 @@ test "async/cannot_reuse_coroutine" {
     content="RuntimeError: cannot reuse already awaited coroutine",
   )
 }
+
+///|
+test "async/with_basic" {
+  let source =
+    #|log = []
+    #|class CM:
+    #|  async def __aenter__(self):
+    #|    global log
+    #|    log = log + ["enter"]
+    #|    return 7
+    #|  async def __aexit__(self, t, v, tb):
+    #|    global log
+    #|    log = log + ["exit"]
+    #|    return False
+    #|async def f():
+    #|  global log
+    #|  async with CM() as v:
+    #|    log = log + ["v=" + str(v)]
+    #|  return ",".join(log)
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="enter,v=7,exit\n")
+}
+
+///|
+test "async/with_suppresses" {
+  let source =
+    #|log = []
+    #|class CM:
+    #|  async def __aenter__(self):
+    #|    global log
+    #|    log = log + ["enter"]
+    #|    return 0
+    #|  async def __aexit__(self, t, v, tb):
+    #|    global log
+    #|    log = log + ["exit:" + t]
+    #|    return True
+    #|async def f():
+    #|  global log
+    #|  async with CM():
+    #|    missing
+    #|  log = log + ["after"]
+    #|  return ",".join(log)
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="enter,exit:NameError,after\n")
+}
+
+///|
+test "async/for_basic" {
+  let source =
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 3:
+    #|      return self.i
+    #|    raise StopAsyncIteration
+    #|async def f():
+    #|  s = 0
+    #|  async for x in It():
+    #|    s = s + x
+    #|  return s
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="6\n")
+}
+
+///|
+test "async/for_else" {
+  let source =
+    #|log = []
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 2:
+    #|      return self.i
+    #|    raise StopAsyncIteration
+    #|async def f():
+    #|  async for x in It():
+    #|    log = log + [x]
+    #|  else:
+    #|    log = log + ["done"]
+    #|  return str(log)
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[1, 2, done]\n")
+}

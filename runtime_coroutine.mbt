@@ -22,7 +22,7 @@ let coroutine_registry : Ref[Array[Ref[CoroutineState]]] = { val: [] }
 let coroutine_active_depth : Ref[Int] = { val: 0 }
 
 ///|
-fn coroutine_is_active() -> Bool {
+pub fn coroutine_is_active() -> Bool {
   coroutine_active_depth.val > 0
 }
 
@@ -131,7 +131,7 @@ fn coroutine_new(
 }
 
 ///|
-fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
+pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
   let state = match coroutine_state_from_value(coroutine_value) {
     Ok(v) => v
     Err(err) => return Err(err)

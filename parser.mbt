@@ -5033,8 +5033,9 @@ fn LineParser::parse_block(
         )
         .trim(chars=" \t")
         .to_string()
+      let body : Array[Stmt] = []
       if body_text.length() > 0 {
-        let body = match
+        let parsed = match
           parse_simple_statement(
             body_text,
             self.index,
@@ -5043,36 +5044,130 @@ fn LineParser::parse_block(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body=[]))
-        self.index = next_index
-        continue
-      }
-      self.index = next_index
-      let next_indent = self.peek_next_indent()
-      if next_indent <= current_indent {
-        let missing_line = self.clamp_line_index(
-          self.peek_next_significant_index().unwrap_or(self.index),
-        )
-        let token = {
-          kind: Eof,
-          start: self.offsets[missing_line],
-          end: self.offsets[missing_line] + 1,
-          line: missing_line + 1,
-          column: 1,
+        for stmt in parsed {
+          body.push(stmt)
         }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Indentation,
-            "expected indented block".to_string(),
-            token,
-          ),
-        )
+        self.index = next_index
+      } else {
+        self.index = next_index
+        let next_indent = self.peek_next_indent()
+        if next_indent <= current_indent {
+          let missing_line = self.clamp_line_index(
+            self.peek_next_significant_index().unwrap_or(self.index),
+          )
+          let token = {
+            kind: Eof,
+            start: self.offsets[missing_line],
+            end: self.offsets[missing_line] + 1,
+            line: missing_line + 1,
+            column: 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Indentation,
+              "expected indented block".to_string(),
+              token,
+            ),
+          )
+        }
+        let parsed = match self.parse_block(next_indent) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        for stmt in parsed {
+          body.push(stmt)
+        }
       }
-      let body = match self.parse_block(next_indent) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      let else_body : Array[Stmt] = []
+      if self.index < self.lines.length() {
+        let else_line = self.lines[self.index]
+        let else_trimmed = else_line.trim(chars=" \t").to_string()
+        let else_indent = count_indent(else_line)
+        if else_indent == current_indent && else_trimmed.has_prefix("else") {
+          let colon_pos = find_last_char(else_trimmed, ':')
+          if colon_pos is None {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + else_indent,
+              end: self.offsets[self.index] + else_indent + 1,
+              line: self.index + 1,
+              column: else_indent + 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+          let inline_text = match colon_pos {
+            Some(pos) =>
+              strip_inline_comment(
+                substring(else_trimmed, pos + 1, else_trimmed.length()).to_string(),
+              )
+              .trim(chars=" \t")
+              .to_string()
+            None => ""
+          }
+          self.index += 1
+          if inline_text.length() > 0 {
+            let segments = split_statements(inline_text)
+            for segment_pair in segments {
+              let segment = segment_pair.0
+              let offset = segment_pair.1
+              if segment.length() == 0 {
+                continue
+              }
+              let parsed = match
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  self.offsets[self.index - 1] +
+                  else_indent +
+                  colon_pos.unwrap_or(0) +
+                  1 +
+                  offset,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              for stmt in parsed {
+                else_body.push(stmt)
+              }
+            }
+          } else {
+            let block_indent = self.peek_next_indent()
+            if block_indent <= current_indent {
+              let missing_line = self.clamp_line_index(
+                self.peek_next_significant_index().unwrap_or(self.index),
+              )
+              let token = {
+                kind: Eof,
+                start: self.offsets[missing_line],
+                end: self.offsets[missing_line] + 1,
+                line: missing_line + 1,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Indentation,
+                  "expected indented block".to_string(),
+                  token,
+                ),
+              )
+            }
+            let parsed = match self.parse_block(block_indent) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            for stmt in parsed {
+              else_body.push(stmt)
+            }
+          }
+        }
       }
-      stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body=[]))
+      stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body~))
       continue
     }
     if line_text.has_prefix("async with ") {
