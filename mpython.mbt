@@ -1465,9 +1465,10 @@ fn eval_expr_with_env(
                 Err(err) => return Err(err)
               }
               match target {
-                Value::List(values) =>
-                  if idx >= 0 && idx < values.length() {
-                    Ok(values[idx])
+                Value::List(values) => {
+                  let norm = normalize_index(idx, values.length())
+                  if norm >= 0 && norm < values.length() {
+                    Ok(values[norm])
                   } else {
                     Err(
                       make_runtime_error(
@@ -1476,9 +1477,11 @@ fn eval_expr_with_env(
                       ),
                     )
                   }
-                Value::Tuple(values) =>
-                  if idx >= 0 && idx < values.length() {
-                    Ok(values[idx])
+                }
+                Value::Tuple(values) => {
+                  let norm = normalize_index(idx, values.length())
+                  if norm >= 0 && norm < values.length() {
+                    Ok(values[norm])
                   } else {
                     Err(
                       make_runtime_error(
@@ -1487,10 +1490,12 @@ fn eval_expr_with_env(
                       ),
                     )
                   }
+                }
                 Value::Str(text) => {
                   let chars = text.to_array()
-                  if idx >= 0 && idx < chars.length() {
-                    Ok(Value::Str(char_to_string(chars[idx])))
+                  let norm = normalize_index(idx, chars.length())
+                  if norm >= 0 && norm < chars.length() {
+                    Ok(Value::Str(char_to_string(chars[norm])))
                   } else {
                     Err(
                       make_runtime_error(
