@@ -73,7 +73,7 @@
 - [x] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, better error reporting.
 - [x] f-string conversions (`!r/!s/!a`) and debug `=` runtime behavior.
 - [x] Type parameter syntax and `type` statements (PEP 695): accept/parse (even if runtime ignores), and preserve AST fidelity.
-- [ ] Improved parser error recovery to better match CPython’s SyntaxError locations/messages (pragmatic alignment).
+- [x] Improved parser error recovery to better match CPython’s SyntaxError locations/messages (pragmatic alignment).
 
 ## Milestones (checklist)
 

@@ -2964,6 +2964,17 @@ fn first_bracket_mismatch_line(source : String) -> Int? {
 }
 
 ///|
+fn bracket_name(c : Char) -> String {
+  if c == '(' || c == ')' {
+    "parenthesis"
+  } else if c == '[' || c == ']' {
+    "bracket"
+  } else {
+    "brace"
+  }
+}
+
+///|
 fn is_ascii_ident_char(c : Char) -> Bool {
   if c == '_' {
     return true
@@ -8348,9 +8359,7 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
   let mut line_start = 0
   let mut quote : Char? = None
   let mut escape = false
-  let mut depth_paren = 0
-  let mut depth_bracket = 0
-  let mut depth_brace = 0
+  let bracket_stack : Array[(Char, Int, Int, Int)] = []
   while i < chars.length() {
     let c = chars[i]
     match quote {
@@ -8392,22 +8401,25 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
       continue
     }
     if c == '(' {
-      depth_paren += 1
+      let column = i - line_start + 1
+      bracket_stack.push((c, i, line, column))
       i += 1
       continue
     }
     if c == '[' {
-      depth_bracket += 1
+      let column = i - line_start + 1
+      bracket_stack.push((c, i, line, column))
       i += 1
       continue
     }
     if c == '{' {
-      depth_brace += 1
+      let column = i - line_start + 1
+      bracket_stack.push((c, i, line, column))
       i += 1
       continue
     }
     if c == ')' {
-      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+      if bracket_stack.length() == 0 {
         let token = {
           kind: Eof,
           start: i,
@@ -8423,14 +8435,32 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
           ),
         )
       }
-      if depth_paren > 0 {
-        depth_paren -= 1
+      let open = bracket_stack[bracket_stack.length() - 1]
+      let _ = bracket_stack.pop()
+      if open.0 != '(' {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        let message = "closing " +
+          bracket_name(c) +
+          " '" +
+          c.to_string() +
+          "' does not match opening " +
+          bracket_name(open.0) +
+          " '" +
+          open.0.to_string() +
+          "'"
+        return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
       }
       i += 1
       continue
     }
     if c == ']' {
-      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+      if bracket_stack.length() == 0 {
         let token = {
           kind: Eof,
           start: i,
@@ -8446,14 +8476,32 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
           ),
         )
       }
-      if depth_bracket > 0 {
-        depth_bracket -= 1
+      let open = bracket_stack[bracket_stack.length() - 1]
+      let _ = bracket_stack.pop()
+      if open.0 != '[' {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        let message = "closing " +
+          bracket_name(c) +
+          " '" +
+          c.to_string() +
+          "' does not match opening " +
+          bracket_name(open.0) +
+          " '" +
+          open.0.to_string() +
+          "'"
+        return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
       }
       i += 1
       continue
     }
     if c == '}' {
-      if depth_paren == 0 && depth_bracket == 0 && depth_brace == 0 {
+      if bracket_stack.length() == 0 {
         let token = {
           kind: Eof,
           start: i,
@@ -8469,13 +8517,43 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
           ),
         )
       }
-      if depth_brace > 0 {
-        depth_brace -= 1
+      let open = bracket_stack[bracket_stack.length() - 1]
+      let _ = bracket_stack.pop()
+      if open.0 != '{' {
+        let token = {
+          kind: Eof,
+          start: i,
+          end: i + 1,
+          line,
+          column: i - line_start + 1,
+        }
+        let message = "closing " +
+          bracket_name(c) +
+          " '" +
+          c.to_string() +
+          "' does not match opening " +
+          bracket_name(open.0) +
+          " '" +
+          open.0.to_string() +
+          "'"
+        return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
       }
       i += 1
       continue
     }
     i += 1
+  }
+  if bracket_stack.length() > 0 {
+    let open = bracket_stack[bracket_stack.length() - 1]
+    let token = {
+      kind: Eof,
+      start: open.1,
+      end: open.1 + 1,
+      line: open.2,
+      column: open.3,
+    }
+    let message = "'" + open.0.to_string() + "' was never closed"
+    return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
   }
   let parser = LineParser::new(source)
   match parser.parse_block(0) {
