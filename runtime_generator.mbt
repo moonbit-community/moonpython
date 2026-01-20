@@ -403,20 +403,14 @@ fn generator_step_statement(
       match target {
         Target::Name(name) => {
           let current = match
-            get_from_env(
+            lookup_name_value(
               name,
               state.val.locals,
               state.val.globals,
               state.val.builtins,
             ) {
-            Some(value) => value
-            None =>
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Name,
-                  "name '" + name + "' is not defined",
-                ),
-              )
+            Ok(v) => v
+            Err(err) => return Err(err)
           }
           let next = match
             eval_binary_op_values(

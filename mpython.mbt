@@ -734,6 +734,109 @@ fn eval_binary_op_values(
 }
 
 ///|
+fn lookup_name_value(
+  name : String,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+) -> Result[Value, RuntimeError] {
+  fn read_local_cell() -> Result[Value, RuntimeError] {
+    match get_local_value(locals, name) {
+      Some(v) =>
+        if is_cell_value(v) {
+          match cell_get_value(v) {
+            Some(value) => Ok(value)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "UnboundLocalError: local variable '" +
+                  name +
+                  "' referenced before assignment",
+                ),
+              )
+          }
+        } else {
+          Ok(v)
+        }
+      None =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Name,
+            "name '" + name + "' is not defined",
+          ),
+        )
+    }
+  }
+
+  fn read_closure_cell(cell : Value) -> Result[Value, RuntimeError] {
+    match cell_get_value(cell) {
+      Some(value) => Ok(value)
+      None =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Name,
+            "free variable '" +
+            name +
+            "' referenced before assignment in enclosing scope",
+          ),
+        )
+    }
+  }
+
+  if scope_name_is_global(name) {
+    match get_global_value(globals, name) {
+      Some(v) => Ok(v)
+      None =>
+        match get_global_value(builtins, name) {
+          Some(v) => Ok(v)
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Name,
+                "name '" + name + "' is not defined",
+              ),
+            )
+        }
+    }
+  } else if scope_name_is_nonlocal(name) {
+    match lookup_closure_cell(name) {
+      Some(cell) => read_closure_cell(cell)
+      None =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Name,
+            "name '" + name + "' is not defined",
+          ),
+        )
+    }
+  } else {
+    match get_local_value(locals, name) {
+      Some(_) => read_local_cell()
+      None =>
+        match lookup_closure_cell(name) {
+          Some(cell) => read_closure_cell(cell)
+          None =>
+            match get_global_value(globals, name) {
+              Some(v) => Ok(v)
+              None =>
+                match get_global_value(builtins, name) {
+                  Some(v) => Ok(v)
+                  None =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Name,
+                        "name '" + name + "' is not defined",
+                      ),
+                    )
+                }
+            }
+        }
+    }
+  }
+}
+
+///|
 fn eval_expr_with_env(
   expr : Expr,
   locals : Array[(String, Value)],
@@ -750,19 +853,7 @@ fn eval_expr_with_env(
         Literal::Float(value) => Ok(Value::Float(value))
         Literal::Str(value) => Ok(Value::Str(value))
       }
-    Expr::Name(name) => {
-      let value = get_from_env(name, locals, globals, builtins)
-      if value is Some(value) {
-        Ok(value)
-      } else {
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Name,
-            "name '" + name + "' is not defined",
-          ),
-        )
-      }
-    }
+    Expr::Name(name) => lookup_name_value(name, locals, globals, builtins)
     Expr::FString(text) => {
       let buf = StringBuilder::new()
       let mut rest = text
@@ -2058,44 +2149,37 @@ fn eval_expr_with_env(
             }
           }
         Expr::Name(name) => {
-          let callee_value = get_from_env(name, locals, globals, builtins)
-          if callee_value is Some(callee_value) {
-            match callee_value {
-              Value::Function(func) =>
-                if func.body.length() == 0 {
-                  let (arg_values, keywords) = match
-                    eval_call_args(args, locals, globals, builtins, io) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  match
-                    eval_builtin_call(
-                      func.name,
-                      arg_values,
-                      keywords,
-                      locals,
-                      globals,
-                      builtins,
-                      io,
-                    ) {
-                    Ok(Some(value)) => Ok(value)
-                    Ok(None) =>
-                      call_callable_with_env(
-                        callee_value, arg_values, keywords, globals, builtins, io,
-                      )
-                    Err(err) => Err(err)
-                  }
-                } else {
-                  let (arg_values, keywords) = match
-                    eval_call_args(args, locals, globals, builtins, io) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  call_callable_with_env(
-                    callee_value, arg_values, keywords, globals, builtins, io,
-                  )
+          let callee_value = match
+            lookup_name_value(name, locals, globals, builtins) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match callee_value {
+            Value::Function(func) =>
+              if func.body.length() == 0 {
+                let (arg_values, keywords) = match
+                  eval_call_args(args, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
                 }
-              _ => {
+                match
+                  eval_builtin_call(
+                    func.name,
+                    arg_values,
+                    keywords,
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(value)) => Ok(value)
+                  Ok(None) =>
+                    call_callable_with_env(
+                      callee_value, arg_values, keywords, globals, builtins, io,
+                    )
+                  Err(err) => Err(err)
+                }
+              } else {
                 let (arg_values, keywords) = match
                   eval_call_args(args, locals, globals, builtins, io) {
                   Ok(value) => value
@@ -2105,14 +2189,16 @@ fn eval_expr_with_env(
                   callee_value, arg_values, keywords, globals, builtins, io,
                 )
               }
+            _ => {
+              let (arg_values, keywords) = match
+                eval_call_args(args, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              call_callable_with_env(
+                callee_value, arg_values, keywords, globals, builtins, io,
+              )
             }
-          } else {
-            Err(
-              make_runtime_error(
-                RuntimeErrorKind::Name,
-                "name '" + name + "' is not defined",
-              ),
-            )
           }
         }
         _ => {
@@ -2414,6 +2500,398 @@ fn collect_scope_decl_names(
 }
 
 ///|
+fn name_in_list(names : Array[String], name : String) -> Bool {
+  for n in names {
+    if n == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn check_scope_decl_conflicts(
+  params : Array[String],
+  global_names : Array[String],
+  nonlocal_names : Array[String],
+) -> Result[Unit, RuntimeError] {
+  for name in global_names {
+    if name_in_list(nonlocal_names, name) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: name '" + name + "' is nonlocal and global",
+        ),
+      )
+    }
+    if name_in_list(params, name) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: name '" + name + "' is parameter and global",
+        ),
+      )
+    }
+  }
+  for name in nonlocal_names {
+    if name_in_list(params, name) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: name '" + name + "' is parameter and nonlocal",
+        ),
+      )
+    }
+  }
+  Ok(())
+}
+
+///|
+fn collect_function_local_names(
+  body : Array[Stmt],
+  params : Array[String],
+  global_names : Array[String],
+  nonlocal_names : Array[String],
+) -> Array[String] {
+  let locals : Array[String] = []
+  fn add_local(name : String) -> Unit {
+    if name_in_list(global_names, name) || name_in_list(nonlocal_names, name) {
+      return
+    }
+    append_unique_name(locals, name)
+  }
+
+  fn add_target(target : Target) -> Unit {
+    match target {
+      Target::Name(name) => add_local(name)
+      Target::Tuple(items) | Target::List(items) =>
+        for item in items {
+          add_target(item)
+        }
+      _ => ()
+    }
+  }
+
+  fn add_pattern(pat : Pattern) -> Unit {
+    match pat {
+      Pattern::Name(name) => add_local(name)
+      Pattern::Tuple(items) =>
+        for item in items {
+          add_pattern(item)
+        }
+      _ => ()
+    }
+  }
+
+  fn walk_expr(expr : Expr) -> Unit {
+    match expr {
+      Expr::NamedExpr(name~, value~) => {
+        add_local(name)
+        walk_expr(value)
+      }
+      Expr::Lambda(params~, defaults~, body~) => {
+        let _ = params
+        for d in defaults {
+          walk_expr(d)
+        }
+        let _ = body
+
+      }
+      Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) =>
+        for item in items {
+          walk_expr(item)
+        }
+      Expr::ListComp(elt~, clauses~, filters~)
+      | Expr::GenExp(elt~, clauses~, filters~)
+      | Expr::SetComp(elt~, clauses~, filters~) => {
+        for clause in clauses {
+          let _ = clause.0
+          walk_expr(clause.1)
+        }
+        for filter in filters {
+          walk_expr(filter)
+        }
+        walk_expr(elt)
+      }
+      Expr::Dict(items) =>
+        for pair in items {
+          walk_expr(pair.0)
+          walk_expr(pair.1)
+        }
+      Expr::DictComp(key~, value~, clauses~, filters~) => {
+        for clause in clauses {
+          let _ = clause.0
+          walk_expr(clause.1)
+        }
+        for filter in filters {
+          walk_expr(filter)
+        }
+        walk_expr(key)
+        walk_expr(value)
+      }
+      Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+        walk_expr(condition)
+        walk_expr(then_expr)
+        walk_expr(else_expr)
+      }
+      Expr::Yield(value) =>
+        match value {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+      Expr::YieldFrom(value) | Expr::Await(value) => walk_expr(value)
+      Expr::Slice(start~, end~, step~) => {
+        match start {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+        match end {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+        match step {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+      }
+      Expr::Attribute(value~, attr~) => {
+        let _ = attr
+        walk_expr(value)
+      }
+      Expr::Subscript(value~, index~) => {
+        walk_expr(value)
+        walk_expr(index)
+      }
+      Expr::Call(callee~, args~) => {
+        walk_expr(callee)
+        for arg in args {
+          walk_expr(arg)
+        }
+      }
+      Expr::Keyword(name~, value~) => {
+        let _ = name
+        walk_expr(value)
+      }
+      Expr::Starred(value~) | Expr::DoubleStarred(value~) => walk_expr(value)
+      Expr::Unary(op~, expr~) => {
+        let _ = op
+        walk_expr(expr)
+      }
+      Expr::Binary(op~, left~, right~) => {
+        let _ = op
+        walk_expr(left)
+        walk_expr(right)
+      }
+      Expr::BoolOp(op~, values~) => {
+        let _ = op
+        for v in values {
+          walk_expr(v)
+        }
+      }
+      Expr::Compare(left~, ops~, comparators~) => {
+        let _ = ops
+        walk_expr(left)
+        for v in comparators {
+          walk_expr(v)
+        }
+      }
+      _ => ()
+    }
+  }
+
+  fn walk_stmt(stmt : Stmt) -> Unit {
+    match stmt {
+      Stmt::Assign(target~, value~) => {
+        add_target(target)
+        walk_expr(value)
+      }
+      Stmt::AugAssign(target~, op~, value~) => {
+        let _ = op
+        add_target(target)
+        walk_expr(value)
+      }
+      Stmt::Del(targets) =>
+        for t in targets {
+          add_target(t)
+        }
+      Stmt::ExprStmt(expr) => walk_expr(expr)
+      Stmt::Return(expr) =>
+        match expr {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+      Stmt::If(condition~, body~, else_body~) => {
+        walk_expr(condition)
+        for s in body {
+          walk_stmt(s)
+        }
+        for s in else_body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::While(condition~, body~, else_body~) => {
+        walk_expr(condition)
+        for s in body {
+          walk_stmt(s)
+        }
+        for s in else_body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::For(target~, iter~, body~, else_body~) => {
+        add_target(target)
+        walk_expr(iter)
+        for s in body {
+          walk_stmt(s)
+        }
+        for s in else_body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+        add_target(target)
+        walk_expr(iter)
+        for s in body {
+          walk_stmt(s)
+        }
+        for s in else_body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::With(context~, target~, body~)
+      | Stmt::AsyncWith(context~, target~, body~) => {
+        walk_expr(context)
+        match target {
+          Some(name) => add_local(name)
+          None => ()
+        }
+        for s in body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+        for s in body {
+          walk_stmt(s)
+        }
+        for handler in handlers {
+          let _ = handler.0
+          match handler.1 {
+            Some(name) => add_local(name)
+            None => ()
+          }
+          for s in handler.2 {
+            walk_stmt(s)
+          }
+        }
+        for s in else_body {
+          walk_stmt(s)
+        }
+        for s in finally_body {
+          walk_stmt(s)
+        }
+      }
+      Stmt::Match(subject~, cases~) => {
+        walk_expr(subject)
+        for case in cases {
+          add_pattern(case.0)
+          match case.1 {
+            Some(v) => walk_expr(v)
+            None => ()
+          }
+          for s in case.2 {
+            walk_stmt(s)
+          }
+        }
+      }
+      Stmt::Import(module~, alias~) => {
+        let binding = match alias {
+          Some(name) => name
+          None => module
+        }
+        add_local(binding)
+      }
+      Stmt::FromImport(module~, names~) => {
+        let _ = module
+        for item in names {
+          let name = item.0
+          let alias_opt = item.1
+          if name != "*" {
+            add_local(
+              match alias_opt {
+                Some(alias) => alias
+                None => name
+              },
+            )
+          }
+        }
+      }
+      Stmt::Function(
+        name~,
+        decorators~,
+        params~,
+        defaults~,
+        body~,
+        is_generator~,
+        is_async~
+      ) => {
+        add_local(name)
+        for dec in decorators {
+          walk_expr(dec)
+        }
+        for d in defaults {
+          walk_expr(d)
+        }
+        let _ = params
+        let _ = body
+        let _ = is_generator
+        let _ = is_async
+
+      }
+      Stmt::Class(name~, decorators~, bases~, keywords~, body~) => {
+        add_local(name)
+        for dec in decorators {
+          walk_expr(dec)
+        }
+        for b in bases {
+          walk_expr(b)
+        }
+        for kw in keywords {
+          let _ = kw.0
+          walk_expr(kw.1)
+        }
+        let _ = body
+
+      }
+      _ => ()
+    }
+  }
+
+  for p in params {
+    add_local(p)
+  }
+  for stmt in body {
+    walk_stmt(stmt)
+  }
+  locals
+}
+
+///|
+fn prepare_function_locals(
+  locals : Array[(String, Value)],
+  body : Array[Stmt],
+  params : Array[String],
+  global_names : Array[String],
+  nonlocal_names : Array[String],
+) -> Unit {
+  let local_names = collect_function_local_names(
+    body, params, global_names, nonlocal_names,
+  )
+  for name in local_names {
+    ensure_local_cell_unbound(locals, name)
+  }
+}
+
+///|
 fn eval_function_with_kwargs(
   func : FunctionValue,
   positional : Array[Value],
@@ -2428,6 +2906,18 @@ fn eval_function_with_kwargs(
     Err(err) => return Err(err)
   }
   let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
+  let _ = match
+    check_scope_decl_conflicts(func.params, global_names, nonlocal_names) {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
+  prepare_function_locals(
+    locals,
+    func.body,
+    func.params,
+    global_names,
+    nonlocal_names,
+  )
   if func.is_async {
     if func.is_generator {
       return Err(
@@ -2591,6 +3081,18 @@ fn eval_generator_with_kwargs(
     Err(err) => return Err(err)
   }
   let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
+  let _ = match
+    check_scope_decl_conflicts(func.params, global_names, nonlocal_names) {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
+  prepare_function_locals(
+    locals,
+    func.body,
+    func.params,
+    global_names,
+    nonlocal_names,
+  )
   Ok(
     generator_new(
       func.body,

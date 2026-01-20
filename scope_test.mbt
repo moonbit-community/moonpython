@@ -103,3 +103,55 @@ test "nonlocal missing binding is syntax error" {
     content="SyntaxError: no binding for nonlocal 'x' found",
   )
 }
+
+///|
+test "closure captures outer name (read-only)" {
+  let source =
+    #|def outer():
+    #|  x = 1
+    #|  def inner():
+    #|    return x
+    #|  return inner()
+    #|res = outer()
+  inspect(test_exec_global(source, "res"), content="1")
+}
+
+///|
+test "closure sees outer assignment after def" {
+  let source =
+    #|def outer():
+    #|  x = 1
+    #|  def inner():
+    #|    return x
+    #|  x = 2
+    #|  return inner()
+    #|res = outer()
+  inspect(test_exec_global(source, "res"), content="2")
+}
+
+///|
+test "closure captures from grandparent" {
+  let source =
+    #|def outer():
+    #|  x = 1
+    #|  def mid():
+    #|    def inner():
+    #|      return x
+    #|    return inner()
+    #|  return mid()
+    #|res = outer()
+  inspect(test_exec_global(source, "res"), content="1")
+}
+
+///|
+test "unbound local read raises UnboundLocalError" {
+  let source =
+    #|def f():
+    #|  x
+    #|  x = 1
+    #|f()
+  inspect(
+    test_exec_error(source),
+    content="UnboundLocalError: local variable 'x' referenced before assignment",
+  )
+}

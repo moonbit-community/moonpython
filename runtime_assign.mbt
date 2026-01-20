@@ -254,15 +254,17 @@ fn delete_target_with_env(
           ),
         )
       }
-      if !delete_scoped_value(locals, globals, name) {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Name,
-            "name '" + name + "' is not defined",
-          ),
-        )
+      match delete_scoped_value(locals, globals, name) {
+        Ok(true) => Ok(())
+        Ok(false) =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Name,
+              "name '" + name + "' is not defined",
+            ),
+          )
+        Err(err) => Err(err)
       }
-      Ok(())
     }
     Target::Tuple(items) | Target::List(items) => {
       for item in items {

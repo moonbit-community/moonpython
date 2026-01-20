@@ -2674,7 +2674,16 @@ fn builtin_super(
   let mut thisclass_value : Value = Value::None
   let mut self_value : Value = Value::None
   if positional.length() == 0 {
-    let cls_opt = get_from_env("__class__", locals, globals, builtins)
+    let cls_opt = match
+      lookup_name_value("__class__", locals, globals, builtins) {
+      Ok(v) => Some(v)
+      Err(err) =>
+        if err.exc_type == "NameError" {
+          None
+        } else {
+          return Err(err)
+        }
+    }
     if cls_opt is None {
       return Err(
         make_runtime_error(
@@ -2684,8 +2693,24 @@ fn builtin_super(
       )
     }
     thisclass_value = cls_opt.unwrap()
-    let self_opt = get_from_env("self", locals, globals, builtins)
-    let cls_opt2 = get_from_env("cls", locals, globals, builtins)
+    let self_opt = match lookup_name_value("self", locals, globals, builtins) {
+      Ok(v) => Some(v)
+      Err(err) =>
+        if err.exc_type == "NameError" {
+          None
+        } else {
+          return Err(err)
+        }
+    }
+    let cls_opt2 = match lookup_name_value("cls", locals, globals, builtins) {
+      Ok(v) => Some(v)
+      Err(err) =>
+        if err.exc_type == "NameError" {
+          None
+        } else {
+          return Err(err)
+        }
+    }
     if self_opt is Some(v) {
       self_value = v
     } else if cls_opt2 is Some(v) {

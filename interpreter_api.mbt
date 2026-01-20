@@ -265,6 +265,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let unbound_local_error_class = ClassValue::{
+    name: "UnboundLocalError",
+    bases: [Value::Class(name_error_class)],
+    dict: [],
+  }
   let type_error_class = ClassValue::{
     name: "TypeError",
     bases: [Value::Class(exception_class)],
@@ -404,6 +409,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
     ("NameError", Value::Class(name_error_class)),
+    ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),
     ("AttributeError", Value::Class(attribute_error_class)),
     ("IndexError", Value::Class(index_error_class)),

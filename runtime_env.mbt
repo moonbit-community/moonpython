@@ -255,6 +255,14 @@ fn cell_new(value : Value) -> Value {
 }
 
 ///|
+fn cell_new_unbound() -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "cell", bases: [], dict: [] },
+    dict: [],
+  })
+}
+
+///|
 fn cell_get_value(value : Value) -> Value? {
   match value {
     Value::Instance(inst) =>
@@ -281,10 +289,37 @@ fn cell_set_value(cell : Value, value : Value) -> Unit {
 }
 
 ///|
+fn cell_clear_value(cell : Value) -> Unit {
+  match cell {
+    Value::Instance(inst) =>
+      if inst.class.name == "cell" {
+        for idx = 0; idx < inst.dict.length(); idx = idx + 1 {
+          if inst.dict[idx].0 == "value" {
+            let _ = inst.dict.remove(idx)
+            break
+          }
+        }
+      } else {
+        ()
+      }
+    _ => ()
+  }
+}
+
+///|
 fn deref_cell_value(value : Value) -> Value {
   match cell_get_value(value) {
     Some(v) => v
     None => value
+  }
+}
+
+///|
+fn maybe_deref_cell_value(value : Value) -> Value? {
+  if is_cell_value(value) {
+    cell_get_value(value)
+  } else {
+    Some(value)
   }
 }
 
@@ -304,6 +339,23 @@ fn ensure_local_cell(
     }
   }
   locals.push((name, cell_new(initial)))
+}
+
+///|
+fn ensure_local_cell_unbound(
+  locals : Array[(String, Value)],
+  name : String,
+) -> Unit {
+  for i = 0; i < locals.length(); i = i + 1 {
+    if locals[i].0 == name {
+      if is_cell_value(locals[i].1) {
+        return
+      }
+      locals[i] = (name, cell_new(locals[i].1))
+      return
+    }
+  }
+  locals.push((name, cell_new_unbound()))
 }
 
 ///|
@@ -332,6 +384,15 @@ fn pop_closure_env() -> Unit {
   if closure_env_stack.val.length() > 0 {
     let _ = closure_env_stack.val.pop()
 
+  }
+}
+
+///|
+fn current_closure_env() -> Array[(String, Value)] {
+  if closure_env_stack.val.length() > 0 {
+    closure_env_stack.val[closure_env_stack.val.length() - 1]
+  } else {
+    []
   }
 }
 
@@ -531,12 +592,12 @@ fn get_scoped_value(
     get_global_value(globals, name)
   } else if scope_name_is_nonlocal(name) {
     match lookup_closure_cell(name) {
-      Some(cell) => Some(deref_cell_value(cell))
+      Some(cell) => maybe_deref_cell_value(cell)
       None => None
     }
   } else {
     match get_local_value(locals, name) {
-      Some(v) => Some(deref_cell_value(v))
+      Some(v) => maybe_deref_cell_value(v)
       None => None
     }
   }
@@ -566,21 +627,39 @@ fn delete_scoped_value(
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
   name : String,
-) -> Bool {
+) -> Result[Bool, RuntimeError] {
   if scope_name_is_global(name) {
     if get_global_value(globals, name) is Some(_) {
       delete_global_value(globals, name)
-      true
+      Ok(true)
     } else {
-      false
+      Ok(false)
     }
   } else if scope_name_is_nonlocal(name) {
-    false
-  } else if get_local_value(locals, name) is Some(_) {
-    delete_local_value(locals, name)
-    true
+    Ok(false)
   } else {
-    false
+    match get_local_value(locals, name) {
+      Some(v) =>
+        if is_cell_value(v) {
+          if cell_get_value(v) is None {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "UnboundLocalError: local variable '" +
+                name +
+                "' referenced before assignment",
+              ),
+            )
+          } else {
+            cell_clear_value(v)
+            Ok(true)
+          }
+        } else {
+          delete_local_value(locals, name)
+          Ok(true)
+        }
+      None => Ok(false)
+    }
   }
 }
 

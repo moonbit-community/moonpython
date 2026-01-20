@@ -19,7 +19,7 @@ fn runtime_error_exc(
     RuntimeErrorKind::Runtime => {
       let prefixes : Array[String] = [
         "ValueError:", "OverflowError:", "ImportError:", "AssertionError:", "RuntimeError:",
-        "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:",
+        "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:", "UnboundLocalError:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])

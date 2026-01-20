@@ -147,6 +147,7 @@ test "async/for_else" {
     #|      return self.i
     #|    raise StopAsyncIteration
     #|async def f():
+    #|  global log
     #|  async for x in It():
     #|    log = log + [x]
     #|  else:

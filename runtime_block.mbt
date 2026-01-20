@@ -301,28 +301,10 @@ fn eval_block_flow(
         }
         match target {
           Target::Name(name) => {
-            let current = if scope_name_is_global(name) {
-              match get_global_value(globals, name) {
-                Some(value) => value
-                None =>
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Name,
-                      "name '" + name + "' is not defined",
-                    ),
-                  )
-              }
-            } else {
-              match get_from_env(name, locals, globals, builtins) {
-                Some(value) => value
-                None =>
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Name,
-                      "name '" + name + "' is not defined",
-                    ),
-                  )
-              }
+            let current = match
+              lookup_name_value(name, locals, globals, builtins) {
+              Ok(v) => v
+              Err(err) => return Err(err)
             }
             let next = match
               eval_binary_op_values(
@@ -476,7 +458,12 @@ fn eval_block_flow(
           }
           default_values.push(value)
         }
-        let (_, nonlocal_names) = collect_scope_decl_names(body)
+        let (global_names, nonlocal_names) = collect_scope_decl_names(body)
+        let _ = match
+          check_scope_decl_conflicts(params, global_names, nonlocal_names) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
         let extra_cells : Array[(String, Value)] = []
         for nonlocal_name in nonlocal_names {
           match get_local_value(locals, nonlocal_name) {
@@ -497,7 +484,8 @@ fn eval_block_flow(
               }
           }
         }
-        let closure = merge_cell_closures(locals, extra_cells)
+        let inherited = merge_cell_closures(current_closure_env(), extra_cells)
+        let closure = merge_cell_closures(locals, inherited)
         let func = FunctionValue::{
           name,
           params,
