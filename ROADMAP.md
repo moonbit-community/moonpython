@@ -1,6 +1,6 @@
-# mpython roadmap (toward Python 3.12)
+# mpython ROADMAP (checklist toward Python 3.12)
 
-`mpython` is currently a small Python *parser + interpreter* (MoonBit) that targets a practical subset of the language. This roadmap lists the largest missing pieces relative to **CPython 3.12** and proposes an implementation order that keeps the project usable at every milestone.
+`mpython` is currently a small Python *parser + interpreter* (MoonBit) that targets a practical subset of the language. This checklist tracks feature parity work toward **CPython 3.12** and keeps the project usable at every milestone.
 
 ## Scope
 
@@ -13,7 +13,14 @@
 - Full CPython stdlib parity, C extensions, packaging, bytecode compatibility, performance parity.
 - Security sandboxing (the current interpreter is not a security boundary).
 
-## Biggest gaps vs Python 3.12
+## Status (recent)
+
+- [x] `async for` / `async with` (runtime + parser)
+- [x] Negative indexing for list/tuple/str subscripts
+- [x] Basic `list` methods: `append`, `pop`, `extend`, `insert`, `remove`, `clear`
+- [x] Basic `dict` methods: `get`, `pop`, `setdefault`, `keys`, `values`, `items`, `update`, `clear`
+
+## Checklist
 
 ### 1) Generators, `yield`, and iterator protocol (high impact)
 - [x] `yield` / `yield from` as real syntax nodes.
@@ -24,8 +31,10 @@
 ### 2) Async/await (Python 3.12 baseline)
 - [x] `await` expressions (coroutine-only for now).
 - [x] `async def` runtime semantics (coroutines + eager `await` via `__mpython_run` helper).
-- [ ] `async for`, `async with`, async comprehensions.
-- [ ] Coroutine objects, async generators, and a minimal scheduling story (even if test-only).
+- [x] `async for`, `async with`.
+- [ ] Async comprehensions (`[x async for ...]`, `{...}`, `(...)`).
+- [ ] Coroutine scheduling/event loop story (even if test-only).
+- [ ] Async generators (`async def` + `yield`) (currently not supported).
 
 ### 3) Exceptions (correctness + compatibility)
 - [x] Exception chaining: `raise ... from ...`, `__cause__`, `__context__`, `__suppress_context__`.
@@ -49,11 +58,15 @@
 - [ ] A tiny “stdlib shim” for frequently used modules (`math` as a real module, plus a few more as needed).
 
 ### 6) Data model and core types (fill the big holes)
-- [ ] Arbitrary-precision integers (`int`), not just 64-bit.
+- [x] Arbitrary-precision integers (`int`) (`Value::Int` is `@bigint.BigInt`).
 - [ ] `bytes`/`bytearray`/`memoryview`.
 - [ ] `complex` numbers.
 - [ ] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
+- [ ] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
 - [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
+- [ ] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
+- [x] Negative indexing for list/tuple/str subscripts.
+- [ ] Slicing assignment semantics parity (step slicing, extended slices, error types).
 
 ### 7) Python 3.12 language additions / syntax parity
 - [ ] Full f-string grammar and semantics (PEP 701): nested expressions, format specs, better error reporting.
@@ -61,12 +74,12 @@
 - [ ] Type parameter syntax and `type` statements (PEP 695): accept/parse (even if runtime ignores), and preserve AST fidelity.
 - [ ] Improved parser error recovery to better match CPython’s SyntaxError locations/messages (pragmatic alignment).
 
-## Proposed milestones
+## Milestones (checklist)
 
 ### Milestone A — “Python subset that feels right”
-- [ ] Implement iterator protocol + real generators (`yield`, `yield from`, genexpr).
-- [ ] Fix scoping model (locals/closures) and align comprehension scoping.
-- [ ] Improve exception matching + add basic tracebacks.
+- [x] Iterator protocol + real generators (`yield`, `yield from`, genexpr).
+- [ ] Scoping model (locals/closures) beyond comprehensions.
+- [ ] Basic tracebacks/stack frames (beyond formatted messages).
 
 ### Milestone B — “Can run small programs”
 - [ ] Real module/import system (file or embedded), with a minimal stdlib shim.
