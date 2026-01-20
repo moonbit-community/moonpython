@@ -53,10 +53,10 @@
 - [x] `exec`/`eval` scoping rules (if supported).
 
 ### 5) Modules and imports (minimal but real)
-- [ ] `import` should bind a module object and make attributes available (not a hardcoded allowlist).
-- [ ] `from ... import ...` semantics, aliasing, `__import__`.
-- [ ] Module objects (`types.ModuleType`-like), module globals, and a simple loader (file-based or embedded).
-- [ ] A tiny “stdlib shim” for frequently used modules (`math` as a real module, plus a few more as needed).
+- [x] `import` should bind a module object and make attributes available (not a hardcoded allowlist).
+- [x] `from ... import ...` semantics, aliasing, `__import__`.
+- [x] Module objects (`types.ModuleType`-like), module globals, and a simple loader (file-based or embedded).
+- [x] A tiny “stdlib shim” for frequently used modules (`math` as a real module, plus a few more as needed).
 
 ### 6) Data model and core types (fill the big holes)
 - [x] Arbitrary-precision integers (`int`) (`Value::Int` is `@bigint.BigInt`).

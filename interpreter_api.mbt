@@ -181,7 +181,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
     "str", "int", "float", "list", "dict", "set", "tuple", "enumerate", "zip", "map",
     "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super", "eval", "exec",
+    "super", "eval", "exec", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -440,6 +440,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("locals", function_stub("locals")),
     ("eval", function_stub("eval")),
     ("exec", function_stub("exec")),
+    ("__import__", function_stub("__import__")),
     ("dir", function_stub("dir")),
     ("getattr", function_stub("getattr")),
     ("hasattr", function_stub("hasattr")),

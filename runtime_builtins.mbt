@@ -2681,6 +2681,92 @@ fn builtin_exec(
 }
 
 ///|
+fn builtin_import(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = match ensure_no_keywords("__import__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Err(missing_required_argument_error("__import__", "name"))
+  }
+  if positional.length() > 5 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__import__() takes at most 5 arguments (" +
+        positional.length().to_string() +
+        " given)",
+      ),
+    )
+  }
+  let name = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__import__() name must be str".to_string(),
+        ),
+      )
+  }
+  if positional.length() == 5 {
+    match positional[4] {
+      Value::None => ()
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(level) =>
+            if level != 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "ImportError: relative import level not supported".to_string(),
+                ),
+              )
+            }
+          Err(err) => return Err(err)
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "__import__() level must be int".to_string(),
+          ),
+        )
+    }
+  }
+  let module_value = match
+    import_module(name, globals, builtins, io, current_config()) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let mut has_fromlist = false
+  if positional.length() >= 4 {
+    match positional[3] {
+      Value::None => ()
+      Value::List(values) => has_fromlist = values.length() > 0
+      Value::Tuple(values) => has_fromlist = values.length() > 0
+      _ => has_fromlist = true
+    }
+  }
+  if has_fromlist || !name.contains(".") {
+    return Ok(module_value)
+  }
+  let top_name = module_top_name(name)
+  match module_cache_get(top_name) {
+    Some(value) => Ok(value)
+    None => Ok(module_value)
+  }
+}
+
+///|
 fn builtin_dir(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -3489,6 +3575,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "locals", run: builtin_locals },
     BuiltinDef::{ name: "eval", run: builtin_eval },
     BuiltinDef::{ name: "exec", run: builtin_exec },
+    BuiltinDef::{ name: "__import__", run: builtin_import },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

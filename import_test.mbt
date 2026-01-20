@@ -11,6 +11,14 @@ fn run_stdout_import(source : String) -> String {
 }
 
 ///|
+fn run_stdout_import_fs(source : String) -> String {
+  match Interpreter::new().exec_source(source) {
+    Ok(run) => run.stdout
+    Err(err) => "ERR: " + format_runtime_error(err)
+  }
+}
+
+///|
 test "import/math_basic" {
   let source =
     #|import math
@@ -41,4 +49,46 @@ test "import/import_as_and_multi_import" {
     #|import math, math as n
     #|print(int(n.sqrt(16)))
   inspect(run_stdout_import(source), content="3\n4\n")
+}
+
+///|
+test "import/filesystem_module" {
+  let source =
+    #|import testdata.simple_mod as sm
+    #|print(sm.value)
+    #|print(sm.add_one(4))
+  inspect(run_stdout_import_fs(source), content="10\n5\n")
+}
+
+///|
+test "import/dotted_module_binds_top" {
+  let source =
+    #|import testdata.pkg.submod
+    #|print(testdata.pkg.__name__)
+    #|print(testdata.pkg.submod.name)
+  inspect(run_stdout_import_fs(source), content="testdata.pkg\nsubmod\n")
+}
+
+///|
+test "import/from_import_submodule" {
+  let source =
+    #|from testdata.pkg import submod as sm
+    #|print(sm.value)
+  inspect(run_stdout_import_fs(source), content="7\n")
+}
+
+///|
+test "import/__import__returns_top" {
+  let source =
+    #|mod = __import__("testdata.simple_mod")
+    #|print(mod.simple_mod.value)
+  inspect(run_stdout_import_fs(source), content="10\n")
+}
+
+///|
+test "import/__import__with_fromlist" {
+  let source =
+    #|mod = __import__("testdata.simple_mod", None, None, ["value"])
+    #|print(mod.value)
+  inspect(run_stdout_import_fs(source), content="10\n")
 }

@@ -947,9 +947,21 @@ fn eval_block_flow(
         }
         let binding = match alias {
           Some(name) => name
-          None => module
+          None => module_top_name(module)
         }
-        set_scoped_value(locals, globals, binding, module_value)
+        let binding_value = match alias {
+          Some(_) => module_value
+          None =>
+            if module.contains(".") {
+              match module_cache_get(binding) {
+                Some(value) => value
+                None => module_value
+              }
+            } else {
+              module_value
+            }
+        }
+        set_scoped_value(locals, globals, binding, binding_value)
         last = Value::None
       }
       Stmt::FromImport(module~, names~) => {
@@ -976,7 +988,18 @@ fn eval_block_flow(
           let imported = match
             get_attr_from_value(module_value, name, globals, builtins, io) {
             Ok(value) => value
-            Err(err) => return Err(err)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute => {
+                  let submodule = module + "." + name
+                  match
+                    import_module(submodule, globals, builtins, io, config) {
+                    Ok(value) => value
+                    Err(_) => return Err(err)
+                  }
+                }
+                _ => return Err(err)
+              }
           }
           let binding = match alias_opt {
             Some(alias) => alias
