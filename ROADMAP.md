@@ -50,7 +50,7 @@
 - [x] Full closures + cell vars for general nested functions (not only comprehension targets).
 - [x] `nonlocal` behavior enforcement and runtime effects.
 - [x] UnboundLocalError / compile-time local analysis (reads before assignment).
-- [ ] `exec`/`eval` scoping rules (if supported).
+- [x] `exec`/`eval` scoping rules (if supported).
 
 ### 5) Modules and imports (minimal but real)
 - [ ] `import` should bind a module object and make attributes available (not a hardcoded allowlist).

@@ -25,6 +25,193 @@ fn ensure_no_keywords(
 }
 
 ///|
+fn unexpected_keyword_argument_error(
+  name : String,
+  key : String,
+) -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    name + "() got an unexpected keyword argument '" + key + "'",
+  )
+}
+
+///|
+fn multiple_values_error(name : String, key : String) -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    name + "() got multiple values for argument '" + key + "'",
+  )
+}
+
+///|
+fn missing_required_argument_error(
+  name : String,
+  arg_name : String,
+) -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    name + "() missing required argument '" + arg_name + "'",
+  )
+}
+
+///|
+fn too_many_arguments_error(name : String, given : Int) -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    name + "() takes at most 3 arguments (" + given.to_string() + " given)",
+  )
+}
+
+///|
+fn dict_env_from_value(
+  name : String,
+  kind : String,
+  value : Value,
+) -> Result[(Array[(String, Value)], Array[(Value, Value)]), RuntimeError] {
+  match value {
+    Value::Dict(pairs) => {
+      let env : Array[(String, Value)] = []
+      for pair in pairs {
+        match pair.0 {
+          Value::Str(key) => set_global_value(env, key, pair.1)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                name + "() " + kind + " keys must be str".to_string(),
+              ),
+            )
+        }
+      }
+      Ok((env, pairs))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() " + kind + " must be a dict".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn sync_env_to_dict(
+  env : Array[(String, Value)],
+  pairs : Array[(Value, Value)],
+) -> Unit {
+  while pairs.length() > 0 {
+    let _ = pairs.pop()
+
+  }
+  for pair in env {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+}
+
+///|
+fn normalize_exec_eval_arg(value_opt : Value?) -> Value? {
+  match value_opt {
+    Some(Value::None) => None
+    _ => value_opt
+  }
+}
+
+///|
+fn resolve_exec_eval_env(
+  name : String,
+  globals_arg : Value?,
+  locals_arg : Value?,
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+) -> Result[
+  (
+    Array[(String, Value)],
+    Array[(String, Value)],
+    Array[(Value, Value)]?,
+    Array[(Value, Value)]?,
+  ),
+  RuntimeError,
+] {
+  let globals_value = normalize_exec_eval_arg(globals_arg)
+  let locals_value = normalize_exec_eval_arg(locals_arg)
+  let mut globals_env = globals
+  let mut locals_env = locals
+  let mut globals_pairs : Array[(Value, Value)]? = None
+  let mut locals_pairs : Array[(Value, Value)]? = None
+  match globals_value {
+    Some(value) => {
+      let (env, pairs) = match dict_env_from_value(name, "globals", value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      globals_env = env
+      globals_pairs = Some(pairs)
+    }
+    None => ()
+  }
+  match locals_value {
+    Some(value) => {
+      let (env, pairs) = match dict_env_from_value(name, "locals", value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      locals_env = env
+      locals_pairs = Some(pairs)
+    }
+    None => ()
+  }
+  if globals_value is Some(_) && locals_value is None {
+    locals_env = globals_env
+    locals_pairs = globals_pairs
+  }
+  Ok((locals_env, globals_env, locals_pairs, globals_pairs))
+}
+
+///|
+fn parse_exec_eval_args(
+  name : String,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  required_label : String,
+) -> Result[(Value, Value?, Value?), RuntimeError] {
+  if positional.length() == 0 {
+    return Err(missing_required_argument_error(name, required_label))
+  }
+  if positional.length() > 3 {
+    return Err(too_many_arguments_error(name, positional.length()))
+  }
+  let mut globals_arg : Value? = None
+  let mut locals_arg : Value? = None
+  if positional.length() > 1 {
+    globals_arg = Some(positional[1])
+  }
+  if positional.length() > 2 {
+    locals_arg = Some(positional[2])
+  }
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "globals" =>
+        if globals_arg is Some(_) {
+          return Err(multiple_values_error(name, "globals"))
+        } else {
+          globals_arg = Some(value)
+        }
+      "locals" =>
+        if locals_arg is Some(_) {
+          return Err(multiple_values_error(name, "locals"))
+        } else {
+          locals_arg = Some(value)
+        }
+      _ => return Err(unexpected_keyword_argument_error(name, key))
+    }
+  }
+  Ok((positional[0], globals_arg, locals_arg))
+}
+
+///|
 fn reverse_values(items : Array[Value]) -> Array[Value] {
   let out : Array[Value] = []
   let mut i = items.length()
@@ -2390,6 +2577,110 @@ fn builtin_locals(
 }
 
 ///|
+fn builtin_eval(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let (expr_value, globals_arg, locals_arg) = match
+    parse_exec_eval_args("eval", positional, keywords, "expression") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let expr_text = match expr_value {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "eval() arg 1 must be a string".to_string(),
+        ),
+      )
+  }
+  let (locals_env, globals_env, locals_pairs, globals_pairs) = match
+    resolve_exec_eval_env("eval", globals_arg, locals_arg, locals, globals) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let expr = match parse_expr(expr_text) {
+    Ok(v) => v
+    Err(err) => return Err(make_parse_runtime_error(err))
+  }
+  push_traceback_frame("<eval>".to_string(), "<eval>".to_string())
+  let result = eval_expr_with_env(expr, locals_env, globals_env, builtins, io)
+  pop_traceback_frame()
+  match globals_pairs {
+    Some(pairs) => sync_env_to_dict(globals_env, pairs)
+    None => ()
+  }
+  match locals_pairs {
+    Some(pairs) => sync_env_to_dict(locals_env, pairs)
+    None => ()
+  }
+  result
+}
+
+///|
+fn builtin_exec(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let (source_value, globals_arg, locals_arg) = match
+    parse_exec_eval_args("exec", positional, keywords, "source") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let source_text = match source_value {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "exec() arg 1 must be a string".to_string(),
+        ),
+      )
+  }
+  let (locals_env, globals_env, locals_pairs, globals_pairs) = match
+    resolve_exec_eval_env("exec", globals_arg, locals_arg, locals, globals) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let program = match parse(source_text) {
+    Ok(v) => v
+    Err(err) => return Err(make_parse_runtime_error(err))
+  }
+  push_traceback_frame("<exec>".to_string(), "<exec>".to_string())
+  let result = eval_block(
+    program.body,
+    locals_env,
+    globals_env,
+    builtins,
+    io,
+    current_config(),
+  )
+  pop_traceback_frame()
+  match globals_pairs {
+    Some(pairs) => sync_env_to_dict(globals_env, pairs)
+    None => ()
+  }
+  match locals_pairs {
+    Some(pairs) => sync_env_to_dict(locals_env, pairs)
+    None => ()
+  }
+  match result {
+    Ok(_) => Ok(Value::None)
+    Err(err) => Err(err)
+  }
+}
+
+///|
 fn builtin_dir(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -3196,6 +3487,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "hash", run: builtin_hash },
     BuiltinDef::{ name: "globals", run: builtin_globals },
     BuiltinDef::{ name: "locals", run: builtin_locals },
+    BuiltinDef::{ name: "eval", run: builtin_eval },
+    BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

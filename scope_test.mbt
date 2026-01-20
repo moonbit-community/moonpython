@@ -155,3 +155,49 @@ test "unbound local read raises UnboundLocalError" {
     content="UnboundLocalError: local variable 'x' referenced before assignment",
   )
 }
+
+///|
+test "eval uses locals by default" {
+  let source =
+    #|x = 1
+    #|def f():
+    #|  x = 2
+    #|  return eval("x")
+    #|res = f()
+  inspect(test_exec_global(source, "res"), content="2")
+}
+
+///|
+test "eval uses explicit globals and locals" {
+  let source =
+    #|g = {"x": 1}
+    #|l = {"x": 2}
+    #|res = eval("x", g, l)
+    #|res_g = g["x"]
+    #|res_l = l["x"]
+  inspect(test_exec_global(source, "res"), content="2")
+  inspect(test_exec_global(source, "res_g"), content="1")
+  inspect(test_exec_global(source, "res_l"), content="2")
+}
+
+///|
+test "exec uses explicit globals" {
+  let source =
+    #|x = 1
+    #|g = {"x": 10}
+    #|exec("x = x + 1", g)
+    #|res_x = x
+    #|res_g = g["x"]
+  inspect(test_exec_global(source, "res_x"), content="1")
+  inspect(test_exec_global(source, "res_g"), content="11")
+}
+
+///|
+test "exec locals defaults to current globals" {
+  let source =
+    #|x = 1
+    #|l = {"y": 2}
+    #|exec("y = x + y", locals=l)
+    #|res = l["y"]
+  inspect(test_exec_global(source, "res"), content="3")
+}

@@ -1837,7 +1837,10 @@ fn eval_block(
   io : MockIO,
   config : Config,
 ) -> Result[Value, RuntimeError] {
-  match eval_block_flow(body, locals, globals, builtins, io, config, 0) {
+  push_active_config(config)
+  let result = eval_block_flow(body, locals, globals, builtins, io, config, 0)
+  pop_active_config()
+  match result {
     Ok(BlockFlow::Normal(value)) => Ok(value)
     Ok(BlockFlow::Return(value)) => Ok(value)
     Ok(BlockFlow::Break) =>

@@ -181,7 +181,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
     "str", "int", "float", "list", "dict", "set", "tuple", "enumerate", "zip", "map",
     "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super",
+    "super", "eval", "exec",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -438,6 +438,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("hash", function_stub("hash")),
     ("globals", function_stub("globals")),
     ("locals", function_stub("locals")),
+    ("eval", function_stub("eval")),
+    ("exec", function_stub("exec")),
     ("dir", function_stub("dir")),
     ("getattr", function_stub("getattr")),
     ("hasattr", function_stub("hasattr")),
@@ -543,6 +545,7 @@ pub fn Interpreter::eval_source(
     None => "<expr>".to_string()
   }
   push_traceback_frame("<expr>".to_string(), filename)
+  push_active_config(self.config)
   let value_result = eval_expr_with_env(
     expr,
     self.globals,
@@ -550,6 +553,7 @@ pub fn Interpreter::eval_source(
     self.builtins,
     self.io,
   )
+  pop_active_config()
   pop_traceback_frame()
   let value = match value_result {
     Ok(value) => value

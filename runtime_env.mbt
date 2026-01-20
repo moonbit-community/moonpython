@@ -397,6 +397,32 @@ fn current_closure_env() -> Array[(String, Value)] {
 }
 
 ///|
+let active_config_stack : Ref[Array[Config]] = { val: [] }
+
+///|
+fn push_active_config(config : Config) -> Unit {
+  active_config_stack.val.push(config)
+}
+
+///|
+fn pop_active_config() -> Unit {
+  if active_config_stack.val.length() == 0 {
+    return
+  }
+  let _ = active_config_stack.val.pop()
+
+}
+
+///|
+fn current_config() -> Config {
+  if active_config_stack.val.length() == 0 {
+    Config::default()
+  } else {
+    active_config_stack.val[active_config_stack.val.length() - 1]
+  }
+}
+
+///|
 fn get_from_env(
   name : String,
   locals : Array[(String, Value)],
