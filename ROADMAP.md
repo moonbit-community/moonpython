@@ -79,7 +79,7 @@
 
 ### Milestone A — “Python subset that feels right”
 - [x] Iterator protocol + real generators (`yield`, `yield from`, genexpr).
-- [ ] Scoping model (locals/closures) beyond comprehensions.
+- [x] Scoping model (locals/closures) beyond comprehensions.
 - [x] Basic tracebacks/stack frames (beyond formatted messages).
 
 ### Milestone B — “Can run small programs”
