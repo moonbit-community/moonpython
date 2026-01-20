@@ -471,6 +471,46 @@ fn get_attr_raw_from_value(
           )
       }
     }
+    Value::List(_) => {
+      if attr == "append" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "append",
+              params: ["self", "object"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "pop" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "pop",
+              params: ["self", "index"],
+              defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'list' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
     Value::Class(klass) =>
       match lookup_class_attr(klass, attr) {
         Ok(Some(value)) =>
@@ -1320,6 +1360,81 @@ fn call_callable_with_env(
                 } else {
                   return generator_throw(method.self, positional[0])
                 }
+              _ => ()
+            }
+          }
+        Value::List(values) =>
+          if method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match method.function.name {
+              "append" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "append() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  values.push(positional[0])
+                  return Ok(Value::None)
+                }
+              "pop" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "pop() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                if values.length() == 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Index,
+                      "pop from empty list".to_string(),
+                    ),
+                  )
+                }
+                let mut idx = values.length() - 1
+                if positional.length() == 1 {
+                  let raw = match positional[0] {
+                    Value::Int(v) =>
+                      match bigint_to_int_checked(v) {
+                        Ok(i) => i
+                        Err(err) => return Err(err)
+                      }
+                    Value::Bool(b) => if b { 1 } else { 0 }
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "invalid index".to_string(),
+                        ),
+                      )
+                  }
+                  let normalized = normalize_index(raw, values.length())
+                  if normalized < 0 || normalized >= values.length() {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "pop index out of range".to_string(),
+                      ),
+                    )
+                  }
+                  idx = normalized
+                }
+                let item = values.remove(idx)
+                return Ok(item)
+              }
               _ => ()
             }
           }

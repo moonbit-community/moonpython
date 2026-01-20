@@ -1295,7 +1295,7 @@ fn eval_expr_with_env(
         )
       }
       match target {
-        Value::Instance(_) | Value::Class(_) =>
+        Value::Instance(_) | Value::Class(_) | Value::List(_) =>
           get_attr_from_value(target, attr, globals, builtins, io)
         _ =>
           match (target, attr) {
