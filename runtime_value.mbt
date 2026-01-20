@@ -137,6 +137,31 @@ fn bytes_repr(bytes : Array[Int]) -> String {
 }
 
 ///|
+fn hash_string(text : String) -> Int64 {
+  let mut h : Int64 = 0L
+  for ch in text.to_array() {
+    h = h * 131L + ch.to_int().to_int64()
+  }
+  h
+}
+
+///|
+fn hash_bytes(values : Array[Int]) -> Int64 {
+  let mut h : Int64 = 0L
+  for value in values {
+    h = h * 131L + value.to_int64()
+  }
+  h
+}
+
+///|
+fn hash_complex(real : Double, imag : Double) -> Int64 {
+  let r = real.to_int64()
+  let i = imag.to_int64()
+  r * 131L + i
+}
+
+///|
 fn complex_to_string(real : Double, imag : Double) -> String {
   if real == 0.0 {
     if imag == 0.0 {
@@ -508,6 +533,20 @@ fn eq_value(a : Value, b : Value) -> Bool {
     (Value::Bool(a), Value::Bool(b)) => a == b
     (Value::Int(a), Value::Int(b)) => a == b
     (Value::Float(a), Value::Float(b)) => a == b
+    (Value::Bool(a), Value::Int(b)) => (if a { 1N } else { 0N }) == b
+    (Value::Int(a), Value::Bool(b)) => a == (if b { 1N } else { 0N })
+    (Value::Bool(a), Value::Float(b)) => (if a { 1.0 } else { 0.0 }) == b
+    (Value::Float(a), Value::Bool(b)) => a == (if b { 1.0 } else { 0.0 })
+    (Value::Int(a), Value::Float(b)) =>
+      match bigint_to_double_checked(a) {
+        Ok(value) => value == b
+        Err(_) => false
+      }
+    (Value::Float(a), Value::Int(b)) =>
+      match bigint_to_double_checked(b) {
+        Ok(value) => a == value
+        Err(_) => false
+      }
     (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi
     (Value::Complex(ar, ai), Value::Float(b)) => ai == 0.0 && ar == b
     (Value::Complex(ar, ai), Value::Bool(b)) =>
@@ -624,6 +663,152 @@ fn eq_value(a : Value, b : Value) -> Bool {
     (Value::Class(a), Value::Class(b)) => a.name == b.name
     (Value::Instance(a), Value::Instance(b)) => a.class.name == b.class.name
     _ => false
+  }
+}
+
+///|
+fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
+  match value {
+    Value::None => Ok(0N)
+    Value::Bool(v) => Ok(if v { 1N } else { 0N })
+    Value::Int(v) => Ok(v)
+    Value::Float(v) => Ok(@bigint.BigInt::from_int64(v.to_int64()))
+    Value::Complex(real, imag) =>
+      Ok(@bigint.BigInt::from_int64(hash_complex(real, imag)))
+    Value::Str(text) => Ok(@bigint.BigInt::from_int64(hash_string(text)))
+    Value::Bytes(values) => Ok(@bigint.BigInt::from_int64(hash_bytes(values)))
+    Value::Tuple(values) => {
+      let mut h = 0N
+      for item in values {
+        let value_hash = match hash_value(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        h = h * 131N + value_hash
+      }
+      Ok(h)
+    }
+    other =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "unhashable type: '" + type_name_from_value(other) + "'",
+        ),
+      )
+  }
+}
+
+///|
+fn ensure_hashable(value : Value) -> Result[Unit, RuntimeError] {
+  let _ = match hash_value(value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(())
+}
+
+///|
+fn dict_find_index(
+  pairs : Array[(Value, Value)],
+  key : Value,
+) -> Result[Int?, RuntimeError] {
+  let _ = match ensure_hashable(key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for i = 0; i < pairs.length(); i = i + 1 {
+    if eq_value(pairs[i].0, key) {
+      return Ok(Some(i))
+    }
+  }
+  Ok(None)
+}
+
+///|
+fn dict_set_item(
+  pairs : Array[(Value, Value)],
+  key : Value,
+  value : Value,
+) -> Result[Unit, RuntimeError] {
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(i) => pairs[i] = (pairs[i].0, value)
+    None => pairs.push((key, value))
+  }
+  Ok(())
+}
+
+///|
+fn dict_delete_key(
+  pairs : Array[(Value, Value)],
+  key : Value,
+) -> Result[Bool, RuntimeError] {
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(i) => {
+      let _ = pairs.remove(i)
+      Ok(true)
+    }
+    None => Ok(false)
+  }
+}
+
+///|
+fn set_find_index(
+  values : Array[Value],
+  item : Value,
+) -> Result[Int?, RuntimeError] {
+  let _ = match ensure_hashable(item) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for i = 0; i < values.length(); i = i + 1 {
+    if eq_value(values[i], item) {
+      return Ok(Some(i))
+    }
+  }
+  Ok(None)
+}
+
+///|
+fn set_add_unique(
+  values : Array[Value],
+  item : Value,
+) -> Result[Bool, RuntimeError] {
+  let index = match set_find_index(values, item) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(_) => Ok(false)
+    None => {
+      values.push(item)
+      Ok(true)
+    }
+  }
+}
+
+///|
+fn set_remove_item(
+  values : Array[Value],
+  item : Value,
+) -> Result[Bool, RuntimeError] {
+  let index = match set_find_index(values, item) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(i) => {
+      let _ = values.remove(i)
+      Ok(true)
+    }
+    None => Ok(false)
   }
 }
 

@@ -799,6 +799,110 @@ fn get_attr_raw_from_value(
         ),
       )
     }
+    Value::Set(_) => {
+      if attr == "add" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "add",
+              params: ["self", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "remove" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "remove",
+              params: ["self", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "discard" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "discard",
+              params: ["self", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "pop" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "pop",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "clear" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "clear",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "update" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "update",
+              params: ["self", "iterable"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'set' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
     Value::Class(klass) =>
       match lookup_class_attr(klass, attr) {
         Ok(Some(value)) =>
@@ -1741,12 +1845,11 @@ fn call_callable_with_env(
                 } else {
                   let item = positional[0]
                   if inst.class.name == "dict_keys" {
-                    for pair in pairs {
-                      if eq_value(pair.0, item) {
-                        return Ok(Value::Bool(true))
-                      }
+                    let index = match dict_find_index(pairs, item) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
                     }
-                    return Ok(Value::Bool(false))
+                    return Ok(Value::Bool(index is Some(_)))
                   } else if inst.class.name == "dict_values" {
                     for pair in pairs {
                       if eq_value(pair.1, item) {
@@ -1755,6 +1858,10 @@ fn call_callable_with_env(
                     }
                     return Ok(Value::Bool(false))
                   } else {
+                    let _ = match ensure_hashable(item) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
                     match item {
                       Value::Tuple(values) | Value::List(values) =>
                         if values.length() != 2 {
@@ -2162,12 +2269,14 @@ fn call_callable_with_env(
                 } else {
                   Value::None
                 }
-                for pair in pairs {
-                  if eq_value(pair.0, key) {
-                    return Ok(pair.1)
-                  }
+                let index = match dict_find_index(pairs, key) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
                 }
-                return Ok(default_value)
+                return match index {
+                  Some(i) => Ok(pairs[i].1)
+                  None => Ok(default_value)
+                }
               }
               "pop" => {
                 if positional.length() == 0 || positional.length() > 2 {
@@ -2179,11 +2288,13 @@ fn call_callable_with_env(
                   )
                 }
                 let key = positional[0]
-                for i = 0; i < pairs.length(); i = i + 1 {
-                  if eq_value(pairs[i].0, key) {
-                    let removed = pairs.remove(i)
-                    return Ok(removed.1)
-                  }
+                let index = match dict_find_index(pairs, key) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if index is Some(i) {
+                  let removed = pairs.remove(i)
+                  return Ok(removed.1)
                 }
                 if positional.length() == 2 {
                   return Ok(positional[1])
@@ -2210,12 +2321,17 @@ fn call_callable_with_env(
                 } else {
                   Value::None
                 }
-                for pair in pairs {
-                  if eq_value(pair.0, key) {
-                    return Ok(pair.1)
-                  }
+                let index = match dict_find_index(pairs, key) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
                 }
-                pairs.push((key, default_value))
+                if index is Some(i) {
+                  return Ok(pairs[i].1)
+                }
+                let _ = match dict_set_item(pairs, key, default_value) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
                 return Ok(default_value)
               }
               "keys" => {
@@ -2319,17 +2435,11 @@ fn call_callable_with_env(
                 for entry in entries {
                   let key = entry.0
                   let value = entry.1
-                  let mut found = false
-                  for i = 0; i < pairs.length(); i = i + 1 {
-                    if eq_value(pairs[i].0, key) {
-                      pairs[i] = (pairs[i].0, value)
-                      found = true
-                      break
-                    }
+                  let _ = match dict_set_item(pairs, key, value) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
                   }
-                  if !found {
-                    pairs.push((key, value))
-                  }
+
                 }
                 return Ok(Value::None)
               }
@@ -2350,6 +2460,145 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::None)
               }
+              _ => ()
+            }
+          }
+        Value::Set(values) =>
+          if method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match method.function.name {
+              "add" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "add() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let _ = match set_add_unique(values, positional[0]) {
+                    Ok(_) => ()
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(Value::None)
+                }
+              "remove" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "remove() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let removed = match set_remove_item(values, positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if !removed {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Key,
+                        "key not found".to_string(),
+                      ),
+                    )
+                  }
+                  return Ok(Value::None)
+                }
+              "discard" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "discard() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let _ = match set_remove_item(values, positional[0]) {
+                    Ok(_) => ()
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(Value::None)
+                }
+              "pop" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "pop() takes no arguments".to_string(),
+                    ),
+                  )
+                } else if values.length() == 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Key,
+                      "pop from empty set".to_string(),
+                    ),
+                  )
+                } else {
+                  let idx = values.length() - 1
+                  let item = values.remove(idx)
+                  return Ok(item)
+                }
+              "clear" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "clear() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let mut i = values.length()
+                  while i > 0 {
+                    i = i - 1
+                    let _ = values.remove(i)
+
+                  }
+                  return Ok(Value::None)
+                }
+              "update" =>
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "update() takes at most one argument".to_string(),
+                    ),
+                  )
+                } else if positional.length() == 0 ||
+                  positional[0] is Value::None {
+                  return Ok(Value::None)
+                } else {
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_add_unique(values, item) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                  return Ok(Value::None)
+                }
               _ => ()
             }
           }

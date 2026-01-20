@@ -64,3 +64,22 @@ test "dict/update_clear" {
     #|print(d)
   inspect(run_stdout(source), content="None\n{a: 2, b: 3, c: 4}\n{}\n")
 }
+
+///|
+test "dict/numeric_key_dedupe" {
+  let source =
+    #|d = {1: "a", True: "b", 1.0: "c"}
+    #|print(d)
+    #|print(d[1])
+    #|print(d[True])
+    #|print(d[1.0])
+  inspect(run_stdout(source), content="{1: c}\nc\nc\nc\n")
+}
+
+///|
+test "dict/unhashable_key" {
+  let source =
+    #|d = {}
+    #|d[[1]] = 2
+  inspect(test_exec_error(source), content="TypeError: unhashable type: 'list'")
+}

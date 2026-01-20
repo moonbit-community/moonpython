@@ -1547,16 +1547,11 @@ fn eval_expr_with_env(
       }
       let unique : Array[Value] = []
       for item in values {
-        let mut exists = false
-        for existing in unique {
-          if eq_value(existing, item) {
-            exists = true
-            break
-          }
+        let _ = match set_add_unique(unique, item) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
         }
-        if !exists {
-          unique.push(item)
-        }
+
       }
       Ok(Value::Set(unique))
     }
@@ -1623,14 +1618,11 @@ fn eval_expr_with_env(
         pairs : Array[(Value, Value)],
         key : Value,
         value : Value,
-      ) -> Unit {
-        for i = 0; i < pairs.length(); i = i + 1 {
-          if eq_value(pairs[i].0, key) {
-            pairs[i] = (key, value)
-            return
-          }
+      ) -> Result[Unit, RuntimeError] {
+        match dict_set_item(pairs, key, value) {
+          Ok(v) => Ok(v)
+          Err(err) => Err(err)
         }
-        pairs.push((key, value))
       }
 
       for item in items {
@@ -1644,7 +1636,11 @@ fn eval_expr_with_env(
             match mapping {
               Value::Dict(pairs) =>
                 for pair in pairs {
-                  set_pair(values, pair.0, pair.1)
+                  let _ = match set_pair(values, pair.0, pair.1) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+
                 }
               _ =>
                 return Err(
@@ -1666,7 +1662,11 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            set_pair(values, key, value)
+            let _ = match set_pair(values, key, value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
           }
         }
       }
@@ -1687,16 +1687,11 @@ fn eval_expr_with_env(
               Err(err) => return Err(err)
             }
             for value in items {
-              let mut exists = false
-              for existing in values {
-                if eq_value(existing, value) {
-                  exists = true
-                  break
-                }
+              let _ = match set_add_unique(values, value) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
               }
-              if !exists {
-                values.push(value)
-              }
+
             }
           }
           _ => {
@@ -1705,16 +1700,11 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let mut exists = false
-            for existing in values {
-              if eq_value(existing, value) {
-                exists = true
-                break
-              }
+            let _ = match set_add_unique(values, value) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
             }
-            if !exists {
-              values.push(value)
-            }
+
           }
         }
       }
@@ -1791,7 +1781,8 @@ fn eval_expr_with_env(
         Value::Instance(_)
         | Value::Class(_)
         | Value::List(_)
-        | Value::Dict(_) =>
+        | Value::Dict(_)
+        | Value::Set(_) =>
           get_attr_from_value(target, attr, globals, builtins, io)
         _ =>
           match (target, attr) {
@@ -1986,17 +1977,20 @@ fn eval_expr_with_env(
           }
           match target {
             Value::Dict(values) => {
-              for pair in values {
-                if eq_value(pair.0, idx_value) {
-                  return Ok(pair.1)
-                }
+              let index = match dict_find_index(values, idx_value) {
+                Ok(v) => v
+                Err(err) => return Err(err)
               }
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Key,
-                  "key not found".to_string(),
-                ),
-              )
+              match index {
+                Some(i) => Ok(values[i].1)
+                None =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Key,
+                      "key not found".to_string(),
+                    ),
+                  )
+              }
             }
             _ => {
               let idx = match index_from_value(idx_value, 0) {
@@ -2258,7 +2252,7 @@ fn eval_expr_with_env(
             }
           CompareOp::In =>
             match current {
-              Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
+              Value::List(values) | Value::Tuple(values) => {
                 let mut found = false
                 for item in values {
                   if eq_value(item, previous) {
@@ -2268,19 +2262,19 @@ fn eval_expr_with_env(
                 }
                 found
               }
+              Value::Set(values) =>
+                match set_find_index(values, previous) {
+                  Ok(index) => index is Some(_)
+                  Err(err) => return Err(err)
+                }
               Value::Bytes(bytes)
               | Value::ByteArray(bytes)
               | Value::MemoryView(bytes) => bytes_contains(bytes, previous)
-              Value::Dict(pairs) => {
-                let mut found = false
-                for pair in pairs {
-                  if eq_value(pair.0, previous) {
-                    found = true
-                    break
-                  }
+              Value::Dict(pairs) =>
+                match dict_find_index(pairs, previous) {
+                  Ok(index) => index is Some(_)
+                  Err(err) => return Err(err)
                 }
-                found
-              }
               Value::Str(text) =>
                 match previous {
                   Value::Str(needle) => text.contains(needle)
@@ -2377,7 +2371,7 @@ fn eval_expr_with_env(
             }
           CompareOp::NotIn =>
             !(match current {
-              Value::List(values) | Value::Tuple(values) | Value::Set(values) => {
+              Value::List(values) | Value::Tuple(values) => {
                 let mut found = false
                 for item in values {
                   if eq_value(item, previous) {
@@ -2387,19 +2381,19 @@ fn eval_expr_with_env(
                 }
                 found
               }
+              Value::Set(values) =>
+                match set_find_index(values, previous) {
+                  Ok(index) => index is Some(_)
+                  Err(err) => return Err(err)
+                }
               Value::Bytes(bytes)
               | Value::ByteArray(bytes)
               | Value::MemoryView(bytes) => bytes_contains(bytes, previous)
-              Value::Dict(pairs) => {
-                let mut found = false
-                for pair in pairs {
-                  if eq_value(pair.0, previous) {
-                    found = true
-                    break
-                  }
+              Value::Dict(pairs) =>
+                match dict_find_index(pairs, previous) {
+                  Ok(index) => index is Some(_)
+                  Err(err) => return Err(err)
                 }
-                found
-              }
               Value::Str(text) =>
                 match previous {
                   Value::Str(needle) => text.contains(needle)

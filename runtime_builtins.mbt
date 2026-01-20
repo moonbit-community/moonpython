@@ -1824,16 +1824,11 @@ fn builtin_set(
     }
     let unique : Array[Value] = []
     for item in items {
-      let mut exists = false
-      for existing in unique {
-        if eq_value(existing, item) {
-          exists = true
-          break
-        }
+      let _ = match set_add_unique(unique, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
       }
-      if !exists {
-        unique.push(item)
-      }
+
     }
     Ok(Value::Set(unique))
   }
@@ -1863,7 +1858,11 @@ fn builtin_dict(
           match item {
             Value::Tuple(values) | Value::List(values) =>
               if values.length() == 2 {
-                pairs.push((values[0], values[1]))
+                let _ = match dict_set_item(pairs, values[0], values[1]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+
               } else {
                 return Err(
                   make_runtime_error(
@@ -1894,7 +1893,11 @@ fn builtin_dict(
           match item {
             Value::Tuple(values) | Value::List(values) =>
               if values.length() == 2 {
-                pairs.push((values[0], values[1]))
+                let _ = match dict_set_item(pairs, values[0], values[1]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+
               } else {
                 return Err(
                   make_runtime_error(
@@ -2017,31 +2020,6 @@ fn bigint_to_base_string(
     }
   }
   buf.to_string()
-}
-
-///|
-fn hash_string(text : String) -> Int64 {
-  let mut h : Int64 = 0L
-  for ch in text.to_array() {
-    h = h * 131L + ch.to_int().to_int64()
-  }
-  h
-}
-
-///|
-fn hash_bytes(values : Array[Int]) -> Int64 {
-  let mut h : Int64 = 0L
-  for value in values {
-    h = h * 131L + value.to_int64()
-  }
-  h
-}
-
-///|
-fn hash_complex(real : Double, imag : Double) -> Int64 {
-  let r = real.to_int64()
-  let i = imag.to_int64()
-  r * 131L + i
 }
 
 ///|
@@ -2995,24 +2973,9 @@ fn builtin_hash(
       ),
     )
   }
-  match positional[0] {
-    Value::None => Ok(Value::Int(0N))
-    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    Value::Int(v) => Ok(Value::Int(v))
-    Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
-    Value::Str(text) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
-    Value::Bytes(values) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(hash_bytes(values))))
-    Value::Complex(real, imag) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(hash_complex(real, imag))))
-    other =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "unhashable type: '" + type_name_from_value(other) + "'",
-        ),
-      )
+  match hash_value(positional[0]) {
+    Ok(hash) => Ok(Value::Int(hash))
+    Err(err) => Err(err)
   }
 }
 

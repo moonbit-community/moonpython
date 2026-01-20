@@ -324,7 +324,11 @@ fn eval_dict_comp_walk(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      results.push((k, v))
+      let _ = match dict_set_item(results, k, v) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+
     }
     return Ok(())
   }

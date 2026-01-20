@@ -211,16 +211,9 @@ fn assign_target_with_env(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let mut found = false
-          for i = 0; i < pairs.length(); i = i + 1 {
-            if eq_value(pairs[i].0, index_value) {
-              pairs[i] = (pairs[i].0, assigned)
-              found = true
-              break
-            }
-          }
-          if !found {
-            pairs.push((index_value, assigned))
+          let _ = match dict_set_item(pairs, index_value, assigned) {
+            Ok(v) => v
+            Err(err) => return Err(err)
           }
           Ok(())
         }
@@ -382,18 +375,20 @@ fn delete_target_with_env(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-          for i = 0; i < pairs.length(); i = i + 1 {
-            if eq_value(pairs[i].0, index_value) {
-              let _ = pairs.remove(i)
-              return Ok(())
-            }
+          let removed = match dict_delete_key(pairs, index_value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
           }
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Key,
-              "key not found".to_string(),
-            ),
-          )
+          if removed {
+            Ok(())
+          } else {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Key,
+                "key not found".to_string(),
+              ),
+            )
+          }
         }
         _ =>
           Err(

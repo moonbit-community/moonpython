@@ -62,7 +62,7 @@
 - [x] Arbitrary-precision integers (`int`) (`Value::Int` is `@bigint.BigInt`).
 - [x] `bytes`/`bytearray`/`memoryview`.
 - [x] `complex` numbers.
-- [ ] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
+- [x] More complete `dict`/`set` behavior (hashing, equality, ordering rules, mutation semantics).
 - [x] `set`/`dict` view types (`dict_keys`, `dict_values`, `dict_items`) (currently returned as lists).
 - [ ] Descriptor protocol + attribute access (`__getattribute__`, `__getattr__`, `property`, method binding correctness).
 - [x] Core container protocols: `__len__`, `__iter__`, `__contains__` for user-defined classes.
