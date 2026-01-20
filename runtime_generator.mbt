@@ -35,6 +35,8 @@ priv struct GeneratorState {
   global_names : Array[String]
   nonlocal_names : Array[String]
   closure : Array[(String, Value)]
+  name : String
+  filename : String
   is_async : Bool
   mut started : Bool
   mut done : Bool
@@ -99,6 +101,8 @@ fn generator_new(
   global_names : Array[String],
   nonlocal_names : Array[String],
   closure : Array[(String, Value)],
+  name : String,
+  filename : String,
 ) -> Value {
   let frames : Array[GenFrame] = [GenFrame::Block(body~, index=0, loop_depth=0)]
   let state : Ref[GeneratorState] = {
@@ -111,6 +115,8 @@ fn generator_new(
       global_names,
       nonlocal_names,
       closure,
+      name,
+      filename,
       is_async: false,
       started: false,
       done: false,
@@ -131,6 +137,8 @@ fn async_generator_new(
   global_names : Array[String],
   nonlocal_names : Array[String],
   closure : Array[(String, Value)],
+  name : String,
+  filename : String,
 ) -> Value {
   let frames : Array[GenFrame] = [GenFrame::Block(body~, index=0, loop_depth=0)]
   let state : Ref[GeneratorState] = {
@@ -143,6 +151,8 @@ fn async_generator_new(
       global_names,
       nonlocal_names,
       closure,
+      name,
+      filename,
       is_async: true,
       started: false,
       done: false,
@@ -170,6 +180,7 @@ fn generator_stop_iteration_with_value(value : Value) -> RuntimeError {
     kind: err.kind,
     message: err.message,
     span: err.span,
+    traceback: err.traceback,
     exc_type: err.exc_type,
     exc_args: err.exc_args,
     exc_value: Some(value),
@@ -355,6 +366,12 @@ fn generator_step_statement(
   loop_depth : Int,
 ) -> Result[Value?, RuntimeError] {
   match stmt {
+    Stmt::WithSpan(span~, stmt~) => {
+      push_active_span(span)
+      let result = generator_step_statement(stmt, state, loop_depth)
+      pop_active_span()
+      result
+    }
     Stmt::ExprStmt(expr) => {
       match expr {
         Expr::YieldFrom(inner) => {
@@ -794,6 +811,7 @@ fn generator_step_statement(
                 kind: err0.kind,
                 message: err0.message,
                 span: err0.span,
+                traceback: err0.traceback,
                 exc_type: err0.exc_type,
                 exc_args: err0.exc_args,
                 exc_value: err0.exc_value,
@@ -836,6 +854,7 @@ fn generator_step_statement(
                 kind: err1.kind,
                 message: err1.message,
                 span: err1.span,
+                traceback: err1.traceback,
                 exc_type: err1.exc_type,
                 exc_args: err1.exc_args,
                 exc_value: err1.exc_value,
@@ -1081,6 +1100,7 @@ fn generator_resume(
   state : Ref[GeneratorState],
   sent_value_in : Value,
 ) -> Result[Value, RuntimeError] {
+  push_traceback_frame(state.val.name, state.val.filename)
   push_closure_env(state.val.closure)
   push_scope_decls_with_nonlocals(
     state.val.global_names,
@@ -1095,6 +1115,7 @@ fn generator_resume(
   }
   pop_scope_decls()
   pop_closure_env()
+  pop_traceback_frame()
   result
 }
 
@@ -1269,6 +1290,7 @@ fn async_generator_make_anext_coroutine(
     ),
   ]
   let locals : Array[(String, Value)] = [("self", generator_value)]
+  let filename = current_traceback_filename()
   coroutine_new(
     body,
     locals,
@@ -1278,6 +1300,8 @@ fn async_generator_make_anext_coroutine(
     [],
     [],
     [],
+    "<asyncgen_anext>".to_string(),
+    filename,
     Config::default(),
   )
 }
@@ -1304,6 +1328,7 @@ fn async_generator_make_asend_coroutine(
     ("self", generator_value),
     ("value", send_value),
   ]
+  let filename = current_traceback_filename()
   coroutine_new(
     body,
     locals,
@@ -1313,6 +1338,8 @@ fn async_generator_make_asend_coroutine(
     [],
     [],
     [],
+    "<asyncgen_asend>".to_string(),
+    filename,
     Config::default(),
   )
 }
@@ -1339,6 +1366,7 @@ fn async_generator_make_athrow_coroutine(
     ("self", generator_value),
     ("exc", exc),
   ]
+  let filename = current_traceback_filename()
   coroutine_new(
     body,
     locals,
@@ -1348,6 +1376,8 @@ fn async_generator_make_athrow_coroutine(
     [],
     [],
     [],
+    "<asyncgen_athrow>".to_string(),
+    filename,
     Config::default(),
   )
 }
@@ -1369,6 +1399,7 @@ fn async_generator_make_aclose_coroutine(
     ),
   ]
   let locals : Array[(String, Value)] = [("self", generator_value)]
+  let filename = current_traceback_filename()
   coroutine_new(
     body,
     locals,
@@ -1378,6 +1409,8 @@ fn async_generator_make_aclose_coroutine(
     [],
     [],
     [],
+    "<asyncgen_aclose>".to_string(),
+    filename,
     Config::default(),
   )
 }

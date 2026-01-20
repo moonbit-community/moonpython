@@ -51,6 +51,107 @@ fn runtime_error_exc(
 }
 
 ///|
+let active_frame_stack : Ref[Array[TracebackFrame]] = { val: [] }
+
+///|
+let active_span_stack : Ref[Array[Span]] = { val: [] }
+
+///|
+fn clone_traceback_stack(
+  stack : Array[TracebackFrame],
+) -> Array[TracebackFrame] {
+  let out : Array[TracebackFrame] = []
+  for frame in stack {
+    out.push(frame)
+  }
+  out
+}
+
+///|
+fn current_span() -> Span? {
+  if active_span_stack.val.length() == 0 {
+    None
+  } else {
+    Some(active_span_stack.val[active_span_stack.val.length() - 1])
+  }
+}
+
+///|
+fn snapshot_traceback() -> Array[TracebackFrame] {
+  let frames = clone_traceback_stack(active_frame_stack.val)
+  if frames.length() == 0 {
+    return frames
+  }
+  match current_span() {
+    Some(span) => {
+      let mut last = frames[frames.length() - 1]
+      last = TracebackFrame::{
+        name: last.name,
+        filename: last.filename,
+        line: span.line,
+        column: span.column,
+      }
+      frames[frames.length() - 1] = last
+    }
+    None => ()
+  }
+  frames
+}
+
+///|
+fn current_traceback_filename() -> String {
+  if active_frame_stack.val.length() == 0 {
+    "<module>".to_string()
+  } else {
+    active_frame_stack.val[active_frame_stack.val.length() - 1].filename
+  }
+}
+
+///|
+fn push_traceback_frame(name : String, filename : String) -> Unit {
+  active_frame_stack.val.push(TracebackFrame::{
+    name,
+    filename,
+    line: 1,
+    column: 1,
+  })
+}
+
+///|
+fn pop_traceback_frame() -> Unit {
+  if active_frame_stack.val.length() == 0 {
+    return
+  }
+  let _ = active_frame_stack.val.remove(active_frame_stack.val.length() - 1)
+
+}
+
+///|
+fn push_active_span(span : Span) -> Unit {
+  active_span_stack.val.push(span)
+  if active_frame_stack.val.length() == 0 {
+    return
+  }
+  let idx = active_frame_stack.val.length() - 1
+  let last = active_frame_stack.val[idx]
+  active_frame_stack.val[idx] = TracebackFrame::{
+    name: last.name,
+    filename: last.filename,
+    line: span.line,
+    column: span.column,
+  }
+}
+
+///|
+fn pop_active_span() -> Unit {
+  if active_span_stack.val.length() == 0 {
+    return
+  }
+  let _ = active_span_stack.val.remove(active_span_stack.val.length() - 1)
+
+}
+
+///|
 fn make_runtime_error(
   kind : RuntimeErrorKind,
   message : String,
@@ -59,7 +160,8 @@ fn make_runtime_error(
   RuntimeError::{
     kind,
     message,
-    span: None,
+    span: current_span(),
+    traceback: snapshot_traceback(),
     exc_type,
     exc_args,
     exc_value: None,
@@ -79,7 +181,8 @@ fn make_parse_runtime_error(error : ParseError) -> RuntimeError {
   RuntimeError::{
     kind: RuntimeErrorKind::Runtime,
     message,
-    span: None,
+    span: Some(error.span),
+    traceback: [],
     exc_type,
     exc_args,
     exc_value: None,
@@ -123,4 +226,35 @@ pub fn format_runtime_error(error : RuntimeError) -> String {
     RuntimeErrorKind::NotImplemented => "NotImplementedError: " + error.message
     RuntimeErrorKind::Runtime => error.message
   }
+}
+
+///|
+pub fn format_runtime_error_with_traceback(
+  error : RuntimeError,
+  limit : Int,
+) -> String {
+  if limit == 0 || error.traceback.length() == 0 {
+    return format_runtime_error(error)
+  }
+  let buf = StringBuilder::new()
+  buf.write_string("Traceback (most recent call last):\n")
+  let start = if error.traceback.length() > limit {
+    error.traceback.length() - limit
+  } else {
+    0
+  }
+  for i = start; i < error.traceback.length(); i = i + 1 {
+    let frame = error.traceback[i]
+    buf.write_string("  File \"")
+    buf.write_string(frame.filename)
+    buf.write_string("\", line ")
+    buf.write_string(frame.line.to_string())
+    buf.write_string(", column ")
+    buf.write_string(frame.column.to_string())
+    buf.write_string(", in ")
+    buf.write_string(frame.name)
+    buf.write_char('\n')
+  }
+  buf.write_string(format_runtime_error(error))
+  buf.to_string()
 }

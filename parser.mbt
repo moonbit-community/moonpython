@@ -2710,7 +2710,14 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
           continue
         }
         let base_offset = offsets[index] + current_indent + segment_pair.1
-        match parse_simple_statement(segment, index, base_offset, false) {
+        match
+          parse_simple_statement(
+            segment,
+            index,
+            offsets[index],
+            base_offset,
+            false,
+          ) {
           Ok(_) => ()
           Err(_) => {
             saw_syntax_error = true
@@ -3322,6 +3329,7 @@ fn target_has_async_comprehension(target : Target) -> Bool {
 ///|
 fn stmt_has_async_comprehension(stmt : Stmt) -> Bool {
   match stmt {
+    Stmt::WithSpan(span=_, stmt=inner) => stmt_has_async_comprehension(inner)
     Stmt::ExprStmt(expr) => expr_has_async_comprehension(expr)
     Stmt::Assign(target~, value~) =>
       target_has_async_comprehension(target) ||
@@ -3646,7 +3654,7 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
 fn finalize_simple_statement(
   stmts : Array[Stmt],
   allow_async_comprehensions : Bool,
-  line_index : Int,
+  span : Span,
   base_offset : Int,
 ) -> Result[Array[Stmt], ParseError] {
   if !allow_async_comprehensions && stmts_have_async_comprehension(stmts) {
@@ -3655,26 +3663,53 @@ fn finalize_simple_statement(
         kind: Eof,
         start: base_offset,
         end: base_offset + 1,
-        line: line_index + 1,
+        line: span.line,
         column: 1,
       }),
     )
   }
-  Ok(stmts)
+  let out : Array[Stmt] = []
+  for stmt in stmts {
+    out.push(Stmt::WithSpan(span~, stmt~))
+  }
+  Ok(out)
+}
+
+///|
+fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
+  let start = offsets[line_index] + indent
+  Span::{ start, end: start + 1, line: line_index + 1, column: indent + 1 }
+}
+
+///|
+fn wrap_stmt_for_line(
+  offsets : Array[Int],
+  line_index : Int,
+  indent : Int,
+  stmt : Stmt,
+) -> Stmt {
+  Stmt::WithSpan(span=span_for_line(offsets, line_index, indent), stmt~)
 }
 
 ///|
 fn parse_simple_statement(
   line_text : String,
   line_index : Int,
+  line_start_offset : Int,
   base_offset : Int,
   allow_async_comprehensions : Bool,
 ) -> Result[Array[Stmt], ParseError] {
+  let span = Span::{
+    start: base_offset,
+    end: base_offset + 1,
+    line: line_index + 1,
+    column: base_offset - line_start_offset + 1,
+  }
   let stmts : Array[Stmt] = []
   let mut trimmed = line_text.trim(chars=" \t").to_string()
   if trimmed.length() == 0 {
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   let chars = trimmed.to_array()
@@ -3709,7 +3744,7 @@ fn parse_simple_statement(
       trimmed = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
       if trimmed.length() == 0 {
         return finalize_simple_statement(
-          stmts, allow_async_comprehensions, line_index, base_offset,
+          stmts, allow_async_comprehensions, span, base_offset,
         )
       }
     }
@@ -3718,13 +3753,13 @@ fn parse_simple_statement(
   if trimmed == "..." {
     stmts.push(Stmt::Pass)
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed == "yield" {
     stmts.push(Stmt::Yield(None))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("yield from") {
@@ -3757,7 +3792,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::YieldFrom(expr))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("yield ") || trimmed.has_prefix("yield\t") {
@@ -3767,7 +3802,7 @@ fn parse_simple_statement(
     if rest.length() == 0 {
       stmts.push(Stmt::Yield(None))
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
     let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
@@ -3780,7 +3815,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::Yield(Some(expr)))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("{") && trimmed.contains(" for ") {
@@ -3803,7 +3838,7 @@ fn parse_simple_statement(
     if trimmed.contains(":") {
       // Treat as a dict comprehension expression.
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     } else if has_bare_assign(trimmed) {
       return Err(
@@ -3833,7 +3868,7 @@ fn parse_simple_statement(
       }
       stmts.push(Stmt::Assign(target=Target::Name(key), value=expr))
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
   }
@@ -3858,7 +3893,7 @@ fn parse_simple_statement(
   if trimmed == "pass" {
     stmts.push(Stmt::Pass)
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("global ") {
@@ -3872,7 +3907,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::Global(names))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("nonlocal ") {
@@ -3886,7 +3921,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::Nonlocal(names))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("import ") {
@@ -3922,7 +3957,7 @@ fn parse_simple_statement(
       stmts.push(Stmt::Import(module=module_name, alias=alias_opt))
     }
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("from ") {
@@ -3980,7 +4015,7 @@ fn parse_simple_statement(
         let feature = parts[3]
         if feature == "annotations" {
           return finalize_simple_statement(
-            stmts, allow_async_comprehensions, line_index, base_offset,
+            stmts, allow_async_comprehensions, span, base_offset,
           )
         }
         return Err(
@@ -4076,7 +4111,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::FromImport(module=module_name, names~))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
@@ -4096,7 +4131,7 @@ fn parse_simple_statement(
       let message : Expr? = None
       stmts.push(Stmt::Assert(condition~, message~))
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
     let mut comma_index : Int? = None
@@ -4165,7 +4200,7 @@ fn parse_simple_statement(
       stmts.push(Stmt::Assert(condition~, message=Some(message_expr)))
     }
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("raise") {
@@ -4175,7 +4210,7 @@ fn parse_simple_statement(
     if rest.length() == 0 {
       stmts.push(Stmt::Raise(exc=None, cause=None))
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
     if rest.has_prefix("from ") {
@@ -4254,7 +4289,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::Raise(exc=Some(exc_expr), cause=cause_expr))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("del ") {
@@ -4297,14 +4332,14 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::Del(targets))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("async") {
     // Treat async constructs as no-ops so spec-generated blocks can parse.
     stmts.push(Stmt::Pass)
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.has_prefix("return") {
@@ -4326,7 +4361,7 @@ fn parse_simple_statement(
       stmts.push(Stmt::Return(Some(expr)))
     }
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   if trimmed.contains(":") &&
@@ -4423,7 +4458,7 @@ fn parse_simple_statement(
             }
           }
           return finalize_simple_statement(
-            stmts, allow_async_comprehensions, line_index, base_offset,
+            stmts, allow_async_comprehensions, span, base_offset,
           )
         }
       }
@@ -4469,7 +4504,7 @@ fn parse_simple_statement(
           }
           stmts.push(Stmt::Assign(target=Target::Name(name_text), value=expr))
           return finalize_simple_statement(
-            stmts, allow_async_comprehensions, line_index, base_offset,
+            stmts, allow_async_comprehensions, span, base_offset,
           )
         }
       }
@@ -4486,7 +4521,7 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::ExprStmt(expr))
     return finalize_simple_statement(
-      stmts, allow_async_comprehensions, line_index, base_offset,
+      stmts, allow_async_comprehensions, span, base_offset,
     )
   }
   match find_top_level_augassign(trimmed) {
@@ -4566,7 +4601,7 @@ fn parse_simple_statement(
       }
       stmts.push(Stmt::AugAssign(target~, op~, value=value_expr))
       return finalize_simple_statement(
-        stmts, allow_async_comprehensions, line_index, base_offset,
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
     None => ()
@@ -4621,7 +4656,7 @@ fn parse_simple_statement(
           stmts.push(Stmt::Assign(target~, value=value_expr))
         }
         return finalize_simple_statement(
-          stmts, allow_async_comprehensions, line_index, base_offset,
+          stmts, allow_async_comprehensions, span, base_offset,
         )
       }
     }
@@ -4690,7 +4725,7 @@ fn parse_simple_statement(
     stmts.push(Stmt::ExprStmt(expr))
   }
   return finalize_simple_statement(
-    stmts, allow_async_comprehensions, line_index, base_offset,
+    stmts, allow_async_comprehensions, span, base_offset,
   )
 }
 
@@ -4783,6 +4818,7 @@ fn LineParser::parse_block(
         ),
       )
     }
+    let line_index = self.index
     let raw_line = substring(line, current_indent, line.length()).to_string()
     let mut line_text = raw_line.trim(chars=" \t").to_string()
     if find_triple_quote(raw_line) is None {
@@ -5100,6 +5136,7 @@ fn LineParser::parse_block(
               parse_simple_statement(
                 segment,
                 self.index - 1,
+                self.offsets[self.index - 1],
                 base_offset,
                 self.async_depth > 0,
               ) {
@@ -5138,7 +5175,14 @@ fn LineParser::parse_block(
         }
         cases.push((pattern, guard_expr, body))
       }
-      stmts.push(Stmt::Match(subject=subject_expr, cases~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::Match(subject=subject_expr, cases~),
+        ),
+      )
       continue
     }
     if line_text.has_prefix("@") {
@@ -5346,6 +5390,7 @@ fn LineParser::parse_block(
             parse_simple_statement(
               segment,
               self.index,
+              self.offsets[self.index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -5356,7 +5401,14 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(Stmt::Class(name~, decorators~, bases~, keywords~, body~))
+        stmts.push(
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::Class(name~, decorators~, bases~, keywords~, body~),
+          ),
+        )
         self.index = next_index
         continue
       }
@@ -5385,7 +5437,14 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::Class(name~, decorators~, bases~, keywords~, body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::Class(name~, decorators~, bases~, keywords~, body~),
+        ),
+      )
       continue
     }
     if (
@@ -5515,11 +5574,16 @@ fn LineParser::parse_block(
         .to_string()
       let body : Array[Stmt] = []
       if body_text.length() > 0 {
+        let base_offset = self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          1
         let parsed = match
           parse_simple_statement(
             body_text,
             self.index,
             self.offsets[self.index],
+            base_offset,
             self.async_depth > 0,
           ) {
           Ok(value) => value
@@ -5604,6 +5668,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   self.offsets[self.index - 1] +
                   else_indent +
                   colon_pos.unwrap_or(0) +
@@ -5649,7 +5714,14 @@ fn LineParser::parse_block(
           }
         }
       }
-      stmts.push(Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::AsyncFor(target~, iter=iter_expr, body~, else_body~),
+        ),
+      )
       continue
     }
     if line_text.has_prefix("async with ") {
@@ -5744,11 +5816,16 @@ fn LineParser::parse_block(
         .to_string()
       if body_text.length() > 0 {
         let body : Array[Stmt] = []
+        let base_offset = self.offsets[self.index] +
+          current_indent +
+          colon_pos.unwrap() +
+          1
         let parsed = match
           parse_simple_statement(
             body_text,
             self.index,
             self.offsets[self.index],
+            base_offset,
             self.async_depth > 0,
           ) {
           Ok(value) => value
@@ -5757,7 +5834,14 @@ fn LineParser::parse_block(
         for stmt in parsed {
           body.push(stmt)
         }
-        stmts.push(Stmt::AsyncWith(context~, target~, body~))
+        stmts.push(
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::AsyncWith(context~, target~, body~),
+          ),
+        )
         self.index = header_end_index
         continue
       }
@@ -5786,7 +5870,14 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::AsyncWith(context~, target~, body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::AsyncWith(context~, target~, body~),
+        ),
+      )
       continue
     }
     let mut is_async_def = false
@@ -6035,6 +6126,7 @@ fn LineParser::parse_block(
             parse_simple_statement(
               segment,
               self.index,
+              self.offsets[self.index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -6047,6 +6139,39 @@ fn LineParser::parse_block(
         }
         for stmt in body {
           match stmt {
+            Stmt::WithSpan(span=_, stmt=inner) =>
+              match inner {
+                Stmt::Global(names) =>
+                  for name in names {
+                    for param in params {
+                      if param == name {
+                        let token = {
+                          kind: Eof,
+                          start: self.offsets[self.index] +
+                          current_indent +
+                          4 +
+                          colon_pos.unwrap() +
+                          2,
+                          end: self.offsets[self.index] +
+                          current_indent +
+                          4 +
+                          colon_pos.unwrap() +
+                          3,
+                          line: self.index + 1,
+                          column: current_indent + 4 + colon_pos.unwrap() + 3,
+                        }
+                        return Err(
+                          make_parse_error(
+                            ParseErrorKind::Syntax,
+                            "name '" + name + "' is parameter and global",
+                            token,
+                          ),
+                        )
+                      }
+                    }
+                  }
+                _ => ()
+              }
             Stmt::Global(names) =>
               for name in names {
                 for param in params {
@@ -6082,19 +6207,29 @@ fn LineParser::parse_block(
         let mut is_generator = false
         for stmt in body {
           match stmt {
+            Stmt::WithSpan(span=_, stmt=inner) =>
+              match inner {
+                Stmt::Yield(_) | Stmt::YieldFrom(_) => is_generator = true
+                _ => ()
+              }
             Stmt::Yield(_) | Stmt::YieldFrom(_) => is_generator = true
             _ => ()
           }
         }
         stmts.push(
-          Stmt::Function(
-            name~,
-            decorators~,
-            params~,
-            defaults~,
-            body~,
-            is_generator~,
-            is_async=is_async_def,
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::Function(
+              name~,
+              decorators~,
+              params~,
+              defaults~,
+              body~,
+              is_generator~,
+              is_async=is_async_def,
+            ),
           ),
         )
         self.index = next_index
@@ -6284,19 +6419,26 @@ fn LineParser::parse_block(
         }
       }
       stmts.push(
-        Stmt::Function(
-          name~,
-          decorators~,
-          params~,
-          defaults~,
-          body~,
-          is_generator~,
-          is_async=is_async_def,
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::Function(
+            name~,
+            decorators~,
+            params~,
+            defaults~,
+            body~,
+            is_generator~,
+            is_async=is_async_def,
+          ),
         ),
       )
       continue
     }
     if line_text.has_prefix("if ") || line_text.has_prefix("if(") {
+      let if_line_index = self.index
+      let if_indent = current_indent
       let colon_pos = find_last_char(line_text, ':')
       if colon_pos is None {
         let token = {
@@ -6355,6 +6497,7 @@ fn LineParser::parse_block(
             parse_simple_statement(
               segment,
               self.index,
+              self.offsets[self.index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -6365,7 +6508,14 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(Stmt::If(condition~, body~, else_body=[]))
+        stmts.push(
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::If(condition~, body~, else_body=[]),
+          ),
+        )
         self.index = next_index
         continue
       }
@@ -6538,7 +6688,10 @@ fn LineParser::parse_block(
         outer = Some(stmt)
       }
       match outer {
-        Some(stmt) => stmts.push(stmt)
+        Some(stmt) =>
+          stmts.push(
+            wrap_stmt_for_line(self.offsets, if_line_index, if_indent, stmt),
+          )
         None => ()
       }
       continue
@@ -6772,6 +6925,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   self.offsets[self.index - 1] +
                   else_indent +
                   colon_pos.unwrap_or(0) +
@@ -6817,7 +6971,14 @@ fn LineParser::parse_block(
           }
         }
       }
-      stmts.push(Stmt::For(target~, iter=iter_expr, body~, else_body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::For(target~, iter=iter_expr, body~, else_body~),
+        ),
+      )
       continue
     }
     if line_text.has_prefix("while ") {
@@ -6909,7 +7070,14 @@ fn LineParser::parse_block(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
-        stmts.push(Stmt::ExprStmt(cond_expr))
+        stmts.push(
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::ExprStmt(cond_expr),
+          ),
+        )
         continue
       }
       let body = match self.parse_block(next_indent) {
@@ -6961,6 +7129,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   self.offsets[self.index - 1] +
                   else_indent +
                   colon_pos.unwrap_or(0) +
@@ -7006,16 +7175,37 @@ fn LineParser::parse_block(
           }
         }
       }
-      stmts.push(Stmt::While(condition=cond_expr, body~, else_body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::While(condition=cond_expr, body~, else_body~),
+        ),
+      )
       continue
     }
     if line_text == "break" {
-      stmts.push(Stmt::Break)
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::Break,
+        ),
+      )
       self.index = next_index
       continue
     }
     if line_text == "continue" {
-      stmts.push(Stmt::Continue)
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::Continue,
+        ),
+      )
       self.index = next_index
       continue
     }
@@ -7043,6 +7233,7 @@ fn LineParser::parse_block(
             parse_simple_statement(
               segment,
               self.index,
+              self.offsets[self.index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -7292,6 +7483,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -7403,6 +7595,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -7508,6 +7701,7 @@ fn LineParser::parse_block(
                 parse_simple_statement(
                   segment,
                   self.index - 1,
+                  self.offsets[self.index - 1],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -7569,7 +7763,14 @@ fn LineParser::parse_block(
           ),
         )
       }
-      stmts.push(Stmt::Try(body=try_body, handlers~, else_body~, finally_body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          try_start_index,
+          current_indent,
+          Stmt::Try(body=try_body, handlers~, else_body~, finally_body~),
+        ),
+      )
       continue
     }
     if line_text.has_prefix("with ") || line_text.has_prefix("with(") {
@@ -7681,6 +7882,7 @@ fn LineParser::parse_block(
             parse_simple_statement(
               segment,
               self.index,
+              self.offsets[self.index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -7691,7 +7893,14 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(Stmt::With(context~, target~, body~))
+        stmts.push(
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::With(context~, target~, body~),
+          ),
+        )
         self.index = header_end_index
         continue
       }
@@ -7720,7 +7929,14 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::With(context~, target~, body~))
+      stmts.push(
+        wrap_stmt_for_line(
+          self.offsets,
+          line_index,
+          current_indent,
+          Stmt::With(context~, target~, body~),
+        ),
+      )
       continue
     }
     let segments = split_statements(line_text)
@@ -7735,6 +7951,7 @@ fn LineParser::parse_block(
         parse_simple_statement(
           segment,
           self.index,
+          self.offsets[self.index],
           base_offset,
           self.async_depth > 0,
         ) {

@@ -41,7 +41,7 @@
 - [x] Exception chaining: `raise ... from ...`, `__cause__`, `__context__`, `__suppress_context__`.
 - [x] Exception groups + `except*` (PEP 654; required for 3.12 compatibility).
 - [x] More accurate exception matching (subclass checks, tuples of exception types).
-- [ ] Tracebacks with file/line/column spans and stack frames (not just a formatted message).
+- [x] Tracebacks with file/line/column spans and stack frames (not just a formatted message).
 
 ### 4) Scoping and locals (correct Python semantics)
 - [x] Function assignments default to locals (module uses globals).
@@ -80,7 +80,7 @@
 ### Milestone A — “Python subset that feels right”
 - [x] Iterator protocol + real generators (`yield`, `yield from`, genexpr).
 - [ ] Scoping model (locals/closures) beyond comprehensions.
-- [ ] Basic tracebacks/stack frames (beyond formatted messages).
+- [x] Basic tracebacks/stack frames (beyond formatted messages).
 
 ### Milestone B — “Can run small programs”
 - [ ] Real module/import system (file or embedded), with a minimal stdlib shim.

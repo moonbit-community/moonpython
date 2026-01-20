@@ -205,6 +205,7 @@ pub enum Stmt {
     keywords~ : Array[(String, Expr)],
     body~ : Array[Stmt]
   )
+  WithSpan(span~ : Span, stmt~ : Stmt)
 } derive(ToJson)
 
 ///|
@@ -249,12 +250,22 @@ pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
   message : String
   span : Span?
+  traceback : Array[TracebackFrame]
   exc_type : String
   exc_args : Array[String]
   exc_value : Value?
   exc_cause : Value?
   exc_context : Value?
   exc_suppress_context : Bool
+} derive(ToJson)
+
+///|
+/// Traceback frame data captured at runtime
+pub(all) struct TracebackFrame {
+  name : String
+  filename : String
+  line : Int
+  column : Int
 } derive(ToJson)
 
 ///|
@@ -534,6 +545,16 @@ pub fn format_parse_error(error : ParseError) -> String {
 /// Render a runtime error for diagnostics
 #declaration_only
 pub fn format_runtime_error(error : RuntimeError) -> String {
+  ...
+}
+
+///|
+/// Render a runtime error with traceback frames
+#declaration_only
+pub fn format_runtime_error_with_traceback(
+  error : RuntimeError,
+  limit : Int,
+) -> String {
   ...
 }
 

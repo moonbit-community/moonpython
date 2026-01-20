@@ -1185,8 +1185,20 @@ fn eval_expr_with_env(
       }
       if clauses.length() == 0 {
         let body = genexp_to_generator_body(elt, clauses, filters)
+        let filename = current_traceback_filename()
         return Ok(
-          generator_new(body, gen_locals, globals, builtins, io, [], [], []),
+          generator_new(
+            body,
+            gen_locals,
+            globals,
+            builtins,
+            io,
+            [],
+            [],
+            [],
+            "<genexpr>".to_string(),
+            filename,
+          ),
         )
       }
       let first_iter_value = match
@@ -1211,7 +1223,21 @@ fn eval_expr_with_env(
         adjusted_clauses.push(clauses[i])
       }
       let body = genexp_to_generator_body(elt, adjusted_clauses, filters)
-      Ok(generator_new(body, gen_locals, globals, builtins, io, [], [], []))
+      let filename = current_traceback_filename()
+      Ok(
+        generator_new(
+          body,
+          gen_locals,
+          globals,
+          builtins,
+          io,
+          [],
+          [],
+          [],
+          "<genexpr>".to_string(),
+          filename,
+        ),
+      )
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
       let mut has_async = false
@@ -1545,7 +1571,11 @@ fn eval_expr_with_env(
               )
             (Value::Function(func), "__doc__") =>
               if func.body.length() > 0 {
-                match func.body[0] {
+                let first_stmt = match func.body[0] {
+                  Stmt::WithSpan(span=_, stmt=inner) => inner
+                  stmt => stmt
+                }
+                match first_stmt {
                   Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
                     Ok(Value::Str(text))
                   _ => Ok(Value::None)
@@ -2524,6 +2554,7 @@ fn collect_scope_decl_names(
   let nonlocals : Array[String] = []
   fn walk(stmt : Stmt) -> Unit {
     match stmt {
+      Stmt::WithSpan(span=_, stmt=inner) => walk(inner)
       Stmt::Global(ns) =>
         for n in ns {
           append_unique_name(globals, n)
@@ -2825,6 +2856,7 @@ fn collect_function_local_names(
 
   fn walk_stmt(stmt : Stmt) -> Unit {
     match stmt {
+      Stmt::WithSpan(span=_, stmt=inner) => walk_stmt(inner)
       Stmt::Assign(target~, value~) => {
         add_target(target)
         walk_expr(value)
@@ -3042,6 +3074,7 @@ fn eval_function_with_kwargs(
     global_names,
     nonlocal_names,
   )
+  let filename = current_traceback_filename()
   if func.is_async {
     if func.is_generator {
       return Ok(
@@ -3054,6 +3087,8 @@ fn eval_function_with_kwargs(
           global_names,
           nonlocal_names,
           func.closure,
+          func.name,
+          filename,
         ),
       )
     }
@@ -3067,10 +3102,13 @@ fn eval_function_with_kwargs(
         global_names,
         nonlocal_names,
         func.closure,
+        func.name,
+        filename,
         Config::default(),
       ),
     )
   }
+  push_traceback_frame(func.name, filename)
   push_closure_env(func.closure)
   push_scope_decls_with_nonlocals(global_names, nonlocal_names)
   let result = eval_block(
@@ -3083,6 +3121,7 @@ fn eval_function_with_kwargs(
   )
   pop_scope_decls()
   pop_closure_env()
+  pop_traceback_frame()
   result
 }
 
@@ -3215,6 +3254,7 @@ fn eval_generator_with_kwargs(
     global_names,
     nonlocal_names,
   )
+  let filename = current_traceback_filename()
   if func.is_async {
     Ok(
       async_generator_new(
@@ -3226,6 +3266,8 @@ fn eval_generator_with_kwargs(
         global_names,
         nonlocal_names,
         func.closure,
+        func.name,
+        filename,
       ),
     )
   } else {
@@ -3239,6 +3281,8 @@ fn eval_generator_with_kwargs(
         global_names,
         nonlocal_names,
         func.closure,
+        func.name,
+        filename,
       ),
     )
   }

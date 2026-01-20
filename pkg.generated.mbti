@@ -14,6 +14,8 @@ pub fn format_parse_error(ParseError) -> String
 
 pub fn format_runtime_error(RuntimeError) -> String
 
+pub fn format_runtime_error_with_traceback(RuntimeError, Int) -> String
+
 pub fn parse(String) -> Result[Module, ParseError]
 
 pub fn parse_expr(String) -> Result[Expr, ParseError]
@@ -91,6 +93,14 @@ pub struct Config {
 }
 pub fn Config::default() -> Self
 pub impl ToJson for Config
+
+pub struct ExceptHandler {
+  is_star : Bool
+  exc : Expr?
+  name : String?
+  body : Array[Stmt]
+}
+pub impl ToJson for ExceptHandler
 
 pub enum Expr {
   Literal(Literal)
@@ -222,6 +232,7 @@ pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
   message : String
   span : Span?
+  traceback : Array[TracebackFrame]
   exc_type : String
   exc_args : Array[String]
   exc_value : Value?
@@ -276,8 +287,9 @@ pub enum Stmt {
   FromImport(module~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
-  Try(body~ : Array[Stmt], handlers~ : Array[(Expr?, String?, Array[Stmt])], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
+  Try(body~ : Array[Stmt], handlers~ : Array[ExceptHandler], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
   Class(name~ : String, decorators~ : Array[Expr], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
+  WithSpan(span~ : Span, stmt~ : Stmt)
 }
 pub impl ToJson for Stmt
 
@@ -296,6 +308,14 @@ pub struct TestResult {
   errors : Array[String]
 }
 pub impl ToJson for TestResult
+
+pub(all) struct TracebackFrame {
+  name : String
+  filename : String
+  line : Int
+  column : Int
+}
+pub impl ToJson for TracebackFrame
 
 pub enum UnaryOp {
   Pos

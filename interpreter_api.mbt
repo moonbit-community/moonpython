@@ -480,15 +480,21 @@ pub fn Interpreter::exec(
   program : Module,
 ) -> Result[RunResult, RuntimeError] {
   ensure_runtime_callbacks_ready()
-  let value = match
-    eval_block(
-      program.body,
-      self.globals,
-      self.globals,
-      self.builtins,
-      self.io,
-      self.config,
-    ) {
+  let filename = match self.config.main_path {
+    Some(path) => path
+    None => "<module>".to_string()
+  }
+  push_traceback_frame("<module>".to_string(), filename)
+  let value_result = eval_block(
+    program.body,
+    self.globals,
+    self.globals,
+    self.builtins,
+    self.io,
+    self.config,
+  )
+  pop_traceback_frame()
+  let value = match value_result {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -532,8 +538,20 @@ pub fn Interpreter::eval_source(
     Err(err) => return Err(make_parse_runtime_error(err))
   }
   ensure_runtime_callbacks_ready()
-  let value = match
-    eval_expr_with_env(expr, self.globals, self.globals, self.builtins, self.io) {
+  let filename = match self.config.main_path {
+    Some(path) => path
+    None => "<expr>".to_string()
+  }
+  push_traceback_frame("<expr>".to_string(), filename)
+  let value_result = eval_expr_with_env(
+    expr,
+    self.globals,
+    self.globals,
+    self.builtins,
+    self.io,
+  )
+  pop_traceback_frame()
+  let value = match value_result {
     Ok(value) => value
     Err(err) => return Err(err)
   }

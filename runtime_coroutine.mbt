@@ -12,6 +12,8 @@ priv struct CoroutineState {
   nonlocal_names : Array[String]
   closure : Array[(String, Value)]
   config : Config
+  name : String
+  filename : String
   mut done : Bool
 }
 
@@ -119,6 +121,8 @@ fn coroutine_new(
   global_names : Array[String],
   nonlocal_names : Array[String],
   closure : Array[(String, Value)],
+  name : String,
+  filename : String,
   config : Config,
 ) -> Value {
   let state : Ref[CoroutineState] = {
@@ -132,6 +136,8 @@ fn coroutine_new(
       nonlocal_names,
       closure,
       config,
+      name,
+      filename,
       done: false,
     },
   }
@@ -154,6 +160,7 @@ pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
       ),
     )
   }
+  push_traceback_frame(state.val.name, state.val.filename)
   push_closure_env(state.val.closure)
   push_scope_decls_with_nonlocals(
     state.val.global_names,
@@ -171,6 +178,7 @@ pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
   coroutine_leave_context()
   pop_scope_decls()
   pop_closure_env()
+  pop_traceback_frame()
   state.val.done = true
   result
 }

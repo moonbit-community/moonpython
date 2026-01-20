@@ -332,6 +332,7 @@ fn async_genexp_make_anext_coroutine(
     ),
   ]
   let locals : Array[(String, Value)] = [("self", async_genexp_value)]
+  let filename = current_traceback_filename()
   coroutine_new(
     body,
     locals,
@@ -341,6 +342,8 @@ fn async_genexp_make_anext_coroutine(
     [],
     [],
     [],
+    "<async_genexp>".to_string(),
+    filename,
     Config::default(),
   )
 }

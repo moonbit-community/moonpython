@@ -392,7 +392,8 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
   RuntimeError::{
     kind: RuntimeErrorKind::Runtime,
     message: printed,
-    span: None,
+    span: current_span(),
+    traceback: snapshot_traceback(),
     exc_type: inst.class.name,
     exc_args: args,
     exc_value,
@@ -403,15 +404,47 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
 }
 
 ///|
-fn make_traceback_value() -> Value {
-  let frame_value = Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "frame", bases: [], dict: [] },
-    dict: [],
-  })
+fn make_frame_value(frame : TracebackFrame) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "traceback", bases: [], dict: [] },
-    dict: [("tb_frame", frame_value)],
+    class: ClassValue::{ name: "frame", bases: [], dict: [] },
+    dict: [
+      ("f_name", Value::Str(frame.name)),
+      ("f_filename", Value::Str(frame.filename)),
+      ("f_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+      ("f_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+    ],
   })
+}
+
+///|
+fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
+  if frames.length() == 0 {
+    let frame_value = Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "frame", bases: [], dict: [] },
+      dict: [],
+    })
+    return Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      dict: [("tb_frame", frame_value), ("tb_next", Value::None)],
+    })
+  }
+  let mut next_value : Value = Value::None
+  let mut i = frames.length()
+  while i > 0 {
+    i = i - 1
+    let frame = frames[i]
+    let frame_value = make_frame_value(frame)
+    let dict : Array[(String, Value)] = []
+    dict.push(("tb_frame", frame_value))
+    dict.push(("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))))
+    dict.push(("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))))
+    dict.push(("tb_next", next_value))
+    next_value = Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      dict,
+    })
+  }
+  next_value
 }
 
 ///|
@@ -448,7 +481,11 @@ fn exception_value_from_runtime_error(
           io,
         ) {
         Ok(Value::Instance(inst)) => {
-          set_named_value(inst.dict, "__traceback__", make_traceback_value())
+          set_named_value(
+            inst.dict,
+            "__traceback__",
+            make_traceback_value(err.traceback),
+          )
           set_named_value(
             inst.dict,
             "__cause__",
@@ -491,6 +528,26 @@ fn eval_block_flow(
   let mut last = Value::None
   for stmt in body {
     match stmt {
+      Stmt::WithSpan(span~, stmt~) => {
+        push_active_span(span)
+        let result = eval_block_flow(
+          [stmt],
+          locals,
+          globals,
+          builtins,
+          io,
+          config,
+          loop_depth,
+        )
+        pop_active_span()
+        match result {
+          Ok(BlockFlow::Normal(value)) => last = value
+          Ok(BlockFlow::Return(value)) => return Ok(BlockFlow::Return(value))
+          Ok(BlockFlow::Break) => return Ok(BlockFlow::Break)
+          Ok(BlockFlow::Continue) => return Ok(BlockFlow::Continue)
+          Err(err) => return Err(err)
+        }
+      }
       Stmt::ExprStmt(expr) => {
         let _ = match eval_expr_with_env(expr, locals, globals, builtins, io) {
           Ok(value) => value
@@ -824,6 +881,7 @@ fn eval_block_flow(
                   kind: err0.kind,
                   message: err0.message,
                   span: err0.span,
+                  traceback: err0.traceback,
                   exc_type: err0.exc_type,
                   exc_args: err0.exc_args,
                   exc_value: err0.exc_value,
@@ -857,6 +915,7 @@ fn eval_block_flow(
                   kind: err1.kind,
                   message: err1.message,
                   span: err1.span,
+                  traceback: err1.traceback,
                   exc_type: err1.exc_type,
                   exc_args: err1.exc_args,
                   exc_value: err1.exc_value,
