@@ -169,7 +169,7 @@ fn bind_comp_targets(
 fn eval_list_comp_walk(
   index : Int,
   elt : Expr,
-  clauses : Array[(Array[String], Expr)],
+  clauses : Array[CompClause],
   filters : Array[Expr],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
@@ -193,45 +193,99 @@ fn eval_list_comp_walk(
   }
   let clause = clauses[index]
   let iter_value = match
-    eval_expr_with_env(clause.1, locals, globals, builtins, io) {
+    eval_expr_with_env(clause.iter, locals, globals, builtins, io) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let iterator = match
-    iter_value_to_iterator(iter_value, globals, builtins, io) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  while true {
-    let item = match iterator_next(iterator, None, globals, builtins, io) {
+  if clause.is_async {
+    let aiter_value = match
+      get_attr_from_value(iter_value, "__aiter__", globals, builtins, io) {
       Ok(v) => v
-      Err(err) =>
-        if err.exc_type == "StopIteration" {
-          break
-        } else {
-          return Err(err)
-        }
-    }
-    let _ = match bind_comp_targets(locals, globals, clause.0, item) {
-      Ok(_) => ()
       Err(err) => return Err(err)
     }
-    let _ = match
-      eval_list_comp_walk(
-        index + 1,
-        elt,
-        clauses,
-        filters,
-        locals,
-        globals,
-        builtins,
-        io,
-        results,
-      ) {
-      Ok(_) => ()
+    let iterator = match
+      call_callable_with_env(aiter_value, [], [], globals, builtins, io) {
+      Ok(v) => v
       Err(err) => return Err(err)
     }
+    while true {
+      let anext_value = match
+        get_attr_from_value(iterator, "__anext__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let next_awaitable = match
+        call_callable_with_env(anext_value, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let item = match coroutine_await(next_awaitable) {
+        Ok(v) => v
+        Err(err) =>
+          if err.exc_type == "StopAsyncIteration" {
+            break
+          } else {
+            return Err(err)
+          }
+      }
+      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = match
+        eval_list_comp_walk(
+          index + 1,
+          elt,
+          clauses,
+          filters,
+          locals,
+          globals,
+          builtins,
+          io,
+          results,
+        ) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
 
+    }
+  } else {
+    let iterator = match
+      iter_value_to_iterator(iter_value, globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    while true {
+      let item = match iterator_next(iterator, None, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) =>
+          if err.exc_type == "StopIteration" {
+            break
+          } else {
+            return Err(err)
+          }
+      }
+      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = match
+        eval_list_comp_walk(
+          index + 1,
+          elt,
+          clauses,
+          filters,
+          locals,
+          globals,
+          builtins,
+          io,
+          results,
+        ) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+
+    }
   }
   Ok(())
 }
@@ -241,7 +295,7 @@ fn eval_dict_comp_walk(
   index : Int,
   key : Expr,
   value : Expr,
-  clauses : Array[(Array[String], Expr)],
+  clauses : Array[CompClause],
   filters : Array[Expr],
   locals : Array[(String, Value)],
   globals : Array[(String, Value)],
@@ -269,46 +323,101 @@ fn eval_dict_comp_walk(
   }
   let clause = clauses[index]
   let iter_value = match
-    eval_expr_with_env(clause.1, locals, globals, builtins, io) {
+    eval_expr_with_env(clause.iter, locals, globals, builtins, io) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let iterator = match
-    iter_value_to_iterator(iter_value, globals, builtins, io) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  while true {
-    let item = match iterator_next(iterator, None, globals, builtins, io) {
+  if clause.is_async {
+    let aiter_value = match
+      get_attr_from_value(iter_value, "__aiter__", globals, builtins, io) {
       Ok(v) => v
-      Err(err) =>
-        if err.exc_type == "StopIteration" {
-          break
-        } else {
-          return Err(err)
-        }
-    }
-    let _ = match bind_comp_targets(locals, globals, clause.0, item) {
-      Ok(_) => ()
       Err(err) => return Err(err)
     }
-    let _ = match
-      eval_dict_comp_walk(
-        index + 1,
-        key,
-        value,
-        clauses,
-        filters,
-        locals,
-        globals,
-        builtins,
-        io,
-        results,
-      ) {
-      Ok(_) => ()
+    let iterator = match
+      call_callable_with_env(aiter_value, [], [], globals, builtins, io) {
+      Ok(v) => v
       Err(err) => return Err(err)
     }
+    while true {
+      let anext_value = match
+        get_attr_from_value(iterator, "__anext__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let next_awaitable = match
+        call_callable_with_env(anext_value, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let item = match coroutine_await(next_awaitable) {
+        Ok(v) => v
+        Err(err) =>
+          if err.exc_type == "StopAsyncIteration" {
+            break
+          } else {
+            return Err(err)
+          }
+      }
+      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = match
+        eval_dict_comp_walk(
+          index + 1,
+          key,
+          value,
+          clauses,
+          filters,
+          locals,
+          globals,
+          builtins,
+          io,
+          results,
+        ) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
 
+    }
+  } else {
+    let iterator = match
+      iter_value_to_iterator(iter_value, globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    while true {
+      let item = match iterator_next(iterator, None, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) =>
+          if err.exc_type == "StopIteration" {
+            break
+          } else {
+            return Err(err)
+          }
+      }
+      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = match
+        eval_dict_comp_walk(
+          index + 1,
+          key,
+          value,
+          clauses,
+          filters,
+          locals,
+          globals,
+          builtins,
+          io,
+          results,
+        ) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+
+    }
   }
   Ok(())
 }

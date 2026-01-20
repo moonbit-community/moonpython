@@ -50,6 +50,7 @@ priv enum TokenKind {
   If
   Else
   For
+  Async
   Def
   Return
   Yield
@@ -149,6 +150,7 @@ fn token_text(token : Token) -> String {
     TokenKind::If => "if"
     TokenKind::Else => "else"
     TokenKind::For => "for"
+    TokenKind::Async => "async"
     TokenKind::Def => "def"
     TokenKind::Return => "return"
     TokenKind::Yield => "yield"
@@ -1079,6 +1081,7 @@ fn tokenize_expr(
           "if" => If
           "else" => Else
           "for" => For
+          "async" => Async
           "def" => Def
           "return" => Return
           "yield" => Yield

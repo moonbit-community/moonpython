@@ -20,9 +20,13 @@ fn runtime_error_exc(
       let prefixes : Array[String] = [
         "ValueError:", "OverflowError:", "ImportError:", "AssertionError:", "RuntimeError:",
         "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:", "UnboundLocalError:",
+        "StopAsyncIteration:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])
+      }
+      if message == "StopAsyncIteration" {
+        return ("StopAsyncIteration".to_string(), [])
       }
       for prefix in prefixes {
         if message.has_prefix(prefix) {

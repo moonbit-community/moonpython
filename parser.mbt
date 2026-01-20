@@ -526,8 +526,8 @@ fn ExprParser::parse_comprehension_tail(
   self : ExprParser,
   end_kind : TokenKind,
   open : Token,
-) -> Result[(Array[(Array[String], Expr)], Array[Expr]), ParseError] {
-  let clauses : Array[(Array[String], Expr)] = []
+) -> Result[(Array[CompClause], Array[Expr]), ParseError] {
+  let clauses : Array[CompClause] = []
   let filters : Array[Expr] = []
   let walrus_targets : Array[String] = []
   let unclosed_message = if end_kind == RBracket {
@@ -539,6 +539,57 @@ fn ExprParser::parse_comprehension_tail(
   }
   while true {
     match self.view() {
+      [{ kind: Async, .. }, { kind: For, .. }, .. rest] => {
+        self.update_view(rest)
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        let targets = match
+          self.parse_comp_targets(
+            open,
+            unclosed_message.to_string(),
+            walrus_targets,
+            clauses.length() > 0,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        match self.view() {
+          [{ kind: In, .. }, .. rest2] => self.update_view(rest2)
+          _ => return Err(unexpected_token_error(self.current()))
+        }
+        if self.current().kind == Eof {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              unclosed_message.to_string(),
+              open,
+            ),
+          )
+        }
+        let iter = match self.parse_or() {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        collect_named_expr_targets(iter, walrus_targets)
+        clauses.push(CompClause::{ is_async: true, targets, iter })
+        continue
+      }
       [{ kind: For, .. }, .. rest] => {
         self.update_view(rest)
         if self.current().kind == Eof {
@@ -589,7 +640,7 @@ fn ExprParser::parse_comprehension_tail(
           Err(err) => return Err(err)
         }
         collect_named_expr_targets(iter, walrus_targets)
-        clauses.push((targets, iter))
+        clauses.push(CompClause::{ is_async: false, targets, iter })
         continue
       }
       [{ kind: If, .. }, .. rest] => {
@@ -927,7 +978,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
     Expr::ListComp(elt~, clauses~, filters~) => {
       collect_named_expr_targets(elt, targets)
       for clause in clauses {
-        collect_named_expr_targets(clause.1, targets)
+        collect_named_expr_targets(clause.iter, targets)
       }
       for filter in filters {
         collect_named_expr_targets(filter, targets)
@@ -936,7 +987,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
     Expr::GenExp(elt~, clauses~, filters~) => {
       collect_named_expr_targets(elt, targets)
       for clause in clauses {
-        collect_named_expr_targets(clause.1, targets)
+        collect_named_expr_targets(clause.iter, targets)
       }
       for filter in filters {
         collect_named_expr_targets(filter, targets)
@@ -945,7 +996,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
     Expr::SetComp(elt~, clauses~, filters~) => {
       collect_named_expr_targets(elt, targets)
       for clause in clauses {
-        collect_named_expr_targets(clause.1, targets)
+        collect_named_expr_targets(clause.iter, targets)
       }
       for filter in filters {
         collect_named_expr_targets(filter, targets)
@@ -955,7 +1006,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
       collect_named_expr_targets(key, targets)
       collect_named_expr_targets(value, targets)
       for clause in clauses {
-        collect_named_expr_targets(clause.1, targets)
+        collect_named_expr_targets(clause.iter, targets)
       }
       for filter in filters {
         collect_named_expr_targets(filter, targets)
@@ -1235,7 +1286,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             Err(err) => return Err(err)
           }
         }
-        if self.current().kind == For {
+        if self.current().kind == For || self.current().kind == Async {
           let (clauses, filters) = match
             self.parse_comprehension_tail(RParen, open) {
             Ok(value) => value
@@ -1384,7 +1435,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           }
         }
         match self.current().kind {
-          For => {
+          For | Async => {
             if first is Expr::Starred(_) {
               return Err(
                 make_parse_error(
@@ -1554,7 +1605,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            if self.current().kind == For {
+            if self.current().kind == For || self.current().kind == Async {
               let (clauses, filters) = match
                 self.parse_comprehension_tail(RBrace, open) {
                 Ok(value) => value
@@ -1625,7 +1676,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               items.push((next_key, next_value))
             }
           } else {
-            if self.current().kind == For {
+            if self.current().kind == For || self.current().kind == Async {
               if first is Expr::Starred(_) {
                 return Err(
                   make_parse_error(
@@ -1799,7 +1850,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                if self.current().kind == For {
+                if self.current().kind == For || self.current().kind == Async {
                   if args.length() > 0 || keywords.length() > 0 {
                     return Err(
                       make_parse_error(
@@ -2659,7 +2710,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
           continue
         }
         let base_offset = offsets[index] + current_indent + segment_pair.1
-        match parse_simple_statement(segment, index, base_offset) {
+        match parse_simple_statement(segment, index, base_offset, false) {
           Ok(_) => ()
           Err(_) => {
             saw_syntax_error = true
@@ -3036,8 +3087,8 @@ fn expr_has_name(expr : Expr) -> Bool {
         return true
       }
       for clause in clauses {
-        let _ = clause.0
-        if expr_has_name(clause.1) {
+        let _ = clause.targets
+        if expr_has_name(clause.iter) {
           return true
         }
       }
@@ -3053,8 +3104,8 @@ fn expr_has_name(expr : Expr) -> Bool {
         return true
       }
       for clause in clauses {
-        let _ = clause.0
-        if expr_has_name(clause.1) {
+        let _ = clause.targets
+        if expr_has_name(clause.iter) {
           return true
         }
       }
@@ -3092,6 +3143,357 @@ fn expr_has_name(expr : Expr) -> Bool {
     Expr::DoubleStarred(value~) => expr_has_name(value)
     Expr::FString(_) | Expr::Literal(_) => false
   }
+}
+
+///|
+fn expr_has_async_comprehension(expr : Expr) -> Bool {
+  match expr {
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      for clause in clauses {
+        if clause.is_async {
+          return true
+        }
+        if expr_has_async_comprehension(clause.iter) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_async_comprehension(filter) {
+          return true
+        }
+      }
+      expr_has_async_comprehension(elt)
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      if expr_has_async_comprehension(key) ||
+        expr_has_async_comprehension(value) {
+        return true
+      }
+      for clause in clauses {
+        if clause.is_async {
+          return true
+        }
+        if expr_has_async_comprehension(clause.iter) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_async_comprehension(filter) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_async_comprehension(item) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for pair in items {
+        if expr_has_async_comprehension(pair.0) ||
+          expr_has_async_comprehension(pair.1) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params~, defaults~, body~) => {
+      let _ = params
+      for d in defaults {
+        if expr_has_async_comprehension(d) {
+          return true
+        }
+      }
+      expr_has_async_comprehension(body)
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_async_comprehension(condition) ||
+      expr_has_async_comprehension(then_expr) ||
+      expr_has_async_comprehension(else_expr)
+    Expr::NamedExpr(name~, value~) => {
+      let _ = name
+      expr_has_async_comprehension(value)
+    }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(v) => expr_has_async_comprehension(v)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_has_async_comprehension(value)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(v) => if expr_has_async_comprehension(v) { return true }
+        None => ()
+      }
+      match end {
+        Some(v) => if expr_has_async_comprehension(v) { return true }
+        None => ()
+      }
+      match step {
+        Some(v) => if expr_has_async_comprehension(v) { return true }
+        None => ()
+      }
+      false
+    }
+    Expr::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_has_async_comprehension(value)
+    }
+    Expr::Subscript(value~, index~) =>
+      expr_has_async_comprehension(value) || expr_has_async_comprehension(index)
+    Expr::Call(callee~, args~) => {
+      if expr_has_async_comprehension(callee) {
+        return true
+      }
+      for arg in args {
+        if expr_has_async_comprehension(arg) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name~, value~) => {
+      let _ = name
+      expr_has_async_comprehension(value)
+    }
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_async_comprehension(value)
+    Expr::Unary(op~, expr~) => {
+      let _ = op
+      expr_has_async_comprehension(expr)
+    }
+    Expr::Binary(op~, left~, right~) => {
+      let _ = op
+      expr_has_async_comprehension(left) || expr_has_async_comprehension(right)
+    }
+    Expr::BoolOp(op~, values~) => {
+      let _ = op
+      for v in values {
+        if expr_has_async_comprehension(v) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops~, comparators~) => {
+      let _ = ops
+      if expr_has_async_comprehension(left) {
+        return true
+      }
+      for v in comparators {
+        if expr_has_async_comprehension(v) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn target_has_async_comprehension(target : Target) -> Bool {
+  match target {
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        if target_has_async_comprehension(item) {
+          return true
+        }
+      }
+      false
+    }
+    Target::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_has_async_comprehension(value)
+    }
+    Target::Subscript(value~, index~) =>
+      expr_has_async_comprehension(value) || expr_has_async_comprehension(index)
+    _ => false
+  }
+}
+
+///|
+fn stmt_has_async_comprehension(stmt : Stmt) -> Bool {
+  match stmt {
+    Stmt::ExprStmt(expr) => expr_has_async_comprehension(expr)
+    Stmt::Assign(target~, value~) =>
+      target_has_async_comprehension(target) ||
+      expr_has_async_comprehension(value)
+    Stmt::AugAssign(target~, op~, value~) => {
+      let _ = op
+      target_has_async_comprehension(target) ||
+      expr_has_async_comprehension(value)
+    }
+    Stmt::Return(expr_opt) =>
+      match expr_opt {
+        Some(v) => expr_has_async_comprehension(v)
+        None => false
+      }
+    Stmt::Yield(expr_opt) =>
+      match expr_opt {
+        Some(v) => expr_has_async_comprehension(v)
+        None => false
+      }
+    Stmt::YieldFrom(expr) => expr_has_async_comprehension(expr)
+    Stmt::Assert(condition~, message~) =>
+      if expr_has_async_comprehension(condition) {
+        true
+      } else {
+        match message {
+          Some(v) => expr_has_async_comprehension(v)
+          None => false
+        }
+      }
+    Stmt::Raise(exc~, cause~) => {
+      let exc_async = match exc {
+        Some(v) => expr_has_async_comprehension(v)
+        None => false
+      }
+      if exc_async {
+        true
+      } else {
+        match cause {
+          Some(v) => expr_has_async_comprehension(v)
+          None => false
+        }
+      }
+    }
+    Stmt::Del(targets) => {
+      for t in targets {
+        if target_has_async_comprehension(t) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::With(context~, target~, body~)
+    | Stmt::AsyncWith(context~, target~, body~) => {
+      let _ = target
+      if expr_has_async_comprehension(context) {
+        return true
+      }
+      for s in body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::If(condition~, body~, else_body~) => {
+      if expr_has_async_comprehension(condition) {
+        return true
+      }
+      for s in body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      for s in else_body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_async_comprehension(condition) {
+        return true
+      }
+      for s in body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      for s in else_body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      if target_has_async_comprehension(target) ||
+        expr_has_async_comprehension(iter) {
+        return true
+      }
+      for s in body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      for s in else_body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      for s in body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      for handler in handlers {
+        match handler.0 {
+          Some(v) => if expr_has_async_comprehension(v) { return true }
+          None => ()
+        }
+        for s in handler.2 {
+          if stmt_has_async_comprehension(s) {
+            return true
+          }
+        }
+      }
+      for s in else_body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      for s in finally_body {
+        if stmt_has_async_comprehension(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_async_comprehension(subject) {
+        return true
+      }
+      for case in cases {
+        match case.1 {
+          Some(v) => if expr_has_async_comprehension(v) { return true }
+          None => ()
+        }
+        for s in case.2 {
+          if stmt_has_async_comprehension(s) {
+            return true
+          }
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn stmts_have_async_comprehension(stmts : Array[Stmt]) -> Bool {
+  for stmt in stmts {
+    if stmt_has_async_comprehension(stmt) {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -3241,15 +3643,39 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
 }
 
 ///|
+fn finalize_simple_statement(
+  stmts : Array[Stmt],
+  allow_async_comprehensions : Bool,
+  line_index : Int,
+  base_offset : Int,
+) -> Result[Array[Stmt], ParseError] {
+  if !allow_async_comprehensions && stmts_have_async_comprehension(stmts) {
+    return Err(
+      make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: 1,
+      }),
+    )
+  }
+  Ok(stmts)
+}
+
+///|
 fn parse_simple_statement(
   line_text : String,
   line_index : Int,
   base_offset : Int,
+  allow_async_comprehensions : Bool,
 ) -> Result[Array[Stmt], ParseError] {
   let stmts : Array[Stmt] = []
   let mut trimmed = line_text.trim(chars=" \t").to_string()
   if trimmed.length() == 0 {
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   let chars = trimmed.to_array()
   let mut i = 0
@@ -3282,18 +3708,24 @@ fn parse_simple_statement(
     Some(pos) => {
       trimmed = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
       if trimmed.length() == 0 {
-        return Ok(stmts)
+        return finalize_simple_statement(
+          stmts, allow_async_comprehensions, line_index, base_offset,
+        )
       }
     }
     None => ()
   }
   if trimmed == "..." {
     stmts.push(Stmt::Pass)
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed == "yield" {
     stmts.push(Stmt::Yield(None))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("yield from") {
     let rest = substring(trimmed, 10, trimmed.length())
@@ -3324,7 +3756,9 @@ fn parse_simple_statement(
       Err(err) => return Err(err)
     }
     stmts.push(Stmt::YieldFrom(expr))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("yield ") || trimmed.has_prefix("yield\t") {
     let rest = substring(trimmed, 5, trimmed.length())
@@ -3332,7 +3766,9 @@ fn parse_simple_statement(
       .to_string()
     if rest.length() == 0 {
       stmts.push(Stmt::Yield(None))
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     }
     let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
       Ok(value) => value
@@ -3343,7 +3779,9 @@ fn parse_simple_statement(
       Err(err) => return Err(err)
     }
     stmts.push(Stmt::Yield(Some(expr)))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("{") && trimmed.contains(" for ") {
     let token = {
@@ -3364,7 +3802,9 @@ fn parse_simple_statement(
     }
     if trimmed.contains(":") {
       // Treat as a dict comprehension expression.
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     } else if has_bare_assign(trimmed) {
       return Err(
         make_parse_error(
@@ -3392,7 +3832,9 @@ fn parse_simple_statement(
         Err(err) => return Err(err)
       }
       stmts.push(Stmt::Assign(target=Target::Name(key), value=expr))
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     }
   }
   if trimmed.has_prefix("__debug__") && trimmed.contains("=") {
@@ -3415,7 +3857,9 @@ fn parse_simple_statement(
   }
   if trimmed == "pass" {
     stmts.push(Stmt::Pass)
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("global ") {
     let names : Array[String] = []
@@ -3427,7 +3871,9 @@ fn parse_simple_statement(
       }
     }
     stmts.push(Stmt::Global(names))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("nonlocal ") {
     let names : Array[String] = []
@@ -3439,7 +3885,9 @@ fn parse_simple_statement(
       }
     }
     stmts.push(Stmt::Nonlocal(names))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("import ") {
     let module_text = substring(trimmed, 7, trimmed.length())
@@ -3473,7 +3921,9 @@ fn parse_simple_statement(
       }
       stmts.push(Stmt::Import(module=module_name, alias=alias_opt))
     }
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("from ") {
     let tail_check = trimmed.trim(chars=" \t").to_string()
@@ -3529,7 +3979,9 @@ fn parse_simple_statement(
       if parts.length() >= 4 {
         let feature = parts[3]
         if feature == "annotations" {
-          return Ok(stmts)
+          return finalize_simple_statement(
+            stmts, allow_async_comprehensions, line_index, base_offset,
+          )
         }
         return Err(
           make_parse_error(
@@ -3623,7 +4075,9 @@ fn parse_simple_statement(
       }
     }
     stmts.push(Stmt::FromImport(module=module_name, names~))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
     let rest = substring(trimmed, 6, trimmed.length())
@@ -3641,7 +4095,9 @@ fn parse_simple_statement(
       }
       let message : Expr? = None
       stmts.push(Stmt::Assert(condition~, message~))
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     }
     let mut comma_index : Int? = None
     let chars = rest.to_array()
@@ -3708,7 +4164,9 @@ fn parse_simple_statement(
       }
       stmts.push(Stmt::Assert(condition~, message=Some(message_expr)))
     }
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("raise") {
     let rest = substring(trimmed, 5, trimmed.length())
@@ -3716,7 +4174,9 @@ fn parse_simple_statement(
       .to_string()
     if rest.length() == 0 {
       stmts.push(Stmt::Raise(exc=None, cause=None))
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     }
     if rest.has_prefix("from ") {
       return Err(
@@ -3793,7 +4253,9 @@ fn parse_simple_statement(
       None
     }
     stmts.push(Stmt::Raise(exc=Some(exc_expr), cause=cause_expr))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("del ") {
     let rest = substring(trimmed, 4, trimmed.length())
@@ -3834,12 +4296,16 @@ fn parse_simple_statement(
       }
     }
     stmts.push(Stmt::Del(targets))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("async") {
     // Treat async constructs as no-ops so spec-generated blocks can parse.
     stmts.push(Stmt::Pass)
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.has_prefix("return") {
     let expr_text = substring(trimmed, 6, trimmed.length())
@@ -3859,7 +4325,9 @@ fn parse_simple_statement(
       }
       stmts.push(Stmt::Return(Some(expr)))
     }
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   if trimmed.contains(":") &&
     trimmed.contains("__debug__") &&
@@ -3954,7 +4422,9 @@ fn parse_simple_statement(
               )
             }
           }
-          return Ok(stmts)
+          return finalize_simple_statement(
+            stmts, allow_async_comprehensions, line_index, base_offset,
+          )
         }
       }
     }
@@ -3998,7 +4468,9 @@ fn parse_simple_statement(
             Err(err) => return Err(err)
           }
           stmts.push(Stmt::Assign(target=Target::Name(name_text), value=expr))
-          return Ok(stmts)
+          return finalize_simple_statement(
+            stmts, allow_async_comprehensions, line_index, base_offset,
+          )
         }
       }
     }
@@ -4013,7 +4485,9 @@ fn parse_simple_statement(
       Err(err) => return Err(err)
     }
     stmts.push(Stmt::ExprStmt(expr))
-    return Ok(stmts)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, line_index, base_offset,
+    )
   }
   match find_top_level_augassign(trimmed) {
     Some((pos, op_text)) => {
@@ -4091,7 +4565,9 @@ fn parse_simple_statement(
         _ => BinaryOp::Add
       }
       stmts.push(Stmt::AugAssign(target~, op~, value=value_expr))
-      return Ok(stmts)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, line_index, base_offset,
+      )
     }
     None => ()
   }
@@ -4144,7 +4620,9 @@ fn parse_simple_statement(
           }
           stmts.push(Stmt::Assign(target~, value=value_expr))
         }
-        return Ok(stmts)
+        return finalize_simple_statement(
+          stmts, allow_async_comprehensions, line_index, base_offset,
+        )
       }
     }
   }
@@ -4211,7 +4689,9 @@ fn parse_simple_statement(
     }
     stmts.push(Stmt::ExprStmt(expr))
   }
-  return Ok(stmts)
+  return finalize_simple_statement(
+    stmts, allow_async_comprehensions, line_index, base_offset,
+  )
 }
 
 ///|
@@ -4617,7 +5097,12 @@ fn LineParser::parse_block(
               1 +
               offset
             let parsed = match
-              parse_simple_statement(segment, self.index - 1, base_offset) {
+              parse_simple_statement(
+                segment,
+                self.index - 1,
+                base_offset,
+                self.async_depth > 0,
+              ) {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -4858,7 +5343,12 @@ fn LineParser::parse_block(
             1 +
             offset
           let parsed = match
-            parse_simple_statement(segment, self.index, base_offset) {
+            parse_simple_statement(
+              segment,
+              self.index,
+              base_offset,
+              self.async_depth > 0,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -4917,16 +5407,6 @@ fn LineParser::parse_block(
           token,
         ),
       )
-    }
-    if self.async_depth > 0 &&
-      !line_text.has_prefix("async for ") &&
-      !line_text.has_prefix("async with ") &&
-      (line_text.contains("async for") || line_text.contains("async with")) {
-      // Allow parsing async-only constructs inside async functions even when we
-      // don't implement their runtime semantics yet (e.g. async comprehensions).
-      stmts.push(Stmt::Pass)
-      self.index = next_index
-      continue
     }
     if line_text.has_prefix("async for ") {
       let colon_pos = find_last_char(line_text, ':')
@@ -5040,6 +5520,7 @@ fn LineParser::parse_block(
             body_text,
             self.index,
             self.offsets[self.index],
+            self.async_depth > 0,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -5128,6 +5609,7 @@ fn LineParser::parse_block(
                   colon_pos.unwrap_or(0) +
                   1 +
                   offset,
+                  self.async_depth > 0,
                 ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
@@ -5267,6 +5749,7 @@ fn LineParser::parse_block(
             body_text,
             self.index,
             self.offsets[self.index],
+            self.async_depth > 0,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -5549,7 +6032,12 @@ fn LineParser::parse_block(
             1 +
             offset
           let parsed = match
-            parse_simple_statement(segment, self.index, base_offset) {
+            parse_simple_statement(
+              segment,
+              self.index,
+              base_offset,
+              self.async_depth > 0,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -5826,7 +6314,12 @@ fn LineParser::parse_block(
             1 +
             offset
           let parsed = match
-            parse_simple_statement(segment, self.index, base_offset) {
+            parse_simple_statement(
+              segment,
+              self.index,
+              base_offset,
+              self.async_depth > 0,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -6246,6 +6739,7 @@ fn LineParser::parse_block(
                   colon_pos.unwrap_or(0) +
                   1 +
                   offset,
+                  self.async_depth > 0,
                 ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
@@ -6434,6 +6928,7 @@ fn LineParser::parse_block(
                   colon_pos.unwrap_or(0) +
                   1 +
                   offset,
+                  self.async_depth > 0,
                 ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
@@ -6507,7 +7002,12 @@ fn LineParser::parse_block(
             4 +
             offset
           let parsed = match
-            parse_simple_statement(segment, self.index, base_offset) {
+            parse_simple_statement(
+              segment,
+              self.index,
+              base_offset,
+              self.async_depth > 0,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -6706,7 +7206,12 @@ fn LineParser::parse_block(
                 1 +
                 offset
               let parsed = match
-                parse_simple_statement(segment, self.index - 1, base_offset) {
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  base_offset,
+                  self.async_depth > 0,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -6807,7 +7312,12 @@ fn LineParser::parse_block(
                 1 +
                 offset
               let parsed = match
-                parse_simple_statement(segment, self.index - 1, base_offset) {
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  base_offset,
+                  self.async_depth > 0,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -6907,7 +7417,12 @@ fn LineParser::parse_block(
                 1 +
                 offset
               let parsed = match
-                parse_simple_statement(segment, self.index - 1, base_offset) {
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  base_offset,
+                  self.async_depth > 0,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -7075,7 +7590,12 @@ fn LineParser::parse_block(
             1 +
             offset
           let parsed = match
-            parse_simple_statement(segment, self.index, base_offset) {
+            parse_simple_statement(
+              segment,
+              self.index,
+              base_offset,
+              self.async_depth > 0,
+            ) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -7124,7 +7644,12 @@ fn LineParser::parse_block(
       }
       let base_offset = self.offsets[self.index] + current_indent + offset
       let parsed = match
-        parse_simple_statement(segment, self.index, base_offset) {
+        parse_simple_statement(
+          segment,
+          self.index,
+          base_offset,
+          self.async_depth > 0,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -7324,5 +7849,20 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  parse_tokens_expr(tokens)
+  let expr = match parse_tokens_expr(tokens) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if expr_has_async_comprehension(expr) {
+    return Err(
+      make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+        kind: Eof,
+        start: 0,
+        end: 1,
+        line: 1,
+        column: 1,
+      }),
+    )
+  }
+  Ok(expr)
 }

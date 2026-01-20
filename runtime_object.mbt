@@ -439,6 +439,40 @@ fn get_attr_raw_from_value(
           )
         }
       }
+      if inst.class.name == "async_generator" {
+        if attr == "__aiter__" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "__aiter__",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: Value::Instance(inst),
+            }),
+          )
+        }
+        if attr == "__anext__" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "__anext__",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: Value::Instance(inst),
+            }),
+          )
+        }
+      }
       let class_attr = match lookup_class_attr(inst.class, attr) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -1733,6 +1767,49 @@ fn call_callable_with_env(
                   )
                 } else {
                   return generator_throw(method.self, positional[0])
+                }
+              _ => ()
+            }
+          } else if inst.class.name == "async_generator" &&
+            method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match method.function.name {
+              "__aiter__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__aiter__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(method.self)
+                }
+              "__anext__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__anext__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(
+                    async_genexp_make_anext_coroutine(
+                      method.self,
+                      globals,
+                      builtins,
+                      io,
+                    ),
+                  )
                 }
               _ => ()
             }

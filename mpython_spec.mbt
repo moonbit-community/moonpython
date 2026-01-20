@@ -74,35 +74,31 @@ pub enum CompareOp {
 } derive(ToJson)
 
 ///|
+/// A comprehension clause: `for <targets> in <iter>` (optionally `async for`).
+pub struct CompClause {
+  is_async : Bool
+  targets : Array[String]
+  iter : Expr
+} derive(ToJson)
+
+///|
 /// Expression nodes
 pub enum Expr {
   Literal(Literal)
   Name(String)
   Tuple(Array[Expr])
   List(Array[Expr])
-  ListComp(
-    elt~ : Expr,
-    clauses~ : Array[(Array[String], Expr)],
-    filters~ : Array[Expr]
-  )
-  GenExp(
-    elt~ : Expr,
-    clauses~ : Array[(Array[String], Expr)],
-    filters~ : Array[Expr]
-  )
+  ListComp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
+  GenExp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
   Dict(Array[(Expr, Expr)])
   DictComp(
     key~ : Expr,
     value~ : Expr,
-    clauses~ : Array[(Array[String], Expr)],
+    clauses~ : Array[CompClause],
     filters~ : Array[Expr]
   )
   Set(Array[Expr])
-  SetComp(
-    elt~ : Expr,
-    clauses~ : Array[(Array[String], Expr)],
-    filters~ : Array[Expr]
-  )
+  SetComp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
   Lambda(params~ : Array[String], defaults~ : Array[Expr], body~ : Expr)
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)

@@ -1,7 +1,15 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "Milky2018/mpython"
 
+import(
+  "moonbitlang/core/bigint"
+)
+
 // Values
+pub fn coroutine_await(Value) -> Result[Value, RuntimeError]
+
+pub fn coroutine_is_active() -> Bool
+
 pub fn format_parse_error(ParseError) -> String
 
 pub fn format_runtime_error(RuntimeError) -> String
@@ -52,6 +60,13 @@ pub struct ClassValue {
 }
 pub impl ToJson for ClassValue
 
+pub struct CompClause {
+  is_async : Bool
+  targets : Array[String]
+  iter : Expr
+}
+pub impl ToJson for CompClause
+
 pub enum CompareOp {
   Eq
   NotEq
@@ -70,6 +85,9 @@ pub struct Config {
   max_recursion : Int
   traceback_limit : Int
   track_spans : Bool
+  allow_filesystem_imports : Bool
+  import_paths : Array[String]
+  main_path : String?
 }
 pub fn Config::default() -> Self
 pub impl ToJson for Config
@@ -79,12 +97,12 @@ pub enum Expr {
   Name(String)
   Tuple(Array[Expr])
   List(Array[Expr])
-  ListComp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
-  GenExp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
+  ListComp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
+  GenExp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
   Dict(Array[(Expr, Expr)])
-  DictComp(key~ : Expr, value~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
+  DictComp(key~ : Expr, value~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
   Set(Array[Expr])
-  SetComp(elt~ : Expr, clauses~ : Array[(Array[String], Expr)], filters~ : Array[Expr])
+  SetComp(elt~ : Expr, clauses~ : Array[CompClause], filters~ : Array[Expr])
   Lambda(params~ : Array[String], defaults~ : Array[Expr], body~ : Expr)
   IfExpr(condition~ : Expr, then_expr~ : Expr, else_expr~ : Expr)
   FString(String)
@@ -145,7 +163,7 @@ pub fn Interpreter::with_io(Config, MockIO) -> Self
 pub enum Literal {
   None
   Bool(Bool)
-  Int(Int64)
+  Int(@bigint.BigInt)
   Float(Double)
   Str(String)
 }
@@ -244,6 +262,7 @@ pub enum Stmt {
   Match(subject~ : Expr, cases~ : Array[(Pattern, Expr?, Array[Stmt])])
   While(condition~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   For(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
+  AsyncFor(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Break
   Continue
   Function(name~ : String, decorators~ : Array[Expr], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
@@ -256,6 +275,7 @@ pub enum Stmt {
   Import(module~ : String, alias~ : String?)
   FromImport(module~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
+  AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(body~ : Array[Stmt], handlers~ : Array[(Expr?, String?, Array[Stmt])], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
   Class(name~ : String, decorators~ : Array[Expr], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
 }
@@ -288,7 +308,7 @@ pub impl ToJson for UnaryOp
 pub enum Value {
   None
   Bool(Bool)
-  Int(Int64)
+  Int(@bigint.BigInt)
   Float(Double)
   Str(String)
   List(Array[Value])

@@ -156,3 +156,89 @@ test "async/for_else" {
     #|print(__mpython_run(f()))
   inspect(run_stdout(source), content="[1, 2, done]\n")
 }
+
+///|
+test "async/listcomp" {
+  let source =
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 2:
+    #|      return self.i
+    #|    raise StopAsyncIteration
+    #|async def f():
+    #|  return [x async for x in It()]
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[1, 2]\n")
+}
+
+///|
+test "async/setcomp_dictcomp" {
+  let source =
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 2:
+    #|      return self.i
+    #|    raise StopAsyncIteration
+    #|async def f():
+    #|  s = {x async for x in It()}
+    #|  d = {x: x + 1 async for x in It()}
+    #|  return (s, d)
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="({1, 2}, {1: 2, 2: 3})\n")
+}
+
+///|
+test "async/comp_outside_async_function_is_syntax_error" {
+  let source =
+    #|class It:
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    raise StopAsyncIteration
+    #|xs = [x async for x in It()]
+  inspect(test_exec_error(source), content="line 6:1 invalid syntax")
+}
+
+///|
+test "async/genexpr" {
+  let source =
+    #|class It:
+    #|  def __init__(self):
+    #|    self.i = 0
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    self.i = self.i + 1
+    #|    if self.i <= 2:
+    #|      return self.i
+    #|    raise StopAsyncIteration
+    #|async def f():
+    #|  out = []
+    #|  async for x in (x async for x in It()):
+    #|    out = out + [x]
+    #|  return out
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[1, 2]\n")
+}
+
+///|
+test "async/genexpr_outside_async_function_is_syntax_error" {
+  let source =
+    #|class It:
+    #|  def __aiter__(self):
+    #|    return self
+    #|  async def __anext__(self):
+    #|    raise StopAsyncIteration
+    #|xs = (x async for x in It())
+  inspect(test_exec_error(source), content="line 6:1 invalid syntax")
+}

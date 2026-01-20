@@ -1055,17 +1055,36 @@ fn eval_expr_with_env(
       Ok(Value::List(values))
     }
     Expr::ListComp(elt~, clauses~, filters~) => {
+      let mut has_async = false
+      for clause in clauses {
+        if clause.is_async {
+          has_async = true
+          break
+        }
+      }
+      if has_async && !coroutine_is_active() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'async for' outside async function".to_string(),
+          ),
+        )
+      }
       let comp_locals = clone_locals(locals)
-      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      let adjusted_clauses : Array[CompClause] = []
       if clauses.length() > 0 {
         let first_iter_value = match
-          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          eval_expr_with_env(clauses[0].iter, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
         let iter_name = fresh_genexp_local(comp_locals)
         set_local_value(comp_locals, iter_name, first_iter_value)
-        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        adjusted_clauses.push(CompClause::{
+          is_async: clauses[0].is_async,
+          targets: clauses[0].targets,
+          iter: Expr::Name(iter_name),
+        })
         for i = 1; i < clauses.length(); i = i + 1 {
           adjusted_clauses.push(clauses[i])
         }
@@ -1076,7 +1095,7 @@ fn eval_expr_with_env(
         clauses
       }
       for clause in clauses {
-        for name in clause.0 {
+        for name in clause.targets {
           if name != "_" {
             ensure_local_cell(comp_locals, name, Value::None)
           }
@@ -1094,12 +1113,75 @@ fn eval_expr_with_env(
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
       let gen_locals = clone_locals(locals)
+      let mut has_async = false
       for clause in clauses {
-        for name in clause.0 {
+        if clause.is_async {
+          has_async = true
+        }
+        for name in clause.targets {
           if name != "_" {
             ensure_local_cell(gen_locals, name, Value::None)
           }
         }
+      }
+      if has_async {
+        if !coroutine_is_active() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: 'async for' outside async function".to_string(),
+            ),
+          )
+        }
+        if clauses.length() == 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: invalid async generator expression".to_string(),
+            ),
+          )
+        }
+        let first_iter_value = match
+          eval_expr_with_env(clauses[0].iter, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let first_iterator = if clauses[0].is_async {
+          let aiter_value = match
+            get_attr_from_value(
+              first_iter_value, "__aiter__", globals, builtins, io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match
+            call_callable_with_env(aiter_value, [], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        } else {
+          match
+            iter_value_to_iterator(first_iter_value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        }
+        let iter_name = fresh_genexp_local(gen_locals)
+        set_local_value(gen_locals, iter_name, first_iterator)
+        let adjusted_clauses : Array[CompClause] = []
+        adjusted_clauses.push(CompClause::{
+          is_async: clauses[0].is_async,
+          targets: clauses[0].targets,
+          iter: Expr::Name(iter_name),
+        })
+        for i = 1; i < clauses.length(); i = i + 1 {
+          adjusted_clauses.push(clauses[i])
+        }
+        return Ok(
+          async_genexp_new(
+            elt, adjusted_clauses, filters, gen_locals, globals, builtins, io,
+          ),
+        )
       }
       if clauses.length() == 0 {
         let body = genexp_to_generator_body(elt, clauses, filters)
@@ -1108,7 +1190,7 @@ fn eval_expr_with_env(
         )
       }
       let first_iter_value = match
-        eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+        eval_expr_with_env(clauses[0].iter, locals, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1119,8 +1201,12 @@ fn eval_expr_with_env(
       }
       let iter_name = fresh_genexp_local(gen_locals)
       set_local_value(gen_locals, iter_name, first_iterator)
-      let adjusted_clauses : Array[(Array[String], Expr)] = []
-      adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+      let adjusted_clauses : Array[CompClause] = []
+      adjusted_clauses.push(CompClause::{
+        is_async: false,
+        targets: clauses[0].targets,
+        iter: Expr::Name(iter_name),
+      })
       for i = 1; i < clauses.length(); i = i + 1 {
         adjusted_clauses.push(clauses[i])
       }
@@ -1128,17 +1214,36 @@ fn eval_expr_with_env(
       Ok(generator_new(body, gen_locals, globals, builtins, io, [], [], []))
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
+      let mut has_async = false
+      for clause in clauses {
+        if clause.is_async {
+          has_async = true
+          break
+        }
+      }
+      if has_async && !coroutine_is_active() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'async for' outside async function".to_string(),
+          ),
+        )
+      }
       let comp_locals = clone_locals(locals)
-      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      let adjusted_clauses : Array[CompClause] = []
       if clauses.length() > 0 {
         let first_iter_value = match
-          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          eval_expr_with_env(clauses[0].iter, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
         let iter_name = fresh_genexp_local(comp_locals)
         set_local_value(comp_locals, iter_name, first_iter_value)
-        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        adjusted_clauses.push(CompClause::{
+          is_async: clauses[0].is_async,
+          targets: clauses[0].targets,
+          iter: Expr::Name(iter_name),
+        })
         for i = 1; i < clauses.length(); i = i + 1 {
           adjusted_clauses.push(clauses[i])
         }
@@ -1149,7 +1254,7 @@ fn eval_expr_with_env(
         clauses
       }
       for clause in clauses {
-        for name in clause.0 {
+        for name in clause.targets {
           if name != "_" {
             ensure_local_cell(comp_locals, name, Value::None)
           }
@@ -1179,17 +1284,36 @@ fn eval_expr_with_env(
       Ok(Value::Set(unique))
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
+      let mut has_async = false
+      for clause in clauses {
+        if clause.is_async {
+          has_async = true
+          break
+        }
+      }
+      if has_async && !coroutine_is_active() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: 'async for' outside async function".to_string(),
+          ),
+        )
+      }
       let comp_locals = clone_locals(locals)
-      let adjusted_clauses : Array[(Array[String], Expr)] = []
+      let adjusted_clauses : Array[CompClause] = []
       if clauses.length() > 0 {
         let first_iter_value = match
-          eval_expr_with_env(clauses[0].1, locals, globals, builtins, io) {
+          eval_expr_with_env(clauses[0].iter, locals, globals, builtins, io) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
         let iter_name = fresh_genexp_local(comp_locals)
         set_local_value(comp_locals, iter_name, first_iter_value)
-        adjusted_clauses.push((clauses[0].0, Expr::Name(iter_name)))
+        adjusted_clauses.push(CompClause::{
+          is_async: clauses[0].is_async,
+          targets: clauses[0].targets,
+          iter: Expr::Name(iter_name),
+        })
         for i = 1; i < clauses.length(); i = i + 1 {
           adjusted_clauses.push(clauses[i])
         }
@@ -1200,7 +1324,7 @@ fn eval_expr_with_env(
         clauses
       }
       for clause in clauses {
-        for name in clause.0 {
+        for name in clause.targets {
           if name != "_" {
             ensure_local_cell(comp_locals, name, Value::None)
           }
@@ -2254,7 +2378,7 @@ fn genexp_filters_to_condition(filters : Array[Expr]) -> Expr? {
 ///|
 fn genexp_to_generator_body(
   elt : Expr,
-  clauses : Array[(Array[String], Expr)],
+  clauses : Array[CompClause],
   filters : Array[Expr],
 ) -> Array[Stmt] {
   let inner : Array[Stmt] = [Stmt::Yield(Some(elt))]
@@ -2269,8 +2393,8 @@ fn genexp_to_generator_body(
     let clause = clauses[i]
     body = [
       Stmt::For(
-        target=genexp_targets_to_target(clause.0),
-        iter=clause.1,
+        target=genexp_targets_to_target(clause.targets),
+        iter=clause.iter,
         body~,
         else_body=[],
       ),
@@ -2605,8 +2729,8 @@ fn collect_function_local_names(
       | Expr::GenExp(elt~, clauses~, filters~)
       | Expr::SetComp(elt~, clauses~, filters~) => {
         for clause in clauses {
-          let _ = clause.0
-          walk_expr(clause.1)
+          let _ = clause.targets
+          walk_expr(clause.iter)
         }
         for filter in filters {
           walk_expr(filter)
@@ -2620,8 +2744,8 @@ fn collect_function_local_names(
         }
       Expr::DictComp(key~, value~, clauses~, filters~) => {
         for clause in clauses {
-          let _ = clause.0
-          walk_expr(clause.1)
+          let _ = clause.targets
+          walk_expr(clause.iter)
         }
         for filter in filters {
           walk_expr(filter)

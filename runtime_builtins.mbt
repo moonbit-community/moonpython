@@ -2860,6 +2860,34 @@ fn builtin_mpython_run(
 }
 
 ///|
+fn builtin_mpython_asyncgenexp_next(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("__mpython_asyncgenexp_next", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_asyncgenexp_next() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  async_genexp_next(positional[0])
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -2885,6 +2913,10 @@ fn ensure_builtin_defs_ready() -> Unit {
   }
   builtin_defs_ref.val = [
     BuiltinDef::{ name: "__mpython_run", run: builtin_mpython_run },
+    BuiltinDef::{
+      name: "__mpython_asyncgenexp_next",
+      run: builtin_mpython_asyncgenexp_next,
+    },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
     BuiltinDef::{ name: "range", run: builtin_range },

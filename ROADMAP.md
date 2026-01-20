@@ -32,7 +32,8 @@
 - [x] `await` expressions (coroutine-only for now).
 - [x] `async def` runtime semantics (coroutines + eager `await` via `__mpython_run` helper).
 - [x] `async for`, `async with`.
-- [ ] Async comprehensions (`[x async for ...]`, `{...}`, `(...)`).
+- [x] Async comprehensions (`[x async for ...]`, `{...}`).
+- [x] Async generator expressions (`(x async for ...)`).
 - [ ] Coroutine scheduling/event loop story (even if test-only).
 - [ ] Async generators (`async def` + `yield`) (currently not supported).
 
