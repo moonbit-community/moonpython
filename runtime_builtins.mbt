@@ -2198,6 +2198,43 @@ fn builtin_tuple_new(
 }
 
 ///|
+fn builtin_slice(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("slice", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "slice() takes 1 to 3 arguments".to_string(),
+      ),
+    )
+  }
+  let (start, stop, step) = if positional.length() == 1 {
+    (Value::None, positional[0], Value::None)
+  } else if positional.length() == 2 {
+    (positional[0], positional[1], Value::None)
+  } else {
+    (positional[0], positional[1], positional[2])
+  }
+  let dict : Array[(String, Value)] = []
+  dict.push(("start", start))
+  dict.push(("stop", stop))
+  dict.push(("step", step))
+  let klass = builtin_class_from_name("slice", builtins)
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+}
+
+///|
 fn builtin_set(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -5838,6 +5875,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
     BuiltinDef::{ name: "tuple.__new__", run: builtin_tuple_new },
+    BuiltinDef::{ name: "slice", run: builtin_slice },
     BuiltinDef::{ name: "set", run: builtin_set },
     BuiltinDef::{ name: "frozenset", run: builtin_frozenset },
     BuiltinDef::{ name: "dict", run: builtin_dict },

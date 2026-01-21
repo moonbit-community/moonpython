@@ -1398,6 +1398,8 @@ fn get_attr_raw_from_value(
         Ok(Value::Str(klass.name))
       } else if attr == "__qualname__" {
         Ok(Value::Str(klass.name))
+      } else if attr == "__doc__" {
+        Ok(Value::None)
       } else if attr == "__dict__" {
         let pairs : Array[(Value, Value)] = []
         for item in klass.dict {

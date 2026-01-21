@@ -2195,6 +2195,124 @@ fn eval_expr_with_env(
               }
             _ => ()
           }
+          match idx_value {
+            Value::Instance(inst) =>
+              if inst.class.name == "slice" {
+                let start_value = match get_named_value(inst.dict, "start") {
+                  Some(v) => v
+                  None => Value::None
+                }
+                let end_value = match get_named_value(inst.dict, "stop") {
+                  Some(v) => v
+                  None => Value::None
+                }
+                let step_value = match get_named_value(inst.dict, "step") {
+                  Some(v) => v
+                  None => Value::None
+                }
+                fn slice_list(values : Array[Value]) -> Result[Value, RuntimeError] {
+                  let indices = match
+                    slice_indices_from_values(
+                      values.length(),
+                      start_value,
+                      end_value,
+                      step_value,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  Ok(Value::List(slice_values_by_indices(values, indices)))
+                }
+                return match target {
+                  Value::List(values) => slice_list(values)
+                  Value::Instance(list_inst) =>
+                    match get_named_value(list_inst.dict, list_storage_name) {
+                      Some(Value::List(values)) => slice_list(values)
+                      _ =>
+                        Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "subscript requires sequence".to_string(),
+                          ),
+                        )
+                    }
+                  Value::Tuple(values) => {
+                    let indices = match
+                      slice_indices_from_values(
+                        values.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(Value::Tuple(slice_values_by_indices(values, indices)))
+                  }
+                  Value::Str(text) => {
+                    let chars = text.to_array()
+                    let indices = match
+                      slice_indices_from_values(
+                        chars.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(Value::Str(slice_string_by_indices(chars, indices)))
+                  }
+                  Value::Bytes(bytes) => {
+                    let indices = match
+                      slice_indices_from_values(
+                        bytes.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(Value::Bytes(slice_ints_by_indices(bytes, indices)))
+                  }
+                  Value::ByteArray(bytes) => {
+                    let indices = match
+                      slice_indices_from_values(
+                        bytes.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(Value::ByteArray(slice_ints_by_indices(bytes, indices)))
+                  }
+                  Value::MemoryView(bytes) => {
+                    let indices = match
+                      slice_indices_from_values(
+                        bytes.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(Value::MemoryView(slice_ints_by_indices(bytes, indices)))
+                  }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "subscript requires sequence".to_string(),
+                      ),
+                    )
+                }
+              }
+            _ => ()
+          }
           match target {
             Value::Dict(values) => {
               let index = match dict_find_index(values, idx_value) {

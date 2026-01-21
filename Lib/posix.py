@@ -19,6 +19,7 @@ __all__ = [
     "getcwd",
     "listdir",
     "stat",
+    "stat_result",
     "lstat",
     "fstat",
     "open",
@@ -40,6 +41,32 @@ environ = {}
 
 error = OSError
 _have_functions = set()
+
+class stat_result(tuple):
+    _fields = (
+        "st_mode",
+        "st_ino",
+        "st_dev",
+        "st_nlink",
+        "st_uid",
+        "st_gid",
+        "st_size",
+        "st_atime",
+        "st_mtime",
+        "st_ctime",
+    )
+    n_sequence_fields = len(_fields)
+    n_fields = len(_fields)
+    n_unnamed_fields = 0
+    __match_args__ = _fields
+
+    def __new__(cls, seq):
+        return tuple.__new__(cls, seq)
+
+    def __getattr__(self, name):
+        if name in self._fields:
+            return self[self._fields.index(name)]
+        raise AttributeError(name)
 
 
 def fspath(path):

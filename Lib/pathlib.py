@@ -17,7 +17,13 @@ import warnings
 from _collections_abc import Sequence
 from errno import ENOENT, ENOTDIR, EBADF, ELOOP
 from stat import S_ISDIR, S_ISLNK, S_ISREG, S_ISSOCK, S_ISBLK, S_ISCHR, S_ISFIFO
-from urllib.parse import quote_from_bytes as urlquote_from_bytes
+try:
+    from urllib.parse import quote_from_bytes as urlquote_from_bytes
+except Exception:
+    def urlquote_from_bytes(data):
+        if isinstance(data, bytes):
+            return data.decode("utf-8", "surrogateescape")
+        return str(data)
 
 
 __all__ = [
@@ -672,8 +678,8 @@ class PurePath(object):
             msg = ("support for supplying more than one positional argument "
                    "to pathlib.PurePath.relative_to() is deprecated and "
                    "scheduled for removal in Python {remove}")
-            warnings._deprecated("pathlib.PurePath.relative_to(*args)", msg,
-                                 remove=(3, 14))
+            name = "pathlib.PurePath.relative_to(*args)"
+            warnings._deprecated(name, msg, remove=(3, 14))
         other = self.with_segments(other, *_deprecated)
         for step, path in enumerate([other] + list(other.parents)):
             if self.is_relative_to(path):
@@ -694,8 +700,8 @@ class PurePath(object):
             msg = ("support for supplying more than one argument to "
                    "pathlib.PurePath.is_relative_to() is deprecated and "
                    "scheduled for removal in Python {remove}")
-            warnings._deprecated("pathlib.PurePath.is_relative_to(*args)",
-                                 msg, remove=(3, 14))
+            name = "pathlib.PurePath.is_relative_to(*args)"
+            warnings._deprecated(name, msg, remove=(3, 14))
         other = self.with_segments(other, *_deprecated)
         return other == self or other in self.parents
 
@@ -1158,7 +1164,8 @@ class Path(PurePath):
         if kwargs:
             msg = ("support for supplying keyword arguments to pathlib.PurePath "
                    "is deprecated and scheduled for removal in Python {remove}")
-            warnings._deprecated("pathlib.PurePath(**kwargs)", msg, remove=(3, 14))
+            name = "pathlib.PurePath(**kwargs)"
+            warnings._deprecated(name, msg, remove=(3, 14))
         super().__init__(*args)
 
     def __new__(cls, *args, **kwargs):
