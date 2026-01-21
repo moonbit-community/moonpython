@@ -373,6 +373,20 @@ fn get_attr_raw_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
+      if inst.class.name == "classmethod" || inst.class.name == "staticmethod" {
+        if attr == "__func__" {
+          match get_named_value(inst.dict, "func") {
+            Some(value) => return Ok(value)
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Attribute,
+                  "'" + inst.class.name + "' object has no attribute '__func__'",
+                ),
+              )
+          }
+        }
+      }
       if inst.class.name == "code" && attr == "replace" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
