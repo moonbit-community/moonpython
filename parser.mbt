@@ -3020,6 +3020,27 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       next_index += 1
       line_text = line_text.trim(chars=" \t").to_string()
     }
+    if find_triple_quote(line_text) is Some((quote, pos)) {
+      if !has_triple_quote_after(line_text, quote, pos + 3) {
+        let mut combined = line_text
+        let mut idx = next_index
+        while idx < lines.length() {
+          let next_line = substring(lines[idx], 0, lines[idx].length()).to_string()
+          combined = combined + "\n" + next_line
+          if has_triple_quote_after(next_line, quote, 0) {
+            next_index = idx + 1
+            line_text = combined
+            break
+          }
+          idx += 1
+        }
+        if idx == lines.length() {
+          line_text = combined
+          next_index = idx
+          open_quote = Some(quote)
+        }
+      }
+    }
     let mut balance = bracket_balance(line_text)
     while balance > 0 && next_index < lines.length() {
       let next_line = lines[next_index]
@@ -5302,6 +5323,26 @@ fn LineParser::parse_block(
       next_index += 1
       line_text = line_text.trim(chars=" \t").to_string()
     }
+    if find_triple_quote(line_text) is Some((quote, pos)) {
+      if !has_triple_quote_after(line_text, quote, pos + 3) {
+        let mut combined = line_text
+        let mut idx = next_index
+        while idx < self.lines.length() {
+          let next_line = self.lines[idx]
+          combined = combined + "\n" + next_line
+          if has_triple_quote_after(next_line, quote, 0) {
+            next_index = idx + 1
+            line_text = combined
+            break
+          }
+          idx += 1
+        }
+        if idx == self.lines.length() {
+          line_text = combined
+          next_index = idx
+        }
+      }
+    }
     let mut balance = bracket_balance(line_text)
     while balance > 0 && next_index < self.lines.length() {
       let next_line = self.lines[next_index]
@@ -5686,11 +5727,12 @@ fn LineParser::parse_block(
         )
       }
       let header = substring(line_text, 6, colon_pos.unwrap())
-        .trim(chars=" \t")
+        .trim(chars=" \t\n\r")
         .to_string()
       let paren_span = find_top_level_paren_span(header)
       let name_part = match paren_span {
-        Some(span) => substring(header, 0, span.0).trim(chars=" \t").to_string()
+        Some(span) =>
+          substring(header, 0, span.0).trim(chars=" \t\n\r").to_string()
         None => header
       }
       let name_token = {
@@ -5711,7 +5753,7 @@ fn LineParser::parse_block(
         let open_pos = span.0
         let close_pos = span.1
         let tail = substring(header, close_pos + 1, header.length())
-          .trim(chars=" \t")
+          .trim(chars=" \t\n\r")
           .to_string()
         if tail.length() > 0 {
           return Err(
@@ -5723,12 +5765,12 @@ fn LineParser::parse_block(
           )
         }
         let bases_text = substring(header, open_pos + 1, close_pos)
-          .trim(chars=" \t")
+          .trim(chars=" \t\n\r")
           .to_string()
         if bases_text.length() > 0 {
           let base_parts = split_top_level_commas(bases_text)
           for part in base_parts {
-            let expr_text = part.trim(chars=" \t").to_string()
+            let expr_text = part.trim(chars=" \t\n\r").to_string()
             if expr_text.length() == 0 {
               continue
             }
@@ -5736,14 +5778,14 @@ fn LineParser::parse_block(
               let eq_pos = find_char(expr_text, '=')
               if eq_pos is Some(eq_idx) {
                 let key = substring(expr_text, 0, eq_idx)
-                  .trim(chars=" \t")
+                  .trim(chars=" \t\n\r")
                   .to_string()
                 let value_text = substring(
                     expr_text,
                     eq_idx + 1,
                     expr_text.length(),
                   )
-                  .trim(chars=" \t")
+                  .trim(chars=" \t\n\r")
                   .to_string()
                 if key.length() == 0 || value_text.length() == 0 {
                   let token = {
