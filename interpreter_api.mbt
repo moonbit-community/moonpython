@@ -651,14 +651,19 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let arithmetic_error_class = ClassValue::{
+    name: "ArithmeticError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let zero_division_error_class = ClassValue::{
     name: "ZeroDivisionError",
-    bases: [Value::Class(exception_class)],
+    bases: [Value::Class(arithmetic_error_class)],
     dict: [],
   }
   let overflow_error_class = ClassValue::{
     name: "OverflowError",
-    bases: [Value::Class(exception_class)],
+    bases: [Value::Class(arithmetic_error_class)],
     dict: [],
   }
   let value_error_class = ClassValue::{
@@ -810,6 +815,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("IndexError", Value::Class(index_error_class)),
     ("KeyError", Value::Class(key_error_class)),
     ("NotImplementedError", Value::Class(not_implemented_error_class)),
+    ("ArithmeticError", Value::Class(arithmetic_error_class)),
     ("ZeroDivisionError", Value::Class(zero_division_error_class)),
     ("OverflowError", Value::Class(overflow_error_class)),
     ("ValueError", Value::Class(value_error_class)),
