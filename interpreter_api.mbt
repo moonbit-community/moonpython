@@ -286,6 +286,30 @@ pub fn Interpreter::new_spec() -> Interpreter {
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
   )
   builtins.push(("ExceptionGroup", Value::Class(exception_group_class)))
+  let builtin_type_names : Array[String] = [
+    "bool",
+    "int",
+    "float",
+    "complex",
+    "str",
+    "bytes",
+    "bytearray",
+    "memoryview",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+    "frozenset",
+    "range",
+    "type",
+    "property",
+    "staticmethod",
+    "classmethod",
+  ]
+  for type_name in builtin_type_names {
+    let klass = builtin_class_from_name(type_name, builtins)
+    set_named_value(builtins, type_name, Value::Class(klass))
+  }
   Interpreter::with_builtins(builtins, config)
 }
 
@@ -642,6 +666,30 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("StopAsyncIteration", Value::Class(stop_async_iteration_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
   ]
+  let builtin_type_names : Array[String] = [
+    "bool",
+    "int",
+    "float",
+    "complex",
+    "str",
+    "bytes",
+    "bytearray",
+    "memoryview",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+    "frozenset",
+    "range",
+    "type",
+    "property",
+    "staticmethod",
+    "classmethod",
+  ]
+  for type_name in builtin_type_names {
+    let klass = builtin_class_from_name(type_name, builtins)
+    set_named_value(builtins, type_name, Value::Class(klass))
+  }
   Interpreter::{
     config,
     globals: [("__name__", Value::Str("__main__"))],

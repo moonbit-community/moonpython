@@ -3219,6 +3219,27 @@ fn call_callable_with_env(
       )
     }
     Value::Class(klass) => {
+      let is_builtin = match get_named_value(klass.dict, "__module__") {
+        Some(Value::Str(module_name)) =>
+          module_name == "builtins" && is_builtin_class_name(klass.name)
+        _ => false
+      }
+      if is_builtin {
+        match
+          eval_builtin_call(
+            klass.name,
+            positional,
+            keywords,
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(Some(value)) => return Ok(value)
+          Ok(None) => ()
+          Err(err) => return Err(err)
+        }
+      }
       if klass.name == "BaseExceptionGroup" || klass.name == "ExceptionGroup" {
         if positional.length() != 2 {
           return Err(
