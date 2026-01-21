@@ -14,6 +14,15 @@ fn module_cache_get(name : String) -> Value? {
       return Some(pair.1)
     }
   }
+  for pair in sys_modules_ref.val {
+    match pair.0 {
+      Value::Str(text) =>
+        if text == name {
+          return Some(pair.1)
+        }
+      _ => ()
+    }
+  }
   None
 }
 
@@ -298,6 +307,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
   let builtin_module_names = Value::Tuple([
     Value::Str("builtins"),
     Value::Str("sys"),
+    Value::Str("posix"),
     Value::Str("_thread"),
     Value::Str("_weakref"),
     Value::Str("itertools"),
@@ -329,11 +339,36 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List([])),
     ("argv", Value::List([])),
+    ("warnoptions", Value::List([])),
     (
       "intern",
       Value::Function(FunctionValue::{
         name: "sys.intern",
         params: ["s"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "getfilesystemencoding",
+      Value::Function(FunctionValue::{
+        name: "sys.getfilesystemencoding",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "getfilesystemencodeerrors",
+      Value::Function(FunctionValue::{
+        name: "sys.getfilesystemencodeerrors",
+        params: [],
         defaults: [],
         body: [],
         is_generator: false,
@@ -356,8 +391,13 @@ fn make_python_module(
     Ok(v) => v
     Err(err) => return Err(make_parse_runtime_error(err))
   }
-  let module_globals : Array[(String, Value)] = []
-  module_globals.push(("__name__", Value::Str(name)))
+  let module_globals : Array[(String, Value)] = [("__name__", Value::Str(name))]
+  let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+  let module_value = Value::Instance(InstanceValue::{
+    class: module_class,
+    dict: module_globals,
+  })
+  module_cache_set(name, module_value)
   let _ = match
     eval_block(
       program.body,
@@ -370,7 +410,7 @@ fn make_python_module(
     Ok(_) => ()
     Err(err) => return Err(err)
   }
-  Ok(make_module_instance(name, module_globals))
+  Ok(module_value)
 }
 
 ///|

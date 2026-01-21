@@ -1055,7 +1055,17 @@ fn eval_block_flow(
                   match
                     import_module(submodule, globals, builtins, io, config) {
                     Ok(value) => value
-                    Err(_) => return Err(err)
+                    Err(_) =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "ImportError: cannot import name '" +
+                          name +
+                          "' from '" +
+                          module_name +
+                          "'",
+                        ),
+                      )
                   }
                 }
                 _ => return Err(err)
@@ -1494,35 +1504,90 @@ fn eval_block_flow(
           }
           decorator_values.push(dec_value)
         }
-        let base_values : Array[Value] = []
+        let raw_base_values : Array[Value] = []
         for base in bases {
           let value = match
             eval_expr_with_env(base, locals, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          match value {
-            Value::Class(_) => base_values.push(value)
-            Value::Function(func) =>
-              if func.body.length() == 0 && is_builtin_class_name(func.name) {
-                base_values.push(
-                  Value::Class(builtin_class_from_name(func.name, builtins)),
-                )
-              } else {
+          raw_base_values.push(value)
+        }
+        let base_values : Array[Value] = []
+        for base_value in raw_base_values {
+          let expanded = match base_value {
+            Value::Instance(_) =>
+              match
+                get_attr_from_value(
+                  base_value,
+                  "__mro_entries__",
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(mro_entries) => {
+                  let bases_tuple : Array[Value] = []
+                  for item in raw_base_values {
+                    bases_tuple.push(item)
+                  }
+                  let entries = match
+                    call_callable_with_env(
+                      mro_entries,
+                      [Value::Tuple(bases_tuple)],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  match entries {
+                    Value::Tuple(values) => values
+                    Value::List(values) => values
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "base class must be a class".to_string(),
+                        ),
+                      )
+                  }
+                }
+                Err(_) =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "base class must be a class".to_string(),
+                    ),
+                  )
+              }
+            _ => [base_value]
+          }
+          for value in expanded {
+            match value {
+              Value::Class(_) => base_values.push(value)
+              Value::Function(func) =>
+                if func.body.length() == 0 && is_builtin_class_name(func.name) {
+                  base_values.push(
+                    Value::Class(builtin_class_from_name(func.name, builtins)),
+                  )
+                } else {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "base class must be a class".to_string(),
+                    ),
+                  )
+                }
+              _ =>
                 return Err(
                   make_runtime_error(
                     RuntimeErrorKind::Type,
                     "base class must be a class".to_string(),
                   ),
                 )
-              }
-            _ =>
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "base class must be a class".to_string(),
-                ),
-              )
+            }
           }
         }
         for keyword in keywords {
@@ -1564,16 +1629,9 @@ fn eval_block_flow(
         // Best-effort support for zero-arg super(): functions created in this
         // class body can close over a __class__ cell.
         ensure_local_cell(class_dict, "__class__", Value::None)
-        let lookup_globals : Array[(String, Value)] = []
-        for pair in locals {
-          lookup_globals.push(pair)
-        }
-        for pair in globals {
-          lookup_globals.push(pair)
-        }
         let flow = match
           eval_block_flow(
-            body, class_dict, lookup_globals, builtins, io, config, loop_depth,
+            body, class_dict, globals, builtins, io, config, loop_depth,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)

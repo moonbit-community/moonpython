@@ -1184,6 +1184,22 @@ fn eval_binary_op_values(
           Ok(Value::Int(a | (if b { 1N } else { 0N })))
         (Value::Bool(a), Value::Bool(b)) =>
           Ok(Value::Int((if a { 1N } else { 0N }) | (if b { 1N } else { 0N })))
+        (Value::Set(left), Value::Set(right)) => {
+          let values : Array[Value] = []
+          for item in left {
+            let _ = match set_add_unique(values, item) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          }
+          for item in right {
+            let _ = match set_add_unique(values, item) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          }
+          Ok(Value::Set(values))
+        }
         _ => {
           let left_args = union_args_from_value(left_val, builtins)
           let right_args = union_args_from_value(right_val, builtins)
@@ -1915,6 +1931,7 @@ fn eval_expr_with_env(
         | Value::Class(_)
         | Value::Str(_)
         | Value::List(_)
+        | Value::Tuple(_)
         | Value::Dict(_)
         | Value::Set(_)
         | Value::Function(_) =>
@@ -2146,6 +2163,35 @@ fn eval_expr_with_env(
                 return Ok(
                   make_generic_alias(Value::Class(klass), args),
                 )
+              }
+            _ => ()
+          }
+          match target {
+            Value::Class(_) | Value::Function(_) =>
+              match
+                get_attr_from_value(
+                  target,
+                  "__class_getitem__",
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(class_getitem) => {
+                  let args = match class_getitem {
+                    Value::BoundMethod(_) => [idx_value]
+                    Value::Function(_) => [target, idx_value]
+                    _ => [idx_value]
+                  }
+                  return call_callable_with_env(
+                    class_getitem,
+                    args,
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  )
+                }
+                Err(_) => ()
               }
             _ => ()
           }
@@ -2386,48 +2432,120 @@ fn eval_expr_with_env(
           CompareOp::Eq => eq_value(previous, current)
           CompareOp::NotEq => !eq_value(previous, current)
           CompareOp::Lt => {
-            let (_, left_num) = match number_value(previous) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            match (previous, current) {
+              (Value::Set(left), Value::Set(right)) => {
+                let mut ok = true
+                for item in left {
+                  let hit = match set_find_index(right, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if hit is None {
+                    ok = false
+                    break
+                  }
+                }
+                ok && left.length() < right.length()
+              }
+              _ => {
+                let (_, left_num) = match number_value(previous) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let (_, right_num) = match number_value(current) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                left_num < right_num
+              }
             }
-            let (_, right_num) = match number_value(current) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            left_num < right_num
           }
           CompareOp::Lte => {
-            let (_, left_num) = match number_value(previous) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            match (previous, current) {
+              (Value::Set(left), Value::Set(right)) => {
+                let mut ok = true
+                for item in left {
+                  let hit = match set_find_index(right, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if hit is None {
+                    ok = false
+                    break
+                  }
+                }
+                ok
+              }
+              _ => {
+                let (_, left_num) = match number_value(previous) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let (_, right_num) = match number_value(current) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                left_num <= right_num
+              }
             }
-            let (_, right_num) = match number_value(current) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            left_num <= right_num
           }
           CompareOp::Gt => {
-            let (_, left_num) = match number_value(previous) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            match (previous, current) {
+              (Value::Set(left), Value::Set(right)) => {
+                let mut ok = true
+                for item in right {
+                  let hit = match set_find_index(left, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if hit is None {
+                    ok = false
+                    break
+                  }
+                }
+                ok && left.length() > right.length()
+              }
+              _ => {
+                let (_, left_num) = match number_value(previous) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let (_, right_num) = match number_value(current) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                left_num > right_num
+              }
             }
-            let (_, right_num) = match number_value(current) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            left_num > right_num
           }
           CompareOp::Gte => {
-            let (_, left_num) = match number_value(previous) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            match (previous, current) {
+              (Value::Set(left), Value::Set(right)) => {
+                let mut ok = true
+                for item in right {
+                  let hit = match set_find_index(left, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if hit is None {
+                    ok = false
+                    break
+                  }
+                }
+                ok
+              }
+              _ => {
+                let (_, left_num) = match number_value(previous) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let (_, right_num) = match number_value(current) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                left_num >= right_num
+              }
             }
-            let (_, right_num) = match number_value(current) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            left_num >= right_num
           }
           CompareOp::Is =>
             match (previous, current) {

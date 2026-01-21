@@ -725,8 +725,12 @@ fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
       }
       Ok(h)
     }
+    Value::Function(func) =>
+      Ok(@bigint.BigInt::from_int64(hash_string(func.name)))
     Value::Class(klass) =>
       Ok(@bigint.BigInt::from_int64(hash_string(klass.name)))
+    Value::BoundMethod(bound) =>
+      Ok(@bigint.BigInt::from_int64(hash_string(bound.function.name)))
     Value::Instance(inst) =>
       match get_named_value(inst.dict, "hashvalue") {
         Some(Value::Int(v)) => Ok(v)

@@ -1453,6 +1453,57 @@ fn builtin_sys_intern(
 }
 
 ///|
+fn builtin_sys_getfilesystemencoding(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.getfilesystemencoding", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getfilesystemencoding() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str("utf-8"))
+}
+
+///|
+fn builtin_sys_getfilesystemencodeerrors(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match
+    ensure_no_keywords("sys.getfilesystemencodeerrors", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getfilesystemencodeerrors() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str("surrogateescape"))
+}
+
+///|
 fn copy_ints(values : Array[Int]) -> Array[Int] {
   let out : Array[Int] = []
   for value in values {
@@ -3905,7 +3956,12 @@ fn builtin_isinstance(
         Ok(Value::Bool(false))
       }
     Value::Class(klass) =>
-      if value_matches_builtin_class(obj, klass.name) {
+      if klass.name == "type" {
+        match obj {
+          Value::Class(_) => Ok(Value::Bool(true))
+          _ => Ok(Value::Bool(false))
+        }
+      } else if value_matches_builtin_class(obj, klass.name) {
         Ok(Value::Bool(true))
       } else {
         match obj {
@@ -3933,6 +3989,141 @@ fn builtin_isinstance(
         ),
       )
   }
+}
+
+///|
+fn issubclass_type_error_arg1() -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    "issubclass() arg 1 must be a class".to_string(),
+  )
+}
+
+///|
+fn issubclass_type_error_arg2() -> RuntimeError {
+  make_runtime_error(
+    RuntimeErrorKind::Type,
+    "issubclass() arg 2 must be a class or tuple of classes".to_string(),
+  )
+}
+
+///|
+fn issubclass_matches_builtin_names(
+  cls_name : String,
+  base_name : String,
+) -> Bool {
+  if cls_name == base_name {
+    true
+  } else {
+    cls_name == "bool" && base_name == "int"
+  }
+}
+
+///|
+fn issubclass_pair(
+  cls : Value,
+  base : Value,
+) -> Result[Bool, RuntimeError] {
+  match base {
+    Value::Tuple(values) => {
+      for entry in values {
+        let ok = match issubclass_pair(cls, entry) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if ok {
+          return Ok(true)
+        }
+      }
+      Ok(false)
+    }
+    Value::Class(base_class) => {
+      if base_class.name == "type" {
+        match cls {
+          Value::Class(_) => Ok(true)
+          Value::Function(func) => Ok(func.body.length() == 0)
+          _ => Ok(false)
+        }
+      } else {
+        match cls {
+          Value::Class(klass) => {
+            let mro = match class_mro(klass) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for c in mro {
+              if c.name == base_class.name {
+                return Ok(true)
+              }
+            }
+            Ok(false)
+          }
+          Value::Function(func) =>
+            if func.body.length() == 0 {
+              Ok(func.name == base_class.name)
+            } else {
+              Err(issubclass_type_error_arg1())
+            }
+          _ => Err(issubclass_type_error_arg1())
+        }
+      }
+    }
+    Value::Function(base_func) =>
+      if base_func.body.length() == 0 {
+        if base_func.name == "type" {
+          match cls {
+            Value::Class(_) => Ok(true)
+            Value::Function(func) => Ok(func.body.length() == 0)
+            _ => Ok(false)
+          }
+        } else {
+          match cls {
+            Value::Class(klass) => Ok(klass.name == base_func.name)
+            Value::Function(func) =>
+              if func.body.length() == 0 {
+                Ok(issubclass_matches_builtin_names(func.name, base_func.name))
+              } else {
+                Err(issubclass_type_error_arg1())
+              }
+            _ => Err(issubclass_type_error_arg1())
+          }
+        }
+      } else {
+        Err(issubclass_type_error_arg2())
+      }
+    _ => Err(issubclass_type_error_arg2())
+  }
+}
+
+///|
+fn builtin_issubclass(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("issubclass", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "issubclass() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let cls = positional[0]
+  let base = positional[1]
+  let ok = match issubclass_pair(cls, base) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(ok))
 }
 
 ///|
@@ -5685,6 +5876,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "hex", run: builtin_hex },
     BuiltinDef::{ name: "callable", run: builtin_callable },
     BuiltinDef::{ name: "isinstance", run: builtin_isinstance },
+    BuiltinDef::{ name: "issubclass", run: builtin_issubclass },
     BuiltinDef::{ name: "type", run: builtin_type },
     BuiltinDef::{ name: "id", run: builtin_id },
     BuiltinDef::{ name: "hash", run: builtin_hash },
@@ -5694,6 +5886,14 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "__import__", run: builtin_import },
     BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
+    BuiltinDef::{
+      name: "sys.getfilesystemencoding",
+      run: builtin_sys_getfilesystemencoding,
+    },
+    BuiltinDef::{
+      name: "sys.getfilesystemencodeerrors",
+      run: builtin_sys_getfilesystemencodeerrors,
+    },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

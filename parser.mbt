@@ -4403,11 +4403,11 @@ fn parse_simple_statement(
         trimmed.length() - import_split[1].length(),
         trimmed.length(),
       )
-      .trim(chars=" \t")
+      .trim(chars=" \t\n\r")
       .to_string()
     if imported.has_prefix("(") && imported.has_suffix(")") {
       imported = substring(imported, 1, imported.length() - 1)
-        .trim(chars=" \t")
+        .trim(chars=" \t\n\r")
         .to_string()
     }
     let names : Array[(String, String?)] = []
@@ -4415,7 +4415,7 @@ fn parse_simple_statement(
       names.push(("*", (None : String?)))
     } else {
       for item in imported.split(",") {
-        let part = item.trim(chars=" \t").to_string()
+        let part = item.trim(chars=" \t\n\r").to_string()
         if part.length() == 0 {
           continue
         }
@@ -4423,7 +4423,7 @@ fn parse_simple_statement(
           let pieces : Array[String] = []
           for p in part.split(" as ") {
             if p.length() > 0 {
-              pieces.push(p.trim(chars=" \t").to_string())
+              pieces.push(p.trim(chars=" \t\n\r").to_string())
             }
           }
           if pieces.length() != 2 {

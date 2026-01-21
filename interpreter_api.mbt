@@ -149,10 +149,24 @@ pub fn Interpreter::new_spec() -> Interpreter {
   )
   object_dict.push(
     (
+      "__new__",
+      Value::Function(FunctionValue::{
+        name: "__new__",
+        params: ["cls"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
       "__init__",
       Value::Function(FunctionValue::{
         name: "__init__",
-        params: ["self"],
+        params: ["self", "*args", "**kwargs"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -264,6 +278,51 @@ pub fn Interpreter::new_spec() -> Interpreter {
     ],
     dict: [],
   }
+  let warning_class = ClassValue::{
+    name: "Warning",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let user_warning_class = ClassValue::{
+    name: "UserWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let deprecation_warning_class = ClassValue::{
+    name: "DeprecationWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let pending_deprecation_warning_class = ClassValue::{
+    name: "PendingDeprecationWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let runtime_warning_class = ClassValue::{
+    name: "RuntimeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let import_warning_class = ClassValue::{
+    name: "ImportWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let resource_warning_class = ClassValue::{
+    name: "ResourceWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let os_error_class = ClassValue::{
+    name: "OSError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let file_not_found_error_class = ClassValue::{
+    name: "FileNotFoundError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = []
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
@@ -286,6 +345,20 @@ pub fn Interpreter::new_spec() -> Interpreter {
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
   )
   builtins.push(("ExceptionGroup", Value::Class(exception_group_class)))
+  builtins.push(("Warning", Value::Class(warning_class)))
+  builtins.push(("UserWarning", Value::Class(user_warning_class)))
+  builtins.push(("DeprecationWarning", Value::Class(deprecation_warning_class)))
+  builtins.push(
+    (
+      "PendingDeprecationWarning",
+      Value::Class(pending_deprecation_warning_class),
+    ),
+  )
+  builtins.push(("RuntimeWarning", Value::Class(runtime_warning_class)))
+  builtins.push(("ImportWarning", Value::Class(import_warning_class)))
+  builtins.push(("ResourceWarning", Value::Class(resource_warning_class)))
+  builtins.push(("OSError", Value::Class(os_error_class)))
+  builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
   let builtin_type_names : Array[String] = [
     "bool",
     "int",
@@ -368,10 +441,24 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   )
   object_dict.push(
     (
+      "__new__",
+      Value::Function(FunctionValue::{
+        name: "__new__",
+        params: ["cls"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
       "__init__",
       Value::Function(FunctionValue::{
         name: "__init__",
-        params: ["self"],
+        params: ["self", "*args", "**kwargs"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -483,6 +570,41 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ],
     dict: [],
   }
+  let warning_class = ClassValue::{
+    name: "Warning",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let user_warning_class = ClassValue::{
+    name: "UserWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let deprecation_warning_class = ClassValue::{
+    name: "DeprecationWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let pending_deprecation_warning_class = ClassValue::{
+    name: "PendingDeprecationWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let runtime_warning_class = ClassValue::{
+    name: "RuntimeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let import_warning_class = ClassValue::{
+    name: "ImportWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let resource_warning_class = ClassValue::{
+    name: "ResourceWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
   let name_error_class = ClassValue::{
     name: "NameError",
     bases: [Value::Class(exception_class)],
@@ -531,6 +653,16 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let value_error_class = ClassValue::{
     name: "ValueError",
     bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let os_error_class = ClassValue::{
+    name: "OSError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let file_not_found_error_class = ClassValue::{
+    name: "FileNotFoundError",
+    bases: [Value::Class(os_error_class)],
     dict: [],
   }
   let import_error_class = ClassValue::{
@@ -628,6 +760,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("hex", function_stub("hex")),
     ("callable", function_stub("callable")),
     ("isinstance", function_stub("isinstance")),
+    ("issubclass", function_stub("issubclass")),
     ("type", function_stub("type")),
     ("id", function_stub("id")),
     ("hash", function_stub("hash")),
@@ -647,6 +780,16 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("Exception", Value::Class(exception_class)),
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
     ("ExceptionGroup", Value::Class(exception_group_class)),
+    ("Warning", Value::Class(warning_class)),
+    ("UserWarning", Value::Class(user_warning_class)),
+    ("DeprecationWarning", Value::Class(deprecation_warning_class)),
+    (
+      "PendingDeprecationWarning",
+      Value::Class(pending_deprecation_warning_class),
+    ),
+    ("RuntimeWarning", Value::Class(runtime_warning_class)),
+    ("ImportWarning", Value::Class(import_warning_class)),
+    ("ResourceWarning", Value::Class(resource_warning_class)),
     ("NameError", Value::Class(name_error_class)),
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),
@@ -657,6 +800,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("ZeroDivisionError", Value::Class(zero_division_error_class)),
     ("OverflowError", Value::Class(overflow_error_class)),
     ("ValueError", Value::Class(value_error_class)),
+    ("OSError", Value::Class(os_error_class)),
+    ("FileNotFoundError", Value::Class(file_not_found_error_class)),
     ("ImportError", Value::Class(import_error_class)),
     ("AssertionError", Value::Class(assertion_error_class)),
     ("SyntaxError", Value::Class(syntax_error_class)),

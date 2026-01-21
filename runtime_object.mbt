@@ -680,6 +680,32 @@ fn get_attr_raw_from_value(
           )
       }
     }
+    Value::Tuple(_) => {
+      if attr == "index" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "index",
+              params: ["self", "value", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          attr +
+          "'",
+        ),
+      )
+    }
     Value::Str(_) => {
       if attr == "startswith" {
         return Ok(
@@ -687,6 +713,22 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "startswith",
               params: ["self", "prefix", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "endswith" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "endswith",
+              params: ["self", "suffix", "start", "end"],
               defaults: [Value::None, Value::None],
               body: [],
               is_generator: false,
@@ -1362,6 +1404,16 @@ fn get_attr_raw_from_value(
           pairs.push((Value::Str(item.0), item.1))
         }
         Ok(Value::Dict(pairs))
+      } else if attr == "__mro__" {
+        let mro = match class_mro(klass) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let values : Array[Value] = []
+        for item in mro {
+          values.push(Value::Class(item))
+        }
+        Ok(Value::Tuple(values))
       } else if attr == "__code__" && klass.name == "function" {
         Ok(make_code_instance(0N))
       } else if attr == "__closure__" && klass.name == "function" {
@@ -2166,6 +2218,36 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
         Ok(Value::None)
+      } else if func.name == "__new__" && func.body.length() == 0 {
+        // Intrinsic: object.__new__(cls)
+        if positional.length() < 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__new__() expects a type".to_string(),
+            ),
+          )
+        }
+        let cls_value = positional[0]
+        match cls_value {
+          Value::Class(klass) => {
+            let inst_dict : Array[(String, Value)] = []
+            if class_includes_list(klass) {
+              inst_dict.push((list_storage_name, Value::List([])))
+            }
+            if class_includes_dict(klass) {
+              inst_dict.push((dict_storage_name, Value::Dict([])))
+            }
+            Ok(Value::Instance(InstanceValue::{ class: klass, dict: inst_dict }))
+          }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "__new__() expects a type".to_string(),
+              ),
+            )
+        }
       } else if func.name == "__eq__" && func.body.length() == 0 {
         if keywords.length() > 0 {
           return Err(
@@ -2724,6 +2806,59 @@ fn call_callable_with_env(
                 let segment = substring(text, start_idx, end_idx)
                 return Ok(Value::Bool(segment.has_prefix(prefix)))
               }
+              "endswith" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "endswith() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let suffix = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "endswith() expects a str suffix".to_string(),
+                      ),
+                    )
+                }
+                let start = match index_from_value(
+                  if positional.length() >= 2 { positional[1] } else { Value::None },
+                  0,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match index_from_value(
+                  if positional.length() == 3 { positional[2] } else { Value::None },
+                  text.length(),
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, text.length())
+                let mut end_idx = normalize_index(end, text.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > text.length() {
+                  start_idx = text.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > text.length() {
+                  end_idx = text.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                let segment = substring(text, start_idx, end_idx)
+                return Ok(Value::Bool(segment.has_suffix(suffix)))
+              }
               "isidentifier" =>
                 if positional.length() != 0 {
                   return Err(
@@ -3128,6 +3263,78 @@ fn call_callable_with_env(
                 }
                 let item = values.remove(idx)
                 return Ok(item)
+              }
+              _ => ()
+            }
+          }
+        Value::Tuple(values) =>
+          if bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  bound_method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match bound_method.function.name {
+              "index" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "index() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let needle = positional[0]
+                let start = match index_from_value(
+                  if positional.length() >= 2 { positional[1] } else { Value::None },
+                  0,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match index_from_value(
+                  if positional.length() == 3 { positional[2] } else { Value::None },
+                  values.length(),
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, values.length())
+                let mut end_idx = normalize_index(end, values.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > values.length() {
+                  start_idx = values.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > values.length() {
+                  end_idx = values.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                let mut i = start_idx
+                while i < end_idx {
+                  if eq_value(values[i], needle) {
+                    return Ok(
+                      Value::Int(@bigint.BigInt::from_int(i)),
+                    )
+                  }
+                  i += 1
+                }
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "ValueError: tuple.index(x): x not in tuple".to_string(),
+                  ),
+                )
               }
               _ => ()
             }
@@ -3787,8 +3994,17 @@ fn call_callable_with_env(
         klass.name == "NotImplementedError" ||
         klass.name == "ZeroDivisionError" ||
         klass.name == "ValueError" ||
+        klass.name == "OSError" ||
+        klass.name == "FileNotFoundError" ||
         klass.name == "ImportError" ||
         klass.name == "AssertionError" ||
+        klass.name == "Warning" ||
+        klass.name == "UserWarning" ||
+        klass.name == "DeprecationWarning" ||
+        klass.name == "PendingDeprecationWarning" ||
+        klass.name == "RuntimeWarning" ||
+        klass.name == "ImportWarning" ||
+        klass.name == "ResourceWarning" ||
         klass.name == "SyntaxError" ||
         klass.name == "IndentationError" ||
         klass.name == "EOFError" ||
@@ -3813,36 +4029,66 @@ fn call_callable_with_env(
         }
         return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
       }
+      let new_value = match lookup_class_attr(klass, "__new__") {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let mut inst_value_opt : Value? = None
+      match new_value {
+        Some(value) => {
+          let args : Array[Value] = [Value::Class(klass)]
+          for item in positional {
+            args.push(item)
+          }
+          let created = match
+            call_callable_with_env(value, args, keywords, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          inst_value_opt = Some(created)
+        }
+        None => ()
+      }
       let init = match lookup_class_attr(klass, "__init__") {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let inst_dict : Array[(String, Value)] = []
-      if class_includes_list(klass) {
-        inst_dict.push((list_storage_name, Value::List([])))
-      }
-      if class_includes_dict(klass) {
-        inst_dict.push((dict_storage_name, Value::Dict([])))
-      }
-      let inst = Value::Instance(InstanceValue::{ class: klass, dict: inst_dict })
-      match init {
-        Some(Value::Function(func)) => {
-          let args : Array[Value] = [inst]
-          for item in positional {
-            args.push(item)
+      let inst_value = match inst_value_opt {
+        Some(value) => value
+        None => {
+          let inst_dict : Array[(String, Value)] = []
+          if class_includes_list(klass) {
+            inst_dict.push((list_storage_name, Value::List([])))
           }
-          let _ = match
-            (eval_function_with_kwargs_ref.val)(
-              func, args, keywords, globals, builtins, io,
-            ) {
-            Ok(v) => v
-            Err(err) => return Err(err)
+          if class_includes_dict(klass) {
+            inst_dict.push((dict_storage_name, Value::Dict([])))
           }
-
+          Value::Instance(InstanceValue::{ class: klass, dict: inst_dict })
         }
-        _ => ()
       }
-      Ok(inst)
+      match inst_value {
+        Value::Instance(inst) => {
+          match init {
+            Some(Value::Function(func)) =>
+              if inst.class.name == klass.name {
+                let args : Array[Value] = [Value::Instance(inst)]
+                for item in positional {
+                  args.push(item)
+                }
+                let _ = match
+                  (eval_function_with_kwargs_ref.val)(
+                    func, args, keywords, globals, builtins, io,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+              }
+            _ => ()
+          }
+          Ok(Value::Instance(inst))
+        }
+        _ => Ok(inst_value)
+      }
     }
     Value::Instance(inst) => {
       if inst.class.name == "weakref" {

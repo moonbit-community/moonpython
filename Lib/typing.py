@@ -2169,6 +2169,8 @@ def runtime_checkable(cls):
     # with protocols that have non-method members.
     # See gh-113320 for why we compute this attribute here,
     # rather than in `_ProtocolMeta.__init__`
+    if not hasattr(cls, "__protocol_attrs__"):
+        cls.__protocol_attrs__ = _get_protocol_attrs(cls)
     cls.__non_callable_proto_members__ = set()
     for attr in cls.__protocol_attrs__:
         try:
