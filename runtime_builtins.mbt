@@ -1419,6 +1419,40 @@ fn builtin_str_maketrans(
 }
 
 ///|
+fn builtin_sys_intern(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.intern", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "intern() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Str(_) => Ok(positional[0])
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "intern() argument must be str".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn copy_ints(values : Array[Int]) -> Array[Int] {
   let out : Array[Int] = []
   for value in values {
@@ -5520,6 +5554,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "eval", run: builtin_eval },
     BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "__import__", run: builtin_import },
+    BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

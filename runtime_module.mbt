@@ -319,6 +319,18 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List([])),
     ("argv", Value::List([])),
+    (
+      "intern",
+      Value::Function(FunctionValue::{
+        name: "sys.intern",
+        params: ["s"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
   ])
 }
 
