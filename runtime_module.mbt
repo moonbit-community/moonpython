@@ -96,6 +96,79 @@ fn module_rel_path(name : String) -> String {
 }
 
 ///|
+fn module_join_parts(parts : Array[String], count : Int) -> String {
+  if count <= 0 || parts.length() == 0 {
+    "".to_string()
+  } else {
+    let mut joined = parts[0]
+    let mut i = 1
+    while i < count && i < parts.length() {
+      joined = joined + "." + parts[i]
+      i += 1
+    }
+    joined
+  }
+}
+
+///|
+fn module_parent_name(name : String) -> String {
+  let parts = module_name_parts(name)
+  if parts.length() <= 1 {
+    "".to_string()
+  } else {
+    module_join_parts(parts, parts.length() - 1)
+  }
+}
+
+///|
+fn resolve_relative_module_name(
+  module_name : String,
+  globals : Array[(String, Value)],
+) -> Result[String, RuntimeError] {
+  if module_name.length() > 0 && !module_name.has_prefix(".") {
+    return Ok(module_name)
+  }
+  let mut level = 1
+  let mut rest = "".to_string()
+  if module_name.length() > 0 {
+    let chars = module_name.to_array()
+    level = 0
+    while level < chars.length() && chars[level] == '.' {
+      level += 1
+    }
+    rest = substring(module_name, level, module_name.length())
+  }
+  let package_name = match get_named_value(globals, "__package__") {
+    Some(Value::Str(name)) => name
+    _ => "".to_string()
+  }
+  if package_name.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ImportError: attempted relative import with no known parent package",
+      ),
+    )
+  }
+  let parts = module_name_parts(package_name)
+  let base_len = parts.length() - (level - 1)
+  if base_len <= 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ImportError: attempted relative import beyond top-level package",
+      ),
+    )
+  }
+  let base = module_join_parts(parts, base_len)
+  if rest.length() == 0 {
+    Ok(base)
+  } else {
+    Ok(base + "." + rest)
+  }
+}
+
+///|
 fn set_module_attr(module_value : Value, name : String, value : Value) -> Unit {
   match module_value {
     Value::Instance(inst) => set_named_value(inst.dict, name, value)
@@ -386,12 +459,16 @@ fn make_python_module(
   builtins : Array[(String, Value)],
   io : MockIO,
   config : Config,
+  package_name? : String = "",
 ) -> Result[Value, RuntimeError] {
   let program = match parse(source) {
     Ok(v) => v
     Err(err) => return Err(make_parse_runtime_error(err))
   }
-  let module_globals : Array[(String, Value)] = [("__name__", Value::Str(name))]
+  let module_globals : Array[(String, Value)] = [
+    ("__name__", Value::Str(name)),
+    ("__package__", Value::Str(package_name)),
+  ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let module_value = Value::Instance(InstanceValue::{
     class: module_class,
@@ -490,7 +567,14 @@ fn load_module_from_filesystem(
             ),
           )
       }
-      return make_python_module(module_name, source, builtins, io, config)
+      return make_python_module(
+        module_name,
+        source,
+        builtins,
+        io,
+        config,
+        package_name=module_parent_name(module_name),
+      )
     }
   }
   let package_paths = candidate_package_paths(module_name, globals, config)
@@ -506,7 +590,14 @@ fn load_module_from_filesystem(
             ),
           )
       }
-      return make_python_module(module_name, source, builtins, io, config)
+      return make_python_module(
+        module_name,
+        source,
+        builtins,
+        io,
+        config,
+        package_name=module_name,
+      )
     }
     if @fs.path_exists(path) {
       return Ok(make_module_instance(module_name, []))

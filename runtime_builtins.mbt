@@ -2274,6 +2274,41 @@ fn builtin_int_new(
 }
 
 ///|
+fn builtin_int_repr(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.__repr__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__repr__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Int(v) => Ok(Value::Str(v.to_string()))
+    Value::Bool(v) => Ok(Value::Str(if v { "1" } else { "0" }))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.__repr__() expects an int".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_int_from_bytes(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2411,6 +2446,40 @@ fn builtin_float(
           ),
         )
     }
+  }
+}
+
+///|
+fn builtin_float_repr(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("float.__repr__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "float.__repr__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Float(v) => Ok(Value::Str(v.to_string()))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float.__repr__() expects a float".to_string(),
+        ),
+      )
   }
 }
 
@@ -6277,8 +6346,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
+    BuiltinDef::{ name: "int.__repr__", run: builtin_int_repr },
     BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },
     BuiltinDef::{ name: "float", run: builtin_float },
+    BuiltinDef::{ name: "float.__repr__", run: builtin_float_repr },
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },

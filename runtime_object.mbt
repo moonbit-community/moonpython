@@ -235,6 +235,222 @@ fn is_ascii_whitespace(c : Char) -> Bool {
 }
 
 ///|
+fn lookup_keyword_value(
+  keywords : Array[(String, Value)],
+  name : String,
+) -> Value? {
+  for pair in keywords {
+    if pair.0 == name {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn format_value_with_spec(
+  value : Value,
+  spec : String,
+) -> Result[String, RuntimeError] {
+  if spec.length() == 0 {
+    return Ok(value_to_string(value))
+  }
+  let chars = spec.to_array()
+  let mut type_char : Char? = None
+  let mut end = chars.length()
+  if chars.length() > 0 && chars[chars.length() - 1].is_ascii_alphabetic() {
+    type_char = Some(chars[chars.length() - 1])
+    end = chars.length() - 1
+  }
+  let mut zero_pad = false
+  let mut width = 0
+  let mut idx = 0
+  if end > 0 && chars[0] == '0' {
+    zero_pad = true
+    idx = 1
+  }
+  while idx < end && chars[idx].is_ascii_digit() {
+    width = width * 10 + (chars[idx].to_int() - '0'.to_int())
+    idx += 1
+  }
+  if idx != end {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "unsupported format string".to_string(),
+      ),
+    )
+  }
+  match type_char {
+    None | Some('s') => {
+      let out = value_to_string(value)
+      Ok(
+        pad_left(
+          out,
+          width,
+          if zero_pad { '0' } else { ' ' },
+        ),
+      )
+    }
+    Some('d') | Some('i') => {
+      let raw = match format_decimal_value(value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(pad_numeric(raw, width, zero_pad))
+    }
+    Some('x') => {
+      let raw = match format_hex_value(value, false) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(pad_numeric(raw, width, zero_pad))
+    }
+    Some('X') => {
+      let raw = match format_hex_value(value, true) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(pad_numeric(raw, width, zero_pad))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "unsupported format string".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn format_string_with_args(
+  text : String,
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+) -> Result[String, RuntimeError] {
+  let chars = text.to_array()
+  let buf = StringBuilder::new()
+  let mut auto_index = 0
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    if c == '{' {
+      if i + 1 < chars.length() && chars[i + 1] == '{' {
+        buf.write_char('{')
+        i += 2
+        continue
+      }
+      let mut close = i + 1
+      while close < chars.length() && chars[close] != '}' {
+        close += 1
+      }
+      if close >= chars.length() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "unmatched '{' in format string".to_string(),
+          ),
+        )
+      }
+      let field = substring(text, i + 1, close)
+      let field_chars = field.to_array()
+      let mut colon : Int? = None
+      for j = 0; j < field_chars.length(); j = j + 1 {
+        if field_chars[j] == ':' {
+          colon = Some(j)
+          break
+        }
+      }
+      let field_name = match colon {
+        Some(pos) =>
+          substring(field, 0, pos).trim(chars=" \t").to_string()
+        None => field.trim(chars=" \t").to_string()
+      }
+      let spec = match colon {
+        Some(pos) => substring(field, pos + 1, field.length())
+        None => "".to_string()
+      }
+      let value = if field_name.length() == 0 {
+        if auto_index >= positional.length() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "not enough arguments for format string".to_string(),
+            ),
+          )
+        }
+        let v = positional[auto_index]
+        auto_index += 1
+        v
+      } else {
+        let mut is_number = true
+        for ch in field_name.to_array() {
+          if !ch.is_ascii_digit() {
+            is_number = false
+            break
+          }
+        }
+        if is_number {
+          let index = @strconv.parse_int(field_name) catch {
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "invalid format index".to_string(),
+                ),
+              )
+          }
+          if index < 0 || index >= positional.length() {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "not enough arguments for format string".to_string(),
+              ),
+            )
+          }
+          positional[index]
+        } else {
+          match lookup_keyword_value(keywords, field_name) {
+            Some(v) => v
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "missing format keyword".to_string(),
+                ),
+              )
+          }
+        }
+      }
+      let formatted = match format_value_with_spec(value, spec) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      buf.write_string(formatted)
+      i = close + 1
+      continue
+    }
+    if c == '}' {
+      if i + 1 < chars.length() && chars[i + 1] == '}' {
+        buf.write_char('}')
+        i += 2
+        continue
+      }
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "single '}' encountered in format string".to_string(),
+        ),
+      )
+    }
+    buf.write_char(c)
+    i += 1
+  }
+  Ok(buf.to_string())
+}
+
+///|
 fn lookup_class_attr(
   klass : ClassValue,
   name : String,
@@ -842,6 +1058,22 @@ fn get_attr_raw_from_value(
               name: "split",
               params: ["self", "sep", "maxsplit"],
               defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "format" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "format",
+              params: ["self"],
+              defaults: [],
               body: [],
               is_generator: false,
               is_async: false,
@@ -3299,6 +3531,14 @@ fn call_callable_with_env(
                       ),
                     )
                 }
+              }
+              "format" => {
+                let formatted = match
+                  format_string_with_args(text, positional, keywords) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(formatted))
               }
               _ => ()
             }

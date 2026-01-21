@@ -14,7 +14,23 @@ __all__ = [
     "Pattern",
     "Match",
     "error",
+    "IGNORECASE",
+    "LOCALE",
+    "MULTILINE",
+    "DOTALL",
+    "VERBOSE",
+    "ASCII",
+    "UNICODE",
 ]
+
+# Flag values mirror CPython for compatibility (no regex engine yet).
+IGNORECASE = 2
+LOCALE = 4
+MULTILINE = 8
+DOTALL = 16
+UNICODE = 32
+VERBOSE = 64
+ASCII = 256
 
 
 class error(Exception):

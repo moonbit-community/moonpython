@@ -4450,125 +4450,14 @@ fn parse_simple_statement(
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
       .to_string()
-    if rest.length() == 0 {
-      let token = {
-        kind: Eof,
-        start: base_offset,
-        end: base_offset + 1,
-        line: line_index + 1,
-        column: base_offset - line_start_offset + 1,
-      }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
-      )
-    }
-    let chars = rest.to_array()
-    let mut quote : Char? = None
-    let mut escaped = false
-    let mut depth = 0
-    let mut eq_pos : Int? = None
-    for i = 0; i < chars.length(); i = i + 1 {
-      let c = chars[i]
-      match quote {
-        Some(q) =>
-          if escaped {
-            escaped = false
-          } else if c == '\\' {
-            escaped = true
-          } else if c == q {
-            quote = None
-          }
-        None =>
-          if c == '\'' || c == '"' {
-            quote = Some(c)
-            escaped = false
-          } else if c == '(' || c == '[' || c == '{' {
-            depth += 1
-          } else if c == ')' || c == ']' || c == '}' {
-            if depth > 0 {
-              depth -= 1
-            }
-          } else if c == '=' && depth == 0 {
-            eq_pos = Some(i)
-            break
-          }
-      }
-    }
-    if eq_pos is None {
-      let token = {
-        kind: Eof,
-        start: base_offset,
-        end: base_offset + 1,
-        line: line_index + 1,
-        column: base_offset - line_start_offset + 1,
-      }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
-      )
-    }
-    let eq_pos = eq_pos.unwrap()
-    let name_raw = substring(rest, 0, eq_pos)
-    let value_raw = substring(rest, eq_pos + 1, rest.length())
-    let mut name_leading = 0
-    let name_raw_chars = name_raw.to_array()
-    while name_leading < name_raw_chars.length() &&
-          name_raw_chars[name_leading] == ' ' {
-      name_leading += 1
-    }
-    let name_text = name_raw.trim(chars=" \t").to_string()
-    let mut value_leading = 0
-    let value_raw_chars = value_raw.to_array()
-    while value_leading < value_raw_chars.length() &&
-          value_raw_chars[value_leading] == ' ' {
-      value_leading += 1
-    }
-    let value_text = value_raw.trim(chars=" \t").to_string()
-    if name_text.length() == 0 || value_text.length() == 0 {
-      let token = {
-        kind: Eof,
-        start: base_offset,
-        end: base_offset + 1,
-        line: line_index + 1,
-        column: base_offset - line_start_offset + 1,
-      }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
-      )
-    }
-    let name_token = {
-      kind: Eof,
-      start: base_offset + 5 + name_leading,
-      end: base_offset + 5 + name_leading + 1,
-      line: line_index + 1,
-      column: base_offset + 5 + name_leading - line_start_offset + 1,
-    }
-    let (name, type_params) = match
-      parse_type_param_header(name_text, name_token) {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    let name_chars = name.to_array()
-    for i = 0; i < name_chars.length(); i = i + 1 {
-      let c = name_chars[i]
-      if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+    if !rest.has_prefix("=") {
+      if rest.length() == 0 {
         let token = {
           kind: Eof,
-          start: base_offset + 5 + name_leading + i,
-          end: base_offset + 5 + name_leading + i + 1,
+          start: base_offset,
+          end: base_offset + 1,
           line: line_index + 1,
-          column: base_offset + 5 + name_leading + i - line_start_offset + 1,
+          column: base_offset - line_start_offset + 1,
         }
         return Err(
           make_parse_error(
@@ -4578,20 +4467,133 @@ fn parse_simple_statement(
           ),
         )
       }
+      let chars = rest.to_array()
+      let mut quote : Char? = None
+      let mut escaped = false
+      let mut depth = 0
+      let mut eq_pos : Int? = None
+      for i = 0; i < chars.length(); i = i + 1 {
+        let c = chars[i]
+        match quote {
+          Some(q) =>
+            if escaped {
+              escaped = false
+            } else if c == '\\' {
+              escaped = true
+            } else if c == q {
+              quote = None
+            }
+          None =>
+            if c == '\'' || c == '"' {
+              quote = Some(c)
+              escaped = false
+            } else if c == '(' || c == '[' || c == '{' {
+              depth += 1
+            } else if c == ')' || c == ']' || c == '}' {
+              if depth > 0 {
+                depth -= 1
+              }
+            } else if c == '=' && depth == 0 {
+              eq_pos = Some(i)
+              break
+            }
+        }
+      }
+      if eq_pos is None {
+        let token = {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 1,
+          column: base_offset - line_start_offset + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let eq_pos = eq_pos.unwrap()
+      let name_raw = substring(rest, 0, eq_pos)
+      let value_raw = substring(rest, eq_pos + 1, rest.length())
+      let mut name_leading = 0
+      let name_raw_chars = name_raw.to_array()
+      while name_leading < name_raw_chars.length() &&
+            name_raw_chars[name_leading] == ' ' {
+        name_leading += 1
+      }
+      let name_text = name_raw.trim(chars=" \t").to_string()
+      let mut value_leading = 0
+      let value_raw_chars = value_raw.to_array()
+      while value_leading < value_raw_chars.length() &&
+            value_raw_chars[value_leading] == ' ' {
+        value_leading += 1
+      }
+      let value_text = value_raw.trim(chars=" \t").to_string()
+      if name_text.length() == 0 || value_text.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 1,
+          column: base_offset - line_start_offset + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      let name_token = {
+        kind: Eof,
+        start: base_offset + 5 + name_leading,
+        end: base_offset + 5 + name_leading + 1,
+        line: line_index + 1,
+        column: base_offset + 5 + name_leading - line_start_offset + 1,
+      }
+      let (name, type_params) = match
+        parse_type_param_header(name_text, name_token) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let name_chars = name.to_array()
+      for i = 0; i < name_chars.length(); i = i + 1 {
+        let c = name_chars[i]
+        if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+          let token = {
+            kind: Eof,
+            start: base_offset + 5 + name_leading + i,
+            end: base_offset + 5 + name_leading + i + 1,
+            line: line_index + 1,
+            column: base_offset + 5 + name_leading + i - line_start_offset + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
+        }
+      }
+      let value_offset = base_offset + 5 + eq_pos + 1 + value_leading
+      let tokens = match tokenize_expr(value_text, line_index + 1, value_offset) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let value_expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      stmts.push(Stmt::TypeAlias(name~, type_params~, value=value_expr))
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, span, base_offset,
+      )
     }
-    let value_offset = base_offset + 5 + eq_pos + 1 + value_leading
-    let tokens = match tokenize_expr(value_text, line_index + 1, value_offset) {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    let value_expr = match parse_tokens_expr(tokens) {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
-    stmts.push(Stmt::TypeAlias(name~, type_params~, value=value_expr))
-    return finalize_simple_statement(
-      stmts, allow_async_comprehensions, span, base_offset,
-    )
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
     let rest = substring(trimmed, 6, trimmed.length())

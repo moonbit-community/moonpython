@@ -427,6 +427,20 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int) {
 }
 
 ///|
+fn raw_quote_escaped(chars : Array[Char], pos : Int) -> Bool {
+  if pos == 0 {
+    return false
+  }
+  let mut idx = pos - 1
+  let mut count = 0
+  while idx >= 0 && chars[idx] == '\\' {
+    count += 1
+    idx -= 1
+  }
+  count % 2 == 1
+}
+
+///|
 fn parse_string_literal(
   chars : Array[Char],
   start : Int,
@@ -455,7 +469,9 @@ fn parse_string_literal(
       return (buf.to_string(), i, false)
     }
     if c == quote {
-      if triple {
+      if raw && raw_quote_escaped(chars, i) {
+        // keep quote as part of raw string literal
+      } else if triple {
         if i + 2 < chars.length() &&
           chars[i + 1] == quote &&
           chars[i + 2] == quote {

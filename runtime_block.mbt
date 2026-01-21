@@ -1025,8 +1025,12 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::FromImport(module_name~, names~) => {
+        let resolved_name = match resolve_relative_module_name(module_name, globals) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
         let module_value = match
-          import_module(module_name, globals, builtins, io, config) {
+          import_module(resolved_name, globals, builtins, io, config) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -1051,7 +1055,7 @@ fn eval_block_flow(
             Err(err) =>
               match err.kind {
                 RuntimeErrorKind::Attribute => {
-                  let submodule = module_name + "." + name
+                  let submodule = resolved_name + "." + name
                   match
                     import_module(submodule, globals, builtins, io, config) {
                     Ok(value) => value
@@ -1062,7 +1066,7 @@ fn eval_block_flow(
                           "ImportError: cannot import name '" +
                           name +
                           "' from '" +
-                          module_name +
+                          resolved_name +
                           "'",
                         ),
                       )

@@ -295,6 +295,36 @@ fn builtin_class_from_name(
         }),
       ),
     )
+    dict.push(
+      (
+        "__repr__",
+        Value::Function(FunctionValue::{
+          name: "int.__repr__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  if name == "float" {
+    dict.push(
+      (
+        "__repr__",
+        Value::Function(FunctionValue::{
+          name: "float.__repr__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
   }
   if name == "str" {
     dict.push(
