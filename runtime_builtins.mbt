@@ -2965,10 +2965,6 @@ fn builtin_property(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("property", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -2981,10 +2977,65 @@ fn builtin_property(
       ),
     )
   }
-  let fget = if positional.length() >= 1 { positional[0] } else { Value::None }
-  let fset = if positional.length() >= 2 { positional[1] } else { Value::None }
-  let fdel = if positional.length() >= 3 { positional[2] } else { Value::None }
-  let doc = if positional.length() >= 4 { positional[3] } else { Value::None }
+  let mut fget = if positional.length() >= 1 {
+    positional[0]
+  } else {
+    Value::None
+  }
+  let mut fset = if positional.length() >= 2 {
+    positional[1]
+  } else {
+    Value::None
+  }
+  let mut fdel = if positional.length() >= 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let mut doc = if positional.length() >= 4 {
+    positional[3]
+  } else {
+    Value::None
+  }
+  let mut has_fget = positional.length() >= 1
+  let mut has_fset = positional.length() >= 2
+  let mut has_fdel = positional.length() >= 3
+  let mut has_doc = positional.length() >= 4
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "fget" =>
+        if has_fget {
+          return Err(multiple_values_error("property", "fget"))
+        } else {
+          fget = value
+          has_fget = true
+        }
+      "fset" =>
+        if has_fset {
+          return Err(multiple_values_error("property", "fset"))
+        } else {
+          fset = value
+          has_fset = true
+        }
+      "fdel" =>
+        if has_fdel {
+          return Err(multiple_values_error("property", "fdel"))
+        } else {
+          fdel = value
+          has_fdel = true
+        }
+      "doc" =>
+        if has_doc {
+          return Err(multiple_values_error("property", "doc"))
+        } else {
+          doc = value
+          has_doc = true
+        }
+      _ => return Err(unexpected_keyword_argument_error("property", key))
+    }
+  }
   let dict : Array[(String, Value)] = []
   dict.push(("fget", fget))
   dict.push(("fset", fset))
