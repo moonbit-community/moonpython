@@ -61,6 +61,27 @@ fn ExprParser::expect(
 }
 
 ///|
+fn normalize_param_name_for_compare(param : String) -> String? {
+  if param == "*" || param == "/" {
+    return None
+  }
+  let mut name = param
+  if name.has_suffix("=") {
+    name = substring(name, 0, name.length() - 1)
+  }
+  if name.has_prefix("**") {
+    name = substring(name, 2, name.length())
+  } else if name.has_prefix("*") {
+    name = substring(name, 1, name.length())
+  }
+  if name.length() == 0 {
+    None
+  } else {
+    Some(name)
+  }
+}
+
+///|
 fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
   if self.view() is [{ kind: Yield, .. }, .. rest] {
     self.update_view(rest)
@@ -1196,11 +1217,35 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       let params : Array[String] = []
       let defaults : Array[Expr] = []
       let seen : Array[String] = []
+      let mut default_seen = false
+      let mut kw_only = false
       if self.current().kind != Colon {
         while true {
           let current = self.current()
           match current.kind {
             Ident(name) => {
+              let mut encoded = name
+              let _ = self.advance()
+              if self.current().kind == Assign {
+                let _ = self.advance()
+                let value = match self.parse_conditional() {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                defaults.push(value)
+                encoded = name + "="
+                if !kw_only {
+                  default_seen = true
+                }
+              } else if !kw_only && default_seen {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "non-default argument follows default argument".to_string(),
+                    current,
+                  ),
+                )
+              }
               for existing in seen {
                 if existing == name {
                   return Err(
@@ -1213,36 +1258,73 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 }
               }
               seen.push(name)
-              params.push(name)
-              let _ = self.advance()
-              if self.current().kind == Assign {
-                let _ = self.advance()
-                let value = match self.parse_conditional() {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                defaults.push(value)
-              }
+              params.push(encoded)
             }
             Star => {
               let _ = self.advance()
+              let mut has_name = false
               if self.current().kind is Ident(name) {
-                params.push(name)
+                has_name = true
+                for existing in seen {
+                  if existing == name {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "duplicate argument '" + name + "' in function definition",
+                        current,
+                      ),
+                    )
+                  }
+                }
+                seen.push(name)
+                params.push("*" + name)
                 let _ = self.advance()
-
+                if self.current().kind == Assign {
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "invalid syntax".to_string(),
+                      self.current(),
+                    ),
+                  )
+                }
               }
+              if !has_name {
+                params.push("*")
+              }
+              kw_only = true
             }
             StarStar => {
               let _ = self.advance()
               if self.current().kind is Ident(name) {
-                params.push(name)
+                for existing in seen {
+                  if existing == name {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "duplicate argument '" + name + "' in function definition",
+                        current,
+                      ),
+                    )
+                  }
+                }
+                seen.push(name)
+                params.push("**" + name)
                 let _ = self.advance()
-
+                if self.current().kind == Assign {
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "invalid syntax".to_string(),
+                      self.current(),
+                    ),
+                  )
+                }
               }
+              kw_only = true
             }
             Slash => {
               let _ = self.advance()
-
             }
             _ => return Err(unexpected_token_error(current))
           }
@@ -6163,51 +6245,31 @@ fn LineParser::parse_block(
             }
             if name == "*" {
               kw_only = true
+              params.push("*")
               name = ""
             }
-            if name.has_prefix("*") {
-              kw_only = true
-            }
+            let mut star_count = 0
             while name.has_prefix("*") {
+              star_count += 1
               name = substring(name, 1, name.length()).to_string()
               name = name.trim(chars=" \t\n\r").to_string()
+            }
+            if star_count > 0 {
+              kw_only = true
             }
             let colon_pos = find_char(name, ':')
             if colon_pos is Some(colon_idx) {
               name = substring(name, 0, colon_idx).trim(chars=" \t").to_string()
             }
             if name.length() > 0 {
-              if !kw_only {
-                let param_offset = param_start + leading
-                for existing in seen {
-                  if existing == name {
-                    let token = {
-                      kind: Eof,
-                      start: self.offsets[self.index] +
-                      param_base +
-                      param_offset,
-                      end: self.offsets[self.index] +
-                      param_base +
-                      param_offset +
-                      1,
-                      line: self.index + 1,
-                      column: param_base + param_offset + 1,
-                    }
-                    return Err(
-                      make_parse_error(
-                        ParseErrorKind::Syntax,
-                        "duplicate argument '" +
-                        name +
-                        "' in function definition",
-                        token,
-                      ),
-                    )
-                  }
-                }
-                if default_seen && !has_default {
+              let param_offset = param_start + leading
+              for existing in seen {
+                if existing == name {
                   let token = {
                     kind: Eof,
-                    start: self.offsets[self.index] + param_base + param_offset,
+                    start: self.offsets[self.index] +
+                    param_base +
+                    param_offset,
                     end: self.offsets[self.index] +
                     param_base +
                     param_offset +
@@ -6218,45 +6280,114 @@ fn LineParser::parse_block(
                   return Err(
                     make_parse_error(
                       ParseErrorKind::Syntax,
-                      "non-default argument follows default argument".to_string(),
+                      "duplicate argument '" +
+                      name +
+                      "' in function definition",
                       token,
                     ),
                   )
                 }
-                if has_default {
-                  default_seen = true
-                  let eq_pos = find_char(raw_param, '=')
-                  if eq_pos is Some(eq_idx) {
-                    let default_text = substring(
-                        raw_param,
-                        eq_idx + 1,
-                        raw_param.length(),
-                      )
-                      .trim(chars=" \t\n\r")
-                      .to_string()
-                    let tokens = match
-                      tokenize_expr(
-                        default_text,
-                        self.index + 1,
-                        self.offsets[self.index] +
-                        param_base +
-                        param_start +
-                        eq_idx +
-                        1,
-                      ) {
-                      Ok(value) => value
-                      Err(err) => return Err(err)
-                    }
-                    let expr = match parse_tokens_expr(tokens) {
-                      Ok(value) => value
-                      Err(err) => return Err(err)
-                    }
-                    defaults.push(expr)
-                  }
-                }
-                seen.push(name)
-                params.push(name)
               }
+              if star_count > 2 {
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + param_base + param_offset,
+                  end: self.offsets[self.index] +
+                  param_base +
+                  param_offset +
+                  1,
+                  line: self.index + 1,
+                  column: param_base + param_offset + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    token,
+                  ),
+                )
+              }
+              if star_count > 0 && has_default {
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + param_base + param_offset,
+                  end: self.offsets[self.index] +
+                  param_base +
+                  param_offset +
+                  1,
+                  line: self.index + 1,
+                  column: param_base + param_offset + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    token,
+                  ),
+                )
+              }
+              if !kw_only && default_seen && !has_default {
+                let token = {
+                  kind: Eof,
+                  start: self.offsets[self.index] + param_base + param_offset,
+                  end: self.offsets[self.index] +
+                  param_base +
+                  param_offset +
+                  1,
+                  line: self.index + 1,
+                  column: param_base + param_offset + 1,
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "non-default argument follows default argument".to_string(),
+                    token,
+                  ),
+                )
+              }
+              if has_default {
+                if !kw_only {
+                  default_seen = true
+                }
+                let eq_pos = find_char(raw_param, '=')
+                if eq_pos is Some(eq_idx) {
+                  let default_text = substring(
+                      raw_param,
+                      eq_idx + 1,
+                      raw_param.length(),
+                    )
+                    .trim(chars=" \t\n\r")
+                    .to_string()
+                  let tokens = match
+                    tokenize_expr(
+                      default_text,
+                      self.index + 1,
+                      self.offsets[self.index] +
+                      param_base +
+                      param_start +
+                      eq_idx +
+                      1,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  let expr = match parse_tokens_expr(tokens) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  defaults.push(expr)
+                }
+              }
+              seen.push(name)
+              let mut encoded = name
+              if star_count == 1 {
+                encoded = "*" + name
+              } else if star_count == 2 {
+                encoded = "**" + name
+              } else if has_default {
+                encoded = name + "="
+              }
+              params.push(encoded)
             }
           }
           param_start = idx + 1
@@ -6337,7 +6468,9 @@ fn LineParser::parse_block(
                 Stmt::Global(names) =>
                   for name in names {
                     for param in params {
-                      if param == name {
+                      match normalize_param_name_for_compare(param) {
+                        Some(param_name) =>
+                          if param_name == name {
                         let token = {
                           kind: Eof,
                           start: self.offsets[self.index] +
@@ -6360,6 +6493,8 @@ fn LineParser::parse_block(
                             token,
                           ),
                         )
+                          }
+                        None => ()
                       }
                     }
                   }
@@ -6368,7 +6503,9 @@ fn LineParser::parse_block(
             Stmt::Global(names) =>
               for name in names {
                 for param in params {
-                  if param == name {
+                  match normalize_param_name_for_compare(param) {
+                    Some(param_name) =>
+                      if param_name == name {
                     let token = {
                       kind: Eof,
                       start: self.offsets[self.index] +
@@ -6391,6 +6528,8 @@ fn LineParser::parse_block(
                         token,
                       ),
                     )
+                      }
+                    None => ()
                   }
                 }
               }
@@ -6591,7 +6730,9 @@ fn LineParser::parse_block(
           Stmt::Global(names) =>
             for name in names {
               for param in params {
-                if param == name {
+                match normalize_param_name_for_compare(param) {
+                  Some(param_name) =>
+                    if param_name == name {
                   let token = {
                     kind: Eof,
                     start: self.offsets[self.index - 1] + current_indent + 1,
@@ -6606,6 +6747,8 @@ fn LineParser::parse_block(
                       token,
                     ),
                   )
+                    }
+                  None => ()
                 }
               }
             }

@@ -3027,6 +3027,72 @@ fn name_in_list(names : Array[String], name : String) -> Bool {
 }
 
 ///|
+fn param_has_default_marker(param : String) -> Bool {
+  if param == "*" || param == "/" {
+    return false
+  }
+  if param.has_prefix("*") {
+    return false
+  }
+  param.has_suffix("=")
+}
+
+///|
+fn normalize_param_name(param : String) -> String? {
+  if param == "*" || param == "/" {
+    return None
+  }
+  let mut name = param
+  if name.has_suffix("=") {
+    name = substring(name, 0, name.length() - 1)
+  }
+  if name.has_prefix("**") {
+    name = substring(name, 2, name.length())
+  } else if name.has_prefix("*") {
+    name = substring(name, 1, name.length())
+  }
+  if name.length() == 0 {
+    None
+  } else {
+    Some(name)
+  }
+}
+
+///|
+fn param_list_has_name(params : Array[String], name : String) -> Bool {
+  for param in params {
+    match normalize_param_name(param) {
+      Some(param_name) =>
+        if param_name == name {
+          return true
+        }
+      None => ()
+    }
+  }
+  false
+}
+
+///|
+fn param_is_kw_only_marker(param : String) -> Bool {
+  param == "*"
+}
+
+///|
+fn param_is_posonly_marker(param : String) -> Bool {
+  param == "/"
+}
+
+///|
+fn param_is_vararg(param : String) -> Bool {
+  param.has_prefix("*") && !param.has_prefix("**") && param != "*"
+}
+
+///|
+fn param_is_kwarg(param : String) -> Bool {
+  param.has_prefix("**")
+}
+
+///|
 fn check_scope_decl_conflicts(
   params : Array[String],
   global_names : Array[String],
@@ -3041,7 +3107,7 @@ fn check_scope_decl_conflicts(
         ),
       )
     }
-    if name_in_list(params, name) {
+    if param_list_has_name(params, name) {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -3051,7 +3117,7 @@ fn check_scope_decl_conflicts(
     }
   }
   for name in nonlocal_names {
-    if name_in_list(params, name) {
+    if param_list_has_name(params, name) {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -3393,7 +3459,10 @@ fn collect_function_local_names(
   }
 
   for p in params {
-    add_local(p)
+    match normalize_param_name(p) {
+      Some(name) => add_local(name)
+      None => ()
+    }
   }
   for stmt in body {
     walk_stmt(stmt)
@@ -3501,59 +3570,56 @@ fn bind_function_args_with_kwargs(
   positional : Array[Value],
   keywords : Array[(String, Value)],
 ) -> Result[Array[(String, Value)], RuntimeError] {
-  if positional.length() > func.params.length() {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Type,
-        func.name +
-        "() takes " +
-        func.params.length().to_string() +
-        " positional arguments but " +
-        positional.length().to_string() +
-        " were given",
-      ),
-    )
-  }
-  let locals : Array[(String, Value)] = []
-  let assigned : Array[Bool] = []
+  let pos_params : Array[String] = []
+  let kw_only_params : Array[String] = []
+  let mut vararg_name : String? = None
+  let mut kwarg_name : String? = None
+  let defaults_by_name : Array[(String, Value)] = []
+  let mut default_idx = 0
+  let mut kw_only = false
+
   for param in func.params {
-    locals.push((param, Value::None))
-    assigned.push(false)
-  }
-  for i = 0; i < positional.length() && i < func.params.length(); i = i + 1 {
-    locals[i] = (func.params[i], positional[i])
-    assigned[i] = true
-  }
-  for pair in keywords {
-    let name = pair.0
-    let value = pair.1
-    let mut found = false
-    for i = 0; i < func.params.length(); i = i + 1 {
-      if func.params[i] == name {
-        found = true
-        if assigned[i] {
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              func.name + "() got multiple values for argument '" + name + "'",
-            ),
-          )
+    if param_is_posonly_marker(param) {
+      continue
+    }
+    if param_is_kw_only_marker(param) {
+      kw_only = true
+      continue
+    }
+    if param_is_kwarg(param) {
+      kwarg_name = normalize_param_name(param)
+      kw_only = true
+      continue
+    }
+    if param_is_vararg(param) {
+      vararg_name = normalize_param_name(param)
+      kw_only = true
+      continue
+    }
+    match normalize_param_name(param) {
+      Some(name) => {
+        if kw_only {
+          kw_only_params.push(name)
+        } else {
+          pos_params.push(name)
         }
-        locals[i] = (name, value)
-        assigned[i] = true
-        break
+        if param_has_default_marker(param) {
+          if default_idx >= func.defaults.length() {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "RuntimeError: bad function defaults".to_string(),
+              ),
+            )
+          }
+          defaults_by_name.push((name, func.defaults[default_idx]))
+          default_idx += 1
+        }
       }
-    }
-    if !found {
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          func.name + "() got an unexpected keyword argument '" + name + "'",
-        ),
-      )
+      None => ()
     }
   }
-  if func.defaults.length() > func.params.length() {
+  if default_idx != func.defaults.length() {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
@@ -3561,38 +3627,211 @@ fn bind_function_args_with_kwargs(
       ),
     )
   }
-  let required_count = func.params.length() - func.defaults.length()
-  for i = required_count; i < func.params.length(); i = i + 1 {
-    if !assigned[i] {
-      locals[i] = (func.params[i], func.defaults[i - required_count])
-      assigned[i] = true
+
+  if vararg_name is None && positional.length() > pos_params.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        func.name +
+        "() takes " +
+        pos_params.length().to_string() +
+        " positional arguments but " +
+        positional.length().to_string() +
+        " were given",
+      ),
+    )
+  }
+
+  fn find_default(
+    defaults_by_name : Array[(String, Value)],
+    name : String,
+  ) -> Value? {
+    for entry in defaults_by_name {
+      if entry.0 == name {
+        return Some(entry.1)
+      }
+    }
+    None
+  }
+
+  let pos_values : Array[(String, Value)] = []
+  let pos_assigned : Array[Bool] = []
+  for name in pos_params {
+    pos_values.push((name, Value::None))
+    pos_assigned.push(false)
+  }
+  let kw_values : Array[(String, Value)] = []
+  let kw_assigned : Array[Bool] = []
+  for name in kw_only_params {
+    kw_values.push((name, Value::None))
+    kw_assigned.push(false)
+  }
+  let vararg_values : Array[Value] = []
+  let kwarg_values : Array[(Value, Value)] = []
+
+  for i = 0; i < positional.length(); i = i + 1 {
+    if i < pos_params.length() {
+      pos_values[i] = (pos_params[i], positional[i])
+      pos_assigned[i] = true
+    } else {
+      vararg_values.push(positional[i])
     }
   }
-  let missing : Array[String] = []
-  for i = 0; i < required_count; i = i + 1 {
-    if !assigned[i] {
-      missing.push(func.params[i])
+
+  for pair in keywords {
+    let name = pair.0
+    let value = pair.1
+    let mut handled = false
+    for i = 0; i < pos_params.length(); i = i + 1 {
+      if pos_params[i] == name {
+        handled = true
+        if pos_assigned[i] {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              func.name + "() got multiple values for argument '" + name + "'",
+            ),
+          )
+        }
+        pos_values[i] = (name, value)
+        pos_assigned[i] = true
+        break
+      }
+    }
+    if handled {
+      continue
+    }
+    for i = 0; i < kw_only_params.length(); i = i + 1 {
+      if kw_only_params[i] == name {
+        handled = true
+        if kw_assigned[i] {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              func.name + "() got multiple values for argument '" + name + "'",
+            ),
+          )
+        }
+        kw_values[i] = (name, value)
+        kw_assigned[i] = true
+        break
+      }
+    }
+    if handled {
+      continue
+    }
+    match kwarg_name {
+      Some(_) => {
+        let mut exists = false
+        for entry in kwarg_values {
+          match entry.0 {
+            Value::Str(key) =>
+              if key == name {
+                exists = true
+              }
+            _ => ()
+          }
+        }
+        if exists {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              func.name + "() got multiple values for argument '" + name + "'",
+            ),
+          )
+        }
+        kwarg_values.push((Value::Str(name), value))
+      }
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            func.name + "() got an unexpected keyword argument '" + name + "'",
+          ),
+        )
     }
   }
-  if missing.length() > 0 {
+
+  let missing_pos : Array[String] = []
+  for i = 0; i < pos_params.length(); i = i + 1 {
+    if !pos_assigned[i] {
+      match find_default(defaults_by_name, pos_params[i]) {
+        Some(value) => {
+          pos_values[i] = (pos_params[i], value)
+          pos_assigned[i] = true
+        }
+        None => missing_pos.push(pos_params[i])
+      }
+    }
+  }
+  if missing_pos.length() > 0 {
     let buf = StringBuilder::new()
     buf.write_string(func.name)
     buf.write_string("() missing ")
-    buf.write_string(missing.length().to_string())
+    buf.write_string(missing_pos.length().to_string())
     buf.write_string(" required positional argument")
-    if missing.length() != 1 {
+    if missing_pos.length() != 1 {
       buf.write_string("s")
     }
     buf.write_string(": ")
-    for i = 0; i < missing.length(); i = i + 1 {
+    for i = 0; i < missing_pos.length(); i = i + 1 {
       if i > 0 {
         buf.write_string(", ")
       }
       buf.write_string("'")
-      buf.write_string(missing[i])
+      buf.write_string(missing_pos[i])
       buf.write_string("'")
     }
     return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
+  }
+
+  let missing_kw : Array[String] = []
+  for i = 0; i < kw_only_params.length(); i = i + 1 {
+    if !kw_assigned[i] {
+      match find_default(defaults_by_name, kw_only_params[i]) {
+        Some(value) => {
+          kw_values[i] = (kw_only_params[i], value)
+          kw_assigned[i] = true
+        }
+        None => missing_kw.push(kw_only_params[i])
+      }
+    }
+  }
+  if missing_kw.length() > 0 {
+    let buf = StringBuilder::new()
+    buf.write_string(func.name)
+    buf.write_string("() missing ")
+    buf.write_string(missing_kw.length().to_string())
+    buf.write_string(" required keyword-only argument")
+    if missing_kw.length() != 1 {
+      buf.write_string("s")
+    }
+    buf.write_string(": ")
+    for i = 0; i < missing_kw.length(); i = i + 1 {
+      if i > 0 {
+        buf.write_string(", ")
+      }
+      buf.write_string("'")
+      buf.write_string(missing_kw[i])
+      buf.write_string("'")
+    }
+    return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
+  }
+
+  let locals : Array[(String, Value)] = []
+  for item in pos_values {
+    locals.push(item)
+  }
+  match vararg_name {
+    Some(name) => locals.push((name, Value::Tuple(vararg_values)))
+    None => ()
+  }
+  for item in kw_values {
+    locals.push(item)
+  }
+  match kwarg_name {
+    Some(name) => locals.push((name, Value::Dict(kwarg_values)))
+    None => ()
   }
   Ok(locals)
 }
