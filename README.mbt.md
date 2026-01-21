@@ -2,6 +2,20 @@
 
 A small Python parser + interpreter implemented in MoonBit.
 
+## Status
+
+Recent additions:
+- PEP 701 f-strings (escaped braces, nested format specs, debug `=`).
+- PEP 695 syntax support for type parameters and `type` statements (parse/AST only).
+- Improved SyntaxError reporting for bracket mismatches and unclosed brackets.
+
+Notes:
+- Type parameters and `type` aliases are parsed and preserved in the AST; runtime behavior is currently a no-op.
+
+## Roadmap
+
+See `ROADMAP.md` for the current checklist and milestone status.
+
 ## Run a Python program (file)
 
 From the `aaom-mpython/` directory:
