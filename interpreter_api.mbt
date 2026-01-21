@@ -313,6 +313,11 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let system_error_class = ClassValue::{
+    name: "SystemError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let os_error_class = ClassValue::{
     name: "OSError",
     bases: [Value::Class(exception_class)],
@@ -357,6 +362,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("RuntimeWarning", Value::Class(runtime_warning_class)))
   builtins.push(("ImportWarning", Value::Class(import_warning_class)))
   builtins.push(("ResourceWarning", Value::Class(resource_warning_class)))
+  builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
   builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
   let builtin_type_names : Array[String] = [
@@ -605,6 +611,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let system_error_class = ClassValue::{
+    name: "SystemError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let name_error_class = ClassValue::{
     name: "NameError",
     bases: [Value::Class(exception_class)],
@@ -791,6 +802,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("RuntimeWarning", Value::Class(runtime_warning_class)),
     ("ImportWarning", Value::Class(import_warning_class)),
     ("ResourceWarning", Value::Class(resource_warning_class)),
+    ("SystemError", Value::Class(system_error_class)),
     ("NameError", Value::Class(name_error_class)),
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),
