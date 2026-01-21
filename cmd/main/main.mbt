@@ -139,13 +139,48 @@ fn print_run(run : @mpython.RunResult) -> Unit {
 }
 
 ///|
+fn print_usage() -> Unit {
+  println("usage: moon run cmd/main -- [--stdlib PATH] program.py")
+}
+
+///|
 fn main {
   let args = @sys.get_cli_args()
-  if args.length() < 2 {
-    println("usage: moon run cmd/main -- program.py")
+  let mut script_path : String? = None
+  let stdlib_paths : Array[String] = []
+  let mut i = 1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-h" || arg == "--help" {
+      print_usage()
+      @sys.exit(0)
+    }
+    if arg == "--stdlib" || arg == "--stdlib-path" {
+      if i + 1 >= args.length() {
+        println("missing value for " + arg)
+        print_usage()
+        @sys.exit(1)
+      }
+      stdlib_paths.push(args[i + 1])
+      i += 2
+      continue
+    }
+    if script_path is None {
+      script_path = Some(arg)
+      i += 1
+      continue
+    }
+    println("unexpected argument: " + arg)
+    print_usage()
     @sys.exit(1)
   }
-  let script_path = args[1]
+  let script_path = match script_path {
+    Some(path) => path
+    None => {
+      print_usage()
+      @sys.exit(1)
+    }
+  }
   let source = @fs.read_file_to_string(script_path) catch {
     _ =>
       return {
@@ -153,7 +188,16 @@ fn main {
         @sys.exit(1)
       }
   }
-  let interpreter = @mpython.Interpreter::new()
+  let default_config = @mpython.Config::default()
+  let config = @mpython.Config::{
+    max_recursion: default_config.max_recursion,
+    traceback_limit: default_config.traceback_limit,
+    track_spans: default_config.track_spans,
+    allow_filesystem_imports: true,
+    import_paths: stdlib_paths,
+    main_path: Some(script_path),
+  }
+  let interpreter = @mpython.Interpreter::with_config(config)
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)
     Err(err) => {

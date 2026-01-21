@@ -154,10 +154,47 @@ fn run_line(interpreter : @mpython.Interpreter, line : String) -> Unit {
 }
 
 ///|
+fn print_usage() -> Unit {
+  println("usage: moon run cmd/repl -- [--stdlib PATH]")
+}
+
+///|
 fn main {
+  let args = @sys.get_cli_args()
+  let stdlib_paths : Array[String] = []
+  let mut i = 1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-h" || arg == "--help" {
+      print_usage()
+      @sys.exit(0)
+    }
+    if arg == "--stdlib" || arg == "--stdlib-path" {
+      if i + 1 >= args.length() {
+        println("missing value for " + arg)
+        print_usage()
+        @sys.exit(1)
+      }
+      stdlib_paths.push(args[i + 1])
+      i += 2
+      continue
+    }
+    println("unexpected argument: " + arg)
+    print_usage()
+    @sys.exit(1)
+  }
   println("mpython REPL (Ctrl-D to exit)")
   let source = @fs.read_file_to_string("/dev/stdin") catch { _ => "" }
-  let interpreter = @mpython.Interpreter::new()
+  let default_config = @mpython.Config::default()
+  let config = @mpython.Config::{
+    max_recursion: default_config.max_recursion,
+    traceback_limit: default_config.traceback_limit,
+    track_spans: default_config.track_spans,
+    allow_filesystem_imports: true,
+    import_paths: stdlib_paths,
+    main_path: None,
+  }
+  let interpreter = @mpython.Interpreter::with_config(config)
   for line in source.split("\n") {
     run_line(interpreter, line.to_string())
   }
