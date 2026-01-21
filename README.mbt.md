@@ -30,6 +30,19 @@ Example:
 moon run cmd/main -- examples/tasks.py
 ```
 
+## Using the CPython `Lib/` snapshot
+
+This repo vendors CPython's `Lib/` under `aaom-mpython/Lib/`. You can point the
+interpreter to it with `--stdlib`:
+
+```bash
+moon run cmd/main -- --stdlib Lib examples/stdlib_imports.py
+```
+
+Notes:
+- `--stdlib` accepts any directory; `Lib/` is the current CPython snapshot.
+- We do **not** support C extensions; only pure-Python modules are expected to run.
+
 ## REPL / stdin runner
 
 Use `cmd/repl` to execute code from stdin (line-by-line):
