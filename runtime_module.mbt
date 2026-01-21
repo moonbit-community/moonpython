@@ -295,6 +295,15 @@ fn make_builtins_module(builtins : Array[(String, Value)]) -> Value {
 ///|
 fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
   let _ = builtins
+  let builtin_module_names = Value::Tuple([
+    Value::Str("builtins"),
+    Value::Str("sys"),
+    Value::Str("_thread"),
+    Value::Str("_weakref"),
+    Value::Str("itertools"),
+    Value::Str("math"),
+    Value::Str("asyncio"),
+  ])
   let version_info = Value::Tuple([
     Value::Int(3N),
     Value::Int(12N),
@@ -316,6 +325,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("version_info", version_info),
     ("platform", Value::Str("mpython")),
     ("implementation", impl_value),
+    ("builtin_module_names", builtin_module_names),
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List([])),
     ("argv", Value::List([])),
