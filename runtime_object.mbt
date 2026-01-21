@@ -206,6 +206,24 @@ fn class_includes_dict(klass : ClassValue) -> Bool {
 }
 
 ///|
+fn is_ascii_alpha(c : Char) -> Bool {
+  let code = c.to_int()
+  (code >= 'a'.to_int() && code <= 'z'.to_int()) ||
+  (code >= 'A'.to_int() && code <= 'Z'.to_int())
+}
+
+///|
+fn is_ascii_digit(c : Char) -> Bool {
+  let code = c.to_int()
+  code >= '0'.to_int() && code <= '9'.to_int()
+}
+
+///|
+fn is_ascii_alnum(c : Char) -> Bool {
+  is_ascii_alpha(c) || is_ascii_digit(c)
+}
+
+///|
 fn lookup_class_attr(
   klass : ClassValue,
   name : String,
@@ -636,6 +654,62 @@ fn get_attr_raw_from_value(
             ),
           )
       }
+    }
+    Value::Str(_) => {
+      if attr == "startswith" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "startswith",
+              params: ["self", "prefix", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "isidentifier" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "isidentifier",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "upper" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "upper",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'str' object has no attribute '" + attr + "'",
+        ),
+      )
     }
     Value::List(_) => {
       if attr == "append" {
@@ -2524,6 +2598,110 @@ fn call_callable_with_env(
                       io,
                     ),
                   )
+                }
+              _ => ()
+            }
+          }
+        Value::Str(text) =>
+          if bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  bound_method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match bound_method.function.name {
+              "startswith" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "startswith() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let prefix = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "startswith() expects a str prefix".to_string(),
+                      ),
+                    )
+                }
+                let start = match index_from_value(
+                  if positional.length() >= 2 { positional[1] } else { Value::None },
+                  0,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match index_from_value(
+                  if positional.length() == 3 { positional[2] } else { Value::None },
+                  text.length(),
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, text.length())
+                let mut end_idx = normalize_index(end, text.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > text.length() {
+                  start_idx = text.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > text.length() {
+                  end_idx = text.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                let segment = substring(text, start_idx, end_idx)
+                return Ok(Value::Bool(segment.has_prefix(prefix)))
+              }
+              "isidentifier" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isidentifier() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  let first = chars[0]
+                  if !(is_ascii_alpha(first) || first == '_') {
+                    return Ok(Value::Bool(false))
+                  }
+                  for i = 1; i < chars.length(); i = i + 1 {
+                    let c = chars[i]
+                    if !(is_ascii_alnum(c) || c == '_') {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "upper" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "upper() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(Value::Str(text.to_upper()))
                 }
               _ => ()
             }
