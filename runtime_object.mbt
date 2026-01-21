@@ -224,6 +224,17 @@ fn is_ascii_alnum(c : Char) -> Bool {
 }
 
 ///|
+fn is_ascii_whitespace(c : Char) -> Bool {
+  let code = c.to_int()
+  code == ' '.to_int() ||
+  code == '\t'.to_int() ||
+  code == '\n'.to_int() ||
+  code == '\r'.to_int() ||
+  code == 0x0b ||
+  code == 0x0c
+}
+
+///|
 fn lookup_class_attr(
   klass : ClassValue,
   name : String,
@@ -709,6 +720,38 @@ fn get_attr_raw_from_value(
               name: "upper",
               params: ["self"],
               defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "replace" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "replace",
+              params: ["self", "old", "new", "count"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "split" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "split",
+              params: ["self", "sep", "maxsplit"],
+              defaults: [Value::None, Value::None],
               body: [],
               is_generator: false,
               is_async: false,
@@ -2717,6 +2760,199 @@ fn call_callable_with_env(
                 } else {
                   return Ok(Value::Str(text.to_upper()))
                 }
+              "replace" => {
+                if positional.length() < 2 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "replace() takes 2 or 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let old = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "replace() expects a str pattern".to_string(),
+                      ),
+                    )
+                }
+                let new_value = match positional[1] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "replace() expects a str replacement".to_string(),
+                      ),
+                    )
+                }
+                let count = if positional.length() == 3 {
+                  match index_from_value(positional[2], -1) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                } else {
+                  -1
+                }
+                if count == 0 {
+                  return Ok(Value::Str(text))
+                }
+                if old.length() == 0 {
+                  let chars = text.to_array()
+                  let total = chars.length() + 1
+                  let limit = if count < 0 || count > total { total } else { count }
+                  let builder = StringBuilder::new()
+                  let mut inserted = 0
+                  for i = 0; i < chars.length(); i = i + 1 {
+                    if inserted < limit {
+                      builder.write_string(new_value)
+                      inserted += 1
+                    }
+                    builder.write_char(chars[i])
+                  }
+                  if inserted < limit {
+                    builder.write_string(new_value)
+                  }
+                  return Ok(Value::Str(builder.to_string()))
+                }
+                let builder = StringBuilder::new()
+                let mut first = true
+                let mut replaced = 0
+                for part in text.split(old) {
+                  if first {
+                    builder.write_string(part.to_string())
+                    first = false
+                    continue
+                  }
+                  if count < 0 || replaced < count {
+                    builder.write_string(new_value)
+                    replaced += 1
+                  } else {
+                    builder.write_string(old)
+                  }
+                  builder.write_string(part.to_string())
+                }
+                return Ok(Value::Str(builder.to_string()))
+              }
+              "split" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "split() takes at most 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let sep_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  Value::None
+                }
+                let maxsplit = if positional.length() == 2 {
+                  match index_from_value(positional[1], -1) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                } else {
+                  -1
+                }
+                match sep_value {
+                  Value::None => {
+                    let chars = text.to_array()
+                    let len = chars.length()
+                    let mut i = 0
+                    while i < len && is_ascii_whitespace(chars[i]) {
+                      i += 1
+                    }
+                    if i >= len {
+                      return Ok(Value::List([]))
+                    }
+                    if maxsplit == 0 {
+                      let mut end = len
+                      while end > i && is_ascii_whitespace(chars[end - 1]) {
+                        end -= 1
+                      }
+                      return Ok(Value::List([Value::Str(substring(text, i, end))]))
+                    }
+                    let parts : Array[Value] = []
+                    let mut splits = 0
+                    let mut start = i
+                    while i < len {
+                      if is_ascii_whitespace(chars[i]) {
+                        let end = i
+                        parts.push(Value::Str(substring(text, start, end)))
+                        splits += 1
+                        while i < len && is_ascii_whitespace(chars[i]) {
+                          i += 1
+                        }
+                        if maxsplit >= 0 && splits >= maxsplit {
+                          let mut tail_end = len
+                          while tail_end > i && is_ascii_whitespace(chars[tail_end - 1]) {
+                            tail_end -= 1
+                          }
+                          if tail_end > i {
+                            parts.push(Value::Str(substring(text, i, tail_end)))
+                          }
+                          return Ok(Value::List(parts))
+                        }
+                        start = i
+                        continue
+                      }
+                      i += 1
+                    }
+                    if i > start {
+                      parts.push(Value::Str(substring(text, start, i)))
+                    }
+                    return Ok(Value::List(parts))
+                  }
+                  Value::Str(sep) => {
+                    if sep.length() == 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "ValueError: empty separator".to_string(),
+                        ),
+                      )
+                    }
+                    let raw_parts : Array[String] = []
+                    for part in text.split(sep) {
+                      raw_parts.push(part.to_string())
+                    }
+                    if maxsplit < 0 || raw_parts.length() <= maxsplit + 1 {
+                      let parts : Array[Value] = []
+                      for part in raw_parts {
+                        parts.push(Value::Str(part))
+                      }
+                      return Ok(Value::List(parts))
+                    }
+                    let parts : Array[Value] = []
+                    for i = 0; i <= maxsplit; i = i + 1 {
+                      parts.push(Value::Str(raw_parts[i]))
+                    }
+                    let builder = StringBuilder::new()
+                    let mut first_tail = true
+                    for i = maxsplit + 1; i < raw_parts.length(); i = i + 1 {
+                      if !first_tail {
+                        builder.write_string(sep)
+                      }
+                      builder.write_string(raw_parts[i])
+                      first_tail = false
+                    }
+                    parts.push(Value::Str(builder.to_string()))
+                    return Ok(Value::List(parts))
+                  }
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "split() separator must be str or None".to_string(),
+                      ),
+                    )
+                }
+              }
               _ => ()
             }
           }
