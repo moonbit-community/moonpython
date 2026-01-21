@@ -8571,21 +8571,26 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
           let mut final_err = err
           match unclosed_open {
             Some(open) =>
-              if final_err.kind == ParseErrorKind::Syntax &&
-                final_err.span.line == open.2 {
-                let token = {
-                  kind: Eof,
-                  start: open.1,
-                  end: open.1 + 1,
-                  line: open.2,
-                  column: open.3,
-                }
-                let message = "'" + open.0.to_string() + "' was never closed"
-                final_err = make_parse_error(
-                  ParseErrorKind::Syntax,
-                  message,
-                  token,
-                )
+              match final_err.kind {
+                ParseErrorKind::Syntax =>
+                  if final_err.span.line == open.2 {
+                    let token = {
+                      kind: Eof,
+                      start: open.1,
+                      end: open.1 + 1,
+                      line: open.2,
+                      column: open.3,
+                    }
+                    let message = "'" +
+                      open.0.to_string() +
+                      "' was never closed"
+                    final_err = make_parse_error(
+                      ParseErrorKind::Syntax,
+                      message,
+                      token,
+                    )
+                  }
+                _ => ()
               }
             None => ()
           }

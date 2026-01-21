@@ -548,6 +548,43 @@ fn parse_string_literal(
 }
 
 ///|
+fn fstring_has_empty_expr(text : String) -> Bool {
+  let chars = text.to_array()
+  let mut i = 0
+  let len = chars.length()
+  while i < len {
+    let c = chars[i]
+    if c == '{' {
+      if i + 1 < len && chars[i + 1] == '{' {
+        i += 2
+        continue
+      }
+      let after_open = substring(text, i + 1, len)
+      match find_fstring_expr_close(after_open) {
+        None => return false
+        Some(close_rel) => {
+          let close = i + 1 + close_rel
+          let inner = substring(text, i + 1, close)
+          if inner.trim(chars=" \t").length() == 0 {
+            return true
+          }
+          i = close + 1
+          continue
+        }
+      }
+    }
+    if c == '}' {
+      if i + 1 < len && chars[i + 1] == '}' {
+        i += 2
+        continue
+      }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 fn tokenize_expr(
   source : String,
   line : Int,
@@ -1034,6 +1071,32 @@ fn tokenize_expr(
             column: start - line_start + 1,
           }
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+        }
+        if f_prefix && fstring_has_empty_expr(value) {
+          let mut err_line = current_line
+          let mut err_line_start = line_start
+          let mut k = start
+          while k < next_i {
+            if chars[k] == '\n' {
+              err_line += 1
+              err_line_start = k + 1
+            }
+            k += 1
+          }
+          let token = {
+            kind: Eof,
+            start: base_offset + next_i - 1,
+            end: base_offset + next_i,
+            line: err_line,
+            column: next_i - err_line_start + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "f-string: empty expression not allowed".to_string(),
+              token,
+            ),
+          )
         }
         i = next_i
         let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }

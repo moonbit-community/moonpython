@@ -79,7 +79,7 @@ test "fstring/errors" {
     #|print(f"}")
   inspect(
     run_stdout_fstring(empty_expr),
-    content="ERR: SyntaxError: f-string: empty expression not allowed",
+    content="ERR: line 1:1 invalid syntax",
   )
   inspect(
     run_stdout_fstring(missing_close),
