@@ -406,6 +406,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("maxsize", Value::Int(9223372036854775807N)),
     ("version", Value::Str("3.12.0")),
     ("version_info", version_info),
+    ("byteorder", Value::Str("little")),
     ("platform", Value::Str("mpython")),
     ("implementation", impl_value),
     ("builtin_module_names", builtin_module_names),
