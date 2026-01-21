@@ -264,6 +264,22 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "tuple" {
+    dict.push(
+      (
+        "__new__",
+        Value::Function(FunctionValue::{
+          name: "tuple.__new__",
+          params: ["cls", "iterable"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "str" {
     dict.push(
       (

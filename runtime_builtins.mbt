@@ -2061,6 +2061,40 @@ fn builtin_tuple(
 }
 
 ///|
+fn builtin_tuple_new(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("tuple.__new__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "tuple.__new__() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 1 {
+    Ok(Value::Tuple([]))
+  } else {
+    let items = match
+      collect_items_from_iterable(positional[1], globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    Ok(Value::Tuple(items))
+  }
+}
+
+///|
 fn builtin_set(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -5508,6 +5542,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
+    BuiltinDef::{ name: "tuple.__new__", run: builtin_tuple_new },
     BuiltinDef::{ name: "set", run: builtin_set },
     BuiltinDef::{ name: "frozenset", run: builtin_frozenset },
     BuiltinDef::{ name: "dict", run: builtin_dict },
