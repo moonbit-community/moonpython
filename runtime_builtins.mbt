@@ -1879,6 +1879,58 @@ fn builtin_int(
 }
 
 ///|
+fn builtin_int_new(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.__new__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__new__() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 1 {
+    return Ok(Value::Int(0N))
+  }
+  match positional[1] {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    Value::Float(v) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
+    Value::Str(text) => {
+      let parsed = @strconv.parse_int(text) catch {
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ValueError: invalid literal for int()".to_string(),
+            ),
+          )
+      }
+      Ok(Value::Int(@bigint.BigInt::from_int(parsed)))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.__new__() argument must be a string or a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_float(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -5589,6 +5641,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "bytearray", run: builtin_bytearray },
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
+    BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },

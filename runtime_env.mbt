@@ -280,6 +280,22 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "int" {
+    dict.push(
+      (
+        "__new__",
+        Value::Function(FunctionValue::{
+          name: "int.__new__",
+          params: ["cls", "value"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "str" {
     dict.push(
       (
