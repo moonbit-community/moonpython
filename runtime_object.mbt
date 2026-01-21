@@ -1187,6 +1187,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "copy" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "copy",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -1291,6 +1307,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "copy" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "copy",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "update" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1312,6 +1344,22 @@ fn get_attr_raw_from_value(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
               name: "clear",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "copy" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "copy",
               params: ["self"],
               defaults: [],
               body: [],
@@ -1610,6 +1658,30 @@ fn get_attr_raw_from_value(
         ),
       )
     }
+    Value::ByteArray(_) => {
+      if attr == "copy" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "copy",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'bytearray' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
     Value::Function(func) =>
       if attr == "__dict__" {
         if func.body.length() == 0 && is_builtin_class_name(func.name) {
@@ -1728,6 +1800,54 @@ fn get_attr_raw_from_value(
           values.push(Value::Class(item))
         }
         Ok(Value::Tuple(values))
+      } else if klass.name == "list" && attr == "copy" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "list.copy",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      } else if klass.name == "dict" && attr == "copy" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "dict.copy",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      } else if klass.name == "set" && attr == "copy" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "set.copy",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      } else if klass.name == "bytearray" && attr == "copy" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "bytearray.copy",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
       } else if klass.name == "int" && attr == "from_bytes" {
         Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -3716,6 +3836,21 @@ fn call_callable_with_env(
                 let item = values.remove(idx)
                 return Ok(item)
               }
+              "copy" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "copy() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let out : Array[Value] = []
+                  for item in values {
+                    out.push(item)
+                  }
+                  return Ok(Value::List(out))
+                }
               _ => ()
             }
           }
@@ -4009,6 +4144,21 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::None)
               }
+              "copy" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "copy() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                let out_pairs : Array[(Value, Value)] = []
+                for pair in pairs {
+                  out_pairs.push(pair)
+                }
+                return Ok(Value::Dict(out_pairs))
+              }
               "__contains__" =>
                 if positional.length() != 1 {
                   return Err(
@@ -4218,6 +4368,21 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::None)
                 }
+              "copy" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "copy() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let out : Array[Value] = []
+                  for item in values {
+                    out.push(item)
+                  }
+                  return Ok(Value::Set(out))
+                }
               "update" =>
                 if positional.length() > 1 {
                   return Err(
@@ -4367,6 +4532,36 @@ fn call_callable_with_env(
                   )
                 } else {
                   return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+                }
+              _ => ()
+            }
+          }
+        Value::ByteArray(values) =>
+          if bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  bound_method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match bound_method.function.name {
+              "copy" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "copy() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let out : Array[Int] = []
+                  for item in values {
+                    out.push(item)
+                  }
+                  return Ok(Value::ByteArray(out))
                 }
               _ => ()
             }

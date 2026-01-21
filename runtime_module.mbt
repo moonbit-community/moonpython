@@ -351,6 +351,7 @@ fn make_itertools_chain_factory() -> Value {
 fn make_itertools_module() -> Value {
   make_module_instance("itertools", [
     ("chain", make_itertools_chain_factory()),
+    ("count", module_function_stub("itertools.count")),
     ("repeat", module_function_stub("itertools.repeat")),
     ("starmap", module_function_stub("itertools.starmap")),
     ("islice", module_function_stub("itertools.islice")),
@@ -358,10 +359,41 @@ fn make_itertools_module() -> Value {
 }
 
 ///|
-fn make_weakref_module() -> Value {
+fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
+  let bases : Array[Value] = []
+  match get_named_value(builtins, "object") {
+    Some(Value::Class(object_class)) =>
+      bases.push(Value::Class(object_class))
+    _ => ()
+  }
+  let weakref_dict : Array[(String, Value)] = [
+    ("__new__", module_function_stub("_weakref.ref")),
+    ("__hash__", module_function_stub("weakref.__hash__")),
+  ]
+  let reference_type_class = ClassValue::{
+    name: "weakref",
+    bases,
+    dict: weakref_dict,
+  }
+  let proxy_type_class = ClassValue::{
+    name: "ProxyType",
+    bases,
+    dict: [],
+  }
+  let callable_proxy_type_class = ClassValue::{
+    name: "CallableProxyType",
+    bases,
+    dict: [],
+  }
   make_module_instance("_weakref", [
-    ("ref", module_function_stub("_weakref.ref")),
+    ("ref", Value::Class(reference_type_class)),
     ("proxy", module_function_stub("_weakref.proxy")),
+    ("getweakrefcount", module_function_stub("_weakref.getweakrefcount")),
+    ("getweakrefs", module_function_stub("_weakref.getweakrefs")),
+    ("_remove_dead_weakref", module_function_stub("_weakref._remove_dead_weakref")),
+    ("ReferenceType", Value::Class(reference_type_class)),
+    ("ProxyType", Value::Class(proxy_type_class)),
+    ("CallableProxyType", Value::Class(callable_proxy_type_class)),
   ])
 }
 
@@ -650,7 +682,7 @@ fn import_module(
   } else if module_name == "_thread" {
     make_thread_module(builtins)
   } else if module_name == "_weakref" {
-    make_weakref_module()
+    make_weakref_module(builtins)
   } else if module_name == "itertools" {
     make_itertools_module()
   } else if module_name == "math" {

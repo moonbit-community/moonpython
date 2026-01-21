@@ -1891,6 +1891,40 @@ fn builtin_bytearray(
 }
 
 ///|
+fn builtin_bytearray_copy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytearray.copy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "copy() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::ByteArray(values) => Ok(Value::ByteArray(copy_ints(values)))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "copy() expects a bytearray".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_memoryview(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2590,6 +2624,63 @@ fn builtin_list(
 }
 
 ///|
+fn builtin_list_copy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("list.copy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "copy() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::List(values) => {
+      let out : Array[Value] = []
+      for item in values {
+        out.push(item)
+      }
+      Ok(Value::List(out))
+    }
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(values)) => {
+          let out : Array[Value] = []
+          for item in values {
+            out.push(item)
+          }
+          Ok(Value::List(out))
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "copy() expects a list".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "copy() expects a list".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_tuple(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2721,6 +2812,46 @@ fn builtin_set(
 }
 
 ///|
+fn builtin_set_copy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("set.copy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "copy() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Set(values) => {
+      let out : Array[Value] = []
+      for item in values {
+        out.push(item)
+      }
+      Ok(Value::Set(out))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "copy() expects a set".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_frozenset(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2838,6 +2969,63 @@ fn builtin_dict(
         Ok(Value::Dict(pairs))
       }
     }
+  }
+}
+
+///|
+fn builtin_dict_copy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("dict.copy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "copy() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Dict(pairs) => {
+      let out : Array[(Value, Value)] = []
+      for pair in pairs {
+        out.push(pair)
+      }
+      Ok(Value::Dict(out))
+    }
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, dict_storage_name) {
+        Some(Value::Dict(pairs)) => {
+          let out : Array[(Value, Value)] = []
+          for pair in pairs {
+            out.push(pair)
+          }
+          Ok(Value::Dict(out))
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "copy() expects a dict".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "copy() expects a dict".to_string(),
+        ),
+      )
   }
 }
 
@@ -3546,6 +3734,29 @@ fn escape_string_for_repr(text : String) -> String {
 }
 
 ///|
+fn make_property_instance(
+  fget : Value,
+  fset : Value,
+  fdel : Value,
+  doc : Value,
+) -> Value {
+  let class_dict : Array[(String, Value)] = [
+    ("getter", module_function_stub("property.getter")),
+    ("setter", module_function_stub("property.setter")),
+    ("deleter", module_function_stub("property.deleter")),
+  ]
+  let dict : Array[(String, Value)] = []
+  dict.push(("fget", fget))
+  dict.push(("fset", fset))
+  dict.push(("fdel", fdel))
+  dict.push(("doc", doc))
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "property", bases: [], dict: class_dict },
+    dict,
+  })
+}
+
+///|
 
 ///|
 fn builtin_property(
@@ -3628,17 +3839,157 @@ fn builtin_property(
       _ => return Err(unexpected_keyword_argument_error("property", key))
     }
   }
-  let dict : Array[(String, Value)] = []
-  dict.push(("fget", fget))
-  dict.push(("fset", fset))
-  dict.push(("fdel", fdel))
-  dict.push(("doc", doc))
-  Ok(
-    Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "property", bases: [], dict: [] },
-      dict,
-    }),
-  )
+  Ok(make_property_instance(fget, fset, fdel, doc))
+}
+
+///|
+fn builtin_property_getter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("property.getter", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getter() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let prop = positional[0]
+  let fget = positional[1]
+  match prop {
+    Value::Instance(inst) => {
+      let fset = match get_named_value(inst.dict, "fset") {
+        Some(v) => v
+        None => Value::None
+      }
+      let fdel = match get_named_value(inst.dict, "fdel") {
+        Some(v) => v
+        None => Value::None
+      }
+      let doc = match get_named_value(inst.dict, "doc") {
+        Some(v) => v
+        None => Value::None
+      }
+      Ok(make_property_instance(fget, fset, fdel, doc))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "getter() expects a property".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_property_setter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("property.setter", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "setter() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let prop = positional[0]
+  let fset = positional[1]
+  match prop {
+    Value::Instance(inst) => {
+      let fget = match get_named_value(inst.dict, "fget") {
+        Some(v) => v
+        None => Value::None
+      }
+      let fdel = match get_named_value(inst.dict, "fdel") {
+        Some(v) => v
+        None => Value::None
+      }
+      let doc = match get_named_value(inst.dict, "doc") {
+        Some(v) => v
+        None => Value::None
+      }
+      Ok(make_property_instance(fget, fset, fdel, doc))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "setter() expects a property".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_property_deleter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("property.deleter", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "deleter() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let prop = positional[0]
+  let fdel = positional[1]
+  match prop {
+    Value::Instance(inst) => {
+      let fget = match get_named_value(inst.dict, "fget") {
+        Some(v) => v
+        None => Value::None
+      }
+      let fset = match get_named_value(inst.dict, "fset") {
+        Some(v) => v
+        None => Value::None
+      }
+      let doc = match get_named_value(inst.dict, "doc") {
+        Some(v) => v
+        None => Value::None
+      }
+      Ok(make_property_instance(fget, fset, fdel, doc))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "deleter() expects a property".to_string(),
+        ),
+      )
+  }
 }
 
 ///|
@@ -5873,16 +6224,20 @@ fn builtin_thread_allocate_lock(
 }
 
 ///|
-fn make_weakref_instance(value : Value) -> Value {
+fn make_weakref_instance(
+  value : Value,
+  klass_opt : ClassValue?,
+) -> Value {
   let hash = @bigint.BigInt::from_int64(hash_string(value_to_string(value)))
   let dict : Array[(String, Value)] = [
     ("value", value),
     ("hashvalue", Value::Int(hash)),
   ]
-  Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "weakref", bases: [], dict: [] },
-    dict,
-  })
+  let klass = match klass_opt {
+    Some(value) => value
+    None => ClassValue::{ name: "weakref", bases: [], dict: [] }
+  }
+  Value::Instance(InstanceValue::{ class: klass, dict })
 }
 
 ///|
@@ -5899,15 +6254,27 @@ fn builtin_weakref_ref(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if positional.length() != 1 {
+  let mut cls_opt : ClassValue? = None
+  let mut start = 0
+  if positional.length() > 0 {
+    match positional[0] {
+      Value::Class(klass) => {
+        cls_opt = Some(klass)
+        start = 1
+      }
+      _ => ()
+    }
+  }
+  let remaining = positional.length() - start
+  if remaining != 1 && remaining != 2 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "ref() takes exactly one argument".to_string(),
+        "ref() takes one or two arguments".to_string(),
       ),
     )
   }
-  Ok(make_weakref_instance(positional[0]))
+  Ok(make_weakref_instance(positional[start], cls_opt))
 }
 
 ///|
@@ -5935,6 +6302,133 @@ fn builtin_weakref_proxy(
   Ok(positional[0])
 }
 
+///|
+fn builtin_weakref_getweakrefcount(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_weakref.getweakrefcount", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getweakrefcount() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Int(0N))
+}
+
+///|
+fn builtin_weakref_getweakrefs(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_weakref.getweakrefs", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getweakrefs() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::List([]))
+}
+
+///|
+fn builtin_weakref_remove_dead_weakref(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_weakref._remove_dead_weakref", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_remove_dead_weakref() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Dict(pairs) => {
+      let _ = match dict_delete_key(pairs, positional[1]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "_remove_dead_weakref() argument must be dict".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_weakref_hash(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("weakref.__hash__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__hash__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, "hashvalue") {
+        Some(Value::Int(value)) => Ok(Value::Int(value))
+        Some(_) | None => Ok(Value::Int(0N))
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__hash__() expects a weakref instance".to_string(),
+        ),
+      )
+  }
+}
 ///|
 fn builtin_code_replace(
   positional : Array[Value],
@@ -6182,6 +6676,62 @@ fn builtin_itertools_starmap(
 }
 
 ///|
+fn builtin_itertools_count(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.count", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "count() takes at most two arguments".to_string(),
+      ),
+    )
+  }
+  let start_value = if positional.length() > 0 {
+    match positional[0] {
+      Value::Bool(v) =>
+        Value::Int(@bigint.BigInt::from_int(if v { 1 } else { 0 }))
+      Value::Int(_) | Value::Float(_) => positional[0]
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "count() start must be a number".to_string(),
+          ),
+        )
+    }
+  } else {
+    Value::Int(0N)
+  }
+  let step_value = if positional.length() > 1 {
+    match positional[1] {
+      Value::Bool(v) =>
+        Value::Int(@bigint.BigInt::from_int(if v { 1 } else { 0 }))
+      Value::Int(_) | Value::Float(_) => positional[1]
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "count() step must be a number".to_string(),
+          ),
+        )
+    }
+  } else {
+    Value::Int(1N)
+  }
+  Ok(make_count_iterator(start_value, step_value))
+}
+///|
 fn builtin_itertools_islice(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -6314,6 +6864,16 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "_thread.allocate_lock", run: builtin_thread_allocate_lock },
     BuiltinDef::{ name: "_weakref.ref", run: builtin_weakref_ref },
     BuiltinDef::{ name: "_weakref.proxy", run: builtin_weakref_proxy },
+    BuiltinDef::{
+      name: "_weakref.getweakrefcount",
+      run: builtin_weakref_getweakrefcount,
+    },
+    BuiltinDef::{ name: "_weakref.getweakrefs", run: builtin_weakref_getweakrefs },
+    BuiltinDef::{
+      name: "_weakref._remove_dead_weakref",
+      run: builtin_weakref_remove_dead_weakref,
+    },
+    BuiltinDef::{ name: "weakref.__hash__", run: builtin_weakref_hash },
     BuiltinDef::{ name: "code.replace", run: builtin_code_replace },
     BuiltinDef::{ name: "coroutine.close", run: builtin_coroutine_close },
     BuiltinDef::{ name: "itertools.chain", run: builtin_itertools_chain },
@@ -6321,6 +6881,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "itertools.chain.from_iterable",
       run: builtin_itertools_chain_from_iterable,
     },
+    BuiltinDef::{ name: "itertools.count", run: builtin_itertools_count },
     BuiltinDef::{ name: "itertools.repeat", run: builtin_itertools_repeat },
     BuiltinDef::{ name: "itertools.starmap", run: builtin_itertools_starmap },
     BuiltinDef::{ name: "itertools.islice", run: builtin_itertools_islice },
@@ -6343,6 +6904,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },
     BuiltinDef::{ name: "bytearray", run: builtin_bytearray },
+    BuiltinDef::{ name: "bytearray.copy", run: builtin_bytearray_copy },
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
@@ -6352,12 +6914,15 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "float.__repr__", run: builtin_float_repr },
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
+    BuiltinDef::{ name: "list.copy", run: builtin_list_copy },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
     BuiltinDef::{ name: "tuple.__new__", run: builtin_tuple_new },
     BuiltinDef::{ name: "slice", run: builtin_slice },
     BuiltinDef::{ name: "set", run: builtin_set },
+    BuiltinDef::{ name: "set.copy", run: builtin_set_copy },
     BuiltinDef::{ name: "frozenset", run: builtin_frozenset },
     BuiltinDef::{ name: "dict", run: builtin_dict },
+    BuiltinDef::{ name: "dict.copy", run: builtin_dict_copy },
     BuiltinDef::{ name: "dict.get", run: builtin_dict_get },
     BuiltinDef::{ name: "dict.pop", run: builtin_dict_pop },
     BuiltinDef::{ name: "dict.setdefault", run: builtin_dict_setdefault },
@@ -6376,6 +6941,9 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
     BuiltinDef::{ name: "property", run: builtin_property },
+    BuiltinDef::{ name: "property.getter", run: builtin_property_getter },
+    BuiltinDef::{ name: "property.setter", run: builtin_property_setter },
+    BuiltinDef::{ name: "property.deleter", run: builtin_property_deleter },
     BuiltinDef::{ name: "staticmethod", run: builtin_staticmethod },
     BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
     BuiltinDef::{ name: "register", run: builtin_register },

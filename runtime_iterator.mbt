@@ -31,6 +31,17 @@ fn make_repeat_iterator(value : Value, remaining : @bigint.BigInt?) -> Value {
 }
 
 ///|
+fn make_count_iterator(start : Value, step : Value) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("current", start))
+  dict.push(("step", step))
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "count", bases: [], dict: [] },
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -41,7 +52,8 @@ fn iter_value_to_iterator(
     Value::Instance(inst) =>
       if inst.class.name == "iterator" ||
         inst.class.name == "generator" ||
-        inst.class.name == "repeat" {
+        inst.class.name == "repeat" ||
+        inst.class.name == "count" {
         Ok(Value::Instance(inst))
       } else {
         // Try the Python protocol first: obj.__iter__() -> iterator
@@ -151,6 +163,64 @@ fn iterator_next(
               make_runtime_error(
                 RuntimeErrorKind::Runtime,
                 "StopIteration".to_string(),
+              ),
+            )
+        }
+      } else if inst.class.name == "count" {
+        let current = match get_named_value(inst.dict, "current") {
+          Some(v) => v
+          None => Value::Int(0N)
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(v) => v
+          None => Value::Int(1N)
+        }
+        match (current, step) {
+          (Value::Int(current_i), Value::Int(step_i)) => {
+            set_named_value(
+              inst.dict,
+              "current",
+              Value::Int(current_i + step_i),
+            )
+            Ok(Value::Int(current_i))
+          }
+          (Value::Float(current_f), Value::Float(step_f)) => {
+            set_named_value(
+              inst.dict,
+              "current",
+              Value::Float(current_f + step_f),
+            )
+            Ok(Value::Float(current_f))
+          }
+          (Value::Int(current_i), Value::Float(step_f)) => {
+            let current_f = match bigint_to_double_checked(current_i) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            set_named_value(
+              inst.dict,
+              "current",
+              Value::Float(current_f + step_f),
+            )
+            Ok(Value::Float(current_f))
+          }
+          (Value::Float(current_f), Value::Int(step_i)) => {
+            let step_f = match bigint_to_double_checked(step_i) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            set_named_value(
+              inst.dict,
+              "current",
+              Value::Float(current_f + step_f),
+            )
+            Ok(Value::Float(current_f))
+          }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "count() expects numeric values".to_string(),
               ),
             )
         }
