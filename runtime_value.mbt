@@ -253,7 +253,8 @@ fn value_to_string(value : Value) -> String {
       } else {
         "<" + inst.class.name + " object>"
       }
-    Value::BoundMethod(method) => "<bound method " + method.function.name + ">"
+    Value::BoundMethod(bound_method) =>
+      "<bound method " + bound_method.function.name + ">"
   }
 }
 
@@ -825,22 +826,6 @@ fn bigint_to_int_checked(v : @bigint.BigInt) -> Result[Int, RuntimeError] {
     )
   } else {
     Ok(v.to_int())
-  }
-}
-
-///|
-fn bigint_to_int64_checked(v : @bigint.BigInt) -> Result[Int64, RuntimeError] {
-  let min : Int64 = -0x8000000000000000L
-  let max : Int64 = 0x7fffffffffffffffL
-  if v.compare_int64(min) < 0 || v.compare_int64(max) > 0 {
-    Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "OverflowError: int too large to convert to int64".to_string(),
-      ),
-    )
-  } else {
-    Ok(v.to_int64())
   }
 }
 

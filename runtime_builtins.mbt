@@ -25,6 +25,20 @@ fn ensure_no_keywords(
 }
 
 ///|
+fn touch_env(
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Unit {
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+
+}
+
+///|
 fn unexpected_keyword_argument_error(
   name : String,
   key : String,
@@ -357,6 +371,7 @@ fn builtin_print(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let mut sep = " ".to_string()
   let mut end = "\n".to_string()
   for pair in keywords {
@@ -437,6 +452,7 @@ fn builtin_len(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("len", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -533,6 +549,7 @@ fn builtin_range(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("range", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -645,6 +662,7 @@ fn builtin_sum(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("sum", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -697,6 +715,7 @@ fn builtin_max(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("max", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -754,6 +773,7 @@ fn builtin_min(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("min", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -811,6 +831,7 @@ fn builtin_any(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("any", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -844,6 +865,7 @@ fn builtin_all(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("all", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -877,6 +899,7 @@ fn builtin_enumerate(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("enumerate", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -925,6 +948,7 @@ fn builtin_zip(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let iterables : Array[Array[Value]] = []
   let _ = match ensure_no_keywords("zip", keywords) {
     Ok(v) => v
@@ -967,6 +991,7 @@ fn builtin_map(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("map", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1005,6 +1030,7 @@ fn builtin_filter(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("filter", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1050,6 +1076,7 @@ fn builtin_reversed(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("reversed", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1078,6 +1105,7 @@ fn builtin_sorted(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("sorted", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1162,6 +1190,7 @@ fn builtin_input(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("input", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1191,6 +1220,7 @@ fn builtin_str(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("str", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1358,6 +1388,7 @@ fn bytes_from_count(
   name : String,
   count : @bigint.BigInt,
 ) -> Result[Array[Int], RuntimeError] {
+  let _ = name
   if count < 0N {
     return Err(
       make_runtime_error(
@@ -1386,6 +1417,7 @@ fn builtin_bytes(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -1466,6 +1498,7 @@ fn builtin_bytearray(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -1547,6 +1580,7 @@ fn builtin_memoryview(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -1588,6 +1622,7 @@ fn builtin_int(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("int", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1632,6 +1667,7 @@ fn builtin_float(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("float", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1681,6 +1717,7 @@ fn builtin_complex(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -1760,6 +1797,7 @@ fn builtin_list(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("list", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1785,6 +1823,7 @@ fn builtin_tuple(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("tuple", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1810,6 +1849,7 @@ fn builtin_set(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("set", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1843,6 +1883,7 @@ fn builtin_dict(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("dict", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1932,6 +1973,7 @@ fn builtin_iter(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("iter", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1957,6 +1999,7 @@ fn builtin_next(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("next", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2054,6 +2097,7 @@ fn builtin_property(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("property", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2096,6 +2140,7 @@ fn builtin_staticmethod(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("staticmethod", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2131,6 +2176,7 @@ fn builtin_classmethod(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("classmethod", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2166,6 +2212,7 @@ fn builtin_bool(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("bool", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2193,6 +2240,7 @@ fn builtin_repr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("repr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2221,6 +2269,7 @@ fn builtin_abs(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("abs", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2267,6 +2316,7 @@ fn builtin_round(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("round", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2296,37 +2346,6 @@ fn builtin_round(
 }
 
 ///|
-// Deprecated helpers kept for historical context; BigInt::pow is used now.
-// (Left here to avoid touching too much code at once.)
-fn pow_int(base : Int64, exp : Int64) -> Int64 {
-  let mut out = 1L
-  let mut i = 0L
-  while i < exp {
-    out = out * base
-    i = i + 1L
-  }
-  out
-}
-
-///|
-fn mod_pow_int(base : Int64, exp : Int64, modulus : Int64) -> Int64 {
-  if modulus == 1L || modulus == -1L {
-    return 0L
-  }
-  let mut b = base % modulus
-  let mut e = exp
-  let mut result = 1L
-  while e > 0L {
-    if e % 2L != 0L {
-      result = result * b % modulus
-    }
-    e = e / 2L
-    b = b * b % modulus
-  }
-  result
-}
-
-///|
 fn builtin_pow(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2335,6 +2354,7 @@ fn builtin_pow(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("pow", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2418,6 +2438,7 @@ fn builtin_math_sqrt(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -2450,6 +2471,7 @@ fn builtin_math_pow(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -2501,6 +2523,7 @@ fn builtin_divmod(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("divmod", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2559,6 +2582,7 @@ fn builtin_chr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("chr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2590,7 +2614,11 @@ fn builtin_chr(
       ),
     )
   }
-  Ok(Value::Str(char_to_string(Char::from_int(codepoint.to_int64().to_int()))))
+  Ok(
+    Value::Str(
+      char_to_string(Int::unsafe_to_char(codepoint.to_int64().to_int())),
+    ),
+  )
 }
 
 ///|
@@ -2602,6 +2630,7 @@ fn builtin_ord(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("ord", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2646,6 +2675,7 @@ fn builtin_bin(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("bin", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2681,6 +2711,7 @@ fn builtin_oct(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("oct", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2716,6 +2747,7 @@ fn builtin_hex(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("hex", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2751,6 +2783,7 @@ fn builtin_callable(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("callable", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2781,6 +2814,7 @@ fn builtin_isinstance(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("isinstance", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2901,6 +2935,7 @@ fn builtin_type(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("type", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2925,6 +2960,7 @@ fn builtin_id(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("id", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2961,6 +2997,7 @@ fn builtin_hash(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("hash", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -2988,6 +3025,7 @@ fn builtin_globals(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = io
   let _ = locals
   let _ = builtins
@@ -3019,6 +3057,7 @@ fn builtin_locals(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = io
   let _ = globals
   let _ = builtins
@@ -3050,6 +3089,7 @@ fn builtin_eval(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let (expr_value, globals_arg, locals_arg) = match
     parse_exec_eval_args("eval", positional, keywords, "expression") {
     Ok(v) => v
@@ -3097,6 +3137,7 @@ fn builtin_exec(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let (source_value, globals_arg, locals_arg) = match
     parse_exec_eval_args("exec", positional, keywords, "source") {
     Ok(v) => v
@@ -3154,6 +3195,7 @@ fn builtin_import(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = match ensure_no_keywords("__import__", keywords) {
     Ok(v) => v
@@ -3240,6 +3282,7 @@ fn builtin_dir(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = io
   let _ = match ensure_no_keywords("dir", keywords) {
     Ok(v) => v
@@ -3371,6 +3414,7 @@ fn builtin_getattr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("getattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -3418,6 +3462,7 @@ fn builtin_hasattr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("hasattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -3460,6 +3505,7 @@ fn builtin_setattr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("setattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -3504,6 +3550,7 @@ fn builtin_super(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("super", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -3641,6 +3688,7 @@ fn builtin_delattr(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = match ensure_no_keywords("delattr", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -3682,6 +3730,7 @@ fn builtin_mpython_run(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3710,6 +3759,7 @@ fn builtin_mpython_asyncgenexp_next(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3738,6 +3788,7 @@ fn builtin_mpython_asyncgen_next(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3766,6 +3817,7 @@ fn builtin_mpython_asyncgen_send(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3794,6 +3846,7 @@ fn builtin_mpython_asyncgen_throw(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3822,6 +3875,7 @@ fn builtin_mpython_asyncgen_close(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3850,6 +3904,7 @@ fn builtin_asyncio_run(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins
@@ -3901,6 +3956,7 @@ fn builtin_asyncio_gather(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
   let _ = locals
   let _ = globals
   let _ = builtins

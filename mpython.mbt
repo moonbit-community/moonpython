@@ -611,9 +611,9 @@ fn eval_binary_op_values(
           if left_val is Value::Instance(_) {
             match
               get_attr_from_value(left_val, "__add__", globals, builtins, io) {
-              Ok(method) =>
+              Ok(add_method) =>
                 return call_callable_with_env(
-                  method,
+                  add_method,
                   [right_val],
                   [],
                   globals,
@@ -626,9 +626,9 @@ fn eval_binary_op_values(
           if right_val is Value::Instance(_) {
             match
               get_attr_from_value(right_val, "__radd__", globals, builtins, io) {
-              Ok(method) =>
+              Ok(radd_method) =>
                 return call_callable_with_env(
-                  method,
+                  radd_method,
                   [left_val],
                   [],
                   globals,
@@ -944,7 +944,6 @@ fn eval_binary_op_values(
               ),
             )
           }
-          let q0 = a / b
           let r0 = a % b
           let needs_adjust = r0 != 0N && (r0 < 0N) != (b < 0N)
           let r = if needs_adjust { r0 + b } else { r0 }
@@ -1003,7 +1002,7 @@ fn eval_binary_op_values(
           if right < 0N {
             Ok(
               Value::Float(
-                Double::pow(
+                @math.pow(
                   match bigint_to_double_checked(left) {
                     Ok(v) => v
                     Err(err) => return Err(err)
@@ -1027,7 +1026,7 @@ fn eval_binary_op_values(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          Ok(Value::Float(Double::pow(left_num, right_num)))
+          Ok(Value::Float(@math.pow(left_num, right_num)))
         }
       }
     BinaryOp::MatMul =>
@@ -2540,7 +2539,6 @@ fn eval_expr_with_env(
                   }
                 }
             })
-          _ => false
         }
         if !ok {
           return Ok(Value::Bool(false))
@@ -3328,22 +3326,22 @@ fn collect_function_local_names(
           }
         }
       }
-      Stmt::Import(module~, alias~) => {
-        let binding = match alias {
+      Stmt::Import(module_name~, alias_name~) => {
+        let binding = match alias_name {
           Some(name) => name
-          None => module
+          None => module_name
         }
         add_local(binding)
       }
-      Stmt::FromImport(module~, names~) => {
-        let _ = module
+      Stmt::FromImport(module_name~, names~) => {
+        let _ = module_name
         for item in names {
           let name = item.0
           let alias_opt = item.1
           if name != "*" {
             add_local(
               match alias_opt {
-                Some(alias) => alias
+                Some(alias_name) => alias_name
                 None => name
               },
             )
@@ -3674,22 +3672,3 @@ fn ensure_runtime_callbacks_ready() -> Unit {
 }
 
 ///|
-fn eval_function(
-  func : FunctionValue,
-  args : Array[Value],
-  globals : Array[(String, Value)],
-  builtins : Array[(String, Value)],
-  io : MockIO,
-) -> Result[Value, RuntimeError] {
-  let locals : Array[(String, Value)] = []
-  for i = 0; i < func.params.length(); i = i + 1 {
-    let value = if i < args.length() { args[i] } else { Value::None }
-    locals.push((func.params[i], value))
-  }
-  let result = match
-    eval_block(func.body, locals, globals, builtins, io, Config::default()) {
-    Ok(value) => value
-    Err(err) => return Err(err)
-  }
-  Ok(result)
-}

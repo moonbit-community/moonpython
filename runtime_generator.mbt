@@ -919,6 +919,7 @@ fn generator_resume_inner(
     let top_index = state.val.frames.length() - 1
     match state.val.frames[top_index] {
       GenFrame::AfterAssign(target~, value~) => {
+        let _ = value
         let value_to_assign = sent_value
         sent_value = Value::None
         let _ = match

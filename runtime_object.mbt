@@ -1651,10 +1651,10 @@ fn call_callable_with_env(
           func, positional, keywords, globals, builtins, io,
         )
       }
-    Value::BoundMethod(method) => {
+    Value::BoundMethod(bound_method) => {
       // Intrinsic: object.__getattribute__(self, name)
-      if method.function.name == "__getattribute__" &&
-        method.function.body.length() == 0 {
+      if bound_method.function.name == "__getattribute__" &&
+        bound_method.function.body.length() == 0 {
         if keywords.length() > 0 {
           return Err(
             make_runtime_error(
@@ -1681,12 +1681,18 @@ fn call_callable_with_env(
               ),
             )
         }
-        return get_attr_raw_from_value(method.self, name, globals, builtins, io)
+        return get_attr_raw_from_value(
+          bound_method.self,
+          name,
+          globals,
+          builtins,
+          io,
+        )
       }
 
       // Intrinsic: object.__setattr__(self, name, value)
-      if method.function.name == "__setattr__" &&
-        method.function.body.length() == 0 {
+      if bound_method.function.name == "__setattr__" &&
+        bound_method.function.body.length() == 0 {
         if keywords.length() > 0 {
           return Err(
             make_runtime_error(
@@ -1715,7 +1721,14 @@ fn call_callable_with_env(
         }
         let value = positional[1]
         let _ = match
-          set_attr_raw_on_value(method.self, name, value, globals, builtins, io) {
+          set_attr_raw_on_value(
+            bound_method.self,
+            name,
+            value,
+            globals,
+            builtins,
+            io,
+          ) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -1723,8 +1736,8 @@ fn call_callable_with_env(
       }
 
       // Intrinsic: object.__delattr__(self, name)
-      if method.function.name == "__delattr__" &&
-        method.function.body.length() == 0 {
+      if bound_method.function.name == "__delattr__" &&
+        bound_method.function.body.length() == 0 {
         if keywords.length() > 0 {
           return Err(
             make_runtime_error(
@@ -1752,25 +1765,31 @@ fn call_callable_with_env(
             )
         }
         let _ = match
-          delete_attr_raw_on_value(method.self, name, globals, builtins, io) {
+          delete_attr_raw_on_value(
+            bound_method.self,
+            name,
+            globals,
+            builtins,
+            io,
+          ) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
         return Ok(Value::None)
       }
-      match method.self {
+      match bound_method.self {
         Value::Instance(inst) =>
           if (
               inst.class.name == "dict_keys" ||
               inst.class.name == "dict_values" ||
               inst.class.name == "dict_items"
             ) &&
-            method.function.body.length() == 0 {
+            bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
@@ -1795,7 +1814,7 @@ fn call_callable_with_env(
                   ),
                 )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "__len__" =>
                 if positional.length() != 0 {
                   return Err(
@@ -1882,17 +1901,17 @@ fn call_callable_with_env(
               _ => ()
             }
           } else if inst.class.name == "generator" &&
-            method.function.body.length() == 0 {
+            bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "send" =>
                 if positional.length() != 1 {
                   return Err(
@@ -1902,7 +1921,7 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return generator_send(method.self, positional[0])
+                  return generator_send(bound_method.self, positional[0])
                 }
               "close" =>
                 if positional.length() != 0 {
@@ -1913,7 +1932,7 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return generator_close(method.self)
+                  return generator_close(bound_method.self)
                 }
               "throw" =>
                 if positional.length() == 0 || positional.length() > 3 {
@@ -1924,12 +1943,12 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return generator_throw(method.self, positional[0])
+                  return generator_throw(bound_method.self, positional[0])
                 }
               _ => ()
             }
           } else if inst.class.name == "async_generator" &&
-            method.function.body.length() == 0 {
+            bound_method.function.body.length() == 0 {
             let has_gen_id = match get_named_value(inst.dict, "gen_id") {
               Some(_) => true
               None => false
@@ -1938,12 +1957,12 @@ fn call_callable_with_env(
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "__aiter__" =>
                 if positional.length() != 0 {
                   return Err(
@@ -1953,7 +1972,7 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return Ok(method.self)
+                  return Ok(bound_method.self)
                 }
               "__anext__" =>
                 if positional.length() != 0 {
@@ -1967,7 +1986,7 @@ fn call_callable_with_env(
                   if has_gen_id {
                     return Ok(
                       async_generator_make_anext_coroutine(
-                        method.self,
+                        bound_method.self,
                         globals,
                         builtins,
                         io,
@@ -1976,7 +1995,7 @@ fn call_callable_with_env(
                   }
                   return Ok(
                     async_genexp_make_anext_coroutine(
-                      method.self,
+                      bound_method.self,
                       globals,
                       builtins,
                       io,
@@ -2002,7 +2021,7 @@ fn call_callable_with_env(
                   }
                   return Ok(
                     async_generator_make_asend_coroutine(
-                      method.self,
+                      bound_method.self,
                       positional[0],
                       globals,
                       builtins,
@@ -2029,7 +2048,7 @@ fn call_callable_with_env(
                   }
                   return Ok(
                     async_generator_make_athrow_coroutine(
-                      method.self,
+                      bound_method.self,
                       positional[0],
                       globals,
                       builtins,
@@ -2056,7 +2075,7 @@ fn call_callable_with_env(
                   }
                   return Ok(
                     async_generator_make_aclose_coroutine(
-                      method.self,
+                      bound_method.self,
                       globals,
                       builtins,
                       io,
@@ -2067,17 +2086,17 @@ fn call_callable_with_env(
             }
           }
         Value::List(values) =>
-          if method.function.body.length() == 0 {
+          if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "append" =>
                 if positional.length() != 1 {
                   return Err(
@@ -2243,17 +2262,17 @@ fn call_callable_with_env(
             }
           }
         Value::Dict(pairs) =>
-          if method.function.body.length() == 0 {
+          if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "get" => {
                 if positional.length() == 0 || positional.length() > 2 {
                   return Err(
@@ -2464,17 +2483,17 @@ fn call_callable_with_env(
             }
           }
         Value::Set(values) =>
-          if method.function.body.length() == 0 {
+          if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  method.function.name +
+                  bound_method.function.name +
                   "() got unexpected keyword arguments".to_string(),
                 ),
               )
             }
-            match method.function.name {
+            match bound_method.function.name {
               "add" =>
                 if positional.length() != 1 {
                   return Err(
@@ -2604,12 +2623,12 @@ fn call_callable_with_env(
           }
         _ => ()
       }
-      let args : Array[Value] = [method.self]
+      let args : Array[Value] = [bound_method.self]
       for item in positional {
         args.push(item)
       }
       (eval_function_with_kwargs_ref.val)(
-        method.function,
+        bound_method.function,
         args,
         keywords,
         globals,
@@ -2776,7 +2795,7 @@ fn call_callable_with_env(
         Err(err) => return Err(err)
       }
       match call_attr {
-        Some(value) => {
+        Some(_) => {
           // Reuse the regular attribute lookup path so we also get descriptor
           // behavior and method binding.
           let bound = match

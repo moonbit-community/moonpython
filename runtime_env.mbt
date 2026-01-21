@@ -25,54 +25,6 @@ fn index_from_value(value : Value, default : Int) -> Result[Int, RuntimeError] {
 }
 
 ///|
-fn slice_values(values : Array[Value], start : Int, end : Int) -> Array[Value] {
-  let result : Array[Value] = []
-  let len = values.length()
-  let mut s = normalize_index(start, len)
-  let mut e = normalize_index(end, len)
-  if s < 0 {
-    s = 0
-  }
-  if e < 0 {
-    e = 0
-  }
-  if s > len {
-    s = len
-  }
-  if e > len {
-    e = len
-  }
-  for i = s; i < e; i = i + 1 {
-    result.push(values[i])
-  }
-  result
-}
-
-///|
-fn slice_string(chars : Array[Char], start : Int, end : Int) -> String {
-  let len = chars.length()
-  let mut s = normalize_index(start, len)
-  let mut e = normalize_index(end, len)
-  if s < 0 {
-    s = 0
-  }
-  if e < 0 {
-    e = 0
-  }
-  if s > len {
-    s = len
-  }
-  if e > len {
-    e = len
-  }
-  let buf = StringBuilder::new()
-  for i = s; i < e; i = i + 1 {
-    buf.write_char(chars[i])
-  }
-  buf.to_string()
-}
-
-///|
 fn maybe_index_from_value(value : Value) -> Result[Int?, RuntimeError] {
   match value {
     Value::None => Ok(None)
@@ -437,39 +389,6 @@ fn current_config() -> Config {
 }
 
 ///|
-fn get_from_env(
-  name : String,
-  locals : Array[(String, Value)],
-  globals : Array[(String, Value)],
-  builtins : Array[(String, Value)],
-) -> Value? {
-  for pair in locals {
-    if pair.0 == name {
-      return Some(deref_cell_value(pair.1))
-    }
-  }
-  if closure_env_stack.val.length() > 0 {
-    let env = closure_env_stack.val[closure_env_stack.val.length() - 1]
-    for pair in env {
-      if pair.0 == name {
-        return Some(deref_cell_value(pair.1))
-      }
-    }
-  }
-  for pair in globals {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  for pair in builtins {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
-  None
-}
-
-///|
 fn set_global_value(
   globals : Array[(String, Value)],
   name : String,
@@ -561,14 +480,6 @@ priv struct ScopeDecls {
 
 ///|
 let scope_decls_stack : Ref[Array[ScopeDecls]] = { val: [] }
-
-///|
-fn push_scope_decls(global_names : Array[String]) -> Unit {
-  scope_decls_stack.val.push(ScopeDecls::{
-    globals: global_names,
-    nonlocals: [],
-  })
-}
 
 ///|
 fn push_scope_decls_with_nonlocals(

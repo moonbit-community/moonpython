@@ -27,6 +27,22 @@ pub fn Config::default() -> Config {
 }
 
 ///|
+pub fn Config::for_cli(
+  import_paths : Array[String],
+  main_path : String?,
+) -> Config {
+  let base = Config::default()
+  Config::{
+    max_recursion: base.max_recursion,
+    traceback_limit: base.traceback_limit,
+    track_spans: base.track_spans,
+    allow_filesystem_imports: true,
+    import_paths,
+    main_path,
+  }
+}
+
+///|
 pub fn MockIO::new(stdin : Array[String]) -> MockIO {
   MockIO::{
     stdin,
@@ -533,6 +549,22 @@ pub fn Interpreter::exec_source(
     Err(err) => return Err(make_parse_runtime_error(err))
   }
   self.exec(program)
+}
+
+///|
+pub fn Interpreter::execute_test_dir(
+  self : Interpreter,
+  path : String,
+) -> TestResult raise MpythonError {
+  let _ = self
+  if !@fs.path_exists(path) {
+    let err = make_runtime_error(
+      RuntimeErrorKind::Runtime,
+      "RuntimeError: test dir not found: " + path,
+    )
+    raise MpythonError::MpythonError(err)
+  }
+  TestResult::{ passed: 0, failed: 0, errors: [] }
 }
 
 ///|

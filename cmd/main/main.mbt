@@ -115,8 +115,8 @@ fn value_to_string(value : @mpython.Value) -> String {
     @mpython.Value::Function(func) => "<function " + func.name + ">"
     @mpython.Value::Class(klass) => "<class '" + klass.name + "'>"
     @mpython.Value::Instance(inst) => "<" + inst.class.name + " object>"
-    @mpython.Value::BoundMethod(method) =>
-      "<bound method " + method.function.name + ">"
+    @mpython.Value::BoundMethod(bound_method) =>
+      "<bound method " + bound_method.function.name + ">"
   }
 }
 
@@ -179,24 +179,17 @@ fn main {
     None => {
       print_usage()
       @sys.exit(1)
+      ""
     }
   }
   let source = @fs.read_file_to_string(script_path) catch {
-    _ =>
-      return {
-        println("cannot read file: " + script_path)
-        @sys.exit(1)
-      }
+    _ => {
+      println("cannot read file: " + script_path)
+      @sys.exit(1)
+      ""
+    }
   }
-  let default_config = @mpython.Config::default()
-  let config = @mpython.Config::{
-    max_recursion: default_config.max_recursion,
-    traceback_limit: default_config.traceback_limit,
-    track_spans: default_config.track_spans,
-    allow_filesystem_imports: true,
-    import_paths: stdlib_paths,
-    main_path: Some(script_path),
-  }
+  let config = @mpython.Config::for_cli(stdlib_paths, Some(script_path))
   let interpreter = @mpython.Interpreter::with_config(config)
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)

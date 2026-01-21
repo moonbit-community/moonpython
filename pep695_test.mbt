@@ -57,9 +57,9 @@ test "pep695/parse_type_params" {
     #|def func[T, *Ts, **P](x, y): pass
     #|class Box[T](Base): pass
   let summary = match parse(source) {
-    Ok(module) => {
+    Ok(parsed_module) => {
       let parts : Array[String] = []
-      for stmt in module.body {
+      for stmt in parsed_module.body {
         parts.push(stmt_summary(stmt))
       }
       join_strings(parts)

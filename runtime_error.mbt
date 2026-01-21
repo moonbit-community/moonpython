@@ -30,13 +30,16 @@ fn runtime_error_exc(
       }
       for prefix in prefixes {
         if message.has_prefix(prefix) {
-          let type_name = prefix.substring(start=0, end=prefix.length() - 1)
-          let mut rest = message.substring(
-            start=prefix.length(),
-            end=message.length(),
-          )
+          let type_name = prefix.trim(chars=":").to_string()
+          let mut rest = match message.strip_prefix(prefix) {
+            Some(view) => view.to_string()
+            None => "".to_string()
+          }
           if rest.has_prefix(" ") {
-            rest = rest.substring(start=1, end=rest.length())
+            rest = match rest.strip_prefix(" ") {
+              Some(view) => view.to_string()
+              None => rest
+            }
           }
           let args = if rest.length() == 0 { [] } else { [rest] }
           return (type_name.to_string(), args)

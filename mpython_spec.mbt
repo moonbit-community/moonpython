@@ -191,8 +191,8 @@ pub enum Stmt {
   Assert(condition~ : Expr, message~ : Expr?)
   Raise(exc~ : Expr?, cause~ : Expr?)
   Del(Array[Target])
-  Import(module~ : String, alias~ : String?)
-  FromImport(module~ : String, names~ : Array[(String, String?)])
+  Import(module_name~ : String, alias_name~ : String?)
+  FromImport(module_name~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(

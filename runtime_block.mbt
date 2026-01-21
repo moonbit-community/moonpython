@@ -137,6 +137,7 @@ fn exception_value_matches_handler(
   handler_class : ClassValue,
   builtins : Array[(String, Value)],
 ) -> Result[Bool, RuntimeError] {
+  let _ = builtins
   if handler_class.name == "Exception" || handler_class.name == "BaseException" {
     return Ok(true)
   }
@@ -947,20 +948,20 @@ fn eval_block_flow(
         }
         last = Value::None
       }
-      Stmt::Import(module~, alias~) => {
+      Stmt::Import(module_name~, alias_name~) => {
         let module_value = match
-          import_module(module, globals, builtins, io, config) {
+          import_module(module_name, globals, builtins, io, config) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        let binding = match alias {
+        let binding = match alias_name {
           Some(name) => name
-          None => module_top_name(module)
+          None => module_top_name(module_name)
         }
-        let binding_value = match alias {
+        let binding_value = match alias_name {
           Some(_) => module_value
           None =>
-            if module.contains(".") {
+            if module_name.contains(".") {
               match module_cache_get(binding) {
                 Some(value) => value
                 None => module_value
@@ -972,9 +973,9 @@ fn eval_block_flow(
         set_scoped_value(locals, globals, binding, binding_value)
         last = Value::None
       }
-      Stmt::FromImport(module~, names~) => {
+      Stmt::FromImport(module_name~, names~) => {
         let module_value = match
-          import_module(module, globals, builtins, io, config) {
+          import_module(module_name, globals, builtins, io, config) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -999,7 +1000,7 @@ fn eval_block_flow(
             Err(err) =>
               match err.kind {
                 RuntimeErrorKind::Attribute => {
-                  let submodule = module + "." + name
+                  let submodule = module_name + "." + name
                   match
                     import_module(submodule, globals, builtins, io, config) {
                     Ok(value) => value
@@ -1010,7 +1011,7 @@ fn eval_block_flow(
               }
           }
           let binding = match alias_opt {
-            Some(alias) => alias
+            Some(alias_name) => alias_name
             None => name
           }
           set_scoped_value(locals, globals, binding, imported)
@@ -1848,13 +1849,6 @@ fn eval_block_flow(
         }
         last = Value::None
       }
-      _ =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "statement not implemented".to_string(),
-          ),
-        )
     }
   }
   Ok(BlockFlow::Normal(last))

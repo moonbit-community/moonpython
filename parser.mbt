@@ -1013,6 +1013,7 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
       }
     }
     Expr::Lambda(params~, defaults~, body~) => {
+      let _ = params
       for expr in defaults {
         collect_named_expr_targets(expr, targets)
       }
@@ -1037,7 +1038,10 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
         None => ()
       }
     }
-    Expr::Attribute(value~, attr~) => collect_named_expr_targets(value, targets)
+    Expr::Attribute(value~, attr~) => {
+      let _ = attr
+      collect_named_expr_targets(value, targets)
+    }
     Expr::Subscript(value~, index~) => {
       collect_named_expr_targets(value, targets)
       collect_named_expr_targets(index, targets)
@@ -1054,16 +1058,23 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
     }
     Expr::Starred(value~) => collect_named_expr_targets(value, targets)
     Expr::DoubleStarred(value~) => collect_named_expr_targets(value, targets)
-    Expr::Unary(op~, expr~) => collect_named_expr_targets(expr, targets)
+    Expr::Unary(op~, expr~) => {
+      let _ = op
+      collect_named_expr_targets(expr, targets)
+    }
     Expr::Binary(op~, left~, right~) => {
+      let _ = op
       collect_named_expr_targets(left, targets)
       collect_named_expr_targets(right, targets)
     }
-    Expr::BoolOp(op~, values~) =>
+    Expr::BoolOp(op~, values~) => {
+      let _ = op
       for value in values {
         collect_named_expr_targets(value, targets)
       }
+    }
     Expr::Compare(left~, ops~, comparators~) => {
+      let _ = ops
       collect_named_expr_targets(left, targets)
       for cmp in comparators {
         collect_named_expr_targets(cmp, targets)
@@ -2169,40 +2180,6 @@ fn LineParser::clamp_line_index(self : LineParser, idx : Int) -> Int {
 }
 
 ///|
-fn LineParser::skip_block(self : LineParser, indent : Int) -> Unit {
-  let mut open_quote : Char? = None
-  while self.index < self.lines.length() {
-    let line = self.lines[self.index]
-    let trimmed = line.trim(chars=" \t").to_string()
-    if trimmed.length() == 0 {
-      self.index += 1
-      continue
-    }
-    let current_indent = count_indent(line)
-    let raw_line = substring(line, current_indent, line.length()).to_string()
-    match open_quote {
-      Some(quote) => {
-        if has_triple_quote_after(raw_line, quote, 0) {
-          open_quote = None
-        }
-        self.index += 1
-        continue
-      }
-      None => ()
-    }
-    if current_indent < indent {
-      break
-    }
-    if find_triple_quote(raw_line) is Some((quote, pos)) {
-      if !has_triple_quote_after(raw_line, quote, pos + 3) {
-        open_quote = Some(quote)
-      }
-    }
-    self.index += 1
-  }
-}
-
-///|
 fn count_indent(line : String) -> Int {
   let chars = line.to_array()
   let mut count = 0
@@ -3169,157 +3146,6 @@ fn parse_int64_digits(text : String) -> Int64 {
 }
 
 ///|
-fn expr_has_name(expr : Expr) -> Bool {
-  match expr {
-    Expr::Name(_) => true
-    Expr::Yield(expr_opt) =>
-      match expr_opt {
-        Some(value) => expr_has_name(value)
-        None => false
-      }
-    Expr::YieldFrom(value) => expr_has_name(value)
-    Expr::Await(value) => expr_has_name(value)
-    Expr::Attribute(value~, attr~) => {
-      let _ = attr
-      expr_has_name(value)
-    }
-    Expr::Subscript(value~, index~) =>
-      expr_has_name(value) || expr_has_name(index)
-    Expr::Call(callee~, args~) => {
-      if expr_has_name(callee) {
-        return true
-      }
-      for arg in args {
-        if expr_has_name(arg) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
-      for item in items {
-        if expr_has_name(item) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::Dict(pairs) => {
-      for pair in pairs {
-        if expr_has_name(pair.0) || expr_has_name(pair.1) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::Unary(op~, expr~) => {
-      let _ = op
-      expr_has_name(expr)
-    }
-    Expr::Binary(op~, left~, right~) => {
-      let _ = op
-      expr_has_name(left) || expr_has_name(right)
-    }
-    Expr::BoolOp(op~, values~) => {
-      let _ = op
-      for value in values {
-        if expr_has_name(value) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::Compare(left~, ops~, comparators~) => {
-      let _ = ops
-      if expr_has_name(left) {
-        return true
-      }
-      for value in comparators {
-        if expr_has_name(value) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
-      expr_has_name(condition) ||
-      expr_has_name(then_expr) ||
-      expr_has_name(else_expr)
-    Expr::Lambda(params~, defaults~, body~) => {
-      let _ = params
-      for d in defaults {
-        if expr_has_name(d) {
-          return true
-        }
-      }
-      expr_has_name(body)
-    }
-    Expr::ListComp(elt~, clauses~, filters~)
-    | Expr::GenExp(elt~, clauses~, filters~)
-    | Expr::SetComp(elt~, clauses~, filters~) => {
-      if expr_has_name(elt) {
-        return true
-      }
-      for clause in clauses {
-        let _ = clause.targets
-        if expr_has_name(clause.iter) {
-          return true
-        }
-      }
-      for filter in filters {
-        if expr_has_name(filter) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::DictComp(key~, value~, clauses~, filters~) => {
-      if expr_has_name(key) || expr_has_name(value) {
-        return true
-      }
-      for clause in clauses {
-        let _ = clause.targets
-        if expr_has_name(clause.iter) {
-          return true
-        }
-      }
-      for filter in filters {
-        if expr_has_name(filter) {
-          return true
-        }
-      }
-      false
-    }
-    Expr::NamedExpr(name~, value~) => {
-      let _ = name
-      expr_has_name(value)
-    }
-    Expr::Slice(start~, end~, step~) => {
-      let start_has = match start {
-        Some(v) => expr_has_name(v)
-        None => false
-      }
-      let end_has = match end {
-        Some(v) => expr_has_name(v)
-        None => false
-      }
-      let step_has = match step {
-        Some(v) => expr_has_name(v)
-        None => false
-      }
-      start_has || end_has || step_has
-    }
-    Expr::Keyword(name~, value~) => {
-      let _ = name
-      expr_has_name(value)
-    }
-    Expr::Starred(value~) => expr_has_name(value)
-    Expr::DoubleStarred(value~) => expr_has_name(value)
-    Expr::FString(_) | Expr::Literal(_) => false
-  }
-}
-
-///|
 fn expr_has_async_comprehension(expr : Expr) -> Bool {
   match expr {
     Expr::ListComp(elt~, clauses~, filters~)
@@ -4121,7 +3947,7 @@ fn parse_simple_statement(
       if module_name == "." {
         module_name = ""
       }
-      stmts.push(Stmt::Import(module=module_name, alias=alias_opt))
+      stmts.push(Stmt::Import(module_name~, alias_name=alias_opt))
     }
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
@@ -4129,7 +3955,7 @@ fn parse_simple_statement(
   }
   if trimmed.has_prefix("from ") {
     let tail_check = trimmed.trim(chars=" \t").to_string()
-    if tail_check.ends_with(",") && !tail_check.contains("(") {
+    if tail_check.has_suffix(",") && !tail_check.contains("(") {
       let comma_pos = find_last_char(tail_check, ',')
       match comma_pos {
         Some(pos) => {
@@ -4240,7 +4066,7 @@ fn parse_simple_statement(
       )
       .trim(chars=" \t")
       .to_string()
-    if imported.has_prefix("(") && imported.ends_with(")") {
+    if imported.has_prefix("(") && imported.has_suffix(")") {
       imported = substring(imported, 1, imported.length() - 1)
         .trim(chars=" \t")
         .to_string()
@@ -4276,7 +4102,7 @@ fn parse_simple_statement(
         }
       }
     }
-    stmts.push(Stmt::FromImport(module=module_name, names~))
+    stmts.push(Stmt::FromImport(module_name~, names~))
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
