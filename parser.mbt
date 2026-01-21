@@ -8360,6 +8360,7 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
   let mut quote : Char? = None
   let mut escape = false
   let bracket_stack : Array[(Char, Int, Int, Int)] = []
+  let mut unclosed_open : (Char, Int, Int, Int)? = None
   while i < chars.length() {
     let c = chars[i]
     match quote {
@@ -8544,42 +8545,69 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
     i += 1
   }
   if bracket_stack.length() > 0 {
-    let open = bracket_stack[bracket_stack.length() - 1]
-    let token = {
-      kind: Eof,
-      start: open.1,
-      end: open.1 + 1,
-      line: open.2,
-      column: open.3,
-    }
-    let message = "'" + open.0.to_string() + "' was never closed"
-    return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+    unclosed_open = Some(bracket_stack[bracket_stack.length() - 1])
   }
   let parser = LineParser::new(source)
   match parser.parse_block(0) {
-    Ok(body) => Ok(Module::{ body, })
+    Ok(body) =>
+      match unclosed_open {
+        Some(open) => {
+          let token = {
+            kind: Eof,
+            start: open.1,
+            end: open.1 + 1,
+            line: open.2,
+            column: open.3,
+          }
+          let message = "'" + open.0.to_string() + "' was never closed"
+          Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+        }
+        None => Ok(Module::{ body, })
+      }
     Err(err) =>
       match err.kind {
         ParseErrorKind::Indentation => Err(err)
-        _ =>
+        _ => {
+          let mut final_err = err
+          match unclosed_open {
+            Some(open) =>
+              if final_err.kind == ParseErrorKind::Syntax &&
+                final_err.span.line == open.2 {
+                let token = {
+                  kind: Eof,
+                  start: open.1,
+                  end: open.1 + 1,
+                  line: open.2,
+                  column: open.3,
+                }
+                let message = "'" + open.0.to_string() + "' was never closed"
+                final_err = make_parse_error(
+                  ParseErrorKind::Syntax,
+                  message,
+                  token,
+                )
+              }
+            None => ()
+          }
           match mismatch_hint {
             Some(mismatch_line) =>
-              if err.span.line == 1 && mismatch_line > 1 {
+              if final_err.span.line == 1 && mismatch_line > 1 {
                 Err(ParseError::{
-                  kind: err.kind,
-                  message: err.message,
+                  kind: final_err.kind,
+                  message: final_err.message,
                   span: Span::{
-                    start: err.span.start,
-                    end: err.span.end,
+                    start: final_err.span.start,
+                    end: final_err.span.end,
                     line: mismatch_line,
                     column: 1,
                   },
                 })
               } else {
-                Err(err)
+                Err(final_err)
               }
-            None => Err(err)
+            None => Err(final_err)
           }
+        }
       }
   }
 }
