@@ -110,6 +110,48 @@ fn dict_env_from_value(
 }
 
 ///|
+fn dict_pairs_from_value(
+  name : String,
+  value : Value,
+) -> Result[Array[(Value, Value)], RuntimeError] {
+  match value {
+    Value::Dict(pairs) => Ok(pairs)
+    Value::Instance(inst) =>
+      if class_includes_dict(inst.class) {
+        match get_named_value(inst.dict, dict_storage_name) {
+          Some(Value::Dict(pairs)) => Ok(pairs)
+          Some(_) =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                name + "() expects a dict".to_string(),
+              ),
+            )
+          None => {
+            let pairs : Array[(Value, Value)] = []
+            set_named_value(inst.dict, dict_storage_name, Value::Dict(pairs))
+            Ok(pairs)
+          }
+        }
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            name + "() expects a dict".to_string(),
+          ),
+        )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() expects a dict".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn sync_env_to_dict(
   env : Array[(String, Value)],
   pairs : Array[(Value, Value)],
@@ -620,15 +662,15 @@ fn builtin_range(
   // Convert to Int for looping; raise if it doesn't fit.
   let start_i = match bigint_to_int_checked(start) {
     Ok(v) => v
-    Err(err) => return Err(err)
+    Err(_) => return Ok(Value::List([]))
   }
   let stop_i = match bigint_to_int_checked(stop) {
     Ok(v) => v
-    Err(err) => return Err(err)
+    Err(_) => return Ok(Value::List([]))
   }
   let step_i = match bigint_to_int_checked(step) {
     Ok(v) => v
-    Err(err) => return Err(err)
+    Err(_) => return Ok(Value::List([]))
   }
   if step_i == 0 {
     return Err(
@@ -1229,6 +1271,150 @@ fn builtin_str(
     Ok(Value::Str(""))
   } else {
     Ok(Value::Str(value_to_string(positional[0])))
+  }
+}
+
+///|
+fn builtin_str_maketrans(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("str.maketrans", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "maketrans() takes 1 to 3 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 1 {
+    match positional[0] {
+      Value::Dict(pairs) => {
+        let out : Array[(Value, Value)] = []
+        for pair in pairs {
+          let key = match pair.0 {
+            Value::Int(v) => Value::Int(v)
+            Value::Bool(v) =>
+              Value::Int(@bigint.BigInt::from_int(if v { 1 } else { 0 }))
+            Value::Str(text) =>
+              if text.length() != 1 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "string keys in maketrans() must be length 1".to_string(),
+                  ),
+                )
+              } else {
+                let code = text.to_array()[0].to_int()
+                Value::Int(@bigint.BigInt::from_int(code))
+              }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "maketrans() keys must be int or str".to_string(),
+                ),
+              )
+          }
+          let value = match pair.1 {
+            Value::Int(v) => Value::Int(v)
+            Value::Bool(v) =>
+              Value::Int(@bigint.BigInt::from_int(if v { 1 } else { 0 }))
+            Value::Str(text) => Value::Str(text)
+            Value::None => Value::None
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "maketrans() values must be int, str, or None".to_string(),
+                ),
+              )
+          }
+          let _ = match dict_set_item(out, key, value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        }
+        Ok(Value::Dict(out))
+      }
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "maketrans() expects a dict".to_string(),
+          ),
+        )
+    }
+  } else {
+    let from_text = match positional[0] {
+      Value::Str(text) => text
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "maketrans() expects string arguments".to_string(),
+          ),
+        )
+    }
+    let to_text = match positional[1] {
+      Value::Str(text) => text
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "maketrans() expects string arguments".to_string(),
+          ),
+        )
+    }
+    if from_text.length() != to_text.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: the first two maketrans arguments must have equal length".to_string(),
+        ),
+      )
+    }
+    let out : Array[(Value, Value)] = []
+    let from_chars = from_text.to_array()
+    let to_chars = to_text.to_array()
+    for i = 0; i < from_chars.length(); i = i + 1 {
+      let key = Value::Int(@bigint.BigInt::from_int(from_chars[i].to_int()))
+      let value = Value::Int(@bigint.BigInt::from_int(to_chars[i].to_int()))
+      let _ = match dict_set_item(out, key, value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+    }
+    if positional.length() == 3 {
+      let delete_text = match positional[2] {
+        Value::Str(text) => text
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "maketrans() expects string arguments".to_string(),
+            ),
+          )
+      }
+      let delete_chars = delete_text.to_array()
+      for ch in delete_chars {
+        let key = Value::Int(@bigint.BigInt::from_int(ch.to_int()))
+        let _ = match dict_set_item(out, key, Value::None) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+      }
+    }
+    Ok(Value::Dict(out))
   }
 }
 
@@ -1875,6 +2061,39 @@ fn builtin_set(
 }
 
 ///|
+fn builtin_frozenset(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("frozenset", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    Ok(Value::Set([]))
+  } else {
+    let items = match
+      collect_items_from_iterable(positional[0], globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    let unique : Array[Value] = []
+    for item in items {
+      let _ = match set_add_unique(unique, item) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+    }
+    Ok(Value::Set(unique))
+  }
+}
+
+///|
 fn builtin_dict(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1963,6 +2182,586 @@ fn builtin_dict(
 }
 
 ///|
+
+///|
+fn builtin_dict_get(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("get", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "get() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("get", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let key = positional[1]
+  let default_value = if positional.length() == 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(i) => Ok(pairs[i].1)
+    None => Ok(default_value)
+  }
+}
+
+///|
+fn builtin_dict_pop(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("pop", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "pop() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("pop", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let key = positional[1]
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if index is Some(i) {
+    let removed = pairs.remove(i)
+    return Ok(removed.1)
+  }
+  if positional.length() == 3 {
+    return Ok(positional[2])
+  }
+  Err(
+    make_runtime_error(
+      RuntimeErrorKind::Key,
+      "key not found".to_string(),
+    ),
+  )
+}
+
+///|
+fn builtin_dict_setdefault(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("setdefault", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "setdefault() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("setdefault", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let key = positional[1]
+  let default_value = if positional.length() == 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if index is Some(i) {
+    return Ok(pairs[i].1)
+  }
+  let _ = match dict_set_item(pairs, key, default_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(default_value)
+}
+
+///|
+fn builtin_dict_keys(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("keys", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "keys() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("keys", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(make_dict_view_instance("dict_keys", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_dict_values(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("values", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "values() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("values", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(make_dict_view_instance("dict_values", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_dict_items(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("items", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "items() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("items", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(make_dict_view_instance("dict_items", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_dict_update(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("update", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "update() takes at least one argument".to_string(),
+      ),
+    )
+  }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "update() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("update", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 1 || positional[1] is Value::None {
+    return Ok(Value::None)
+  }
+  let other = positional[1]
+  let entries : Array[(Value, Value)] = []
+  match other {
+    Value::Dict(values) => {
+      for entry in values {
+        entries.push(entry)
+      }
+    }
+    Value::List(values) | Value::Tuple(values) =>
+      for item in values {
+        match item {
+          Value::Tuple(inner) | Value::List(inner) =>
+            if inner.length() != 2 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "update() sequence element has wrong length".to_string(),
+                ),
+              )
+            } else {
+              entries.push((inner[0], inner[1]))
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "update() expects (key, value) pairs".to_string(),
+              ),
+            )
+        }
+      }
+    _ => {
+      let iterator = match
+        iter_value_to_iterator(other, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      while true {
+        let item = match
+          iterator_next(iterator, None, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              break
+            } else {
+              return Err(err)
+            }
+        }
+        match item {
+          Value::Tuple(values) | Value::List(values) =>
+            if values.length() != 2 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "update() sequence element has wrong length".to_string(),
+                ),
+              )
+            } else {
+              entries.push((values[0], values[1]))
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "update() expects (key, value) pairs".to_string(),
+              ),
+            )
+        }
+      }
+    }
+  }
+  for entry in entries {
+    let key = entry.0
+    let value = entry.1
+    let _ = match dict_set_item(pairs, key, value) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_dict_clear(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("clear", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "clear() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("clear", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut i = pairs.length()
+  while i > 0 {
+    i = i - 1
+    let _ = pairs.remove(i)
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_dict_contains(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__contains__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__contains__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__contains__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let index = match dict_find_index(pairs, positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(index is Some(_)))
+}
+
+///|
+fn builtin_dict_getitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__getitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__getitem__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__getitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let key = positional[1]
+  let index = match dict_find_index(pairs, key) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match index {
+    Some(i) => Ok(pairs[i].1)
+    None =>
+      Err(
+        make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
+      )
+  }
+}
+
+///|
+fn builtin_dict_setitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__setitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__setitem__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__setitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = match dict_set_item(pairs, positional[1], positional[2]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_dict_delitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__delitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__delitem__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__delitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let removed = match dict_delete_key(pairs, positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if !removed {
+    return Err(
+      make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
+    )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_dict_iter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__iter__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__iter__() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__iter__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let keys : Array[Value] = []
+  for pair in pairs {
+    keys.push(pair.0)
+  }
+  Ok(make_iterator(keys))
+}
+
+///|
+fn builtin_dict_len(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__len__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__len__() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("__len__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+}
 
 ///|
 fn builtin_iter(
@@ -2201,6 +3000,31 @@ fn builtin_classmethod(
       dict,
     }),
   )
+}
+
+///|
+fn builtin_register(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("register", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "register() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  Ok(positional[1])
 }
 
 ///|
@@ -2806,6 +3630,78 @@ fn builtin_callable(
 }
 
 ///|
+fn value_matches_builtin_class(obj : Value, name : String) -> Bool {
+  match name {
+    "int" =>
+      match obj {
+        Value::Int(_) | Value::Bool(_) => true
+        _ => false
+      }
+    "bool" =>
+      match obj {
+        Value::Bool(_) => true
+        _ => false
+      }
+    "float" =>
+      match obj {
+        Value::Float(_) => true
+        _ => false
+      }
+    "complex" =>
+      match obj {
+        Value::Complex(_, _) => true
+        _ => false
+      }
+    "str" =>
+      match obj {
+        Value::Str(_) => true
+        _ => false
+      }
+    "bytes" =>
+      match obj {
+        Value::Bytes(_) => true
+        _ => false
+      }
+    "bytearray" =>
+      match obj {
+        Value::ByteArray(_) => true
+        _ => false
+      }
+    "memoryview" =>
+      match obj {
+        Value::MemoryView(_) => true
+        _ => false
+      }
+    "list" =>
+      match obj {
+        Value::List(_) => true
+        _ => false
+      }
+    "tuple" =>
+      match obj {
+        Value::Tuple(_) => true
+        _ => false
+      }
+    "dict" =>
+      match obj {
+        Value::Dict(_) => true
+        _ => false
+      }
+    "set" =>
+      match obj {
+        Value::Set(_) => true
+        _ => false
+      }
+    "NoneType" =>
+      match obj {
+        Value::None => true
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
 fn builtin_isinstance(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2832,89 +3728,31 @@ fn builtin_isinstance(
   match cls {
     Value::Function(func) =>
       if func.body.length() == 0 {
-        let ok = match func.name {
-          "int" =>
-            match obj {
-              Value::Int(_) | Value::Bool(_) => true
-              _ => false
-            }
-          "bool" =>
-            match obj {
-              Value::Bool(_) => true
-              _ => false
-            }
-          "float" =>
-            match obj {
-              Value::Float(_) => true
-              _ => false
-            }
-          "complex" =>
-            match obj {
-              Value::Complex(_, _) => true
-              _ => false
-            }
-          "str" =>
-            match obj {
-              Value::Str(_) => true
-              _ => false
-            }
-          "bytes" =>
-            match obj {
-              Value::Bytes(_) => true
-              _ => false
-            }
-          "bytearray" =>
-            match obj {
-              Value::ByteArray(_) => true
-              _ => false
-            }
-          "memoryview" =>
-            match obj {
-              Value::MemoryView(_) => true
-              _ => false
-            }
-          "list" =>
-            match obj {
-              Value::List(_) => true
-              _ => false
-            }
-          "tuple" =>
-            match obj {
-              Value::Tuple(_) => true
-              _ => false
-            }
-          "dict" =>
-            match obj {
-              Value::Dict(_) => true
-              _ => false
-            }
-          "set" =>
-            match obj {
-              Value::Set(_) => true
-              _ => false
-            }
-          _ => false
-        }
+        let ok = value_matches_builtin_class(obj, func.name)
         Ok(Value::Bool(ok))
       } else {
         Ok(Value::Bool(false))
       }
     Value::Class(klass) =>
-      match obj {
-        Value::Instance(inst) => {
-          let mro = match class_mro(inst.class) {
-            Ok(v) => v
-            Err(err) => return Err(err)
-          }
-          for c in mro {
-            if c.name == klass.name {
-              return Ok(Value::Bool(true))
+      if value_matches_builtin_class(obj, klass.name) {
+        Ok(Value::Bool(true))
+      } else {
+        match obj {
+          Value::Instance(inst) => {
+            let mro = match class_mro(inst.class) {
+              Ok(v) => v
+              Err(err) => return Err(err)
             }
+            for c in mro {
+              if c.name == klass.name {
+                return Ok(Value::Bool(true))
+              }
+            }
+            Ok(Value::Bool(false))
           }
-          Ok(Value::Bool(false))
+          Value::Class(c) => Ok(Value::Bool(c.name == klass.name))
+          _ => Ok(Value::Bool(false))
         }
-        Value::Class(c) => Ok(Value::Bool(c.name == klass.name))
-        _ => Ok(Value::Bool(false))
       }
     _ =>
       Err(
@@ -2940,15 +3778,124 @@ fn builtin_type(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if positional.length() != 1 {
+  if positional.length() == 1 {
+    let value = positional[0]
+    return match value {
+      Value::Instance(inst) => Ok(Value::Class(inst.class))
+      Value::Class(_) =>
+        Ok(Value::Class(builtin_class_from_name("type", builtins)))
+      _ =>
+        Ok(
+          Value::Class(
+            builtin_class_from_name(type_name_from_value(value), builtins),
+          ),
+        )
+    }
+  }
+  if positional.length() != 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "type() takes exactly one argument".to_string(),
+        "type() takes 1 or 3 arguments".to_string(),
       ),
     )
   }
-  Ok(Value::Str(type_name_from_value(positional[0])))
+  let name = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type() argument 1 must be str".to_string(),
+        ),
+      )
+  }
+  let base_values : Array[Value] = []
+  let raw_bases = match positional[1] {
+    Value::Tuple(values) => values
+    Value::List(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type() argument 2 must be a tuple of classes".to_string(),
+        ),
+      )
+  }
+  for base in raw_bases {
+    match base {
+      Value::Class(_) => base_values.push(base)
+      Value::Function(func) =>
+        if func.body.length() == 0 && is_builtin_class_name(func.name) {
+          base_values.push(
+            Value::Class(builtin_class_from_name(func.name, builtins)),
+          )
+        } else {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "type() argument 2 must be a tuple of classes".to_string(),
+            ),
+          )
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "type() argument 2 must be a tuple of classes".to_string(),
+          ),
+        )
+    }
+  }
+  if base_values.length() == 0 {
+    match get_named_value(builtins, "object") {
+      Some(Value::Class(object_class)) =>
+        base_values.push(Value::Class(object_class))
+      _ => ()
+    }
+  }
+  let class_dict : Array[(String, Value)] = []
+  let pairs = match positional[2] {
+    Value::Dict(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type() argument 3 must be a dict".to_string(),
+        ),
+      )
+  }
+  for pair in pairs {
+    match pair.0 {
+      Value::Str(key) => class_dict.push((key, pair.1))
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "type() argument 3 must be a dict with str keys".to_string(),
+          ),
+        )
+    }
+  }
+  if get_named_value(class_dict, "__name__") is None {
+    class_dict.push(("__name__", Value::Str(name)))
+  }
+  if get_named_value(class_dict, "__qualname__") is None {
+    class_dict.push(("__qualname__", Value::Str(name)))
+  }
+  if get_named_value(class_dict, "__module__") is None {
+    match get_named_value(globals, "__name__") {
+      Some(Value::Str(module_name)) =>
+        class_dict.push(("__module__", Value::Str(module_name)))
+      _ => ()
+    }
+  }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let _ = match class_mro(klass) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Class(klass))
 }
 
 ///|
@@ -4000,6 +4947,447 @@ fn builtin_asyncio_gather(
 }
 
 ///|
+fn builtin_thread_get_ident(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_thread.get_ident", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_thread.get_ident() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Int(1N))
+}
+
+///|
+fn builtin_thread_allocate_lock(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_thread.allocate_lock", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_thread.allocate_lock() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let klass = thread_rlock_class(builtins)
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict: [] }))
+}
+
+///|
+fn make_weakref_instance(value : Value) -> Value {
+  let hash = @bigint.BigInt::from_int64(hash_string(value_to_string(value)))
+  let dict : Array[(String, Value)] = [
+    ("value", value),
+    ("hashvalue", Value::Int(hash)),
+  ]
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "weakref", bases: [], dict: [] },
+    dict,
+  })
+}
+
+///|
+fn builtin_weakref_ref(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_weakref.ref", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "ref() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(make_weakref_instance(positional[0]))
+}
+
+///|
+fn builtin_weakref_proxy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_weakref.proxy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "proxy() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
+fn builtin_code_replace(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "code.replace() missing code object".to_string(),
+      ),
+    )
+  }
+  let mut flags = 0N
+  match positional[0] {
+    Value::Instance(inst) =>
+      if inst.class.name == "code" {
+        match get_named_value(inst.dict, "co_flags") {
+          Some(Value::Int(v)) => flags = v
+          Some(Value::Bool(v)) => flags = if v { 1N } else { 0N }
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  for kw in keywords {
+    if kw.0 == "co_flags" {
+      let value = match index_from_value(kw.1, 0) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      flags = @bigint.BigInt::from_int(value)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "code.replace() got an unexpected keyword '" + kw.0 + "'",
+        ),
+      )
+    }
+  }
+  Ok(make_code_instance(flags))
+}
+
+///|
+fn builtin_coroutine_close(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("coroutine.close", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "coroutine.close() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_itertools_chain(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.chain", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let items : Array[Value] = []
+  for iter_value in positional {
+    let values = match iterable_values(iter_value) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    for item in values {
+      items.push(item)
+    }
+  }
+  Ok(make_iterator(items))
+}
+
+///|
+fn builtin_itertools_chain_from_iterable(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.chain.from_iterable", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "chain.from_iterable() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let iterator = match
+    iter_value_to_iterator(positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let items : Array[Value] = []
+  while true {
+    match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(item) => {
+        let values = match iterable_values(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        for value in values {
+          items.push(value)
+        }
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(make_iterator(items))
+}
+
+///|
+fn builtin_itertools_repeat(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.repeat", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "repeat() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let value = positional[0]
+  if positional.length() == 1 || positional[1] is Value::None {
+    return Ok(make_repeat_iterator(value, None))
+  }
+  let times = match index_from_value(positional[1], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let count = if times < 0 { 0 } else { times }
+  Ok(make_repeat_iterator(value, Some(@bigint.BigInt::from_int(count))))
+}
+
+///|
+fn builtin_itertools_starmap(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.starmap", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "starmap() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let func = positional[0]
+  let iterator = match
+    iter_value_to_iterator(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  while true {
+    match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(item) => {
+        let args = match item {
+          Value::Tuple(values) => values
+          Value::List(values) => values
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "starmap() argument must yield tuples".to_string(),
+              ),
+            )
+        }
+        let value = match
+          call_callable_with_env(func, args, [], globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        results.push(value)
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(make_iterator(results))
+}
+
+///|
+fn builtin_itertools_islice(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.islice", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "islice() takes 2 to 4 arguments".to_string(),
+      ),
+    )
+  }
+  let iterator = match
+    iter_value_to_iterator(positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let start = if positional.length() >= 3 {
+    match index_from_value(positional[1], 0) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    0
+  }
+  let stop_value = if positional.length() >= 3 {
+    positional[2]
+  } else {
+    positional[1]
+  }
+  let stop = match index_from_value(stop_value, 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let step = if positional.length() == 4 {
+    match index_from_value(positional[3], 1) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    1
+  }
+  if step <= 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: step must be positive".to_string(),
+      ),
+    )
+  }
+  let items : Array[Value] = []
+  let mut idx = 0
+  while idx < stop {
+    match iterator_next(iterator, None, globals, builtins, io) {
+      Ok(item) => {
+        if idx >= start && ((idx - start) % step == 0) {
+          items.push(item)
+        }
+        idx += 1
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(make_iterator(items))
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -4047,6 +5435,20 @@ fn ensure_builtin_defs_ready() -> Unit {
     },
     BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
     BuiltinDef::{ name: "asyncio.gather", run: builtin_asyncio_gather },
+    BuiltinDef::{ name: "_thread.get_ident", run: builtin_thread_get_ident },
+    BuiltinDef::{ name: "_thread.allocate_lock", run: builtin_thread_allocate_lock },
+    BuiltinDef::{ name: "_weakref.ref", run: builtin_weakref_ref },
+    BuiltinDef::{ name: "_weakref.proxy", run: builtin_weakref_proxy },
+    BuiltinDef::{ name: "code.replace", run: builtin_code_replace },
+    BuiltinDef::{ name: "coroutine.close", run: builtin_coroutine_close },
+    BuiltinDef::{ name: "itertools.chain", run: builtin_itertools_chain },
+    BuiltinDef::{
+      name: "itertools.chain.from_iterable",
+      run: builtin_itertools_chain_from_iterable,
+    },
+    BuiltinDef::{ name: "itertools.repeat", run: builtin_itertools_repeat },
+    BuiltinDef::{ name: "itertools.starmap", run: builtin_itertools_starmap },
+    BuiltinDef::{ name: "itertools.islice", run: builtin_itertools_islice },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
     BuiltinDef::{ name: "range", run: builtin_range },
@@ -4063,6 +5465,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "sorted", run: builtin_sorted },
     BuiltinDef::{ name: "input", run: builtin_input },
     BuiltinDef::{ name: "str", run: builtin_str },
+    BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },
     BuiltinDef::{ name: "bytearray", run: builtin_bytearray },
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
@@ -4072,13 +5475,29 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
     BuiltinDef::{ name: "set", run: builtin_set },
+    BuiltinDef::{ name: "frozenset", run: builtin_frozenset },
     BuiltinDef::{ name: "dict", run: builtin_dict },
+    BuiltinDef::{ name: "dict.get", run: builtin_dict_get },
+    BuiltinDef::{ name: "dict.pop", run: builtin_dict_pop },
+    BuiltinDef::{ name: "dict.setdefault", run: builtin_dict_setdefault },
+    BuiltinDef::{ name: "dict.keys", run: builtin_dict_keys },
+    BuiltinDef::{ name: "dict.values", run: builtin_dict_values },
+    BuiltinDef::{ name: "dict.items", run: builtin_dict_items },
+    BuiltinDef::{ name: "dict.update", run: builtin_dict_update },
+    BuiltinDef::{ name: "dict.clear", run: builtin_dict_clear },
+    BuiltinDef::{ name: "dict.__contains__", run: builtin_dict_contains },
+    BuiltinDef::{ name: "dict.__getitem__", run: builtin_dict_getitem },
+    BuiltinDef::{ name: "dict.__setitem__", run: builtin_dict_setitem },
+    BuiltinDef::{ name: "dict.__delitem__", run: builtin_dict_delitem },
+    BuiltinDef::{ name: "dict.__iter__", run: builtin_dict_iter },
+    BuiltinDef::{ name: "dict.__len__", run: builtin_dict_len },
     BuiltinDef::{ name: "iter", run: builtin_iter },
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
     BuiltinDef::{ name: "property", run: builtin_property },
     BuiltinDef::{ name: "staticmethod", run: builtin_staticmethod },
     BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
+    BuiltinDef::{ name: "register", run: builtin_register },
     BuiltinDef::{ name: "repr", run: builtin_repr },
     BuiltinDef::{ name: "abs", run: builtin_abs },
     BuiltinDef::{ name: "round", run: builtin_round },

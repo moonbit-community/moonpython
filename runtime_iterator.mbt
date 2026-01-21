@@ -17,6 +17,20 @@ fn make_iterator(items_in : Array[Value]) -> Value {
 }
 
 ///|
+fn make_repeat_iterator(value : Value, remaining : @bigint.BigInt?) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("value", value))
+  match remaining {
+    Some(v) => dict.push(("remaining", Value::Int(v)))
+    None => dict.push(("remaining", Value::None))
+  }
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "repeat", bases: [], dict: [] },
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -25,7 +39,9 @@ fn iter_value_to_iterator(
 ) -> Result[Value, RuntimeError] {
   match value {
     Value::Instance(inst) =>
-      if inst.class.name == "iterator" || inst.class.name == "generator" {
+      if inst.class.name == "iterator" ||
+        inst.class.name == "generator" ||
+        inst.class.name == "repeat" {
         Ok(Value::Instance(inst))
       } else {
         // Try the Python protocol first: obj.__iter__() -> iterator
@@ -105,6 +121,38 @@ fn iterator_next(
                 ),
               )
           }
+        }
+      } else if inst.class.name == "repeat" {
+        let value = match get_named_value(inst.dict, "value") {
+          Some(v) => v
+          None => Value::None
+        }
+        match get_named_value(inst.dict, "remaining") {
+          Some(Value::None) => Ok(value)
+          Some(Value::Int(v)) => {
+            if v <= 0N {
+              match default_value {
+                Some(v2) => Ok(v2)
+                None =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "StopIteration".to_string(),
+                    ),
+                  )
+              }
+            } else {
+              set_named_value(inst.dict, "remaining", Value::Int(v - 1N))
+              Ok(value)
+            }
+          }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "StopIteration".to_string(),
+              ),
+            )
         }
       } else if inst.class.name == "generator" {
         generator_next(Value::Instance(inst), default_value)

@@ -2,6 +2,302 @@
 /// Environment and container helpers.
 
 ///|
+let list_storage_name = "$__list__"
+
+///|
+let dict_storage_name = "$__mpython_dict__"
+
+///|
+fn is_builtin_class_name(name : String) -> Bool {
+  match name {
+    "bool" |
+    "bytearray" |
+    "bytes" |
+    "classmethod" |
+    "complex" |
+    "dict" |
+    "float" |
+    "frozenset" |
+    "int" |
+    "list" |
+    "memoryview" |
+    "property" |
+    "range" |
+    "set" |
+    "staticmethod" |
+    "str" |
+    "tuple" |
+    "type" => true
+    _ => false
+  }
+}
+
+///|
+fn builtin_class_from_name(
+  name : String,
+  builtins : Array[(String, Value)],
+) -> ClassValue {
+  match get_named_value(builtins, name) {
+    Some(Value::Class(klass)) => return klass
+    _ => ()
+  }
+  let bases : Array[Value] = []
+  match get_named_value(builtins, "object") {
+    Some(Value::Class(object_class)) =>
+      bases.push(Value::Class(object_class))
+    _ => ()
+  }
+  let dict : Array[(String, Value)] = [
+    ("__module__", Value::Str("builtins")),
+    ("__name__", Value::Str(name)),
+    ("__qualname__", Value::Str(name)),
+  ]
+  if name == "dict" {
+    dict.push(
+      (
+        "fromkeys",
+        Value::Function(FunctionValue::{
+          name: "dict.fromkeys",
+          params: [],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "get",
+        Value::Function(FunctionValue::{
+          name: "dict.get",
+          params: ["self", "key", "default"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "pop",
+        Value::Function(FunctionValue::{
+          name: "dict.pop",
+          params: ["self", "key", "default"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "setdefault",
+        Value::Function(FunctionValue::{
+          name: "dict.setdefault",
+          params: ["self", "key", "default"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "keys",
+        Value::Function(FunctionValue::{
+          name: "dict.keys",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "values",
+        Value::Function(FunctionValue::{
+          name: "dict.values",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "items",
+        Value::Function(FunctionValue::{
+          name: "dict.items",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "update",
+        Value::Function(FunctionValue::{
+          name: "dict.update",
+          params: ["self", "other"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "clear",
+        Value::Function(FunctionValue::{
+          name: "dict.clear",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__contains__",
+        Value::Function(FunctionValue::{
+          name: "dict.__contains__",
+          params: ["self", "key"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__getitem__",
+        Value::Function(FunctionValue::{
+          name: "dict.__getitem__",
+          params: ["self", "key"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__setitem__",
+        Value::Function(FunctionValue::{
+          name: "dict.__setitem__",
+          params: ["self", "key", "value"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__delitem__",
+        Value::Function(FunctionValue::{
+          name: "dict.__delitem__",
+          params: ["self", "key"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__iter__",
+        Value::Function(FunctionValue::{
+          name: "dict.__iter__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__len__",
+        Value::Function(FunctionValue::{
+          name: "dict.__len__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  if name == "str" {
+    dict.push(
+      (
+        "join",
+        Value::Function(FunctionValue::{
+          name: "str.join",
+          params: [],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "maketrans",
+        Value::Function(FunctionValue::{
+          name: "str.maketrans",
+          params: [],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  ClassValue::{ name, bases, dict }
+}
+
+///|
 fn normalize_index(index : Int, length : Int) -> Int {
   if index < 0 {
     length + index

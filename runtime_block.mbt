@@ -797,17 +797,63 @@ fn eval_block_flow(
         }
         let mut defined : Value = Value::Function(func)
         for i = decorator_values.length(); i > 0; i = i - 1 {
-          defined = match
-            call_callable_with_env(
-              decorator_values[i - 1],
-              [defined],
-              [],
-              globals,
-              builtins,
-              io,
-            ) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          let decorator_value = decorator_values[i - 1]
+          defined = match decorator_value {
+            Value::Function(dec_func) =>
+              if dec_func.body.length() == 0 {
+                match
+                  eval_builtin_call(
+                    dec_func.name,
+                    [defined],
+                    [],
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(value)) => value
+                  Ok(None) =>
+                    match
+                      call_callable_with_env(
+                        decorator_value,
+                        [defined],
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                  Err(err) => return Err(err)
+                }
+              } else {
+                match
+                  call_callable_with_env(
+                    decorator_value,
+                    [defined],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+              }
+            _ =>
+              match
+                call_callable_with_env(
+                  decorator_value,
+                  [defined],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
           }
         }
         set_scoped_value(locals, globals, name, defined)
@@ -1457,6 +1503,19 @@ fn eval_block_flow(
           }
           match value {
             Value::Class(_) => base_values.push(value)
+            Value::Function(func) =>
+              if func.body.length() == 0 && is_builtin_class_name(func.name) {
+                base_values.push(
+                  Value::Class(builtin_class_from_name(func.name, builtins)),
+                )
+              } else {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "base class must be a class".to_string(),
+                  ),
+                )
+              }
             _ =>
               return Err(
                 make_runtime_error(
@@ -1541,17 +1600,63 @@ fn eval_block_flow(
         }
         let mut defined : Value = Value::Class(klass)
         for i = decorator_values.length(); i > 0; i = i - 1 {
-          defined = match
-            call_callable_with_env(
-              decorator_values[i - 1],
-              [defined],
-              [],
-              globals,
-              builtins,
-              io,
-            ) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          let decorator_value = decorator_values[i - 1]
+          defined = match decorator_value {
+            Value::Function(dec_func) =>
+              if dec_func.body.length() == 0 {
+                match
+                  eval_builtin_call(
+                    dec_func.name,
+                    [defined],
+                    [],
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(value)) => value
+                  Ok(None) =>
+                    match
+                      call_callable_with_env(
+                        decorator_value,
+                        [defined],
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                  Err(err) => return Err(err)
+                }
+              } else {
+                match
+                  call_callable_with_env(
+                    decorator_value,
+                    [defined],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+              }
+            _ =>
+              match
+                call_callable_with_env(
+                  decorator_value,
+                  [defined],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
           }
         }
         set_scoped_value(locals, globals, name, defined)

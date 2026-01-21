@@ -194,7 +194,12 @@ fn main {
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)
     Err(err) => {
-      println(@mpython.format_runtime_error(err))
+      println(
+        @mpython.format_runtime_error_with_traceback(
+          err,
+          config.traceback_limit,
+        ),
+      )
       @sys.exit(1)
     }
   }

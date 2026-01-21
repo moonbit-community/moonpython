@@ -147,11 +147,85 @@ pub fn Interpreter::new_spec() -> Interpreter {
       }),
     ),
   )
+  object_dict.push(
+    (
+      "__init__",
+      Value::Function(FunctionValue::{
+        name: "__init__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__eq__",
+      Value::Function(FunctionValue::{
+        name: "__eq__",
+        params: ["self", "other"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__ne__",
+      Value::Function(FunctionValue::{
+        name: "__ne__",
+        params: ["self", "other"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__str__",
+      Value::Function(FunctionValue::{
+        name: "__str__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
   let object_class = ClassValue::{
     name: "object",
     bases: [],
     dict: object_dict,
   }
+  let ellipsis_class = ClassValue::{
+    name: "ellipsis",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let not_implemented_class = ClassValue::{
+    name: "NotImplementedType",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let ellipsis_value = Value::Instance(InstanceValue::{
+    class: ellipsis_class,
+    dict: [],
+  })
+  let not_implemented_value = Value::Instance(InstanceValue::{
+    class: not_implemented_class,
+    dict: [],
+  })
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
     (
@@ -196,7 +270,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
     "str", "bytes", "bytearray", "memoryview", "int", "float", "complex", "list",
-    "dict", "set", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
+    "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
     "property", "staticmethod", "classmethod", "delattr", "super", "eval", "exec",
     "__import__",
   ]
@@ -204,6 +278,8 @@ pub fn Interpreter::new_spec() -> Interpreter {
     builtins.push((fn_name, function_stub(fn_name)))
   }
   builtins.push(("object", Value::Class(object_class)))
+  builtins.push(("Ellipsis", ellipsis_value))
+  builtins.push(("NotImplemented", not_implemented_value))
   builtins.push(("BaseException", Value::Class(base_exception_class)))
   builtins.push(("Exception", Value::Class(exception_class)))
   builtins.push(
@@ -266,11 +342,85 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       }),
     ),
   )
+  object_dict.push(
+    (
+      "__init__",
+      Value::Function(FunctionValue::{
+        name: "__init__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__eq__",
+      Value::Function(FunctionValue::{
+        name: "__eq__",
+        params: ["self", "other"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__ne__",
+      Value::Function(FunctionValue::{
+        name: "__ne__",
+        params: ["self", "other"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__str__",
+      Value::Function(FunctionValue::{
+        name: "__str__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
   let object_class = ClassValue::{
     name: "object",
     bases: [],
     dict: object_dict,
   }
+  let ellipsis_class = ClassValue::{
+    name: "ellipsis",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let not_implemented_class = ClassValue::{
+    name: "NotImplementedType",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let ellipsis_value = Value::Instance(InstanceValue::{
+    class: ellipsis_class,
+    dict: [],
+  })
+  let not_implemented_value = Value::Instance(InstanceValue::{
+    class: not_implemented_class,
+    dict: [],
+  })
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
     (
@@ -417,6 +567,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("list", function_stub("list")),
     ("tuple", function_stub("tuple")),
     ("set", function_stub("set")),
+    ("frozenset", function_stub("frozenset")),
     ("len", function_stub("len")),
     ("range", function_stub("range")),
     ("sum", function_stub("sum")),
@@ -466,6 +617,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("hasattr", function_stub("hasattr")),
     ("setattr", function_stub("setattr")),
     ("object", Value::Class(object_class)),
+    ("Ellipsis", ellipsis_value),
+    ("NotImplemented", not_implemented_value),
     ("BaseException", Value::Class(base_exception_class)),
     ("Exception", Value::Class(exception_class)),
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),

@@ -27,6 +27,24 @@ fn set_named_value(
 }
 
 ///|
+let function_dict_name = "$__mpython_func_dict__"
+
+///|
+fn function_attr_dict(func : FunctionValue) -> Array[(Value, Value)] {
+  for pair in func.closure {
+    if pair.0 == function_dict_name {
+      match pair.1 {
+        Value::Dict(pairs) => return pairs
+        _ => break
+      }
+    }
+  }
+  let pairs : Array[(Value, Value)] = []
+  func.closure.push((function_dict_name, Value::Dict(pairs)))
+  pairs
+}
+
+///|
 fn clone_class_list(list : Array[ClassValue]) -> Array[ClassValue] {
   let result : Array[ClassValue] = []
   for item in list {
@@ -157,6 +175,34 @@ fn class_mro_with_seen(
 ///|
 fn class_mro(klass : ClassValue) -> Result[Array[ClassValue], RuntimeError] {
   class_mro_with_seen(klass, [])
+}
+
+///|
+fn class_includes_list(klass : ClassValue) -> Bool {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(_) => return false
+  }
+  for cls in mro {
+    if cls.name == "list" {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn class_includes_dict(klass : ClassValue) -> Bool {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(_) => return false
+  }
+  for cls in mro {
+    if cls.name == "dict" {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -308,6 +354,38 @@ fn get_attr_raw_from_value(
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
         return Ok(value)
+      }
+      if inst.class.name == "code" && attr == "replace" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "code.replace",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if inst.class.name == "coroutine" && attr == "close" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "coroutine.close",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
       }
       if inst.class.name == "super" {
         // super(type, obj) proxy
@@ -792,6 +870,102 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "__getitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__getitem__",
+              params: ["self", "key"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__setitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__setitem__",
+              params: ["self", "key", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__delitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__delitem__",
+              params: ["self", "key"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__iter__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__iter__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__len__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__len__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__contains__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__contains__",
+              params: ["self", "key"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -896,6 +1070,54 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "__contains__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__contains__",
+              params: ["self", "item"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__iter__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__iter__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__len__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__len__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -903,22 +1125,157 @@ fn get_attr_raw_from_value(
         ),
       )
     }
-    Value::Class(klass) =>
-      match lookup_class_attr(klass, attr) {
-        Ok(Some(value)) =>
-          match apply_descriptor(value, Value::None, Value::Class(klass)) {
-            Ok(Some(v)) => Ok(v)
-            Ok(None) => Ok(value)
-            Err(err) => Err(err)
+    Value::Function(func) =>
+      if attr == "__dict__" {
+        if func.body.length() == 0 && is_builtin_class_name(func.name) {
+          let klass = builtin_class_from_name(func.name, builtins)
+          let pairs : Array[(Value, Value)] = []
+          for item in klass.dict {
+            pairs.push((Value::Str(item.0), item.1))
           }
-        Ok(None) =>
+          Ok(Value::Dict(pairs))
+        } else {
+          Ok(Value::Dict(function_attr_dict(func)))
+        }
+      } else {
+        let pairs = function_attr_dict(func)
+        let index = match dict_find_index(pairs, Value::Str(attr)) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if index is Some(i) {
+          return Ok(pairs[i].1)
+        }
+        if attr == "__code__" {
+          Ok(make_code_instance(0N))
+        } else if attr == "__closure__" {
+          let cells : Array[Value] = []
+          for pair in func.closure {
+            if is_cell_value(pair.1) {
+              cells.push(pair.1)
+            }
+          }
+          if cells.length() == 0 {
+            Ok(Value::None)
+          } else {
+            Ok(Value::Tuple(cells))
+          }
+        } else if attr == "__globals__" {
+          let mut env = globals
+          for pair in func.closure {
+            if pair.0 == globals_capture_name {
+              match pair.1 {
+                Value::Instance(inst) => env = inst.dict
+                _ => ()
+              }
+              break
+            }
+          }
+          let pairs : Array[(Value, Value)] = []
+          for item in env {
+            pairs.push((Value::Str(item.0), item.1))
+          }
+          Ok(Value::Dict(pairs))
+        } else if attr == "__module__" {
+          let mut env = globals
+          for pair in func.closure {
+            if pair.0 == globals_capture_name {
+              match pair.1 {
+                Value::Instance(inst) => env = inst.dict
+                _ => ()
+              }
+              break
+            }
+          }
+          let module_name = match get_named_value(env, "__name__") {
+            Some(Value::Str(name)) => name
+            _ =>
+              if func.body.length() == 0 {
+                "builtins".to_string()
+              } else {
+                "__main__".to_string()
+              }
+          }
+          Ok(Value::Str(module_name))
+        } else if attr == "__doc__" {
+          Ok(Value::None)
+        } else if attr == "__qualname__" {
+          Ok(Value::Str(func.name))
+        } else if attr == "__name__" {
+          Ok(Value::Str(func.name))
+        } else if func.body.length() == 0 && is_builtin_class_name(func.name) {
+          get_attr_raw_from_value(
+            Value::Class(builtin_class_from_name(func.name, builtins)),
+            attr,
+            globals,
+            builtins,
+            io,
+          )
+        } else {
           Err(
             make_runtime_error(
               RuntimeErrorKind::Attribute,
-              "'" + klass.name + "' object has no attribute '" + attr + "'",
+              "'function' object has no attribute '" + attr + "'",
             ),
           )
-        Err(err) => Err(err)
+        }
+      }
+    Value::Class(klass) =>
+      if attr == "__name__" {
+        Ok(Value::Str(klass.name))
+      } else if attr == "__qualname__" {
+        Ok(Value::Str(klass.name))
+      } else if attr == "__dict__" {
+        let pairs : Array[(Value, Value)] = []
+        for item in klass.dict {
+          pairs.push((Value::Str(item.0), item.1))
+        }
+        Ok(Value::Dict(pairs))
+      } else if attr == "__code__" && klass.name == "function" {
+        Ok(make_code_instance(0N))
+      } else if attr == "__closure__" && klass.name == "function" {
+        Ok(Value::None)
+      } else if attr == "__globals__" && klass.name == "function" {
+        Ok(
+          Value::Instance(InstanceValue::{
+            class: builtin_class_from_name("member_descriptor", builtins),
+            dict: [],
+          }),
+        )
+      } else {
+        match lookup_class_attr(klass, attr) {
+          Ok(Some(value)) =>
+            match apply_descriptor(value, Value::None, Value::Class(klass)) {
+              Ok(Some(v)) => Ok(v)
+              Ok(None) => Ok(value)
+              Err(err) => Err(err)
+            }
+          Ok(None) =>
+            if attr == "register" {
+              Ok(
+                Value::BoundMethod(BoundMethodValue::{
+                  function: FunctionValue::{
+                    name: "register",
+                    params: ["cls", "subclass"],
+                    defaults: [],
+                    body: [],
+                    is_generator: false,
+                    is_async: false,
+                    closure: [],
+                  },
+                  self: Value::Class(klass),
+                }),
+              )
+            } else {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Attribute,
+                  "'" + klass.name + "' object has no attribute '" + attr + "'",
+                ),
+              )
+            }
+          Err(err) => Err(err)
+        }
       }
     _ =>
       Err(
@@ -1132,6 +1489,14 @@ fn set_attr_raw_on_value(
         None => ()
       }
       set_named_value(inst.dict, attr, value)
+      Ok(())
+    }
+    Value::Function(func) => {
+      let pairs = function_attr_dict(func)
+      let _ = match dict_set_item(pairs, Value::Str(attr), value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
       Ok(())
     }
     Value::Class(klass) => {
@@ -1521,6 +1886,30 @@ fn make_dict_view_instance(view_name : String, dict_value : Value) -> Value {
 }
 
 ///|
+fn make_code_instance(flags : @bigint.BigInt) -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    dict: [("co_flags", Value::Int(flags))],
+  })
+}
+
+///|
+fn make_generic_alias(origin : Value, args : Array[Value]) -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "GenericAlias", bases: [], dict: [] },
+    dict: [("__origin__", origin), ("__args__", Value::Tuple(args))],
+  })
+}
+
+///|
+fn make_union_type(args : Array[Value]) -> Value {
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "UnionType", bases: [], dict: [] },
+    dict: [("__args__", Value::Tuple(args))],
+  })
+}
+
+///|
 fn call_callable_with_env(
   callee : Value,
   positional : Array[Value],
@@ -1646,6 +2035,42 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
         Ok(Value::None)
+      } else if func.name == "__eq__" && func.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__eq__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__eq__() takes exactly two arguments".to_string(),
+            ),
+          )
+        }
+        Ok(Value::Bool(eq_value(positional[0], positional[1])))
+      } else if func.name == "__ne__" && func.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__ne__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__ne__() takes exactly two arguments".to_string(),
+            ),
+          )
+        }
+        Ok(Value::Bool(!eq_value(positional[0], positional[1])))
       } else {
         (eval_function_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
@@ -2479,6 +2904,110 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::None)
               }
+              "__contains__" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__contains__() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let index = match dict_find_index(pairs, positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(Value::Bool(index is Some(_)))
+                }
+              "__getitem__" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__getitem__() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let key = positional[0]
+                  let index = match dict_find_index(pairs, key) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  match index {
+                    Some(i) => return Ok(pairs[i].1)
+                    None =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Key,
+                          "key not found".to_string(),
+                        ),
+                      )
+                  }
+                }
+              "__setitem__" =>
+                if positional.length() != 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__setitem__() takes exactly two arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let _ = match dict_set_item(pairs, positional[0], positional[1]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(Value::None)
+                }
+              "__delitem__" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__delitem__() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let removed = match dict_delete_key(pairs, positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if !removed {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Key,
+                        "key not found".to_string(),
+                      ),
+                    )
+                  }
+                  return Ok(Value::None)
+                }
+              "__iter__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__iter__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let keys : Array[Value] = []
+                  for pair in pairs {
+                    keys.push(pair.0)
+                  }
+                  return Ok(make_iterator(keys))
+                }
+              "__len__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__len__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+                }
               _ => ()
             }
           }
@@ -2618,6 +3147,43 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::None)
                 }
+              "__contains__" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__contains__() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let index = match set_find_index(values, positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(Value::Bool(index is Some(_)))
+                }
+              "__iter__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__iter__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(make_iterator(values))
+                }
+              "__len__" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__len__() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+                }
               _ => ()
             }
           }
@@ -2626,6 +3192,22 @@ fn call_callable_with_env(
       let args : Array[Value] = [bound_method.self]
       for item in positional {
         args.push(item)
+      }
+      if bound_method.function.body.length() == 0 {
+        match
+          eval_builtin_call(
+            bound_method.function.name,
+            args,
+            keywords,
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(Some(value)) => return Ok(value)
+          Ok(None) => ()
+          Err(err) => return Err(err)
+        }
       }
       (eval_function_with_kwargs_ref.val)(
         bound_method.function,
@@ -2768,7 +3350,14 @@ fn call_callable_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let inst = Value::Instance(InstanceValue::{ class: klass, dict: [] })
+      let inst_dict : Array[(String, Value)] = []
+      if class_includes_list(klass) {
+        inst_dict.push((list_storage_name, Value::List([])))
+      }
+      if class_includes_dict(klass) {
+        inst_dict.push((dict_storage_name, Value::Dict([])))
+      }
+      let inst = Value::Instance(InstanceValue::{ class: klass, dict: inst_dict })
       match init {
         Some(Value::Function(func)) => {
           let args : Array[Value] = [inst]
@@ -2789,6 +3378,20 @@ fn call_callable_with_env(
       Ok(inst)
     }
     Value::Instance(inst) => {
+      if inst.class.name == "weakref" {
+        if positional.length() != 0 || keywords.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "weakref() takes no arguments".to_string(),
+            ),
+          )
+        }
+        return match get_named_value(inst.dict, "value") {
+          Some(v) => Ok(v)
+          None => Ok(Value::None)
+        }
+      }
       // Callable objects: obj(...) dispatches to obj.__call__(...)
       let call_attr = match lookup_class_attr(inst.class, "__call__") {
         Ok(v) => v

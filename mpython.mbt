@@ -533,6 +533,55 @@ fn to_complex(value : Value) -> Result[(Double, Double), RuntimeError] {
 }
 
 ///|
+fn is_generic_alias_origin_name(name : String) -> Bool {
+  match name {
+    "list" |
+    "dict" |
+    "tuple" |
+    "set" |
+    "frozenset" |
+    "type" => true
+    _ => false
+  }
+}
+
+///|
+fn union_args_from_value(
+  value : Value,
+  builtins : Array[(String, Value)],
+) -> Array[Value]? {
+  match value {
+    Value::Class(_) => Some([value])
+    Value::Function(func) =>
+      if func.body.length() == 0 && is_builtin_class_name(func.name) {
+        Some([Value::Class(builtin_class_from_name(func.name, builtins))])
+      } else {
+        None
+      }
+    Value::Instance(inst) =>
+      if inst.class.name == "UnionType" {
+        match get_named_value(inst.dict, "__args__") {
+          Some(Value::Tuple(values)) => Some(values)
+          _ => Some([value])
+        }
+      } else if inst.class.name == "GenericAlias" {
+        Some([value])
+      } else {
+        None
+      }
+    Value::None =>
+      Some(
+        [
+          Value::Class(
+            ClassValue::{ name: "NoneType", bases: [], dict: [] },
+          ),
+        ],
+      )
+    _ => None
+  }
+}
+
+///|
 fn eval_binary_op_values(
   op : BinaryOp,
   left_val : Value,
@@ -1135,13 +1184,29 @@ fn eval_binary_op_values(
           Ok(Value::Int(a | (if b { 1N } else { 0N })))
         (Value::Bool(a), Value::Bool(b)) =>
           Ok(Value::Int((if a { 1N } else { 0N }) | (if b { 1N } else { 0N })))
-        _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "unsupported operand type for |".to_string(),
-            ),
-          )
+        _ => {
+          let left_args = union_args_from_value(left_val, builtins)
+          let right_args = union_args_from_value(right_val, builtins)
+          match (left_args, right_args) {
+            (Some(left), Some(right)) => {
+              let args : Array[Value] = []
+              for value in left {
+                args.push(value)
+              }
+              for value in right {
+                args.push(value)
+              }
+              Ok(make_union_type(args))
+            }
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "unsupported operand type for |".to_string(),
+                ),
+              )
+          }
+        }
       }
   }
 }
@@ -1803,7 +1868,16 @@ fn eval_expr_with_env(
         }
         default_values.push(value)
       }
-      let func_body : Array[Stmt] = [Stmt::Return(Some(body))]
+      let is_generator = match body {
+        Expr::Yield(_) | Expr::YieldFrom(_) => true
+        _ => false
+      }
+      let func_body : Array[Stmt] =
+        if is_generator {
+          [Stmt::ExprStmt(body)]
+        } else {
+          [Stmt::Return(Some(body))]
+        }
       let closure = capture_cell_closure(locals)
       let globals_marker = Value::Instance(InstanceValue::{
         class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
@@ -1816,7 +1890,7 @@ fn eval_expr_with_env(
           params,
           defaults: default_values,
           body: func_body,
-          is_generator: false,
+          is_generator,
           is_async: false,
           closure,
         }),
@@ -1841,7 +1915,8 @@ fn eval_expr_with_env(
         | Value::Class(_)
         | Value::List(_)
         | Value::Dict(_)
-        | Value::Set(_) =>
+        | Value::Set(_)
+        | Value::Function(_) =>
           get_attr_from_value(target, attr, globals, builtins, io)
         _ =>
           match (target, attr) {
@@ -1939,20 +2014,32 @@ fn eval_expr_with_env(
               }
             None => Value::None
           }
-          match target {
-            Value::List(values) => {
-              let indices = match
-                slice_indices_from_values(
-                  values.length(),
-                  start_value,
-                  end_value,
-                  step_value,
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-              Ok(Value::List(slice_values_by_indices(values, indices)))
+          fn slice_list(values : Array[Value]) -> Result[Value, RuntimeError] {
+            let indices = match
+              slice_indices_from_values(
+                values.length(),
+                start_value,
+                end_value,
+                step_value,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
             }
+            Ok(Value::List(slice_values_by_indices(values, indices)))
+          }
+          match target {
+            Value::List(values) => slice_list(values)
+            Value::Instance(inst) =>
+              match get_named_value(inst.dict, list_storage_name) {
+                Some(Value::List(values)) => slice_list(values)
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "subscript requires sequence".to_string(),
+                    ),
+                  )
+              }
             Value::Tuple(values) => {
               let indices = match
                 slice_indices_from_values(
@@ -2035,6 +2122,33 @@ fn eval_expr_with_env(
             Err(err) => return Err(err)
           }
           match target {
+            Value::Function(func) =>
+              if func.body.length() == 0 &&
+                is_generic_alias_origin_name(func.name) {
+                let args = match idx_value {
+                  Value::Tuple(values) => values
+                  _ => [idx_value]
+                }
+                return Ok(
+                  make_generic_alias(
+                    Value::Class(builtin_class_from_name(func.name, builtins)),
+                    args,
+                  ),
+                )
+              }
+            Value::Class(klass) =>
+              if is_generic_alias_origin_name(klass.name) {
+                let args = match idx_value {
+                  Value::Tuple(values) => values
+                  _ => [idx_value]
+                }
+                return Ok(
+                  make_generic_alias(Value::Class(klass), args),
+                )
+              }
+            _ => ()
+          }
+          match target {
             Value::Dict(values) => {
               let index = match dict_find_index(values, idx_value) {
                 Ok(v) => v
@@ -2056,20 +2170,35 @@ fn eval_expr_with_env(
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
-              match target {
-                Value::List(values) => {
-                  let norm = normalize_index(idx, values.length())
-                  if norm >= 0 && norm < values.length() {
-                    Ok(values[norm])
-                  } else {
-                    Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Index,
-                        "index out of range".to_string(),
-                      ),
-                    )
-                  }
+              fn index_list(
+                values : Array[Value],
+                idx : Int,
+              ) -> Result[Value, RuntimeError] {
+                let norm = normalize_index(idx, values.length())
+                if norm >= 0 && norm < values.length() {
+                  Ok(values[norm])
+                } else {
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Index,
+                      "index out of range".to_string(),
+                    ),
+                  )
                 }
+              }
+              match target {
+                Value::List(values) => index_list(values, idx)
+                Value::Instance(inst) =>
+                  match get_named_value(inst.dict, list_storage_name) {
+                    Some(Value::List(values)) => index_list(values, idx)
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "subscript requires sequence".to_string(),
+                        ),
+                      )
+                  }
                 Value::Tuple(values) => {
                   let norm = normalize_index(idx, values.length())
                   if norm >= 0 && norm < values.length() {

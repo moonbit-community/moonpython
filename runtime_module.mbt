@@ -5,6 +5,9 @@
 let module_cache : Ref[Array[(String, Value)]] = { val: [] }
 
 ///|
+let sys_modules_ref : Ref[Array[(Value, Value)]] = { val: [] }
+
+///|
 fn module_cache_get(name : String) -> Value? {
   for pair in module_cache.val {
     if pair.0 == name {
@@ -19,10 +22,32 @@ fn module_cache_set(name : String, module_value : Value) -> Unit {
   for i = 0; i < module_cache.val.length(); i = i + 1 {
     if module_cache.val[i].0 == name {
       module_cache.val[i] = (name, module_value)
+      for j = 0; j < sys_modules_ref.val.length(); j = j + 1 {
+        match sys_modules_ref.val[j].0 {
+          Value::Str(text) =>
+            if text == name {
+              sys_modules_ref.val[j] = (Value::Str(name), module_value)
+              return
+            }
+          _ => ()
+        }
+      }
+      sys_modules_ref.val.push((Value::Str(name), module_value))
       return
     }
   }
   module_cache.val.push((name, module_value))
+  for j = 0; j < sys_modules_ref.val.length(); j = j + 1 {
+    match sys_modules_ref.val[j].0 {
+      Value::Str(text) =>
+        if text == name {
+          sys_modules_ref.val[j] = (Value::Str(name), module_value)
+          return
+        }
+      _ => ()
+    }
+  }
+  sys_modules_ref.val.push((Value::Str(name), module_value))
 }
 
 ///|
@@ -147,6 +172,153 @@ fn make_asyncio_module() -> Value {
   make_module_instance("asyncio", [
     ("run", module_function_stub("asyncio.run")),
     ("gather", module_function_stub("asyncio.gather")),
+  ])
+}
+
+///|
+let rlock_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
+  match rlock_class_ref.val {
+    Some(value) => return value
+    None => ()
+  }
+  let bases : Array[Value] = []
+  match get_named_value(builtins, "object") {
+    Some(Value::Class(object_class)) =>
+      bases.push(Value::Class(object_class))
+    _ => ()
+  }
+  let dict : Array[(String, Value)] = [
+    (
+      "__enter__",
+      Value::Function(FunctionValue::{
+        name: "__enter__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "__exit__",
+      Value::Function(FunctionValue::{
+        name: "__exit__",
+        params: ["self", "exc_type", "exc", "tb"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "acquire",
+      Value::Function(FunctionValue::{
+        name: "acquire",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "release",
+      Value::Function(FunctionValue::{
+        name: "release",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  ]
+  let klass = ClassValue::{ name: "RLock", bases, dict }
+  rlock_class_ref.val = Some(klass)
+  klass
+}
+
+///|
+fn make_thread_module(builtins : Array[(String, Value)]) -> Value {
+  let rlock_class = thread_rlock_class(builtins)
+  make_module_instance("_thread", [
+    ("get_ident", module_function_stub("_thread.get_ident")),
+    ("allocate_lock", module_function_stub("_thread.allocate_lock")),
+    ("RLock", Value::Class(rlock_class)),
+  ])
+}
+
+///|
+fn make_itertools_chain_factory() -> Value {
+  let dict : Array[(String, Value)] = [
+    ("__call__", module_function_stub("itertools.chain")),
+    ("from_iterable", module_function_stub("itertools.chain.from_iterable")),
+  ]
+  let klass = ClassValue::{ name: "chain_factory", bases: [], dict }
+  Value::Instance(InstanceValue::{ class: klass, dict: [] })
+}
+
+///|
+fn make_itertools_module() -> Value {
+  make_module_instance("itertools", [
+    ("chain", make_itertools_chain_factory()),
+    ("repeat", module_function_stub("itertools.repeat")),
+    ("starmap", module_function_stub("itertools.starmap")),
+    ("islice", module_function_stub("itertools.islice")),
+  ])
+}
+
+///|
+fn make_weakref_module() -> Value {
+  make_module_instance("_weakref", [
+    ("ref", module_function_stub("_weakref.ref")),
+    ("proxy", module_function_stub("_weakref.proxy")),
+  ])
+}
+
+///|
+fn make_builtins_module(builtins : Array[(String, Value)]) -> Value {
+  let dict : Array[(String, Value)] = []
+  for pair in builtins {
+    dict.push(pair)
+  }
+  make_module_instance("builtins", dict)
+}
+
+///|
+fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
+  let _ = builtins
+  let version_info = Value::Tuple([
+    Value::Int(3N),
+    Value::Int(12N),
+    Value::Int(0N),
+    Value::Str("final"),
+    Value::Int(0N),
+  ])
+  let impl_class = ClassValue::{ name: "implementation", bases: [], dict: [] }
+  let impl_value = Value::Instance(InstanceValue::{
+    class: impl_class,
+    dict: [
+      ("name", Value::Str("mpython")),
+      ("version", version_info),
+    ],
+  })
+  make_module_instance("sys", [
+    ("maxsize", Value::Int(9223372036854775807N)),
+    ("version", Value::Str("3.12.0")),
+    ("version_info", version_info),
+    ("platform", Value::Str("mpython")),
+    ("implementation", impl_value),
+    ("modules", Value::Dict(sys_modules_ref.val)),
+    ("path", Value::List([])),
+    ("argv", Value::List([])),
   ])
 }
 
@@ -317,7 +489,17 @@ fn import_module(
     }
     None => ()
   }
-  let module_value = if module_name == "math" {
+  let module_value = if module_name == "builtins" {
+    make_builtins_module(builtins)
+  } else if module_name == "sys" {
+    make_sys_module(builtins)
+  } else if module_name == "_thread" {
+    make_thread_module(builtins)
+  } else if module_name == "_weakref" {
+    make_weakref_module()
+  } else if module_name == "itertools" {
+    make_itertools_module()
+  } else if module_name == "math" {
     make_math_module()
   } else if module_name == "asyncio" && config.allow_filesystem_imports {
     make_asyncio_module()

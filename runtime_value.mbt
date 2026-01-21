@@ -529,6 +529,27 @@ fn find_top_level_fstring_debug_equal(text : String) -> Int? {
 
 ///|
 fn eq_value(a : Value, b : Value) -> Bool {
+  fn list_values_equal(a : Array[Value], b : Array[Value]) -> Bool {
+    if a.length() != b.length() {
+      return false
+    }
+    let mut equal = true
+    for i = 0; i < a.length(); i = i + 1 {
+      if !eq_value(a[i], b[i]) {
+        equal = false
+        break
+      }
+    }
+    equal
+  }
+
+  fn instance_list_values(inst : InstanceValue) -> Array[Value]? {
+    match get_named_value(inst.dict, list_storage_name) {
+      Some(Value::List(values)) => Some(values)
+      _ => None
+    }
+  }
+
   match (a, b) {
     (Value::None, Value::None) => true
     (Value::Bool(a), Value::Bool(b)) => a == b
@@ -595,18 +616,16 @@ fn eq_value(a : Value, b : Value) -> Bool {
         }
         equal
       }
-    (Value::List(a), Value::List(b)) =>
-      if a.length() != b.length() {
-        false
-      } else {
-        let mut equal = true
-        for i = 0; i < a.length(); i = i + 1 {
-          if !eq_value(a[i], b[i]) {
-            equal = false
-            break
-          }
-        }
-        equal
+    (Value::List(a), Value::List(b)) => list_values_equal(a, b)
+    (Value::List(a), Value::Instance(b)) =>
+      match instance_list_values(b) {
+        Some(values) => list_values_equal(a, values)
+        None => false
+      }
+    (Value::Instance(a), Value::List(b)) =>
+      match instance_list_values(a) {
+        Some(values) => list_values_equal(values, b)
+        None => false
       }
     (Value::Tuple(a), Value::Tuple(b)) =>
       if a.length() != b.length() {
@@ -662,7 +681,24 @@ fn eq_value(a : Value, b : Value) -> Bool {
         equal
       }
     (Value::Class(a), Value::Class(b)) => a.name == b.name
-    (Value::Instance(a), Value::Instance(b)) => a.class.name == b.class.name
+    (Value::Instance(a), Value::Instance(b)) =>
+      if a.class.name == "weakref" && b.class.name == "weakref" {
+        let av = match get_named_value(a.dict, "value") {
+          Some(v) => v
+          None => Value::None
+        }
+        let bv = match get_named_value(b.dict, "value") {
+          Some(v) => v
+          None => Value::None
+        }
+        eq_value(av, bv)
+      } else {
+        match (instance_list_values(a), instance_list_values(b)) {
+          (Some(values_a), Some(values_b)) => list_values_equal(values_a, values_b)
+          (Some(_), None) | (None, Some(_)) => false
+          (None, None) => a.class.name == b.class.name
+        }
+      }
     _ => false
   }
 }
@@ -689,6 +725,17 @@ fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
       }
       Ok(h)
     }
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, "hashvalue") {
+        Some(Value::Int(v)) => Ok(v)
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unhashable type: '" + type_name_from_value(Value::Instance(inst)) + "'",
+            ),
+          )
+      }
     other =>
       Err(
         make_runtime_error(

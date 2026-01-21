@@ -2222,14 +2222,6 @@ fn LineParser::new(source : String) -> LineParser {
 }
 
 ///|
-fn LineParser::peek(self : LineParser) -> String? {
-  if self.index >= self.lines.length() {
-    None
-  } else {
-    Some(self.lines[self.index])
-  }
-}
-
 ///|
 fn LineParser::peek_next_indent(self : LineParser) -> Int {
   let mut idx = self.index
@@ -2521,9 +2513,25 @@ fn split_statements(line : String) -> Array[(String, Int)] {
   let mut start = 0
   let mut i = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escaped = false
   while i < chars.length() {
     let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escaped {
@@ -2534,7 +2542,14 @@ fn split_statements(line : String) -> Array[(String, Int)] {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
         } else if c == ';' {
           let segment = substring(line, start, i).trim(chars=" \t").to_string()
@@ -2556,8 +2571,26 @@ fn bracket_balance(line : String) -> Int {
   let chars = line.to_array()
   let mut balance = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escaped = false
-  for c in chars {
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escaped {
@@ -2568,7 +2601,14 @@ fn bracket_balance(line : String) -> Int {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
         } else if c == '(' || c == '[' || c == '{' {
           balance += 1
@@ -2578,6 +2618,7 @@ fn bracket_balance(line : String) -> Int {
           }
         }
     }
+    i += 1
   }
   balance
 }
@@ -2587,8 +2628,26 @@ fn has_top_level_comma(text : String) -> Bool {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escaped = false
-  for c in chars {
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escaped {
@@ -2599,7 +2658,14 @@ fn has_top_level_comma(text : String) -> Bool {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
         } else if c == '(' || c == '[' || c == '{' {
           depth += 1
@@ -2611,6 +2677,7 @@ fn has_top_level_comma(text : String) -> Bool {
           return true
         }
     }
+    i += 1
   }
   false
 }
@@ -2620,9 +2687,26 @@ fn first_top_level_comma_pos(text : String) -> Int? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escaped = false
-  for i = 0; i < chars.length(); i = i + 1 {
+  let mut i = 0
+  while i < chars.length() {
     let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escaped {
@@ -2633,7 +2717,14 @@ fn first_top_level_comma_pos(text : String) -> Int? {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
         } else if c == '(' || c == '[' || c == '{' {
           depth += 1
@@ -2645,6 +2736,7 @@ fn first_top_level_comma_pos(text : String) -> Int? {
           return Some(i)
         }
     }
+    i += 1
   }
   None
 }
@@ -2654,10 +2746,26 @@ fn find_top_level_augassign(text : String) -> (Int, String)? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escaped = false
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) => {
         if escaped {
@@ -2671,6 +2779,14 @@ fn find_top_level_augassign(text : String) -> (Int, String)? {
         continue
       }
       None => ()
+    }
+    if i + 2 < chars.length() &&
+      (c == '\'' || c == '"') &&
+      chars[i + 1] == c &&
+      chars[i + 2] == c {
+      triple = Some(c)
+      i += 3
+      continue
     }
     if c == '\'' || c == '"' {
       quote = Some(c)
@@ -2739,9 +2855,25 @@ fn strip_inline_comment(text : String) -> String {
   let chars = text.to_array()
   let mut i = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escape = false
   while i < chars.length() {
     let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escape {
@@ -2752,7 +2884,14 @@ fn strip_inline_comment(text : String) -> String {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
           escape = false
         } else if c == '#' {
@@ -3101,6 +3240,50 @@ fn line_has_yield_keyword(line : String) -> Bool {
 }
 
 ///|
+fn line_has_lambda_keyword(line : String) -> Bool {
+  let chars = line.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        } else if c == 'l' && i + 5 < chars.length() {
+          if chars[i + 1] == 'a' &&
+            chars[i + 2] == 'm' &&
+            chars[i + 3] == 'b' &&
+            chars[i + 4] == 'd' &&
+            chars[i + 5] == 'a' {
+            let before_ok = i == 0 || !is_ascii_ident_char(chars[i - 1])
+            let after_pos = i + 6
+            let after_ok = after_pos >= chars.length() ||
+              !is_ascii_ident_char(chars[after_pos])
+            if before_ok && after_ok {
+              return true
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 fn line_has_await_keyword(line : String) -> Bool {
   let chars = line.to_array()
   let mut i = 0
@@ -3194,9 +3377,25 @@ fn has_bare_assign(text : String) -> Bool {
   let chars = text.to_array()
   let mut i = 0
   let mut quote : Char? = None
+  let mut triple : Char? = None
   let mut escape = false
   while i < chars.length() {
     let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
     match quote {
       Some(q) =>
         if escape {
@@ -3207,7 +3406,14 @@ fn has_bare_assign(text : String) -> Bool {
           quote = None
         }
       None =>
-        if c == '\'' || c == '"' {
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
           quote = Some(c)
           escape = false
         } else if c == '=' {
@@ -3226,6 +3432,55 @@ fn has_bare_assign(text : String) -> Bool {
     i += 1
   }
   false
+}
+
+///|
+fn find_top_level_from(text : String) -> Int? {
+  fn is_space_char(c : Char) -> Bool {
+    c == ' ' || c == '\t' || c == '\n' || c == '\r'
+  }
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  let mut depth = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if depth == 0 && c == 'f' {
+          if i + 3 < chars.length() &&
+            chars[i + 1] == 'r' &&
+            chars[i + 2] == 'o' &&
+            chars[i + 3] == 'm' {
+            let prev = if i > 0 { chars[i - 1] } else { ' ' }
+            let next = if i + 4 < chars.length() { chars[i + 4] } else { ' ' }
+            if is_space_char(prev) && is_space_char(next) {
+              return Some(i)
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  None
 }
 
 ///|
@@ -3800,43 +4055,11 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  let chars = trimmed.to_array()
-  let mut i = 0
-  let mut quote : Char? = None
-  let mut escape = false
-  let mut comment_pos : Int? = None
-  while i < chars.length() {
-    let c = chars[i]
-    match quote {
-      Some(q) =>
-        if escape {
-          escape = false
-        } else if c == '\\' {
-          escape = true
-        } else if c == q {
-          quote = None
-        }
-      None =>
-        if c == '\'' || c == '"' {
-          quote = Some(c)
-          escape = false
-        } else if c == '#' {
-          comment_pos = Some(i)
-          break
-        }
-    }
-    i += 1
-  }
-  match comment_pos {
-    Some(pos) => {
-      trimmed = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
-      if trimmed.length() == 0 {
-        return finalize_simple_statement(
-          stmts, allow_async_comprehensions, span, base_offset,
-        )
-      }
-    }
-    None => ()
+  trimmed = strip_inline_comment(trimmed).trim(chars=" \t").to_string()
+  if trimmed.length() == 0 {
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, span, base_offset,
+    )
   }
   if trimmed == "..." {
     stmts.push(Stmt::Pass)
@@ -4448,41 +4671,25 @@ fn parse_simple_statement(
         stmts, allow_async_comprehensions, span, base_offset,
       )
     }
-    if rest.has_prefix("from ") {
-      return Err(
-        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), Token::{
-          kind: TokenKind::Eof,
-          start: 0,
-          end: 0,
-          line: line_index + 1,
-          column: base_offset + 1,
-        }),
-      )
-    }
     let mut exc_text = rest
     let mut cause_text = ""
-    if rest.contains(" from ") {
-      let parts : Array[String] = []
-      for part in rest.split(" from ") {
-        parts.push(part.to_string())
-      }
-      if parts.length() < 2 {
+    let from_idx = find_top_level_from(rest)
+    if from_idx is Some(idx) {
+      if idx == 0 {
         return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            Token::{
-              kind: TokenKind::Eof,
-              start: 0,
-              end: 0,
-              line: line_index + 1,
-              column: base_offset + 1,
-            },
-          ),
+          make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), Token::{
+            kind: TokenKind::Eof,
+            start: 0,
+            end: 0,
+            line: line_index + 1,
+            column: base_offset + 1,
+          }),
         )
       }
-      exc_text = parts[0].trim(chars=" \t").to_string()
-      cause_text = parts[1].trim(chars=" \t").to_string()
+      exc_text = substring(rest, 0, idx).trim(chars=" \t").to_string()
+      cause_text = substring(rest, idx + 4, rest.length())
+        .trim(chars=" \t")
+        .to_string()
       if exc_text.length() == 0 || cause_text.length() == 0 {
         return Err(
           make_parse_error(
@@ -5136,7 +5343,11 @@ fn LineParser::parse_block(
         ),
       )
     }
-    if self.func_depth == 0 && line_has_yield_keyword(line_text) {
+    if self.func_depth == 0 &&
+      line_has_yield_keyword(line_text) &&
+      !line_has_lambda_keyword(line_text) &&
+      !line_text.has_prefix("def ") &&
+      !line_text.has_prefix("async def ") {
       let token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent,
@@ -5174,21 +5385,7 @@ fn LineParser::parse_block(
     if line_text.has_prefix("match ") || line_text.has_prefix("match(") {
       let colon_pos = find_last_char(line_text, ':')
       if colon_pos is None {
-        let token = {
-          kind: Eof,
-          start: self.offsets[self.index] + current_indent,
-          end: self.offsets[self.index] + current_indent + 1,
-          line: self.index + 1,
-          column: 1,
-        }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            token,
-          ),
-        )
-      }
+      } else {
       let subject_text = substring(line_text, 5, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
@@ -5419,6 +5616,7 @@ fn LineParser::parse_block(
         ),
       )
       continue
+      }
     }
     if line_text.has_prefix("@") {
       let expr_text = substring(line_text, 1, line_text.length())
@@ -6233,179 +6431,198 @@ fn LineParser::parse_block(
       let params_chars = params_text.to_array()
       let mut param_start = 0
       let mut idx = 0
+      let mut quote : Char? = None
+      let mut escaped = false
+      let mut depth = 0
       let param_base = current_indent + 4 + name_end + 1
-      while idx <= params_chars.length() {
-        let end_reached = idx == params_chars.length()
-        if end_reached || params_chars[idx] == ',' {
-          let raw_param = substring(params_text, param_start, idx)
-          let mut leading = 0
-          let raw_chars = raw_param.to_array()
-          while leading < raw_chars.length() && raw_chars[leading] == ' ' {
-            leading += 1
+      fn consume_param_segment(end_idx : Int) -> Result[Unit, ParseError] {
+        let raw_param = substring(params_text, param_start, end_idx)
+        let mut leading = 0
+        let raw_chars = raw_param.to_array()
+        while leading < raw_chars.length() && raw_chars[leading] == ' ' {
+          leading += 1
+        }
+        let trimmed_param = raw_param.trim(chars=" \t\n\r").to_string()
+        if trimmed_param.length() == 0 {
+          return Ok(())
+        }
+        let mut name = trimmed_param
+        let eq_pos_full = find_char(trimmed_param, '=')
+        let has_default = eq_pos_full is Some(_)
+        if eq_pos_full is Some(eq_idx) {
+          name = substring(trimmed_param, 0, eq_idx)
+            .trim(chars=" \t")
+            .to_string()
+        }
+        if name == "/" {
+          name = ""
+        }
+        if name == "*" {
+          kw_only = true
+          params.push("*")
+          name = ""
+        }
+        let mut star_count = 0
+        while name.has_prefix("*") {
+          star_count += 1
+          name = substring(name, 1, name.length()).to_string()
+          name = name.trim(chars=" \t\n\r").to_string()
+        }
+        if star_count > 0 {
+          kw_only = true
+        }
+        let colon_pos = find_char(name, ':')
+        if colon_pos is Some(colon_idx) {
+          name = substring(name, 0, colon_idx).trim(chars=" \t").to_string()
+        }
+        if name.length() == 0 {
+          return Ok(())
+        }
+        let param_offset = param_start + leading
+        for existing in seen {
+          if existing == name {
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + param_base + param_offset,
+              end: self.offsets[self.index] + param_base + param_offset + 1,
+              line: self.index + 1,
+              column: param_base + param_offset + 1,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "duplicate argument '" + name + "' in function definition",
+                token,
+              ),
+            )
           }
-          let trimmed_param = raw_param.trim(chars=" \t\n\r").to_string()
-          if trimmed_param.length() > 0 {
-            let mut name = trimmed_param
-            let eq_pos_full = find_char(trimmed_param, '=')
-            let has_default = eq_pos_full is Some(_)
-            if eq_pos_full is Some(eq_idx) {
-              name = substring(trimmed_param, 0, eq_idx)
-                .trim(chars=" \t")
-                .to_string()
-            }
-            if name == "/" {
-              name = ""
-            }
-            if name == "*" {
-              kw_only = true
-              params.push("*")
-              name = ""
-            }
-            let mut star_count = 0
-            while name.has_prefix("*") {
-              star_count += 1
-              name = substring(name, 1, name.length()).to_string()
-              name = name.trim(chars=" \t\n\r").to_string()
-            }
-            if star_count > 0 {
-              kw_only = true
-            }
-            let colon_pos = find_char(name, ':')
-            if colon_pos is Some(colon_idx) {
-              name = substring(name, 0, colon_idx).trim(chars=" \t").to_string()
-            }
-            if name.length() > 0 {
-              let param_offset = param_start + leading
-              for existing in seen {
-                if existing == name {
-                  let token = {
-                    kind: Eof,
-                    start: self.offsets[self.index] +
-                    param_base +
-                    param_offset,
-                    end: self.offsets[self.index] +
-                    param_base +
-                    param_offset +
-                    1,
-                    line: self.index + 1,
-                    column: param_base + param_offset + 1,
-                  }
-                  return Err(
-                    make_parse_error(
-                      ParseErrorKind::Syntax,
-                      "duplicate argument '" +
-                      name +
-                      "' in function definition",
-                      token,
-                    ),
-                  )
-                }
-              }
-              if star_count > 2 {
-                let token = {
-                  kind: Eof,
-                  start: self.offsets[self.index] + param_base + param_offset,
-                  end: self.offsets[self.index] +
-                  param_base +
-                  param_offset +
-                  1,
-                  line: self.index + 1,
-                  column: param_base + param_offset + 1,
-                }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "invalid syntax".to_string(),
-                    token,
-                  ),
-                )
-              }
-              if star_count > 0 && has_default {
-                let token = {
-                  kind: Eof,
-                  start: self.offsets[self.index] + param_base + param_offset,
-                  end: self.offsets[self.index] +
-                  param_base +
-                  param_offset +
-                  1,
-                  line: self.index + 1,
-                  column: param_base + param_offset + 1,
-                }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "invalid syntax".to_string(),
-                    token,
-                  ),
-                )
-              }
-              if !kw_only && default_seen && !has_default {
-                let token = {
-                  kind: Eof,
-                  start: self.offsets[self.index] + param_base + param_offset,
-                  end: self.offsets[self.index] +
-                  param_base +
-                  param_offset +
-                  1,
-                  line: self.index + 1,
-                  column: param_base + param_offset + 1,
-                }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "non-default argument follows default argument".to_string(),
-                    token,
-                  ),
-                )
-              }
-              if has_default {
-                if !kw_only {
-                  default_seen = true
-                }
-                let eq_pos = find_char(raw_param, '=')
-                if eq_pos is Some(eq_idx) {
-                  let default_text = substring(
-                      raw_param,
-                      eq_idx + 1,
-                      raw_param.length(),
-                    )
-                    .trim(chars=" \t\n\r")
-                    .to_string()
-                  let tokens = match
-                    tokenize_expr(
-                      default_text,
-                      self.index + 1,
-                      self.offsets[self.index] +
-                      param_base +
-                      param_start +
-                      eq_idx +
-                      1,
-                    ) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  let expr = match parse_tokens_expr(tokens) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  defaults.push(expr)
-                }
-              }
-              seen.push(name)
-              let mut encoded = name
-              if star_count == 1 {
-                encoded = "*" + name
-              } else if star_count == 2 {
-                encoded = "**" + name
-              } else if has_default {
-                encoded = name + "="
-              }
-              params.push(encoded)
-            }
+        }
+        if star_count > 2 {
+          let token = {
+            kind: Eof,
+            start: self.offsets[self.index] + param_base + param_offset,
+            end: self.offsets[self.index] + param_base + param_offset + 1,
+            line: self.index + 1,
+            column: param_base + param_offset + 1,
           }
-          param_start = idx + 1
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
+        }
+        if star_count > 0 && has_default {
+          let token = {
+            kind: Eof,
+            start: self.offsets[self.index] + param_base + param_offset,
+            end: self.offsets[self.index] + param_base + param_offset + 1,
+            line: self.index + 1,
+            column: param_base + param_offset + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
+        }
+        if !kw_only && default_seen && !has_default {
+          let token = {
+            kind: Eof,
+            start: self.offsets[self.index] + param_base + param_offset,
+            end: self.offsets[self.index] + param_base + param_offset + 1,
+            line: self.index + 1,
+            column: param_base + param_offset + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "non-default argument follows default argument".to_string(),
+              token,
+            ),
+          )
+        }
+        if has_default {
+          if !kw_only {
+            default_seen = true
+          }
+          let eq_pos = find_char(raw_param, '=')
+          if eq_pos is Some(eq_idx) {
+            let default_text = substring(
+                raw_param,
+                eq_idx + 1,
+                raw_param.length(),
+              )
+              .trim(chars=" \t\n\r")
+              .to_string()
+            let tokens = match
+              tokenize_expr(
+                default_text,
+                self.index + 1,
+                self.offsets[self.index] +
+                param_base +
+                param_start +
+                eq_idx +
+                1,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let expr = match parse_tokens_expr(tokens) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            defaults.push(expr)
+          }
+        }
+        seen.push(name)
+        let mut encoded = name
+        if star_count == 1 {
+          encoded = "*" + name
+        } else if star_count == 2 {
+          encoded = "**" + name
+        } else if has_default {
+          encoded = name + "="
+        }
+        params.push(encoded)
+        Ok(())
+      }
+      while idx < params_chars.length() {
+        let c = params_chars[idx]
+        match quote {
+          Some(q) =>
+            if escaped {
+              escaped = false
+            } else if c == '\\' {
+              escaped = true
+            } else if c == q {
+              quote = None
+            }
+          None =>
+            if c == '\'' || c == '"' {
+              quote = Some(c)
+            } else if c == '(' || c == '[' || c == '{' {
+              depth += 1
+            } else if c == ')' || c == ']' || c == '}' {
+              if depth > 0 {
+                depth -= 1
+              }
+            } else if c == ',' && depth == 0 {
+              let _ = match consume_param_segment(idx) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+              param_start = idx + 1
+            }
         }
         idx += 1
+      }
+      let _ = match consume_param_segment(params_chars.length()) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
       }
       let body_text = strip_inline_comment(
           substring(header, colon_pos.unwrap() + 1, header.length()).to_string(),
@@ -6946,9 +7163,7 @@ fn LineParser::parse_block(
             Err(err) => return Err(err)
           }
           self.index += 1
-          let elif_indent = self
-            .peek()
-            .map_or(0, fn(line) { count_indent(line) })
+          let elif_indent = self.peek_next_indent()
           if elif_indent <= next_indent {
             let missing_line = self.clamp_line_index(
               self.peek_next_significant_index().unwrap_or(self.index),
@@ -6994,9 +7209,7 @@ fn LineParser::parse_block(
             )
           }
           self.index += 1
-          let else_indent = self
-            .peek()
-            .map_or(0, fn(line) { count_indent(line) })
+          let else_indent = self.peek_next_indent()
           if else_indent <= next_indent {
             let missing_line = self.clamp_line_index(
               self.peek_next_significant_index().unwrap_or(self.index),
@@ -7846,9 +8059,7 @@ fn LineParser::parse_block(
               }
             }
           } else {
-            let handler_indent = self
-              .peek()
-              .map_or(0, fn(line) { count_indent(line) })
+            let handler_indent = self.peek_next_indent()
             if handler_indent <= current_indent {
               let missing_line = self.clamp_line_index(
                 self.peek_next_significant_index().unwrap_or(self.index),
@@ -7958,9 +8169,7 @@ fn LineParser::parse_block(
               }
             }
           } else {
-            let handler_indent = self
-              .peek()
-              .map_or(0, fn(line) { count_indent(line) })
+            let handler_indent = self.peek_next_indent()
             if handler_indent <= current_indent {
               let missing_line = self.clamp_line_index(
                 self.peek_next_significant_index().unwrap_or(self.index),
@@ -8064,9 +8273,7 @@ fn LineParser::parse_block(
               }
             }
           } else {
-            let handler_indent = self
-              .peek()
-              .map_or(0, fn(line) { count_indent(line) })
+            let handler_indent = self.peek_next_indent()
             if handler_indent <= current_indent {
               let missing_line = self.clamp_line_index(
                 self.peek_next_significant_index().unwrap_or(self.index),
