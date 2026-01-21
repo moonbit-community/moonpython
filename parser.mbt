@@ -82,6 +82,19 @@ fn normalize_param_name_for_compare(param : String) -> String? {
 }
 
 ///|
+fn has_keyword_prefix(text : String, keyword : String) -> Bool {
+  if !text.has_prefix(keyword) {
+    return false
+  }
+  if text.length() == keyword.length() {
+    return true
+  }
+  let chars = text.to_array()
+  let next = chars[keyword.length()]
+  !(is_alnum(next) || next == '_')
+}
+
+///|
 fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
   if self.view() is [{ kind: Yield, .. }, .. rest] {
     self.update_view(rest)
@@ -2888,7 +2901,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
         continue
       }
       let segment_trimmed = segment.trim(chars=" \t").to_string()
-      if segment_trimmed.has_prefix("yield") {
+      if has_keyword_prefix(segment_trimmed, "yield") {
         continue
       }
       let base_offset = offsets[index] + current_indent + offset
@@ -4425,7 +4438,7 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  if trimmed.has_prefix("raise") {
+  if has_keyword_prefix(trimmed, "raise") {
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
       .to_string()
@@ -4557,14 +4570,14 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  if trimmed.has_prefix("async") {
+  if has_keyword_prefix(trimmed, "async") {
     // Treat async constructs as no-ops so spec-generated blocks can parse.
     stmts.push(Stmt::Pass)
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  if trimmed.has_prefix("return") {
+  if has_keyword_prefix(trimmed, "return") {
     let expr_text = substring(trimmed, 6, trimmed.length())
       .trim(chars=" \t")
       .to_string()
@@ -4732,7 +4745,7 @@ fn parse_simple_statement(
       }
     }
   }
-  if trimmed.has_prefix("lambda") {
+  if has_keyword_prefix(trimmed, "lambda") {
     let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -5107,7 +5120,7 @@ fn LineParser::parse_block(
         ),
       )
     }
-    if line_text.has_prefix("return") && self.func_depth == 0 {
+    if has_keyword_prefix(line_text, "return") && self.func_depth == 0 {
       let token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent,

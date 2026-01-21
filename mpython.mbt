@@ -1804,6 +1804,12 @@ fn eval_expr_with_env(
         default_values.push(value)
       }
       let func_body : Array[Stmt] = [Stmt::Return(Some(body))]
+      let closure = capture_cell_closure(locals)
+      let globals_marker = Value::Instance(InstanceValue::{
+        class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
+        dict: globals,
+      })
+      closure.push(("$__mpython_globals__", globals_marker))
       Ok(
         Value::Function(FunctionValue::{
           name: "<lambda>",
@@ -1812,7 +1818,7 @@ fn eval_expr_with_env(
           body: func_body,
           is_generator: false,
           is_async: false,
-          closure: capture_cell_closure(locals),
+          closure,
         }),
       )
     }
@@ -3093,6 +3099,25 @@ fn param_is_kwarg(param : String) -> Bool {
 }
 
 ///|
+let globals_capture_name = "$__mpython_globals__"
+
+///|
+fn resolve_function_globals(
+  func : FunctionValue,
+  fallback : Array[(String, Value)],
+) -> Array[(String, Value)] {
+  for pair in func.closure {
+    if pair.0 == globals_capture_name {
+      match pair.1 {
+        Value::Instance(inst) => return inst.dict
+        _ => ()
+      }
+    }
+  }
+  fallback
+}
+
+///|
 fn check_scope_decl_conflicts(
   params : Array[String],
   global_names : Array[String],
@@ -3500,6 +3525,7 @@ fn eval_function_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
+  let active_globals = resolve_function_globals(func, globals)
   let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
   let _ = match
     check_scope_decl_conflicts(func.params, global_names, nonlocal_names) {
@@ -3520,7 +3546,7 @@ fn eval_function_with_kwargs(
         async_generator_new(
           func.body,
           locals,
-          globals,
+          active_globals,
           builtins,
           io,
           global_names,
@@ -3535,7 +3561,7 @@ fn eval_function_with_kwargs(
       coroutine_new(
         func.body,
         locals,
-        globals,
+        active_globals,
         builtins,
         io,
         global_names,
@@ -3553,7 +3579,7 @@ fn eval_function_with_kwargs(
   let result = eval_block(
     func.body,
     locals,
-    globals,
+    active_globals,
     builtins,
     io,
     Config::default(),
@@ -3850,6 +3876,7 @@ fn eval_generator_with_kwargs(
     Ok(value) => value
     Err(err) => return Err(err)
   }
+  let active_globals = resolve_function_globals(func, globals)
   let (global_names, nonlocal_names) = collect_scope_decl_names(func.body)
   let _ = match
     check_scope_decl_conflicts(func.params, global_names, nonlocal_names) {
@@ -3869,7 +3896,7 @@ fn eval_generator_with_kwargs(
       async_generator_new(
         func.body,
         locals,
-        globals,
+        active_globals,
         builtins,
         io,
         global_names,
@@ -3884,7 +3911,7 @@ fn eval_generator_with_kwargs(
       generator_new(
         func.body,
         locals,
-        globals,
+        active_globals,
         builtins,
         io,
         global_names,
