@@ -723,6 +723,54 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "isascii" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "isascii",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "isdigit" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "isdigit",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "partition" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "partition",
+              params: ["self", "sep"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "endswith" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1243,6 +1291,38 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "issuperset" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "issuperset",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "issubset" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "issubset",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "__contains__" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1416,6 +1496,21 @@ fn get_attr_raw_from_value(
           values.push(Value::Class(item))
         }
         Ok(Value::Tuple(values))
+      } else if klass.name == "int" && attr == "from_bytes" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "int.from_bytes",
+              params: ["cls", "bytes", "byteorder", "signed"],
+              defaults: [Value::Bool(false)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
+          }),
+        )
       } else if attr == "__code__" && klass.name == "function" {
         Ok(make_code_instance(0N))
       } else if attr == "__closure__" && klass.name == "function" {
@@ -2745,7 +2840,8 @@ fn call_callable_with_env(
           }
         Value::Str(text) =>
           if bound_method.function.body.length() == 0 {
-            if keywords.length() > 0 {
+            if keywords.length() > 0 &&
+              bound_method.function.name != "split" {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
@@ -2861,6 +2957,81 @@ fn call_callable_with_env(
                 let segment = substring(text, start_idx, end_idx)
                 return Ok(Value::Bool(segment.has_suffix(suffix)))
               }
+              "isascii" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isascii() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  for c in text.to_array() {
+                    if c > '\u007f' {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "isdigit" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isdigit() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_digit(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "partition" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "partition() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let sep = match positional[0] {
+                    Value::Str(value) => value
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "partition() expects a str separator".to_string(),
+                        ),
+                      )
+                  }
+                  if sep.length() == 0 {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "ValueError: empty separator".to_string(),
+                      ),
+                    )
+                  }
+                  match text.find(sep) {
+                    Some(pos) => {
+                      let head = substring(text, 0, pos)
+                      let tail = substring(text, pos + sep.length(), text.length())
+                      return Ok(Value::Tuple([Value::Str(head), Value::Str(sep), Value::Str(tail)]))
+                    }
+                    None =>
+                      return Ok(
+                        Value::Tuple([Value::Str(text), Value::Str(""), Value::Str("")]),
+                      )
+                  }
+                }
               "isidentifier" =>
                 if positional.length() != 0 {
                   return Err(
@@ -2983,18 +3154,57 @@ fn call_callable_with_env(
                     ),
                   )
                 }
+                let mut sep_kw : Value? = None
+                let mut maxsplit_kw : Value? = None
+                for item in keywords {
+                  if item.0 == "sep" {
+                    sep_kw = Some(item.1)
+                  } else if item.0 == "maxsplit" {
+                    maxsplit_kw = Some(item.1)
+                  } else {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "split() got unexpected keyword arguments".to_string(),
+                      ),
+                    )
+                  }
+                }
+                if positional.length() >= 1 && sep_kw is Some(_) {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "split() got multiple values for argument 'sep'".to_string(),
+                    ),
+                  )
+                }
+                if positional.length() == 2 && maxsplit_kw is Some(_) {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "split() got multiple values for argument 'maxsplit'".to_string(),
+                    ),
+                  )
+                }
                 let sep_value = if positional.length() >= 1 {
                   positional[0]
                 } else {
-                  Value::None
-                }
-                let maxsplit = if positional.length() == 2 {
-                  match index_from_value(positional[1], -1) {
-                    Ok(v) => v
-                    Err(err) => return Err(err)
+                  match sep_kw {
+                    Some(v) => v
+                    None => Value::None
                   }
+                }
+                let maxsplit_value = if positional.length() == 2 {
+                  positional[1]
                 } else {
-                  -1
+                  match maxsplit_kw {
+                    Some(v) => v
+                    None => Value::Int(@bigint.BigInt::from_int(-1))
+                  }
+                }
+                let maxsplit = match index_from_value(maxsplit_value, -1) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
                 }
                 match sep_value {
                   Value::None => {
@@ -3801,6 +4011,85 @@ fn call_callable_with_env(
                     }
                   }
                   return Ok(Value::None)
+                }
+              "issuperset" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "issuperset() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  let mut ok = true
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_find_index(values, item) {
+                          Ok(Some(_)) => ()
+                          Ok(None) => {
+                            ok = false
+                            break
+                          }
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                  return Ok(Value::Bool(ok))
+                }
+              "issubset" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "issubset() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let other_values : Array[Value] = []
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_add_unique(other_values, item) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                  let mut ok = true
+                  for item in values {
+                    let index = match set_find_index(other_values, item) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    if index is None {
+                      ok = false
+                      break
+                    }
+                  }
+                  return Ok(Value::Bool(ok))
                 }
               "__contains__" =>
                 if positional.length() != 1 {

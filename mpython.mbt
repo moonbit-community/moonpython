@@ -533,6 +533,209 @@ fn to_complex(value : Value) -> Result[(Double, Double), RuntimeError] {
 }
 
 ///|
+fn value_repr_for_format(value : Value) -> String {
+  match value {
+    Value::Str(text) => "\"" + escape_string_for_repr(text) + "\""
+    other => value_to_string(other)
+  }
+}
+
+///|
+fn pad_left(text : String, width : Int, pad_char : Char) -> String {
+  if width <= text.length() {
+    text
+  } else {
+    let buf = StringBuilder::new()
+    let pad_len = width - text.length()
+    for _i = 0; _i < pad_len; _i = _i + 1 {
+      buf.write_char(pad_char)
+    }
+    buf.write_string(text)
+    buf.to_string()
+  }
+}
+
+///|
+fn pad_numeric(text : String, width : Int, zero_pad : Bool) -> String {
+  if !zero_pad {
+    return pad_left(text, width, ' ')
+  }
+  if width <= text.length() {
+    return text
+  }
+  match text.get_char(0) {
+    Some('-') => {
+      let chars = text.to_array()
+      let rest_chars : Array[Char] = []
+      for idx = 1; idx < chars.length(); idx = idx + 1 {
+        rest_chars.push(chars[idx])
+      }
+      let rest = String::from_array(rest_chars)
+      let pad_len = width - rest.length() - 1
+      if pad_len <= 0 {
+        text
+      } else {
+        let buf = StringBuilder::new()
+        buf.write_char('-')
+        for _i = 0; _i < pad_len; _i = _i + 1 {
+          buf.write_char('0')
+        }
+        buf.write_string(rest)
+        buf.to_string()
+      }
+    }
+    _ => pad_left(text, width, '0')
+  }
+}
+
+///|
+fn format_decimal_value(value : Value) -> Result[String, RuntimeError] {
+  match value {
+    Value::Int(v) => Ok(v.to_string())
+    Value::Bool(v) => Ok(if v { "1" } else { "0" })
+    Value::Float(v) => Ok(v.to_int64().to_string())
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn format_hex_value(
+  value : Value,
+  uppercase : Bool,
+) -> Result[String, RuntimeError] {
+  match value {
+    Value::Int(v) => {
+      let neg = v < 0N
+      let abs_value = if neg { -v } else { v }
+      let mut out = abs_value.to_hex(uppercase=uppercase)
+      if neg {
+        out = "-" + out
+      }
+      Ok(out)
+    }
+    Value::Bool(v) => Ok(if v { "1" } else { "0" })
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn format_percent_string(
+  format : String,
+  value : Value,
+) -> Result[String, RuntimeError] {
+  let args = match value {
+    Value::Tuple(values) => values
+    _ => [value]
+  }
+  let buf = StringBuilder::new()
+  let chars = format.to_array()
+  let mut arg_index = 0
+  let mut i = 0
+  while i < chars.length() {
+    let ch = chars[i]
+    if ch != '%' {
+      buf.write_char(ch)
+      i = i + 1
+      continue
+    }
+    if i + 1 >= chars.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "incomplete format".to_string(),
+        ),
+      )
+    }
+    if chars[i + 1] == '%' {
+      buf.write_char('%')
+      i = i + 2
+      continue
+    }
+    let mut j = i + 1
+    let mut zero_pad = false
+    if chars[j] == '0' {
+      zero_pad = true
+      j = j + 1
+    }
+    let mut width = 0
+    while j < chars.length() && chars[j].is_ascii_digit() {
+      width = width * 10 + (chars[j].to_int() - '0'.to_int())
+      j = j + 1
+    }
+    if j >= chars.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "incomplete format".to_string(),
+        ),
+      )
+    }
+    if arg_index >= args.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "not enough arguments for format string".to_string(),
+        ),
+      )
+    }
+    let arg = args[arg_index]
+    arg_index = arg_index + 1
+    let spec = chars[j]
+    let raw = match spec {
+      's' => Ok(value_to_string(arg))
+      'r' => Ok(value_repr_for_format(arg))
+      'd' | 'i' => format_decimal_value(arg)
+      'x' => format_hex_value(arg, false)
+      'X' => format_hex_value(arg, true)
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "unsupported format character".to_string(),
+          ),
+        )
+    }
+    let formatted = match raw {
+      Ok(text) => {
+        match spec {
+          'd' | 'i' | 'x' | 'X' => pad_numeric(text, width, zero_pad)
+          _ =>
+            pad_left(
+              text,
+              width,
+              if zero_pad { '0' } else { ' ' },
+            )
+        }
+      }
+      Err(err) => return Err(err)
+    }
+    buf.write_string(formatted)
+    i = j + 1
+  }
+  if arg_index < args.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "not all arguments converted during string formatting".to_string(),
+      ),
+    )
+  }
+  Ok(buf.to_string())
+}
+
+///|
 fn is_generic_alias_origin_name(name : String) -> Bool {
   match name {
     "list" |
@@ -984,6 +1187,13 @@ fn eval_binary_op_values(
       }
     BinaryOp::Mod =>
       match (left_val, right_val) {
+        (Value::Str(format), value) => {
+          let formatted = match format_percent_string(format, value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Str(formatted))
+        }
         (Value::Int(a), Value::Int(b)) => {
           if b == 0N {
             return Err(

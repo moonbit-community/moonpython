@@ -787,20 +787,44 @@ fn builtin_max(
     )
   }
   let mut best = items[0]
-  let (_, first_num) = match number_value(best) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  let mut best_num = first_num
-  for i = 1; i < items.length(); i = i + 1 {
-    let item = items[i]
-    let (_, item_num) = match number_value(item) {
-      Ok(v) => v
-      Err(err) => return Err(err)
+  match best {
+    Value::Str(best_text) => {
+      let mut current = best_text
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Str(text) =>
+            if cmp_string_for_sorted(text, current) > 0 {
+              best = item
+              current = text
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "max() expected strings".to_string(),
+              ),
+            )
+        }
+      }
     }
-    if item_num > best_num {
-      best = item
-      best_num = item_num
+    _ => {
+      let (_, first_num) = match number_value(best) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let mut best_num = first_num
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let (_, item_num) = match number_value(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if item_num > best_num {
+          best = item
+          best_num = item_num
+        }
+      }
     }
   }
   Ok(best)
@@ -845,20 +869,44 @@ fn builtin_min(
     )
   }
   let mut best = items[0]
-  let (_, first_num) = match number_value(best) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  let mut best_num = first_num
-  for i = 1; i < items.length(); i = i + 1 {
-    let item = items[i]
-    let (_, item_num) = match number_value(item) {
-      Ok(v) => v
-      Err(err) => return Err(err)
+  match best {
+    Value::Str(best_text) => {
+      let mut current = best_text
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Str(text) =>
+            if cmp_string_for_sorted(text, current) < 0 {
+              best = item
+              current = text
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "min() expected strings".to_string(),
+              ),
+            )
+        }
+      }
     }
-    if item_num < best_num {
-      best = item
-      best_num = item_num
+    _ => {
+      let (_, first_num) = match number_value(best) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let mut best_num = first_num
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let (_, item_num) = match number_value(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if item_num < best_num {
+          best = item
+          best_num = item_num
+        }
+      }
     }
   }
   Ok(best)
@@ -1885,6 +1933,157 @@ fn builtin_memoryview(
 }
 
 ///|
+fn int_parse_digit(ch : Char) -> Int? {
+  if ch.is_ascii_digit() {
+    Some(ch.to_int() - '0'.to_int())
+  } else if ch.is_ascii_lowercase() {
+    Some(ch.to_int() - 'a'.to_int() + 10)
+  } else if ch.is_ascii_uppercase() {
+    Some(ch.to_int() - 'A'.to_int() + 10)
+  } else {
+    None
+  }
+}
+
+///|
+fn int_text_from_value(value : Value) -> Result[String, RuntimeError] {
+  match value {
+    Value::Str(text) => Ok(text)
+    Value::Bytes(values) | Value::ByteArray(values) | Value::MemoryView(values) => {
+      let chars : Array[Char] = []
+      for byte in values {
+        chars.push(byte.unsafe_to_char())
+      }
+      Ok(String::from_array(chars))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int() argument must be a string or a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn parse_bigint_from_string(
+  text : String,
+  base_in : Int,
+) -> Result[@bigint.BigInt, RuntimeError] {
+  let trimmed = text.trim().to_string()
+  let chars = trimmed.to_array()
+  if chars.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: invalid literal for int()".to_string(),
+      ),
+    )
+  }
+  let mut idx = 0
+  let mut negative = false
+  if chars[idx] == '-' {
+    negative = true
+    idx = idx + 1
+  } else if chars[idx] == '+' {
+    idx = idx + 1
+  }
+  let mut base = base_in
+  if base == 0 {
+    if idx + 1 < chars.length() && chars[idx] == '0' {
+      match chars[idx + 1] {
+        'x' | 'X' => {
+          base = 16
+          idx = idx + 2
+        }
+        'o' | 'O' => {
+          base = 8
+          idx = idx + 2
+        }
+        'b' | 'B' => {
+          base = 2
+          idx = idx + 2
+        }
+        _ => base = 10
+      }
+    } else {
+      base = 10
+    }
+  } else {
+    if base < 2 || base > 36 {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int() base must be >= 2 and <= 36".to_string(),
+        ),
+      )
+    }
+    if idx + 1 < chars.length() && chars[idx] == '0' {
+      if base == 16 && (chars[idx + 1] == 'x' || chars[idx + 1] == 'X') {
+        idx = idx + 2
+      } else if base == 8 &&
+        (chars[idx + 1] == 'o' || chars[idx + 1] == 'O') {
+        idx = idx + 2
+      } else if base == 2 &&
+        (chars[idx + 1] == 'b' || chars[idx + 1] == 'B') {
+        idx = idx + 2
+      }
+    }
+  }
+  if base < 2 || base > 36 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int() base must be >= 2 and <= 36".to_string(),
+      ),
+    )
+  }
+  let base_big = @bigint.BigInt::from_int(base)
+  let mut acc = 0N
+  let mut saw_digit = false
+  while idx < chars.length() {
+    let ch = chars[idx]
+    idx = idx + 1
+    if ch == '_' {
+      continue
+    }
+    let digit = match int_parse_digit(ch) {
+      Some(v) => v
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: invalid literal for int()".to_string(),
+          ),
+        )
+    }
+    if digit >= base {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid literal for int()".to_string(),
+        ),
+      )
+    }
+    acc = acc * base_big + @bigint.BigInt::from_int(digit)
+    saw_digit = true
+  }
+  if !saw_digit {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: invalid literal for int()".to_string(),
+      ),
+    )
+  }
+  if negative {
+    acc = -acc
+  }
+  Ok(acc)
+}
+
+///|
 fn builtin_int(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1898,25 +2097,118 @@ fn builtin_int(
     Ok(v) => v
     Err(err) => return Err(err)
   }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int() takes at most 2 arguments".to_string(),
+      ),
+    )
+  }
+  let base_value = if positional.length() > 1 {
+    Some(positional[1])
+  } else {
+    None
+  }
   if positional.length() == 0 {
     Ok(Value::Int(0N))
   } else {
+    if base_value is Some(base_arg) {
+      let base_int = match base_arg {
+        Value::Int(v) =>
+          match bigint_to_int_checked(v) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+        Value::Bool(v) => if v { 1 } else { 0 }
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "int() base must be an integer".to_string(),
+            ),
+          )
+      }
+      let text = match int_text_from_value(positional[0]) {
+        Ok(v) => v
+        Err(_) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "int() can't convert non-string with explicit base".to_string(),
+            ),
+          )
+      }
+      let parsed = match parse_bigint_from_string(text, base_int) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      return Ok(Value::Int(parsed))
+    }
     match positional[0] {
+      Value::Instance(_) => {
+        let int_method = match
+          get_attr_from_value(
+            positional[0],
+            "__int__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(_) =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "int() argument must be a string or a number".to_string(),
+              ),
+            )
+        }
+        let value = match
+          call_callable_with_env(
+            int_method,
+            [],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match value {
+          Value::Int(v) => Ok(Value::Int(v))
+          Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "int() argument must be a string or a number".to_string(),
+              ),
+            )
+        }
+      }
       Value::Int(v) => Ok(Value::Int(v))
       Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
       Value::Float(v) =>
         Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
       Value::Str(text) => {
-        let parsed = @strconv.parse_int(text) catch {
-          _ =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Runtime,
-                "ValueError: invalid literal for int()".to_string(),
-              ),
-            )
+        let parsed = match parse_bigint_from_string(text, 10) {
+          Ok(v) => v
+          Err(err) => return Err(err)
         }
-        Ok(Value::Int(@bigint.BigInt::from_int(parsed)))
+        Ok(Value::Int(parsed))
+      }
+      Value::Bytes(_) | Value::ByteArray(_) | Value::MemoryView(_) => {
+        let text = match int_text_from_value(positional[0]) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let parsed = match parse_bigint_from_string(text, 10) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Int(parsed))
       }
       _ =>
         Err(
@@ -1979,6 +2271,97 @@ fn builtin_int_new(
         ),
       )
   }
+}
+
+///|
+fn builtin_int_from_bytes(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut signed = false
+  for item in keywords {
+    if item.0 == "signed" {
+      signed = bool_from_value(item.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.from_bytes() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  if positional.length() < 3 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.from_bytes() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 4 {
+    signed = bool_from_value(positional[3])
+  }
+  let bytes = match positional[1] {
+    Value::Bytes(values) | Value::ByteArray(values) | Value::MemoryView(values) =>
+      values
+    other =>
+      match bytes_from_iterable("int.from_bytes", other) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+  }
+  let byteorder = match positional[2] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.from_bytes() byteorder must be str".to_string(),
+        ),
+      )
+  }
+  let mut value = 0N
+  if byteorder == "big" {
+    for b in bytes {
+      value = value * 256 + @bigint.BigInt::from_int(b)
+    }
+  } else if byteorder == "little" {
+    let mut factor = 1N
+    for b in bytes {
+      value = value + @bigint.BigInt::from_int(b) * factor
+      factor = factor * 256
+    }
+  } else {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.from_bytes() byteorder must be 'little' or 'big'".to_string(),
+      ),
+    )
+  }
+  if signed && bytes.length() > 0 {
+    let sign_byte = if byteorder == "big" {
+      bytes[0]
+    } else {
+      bytes[bytes.length() - 1]
+    }
+    if (sign_byte & 0x80) != 0 {
+      let mut modulus = 1N
+      let mut i = 0
+      while i < bytes.length() {
+        modulus = modulus * 256
+        i += 1
+      }
+      value = value - modulus
+    }
+  }
+  Ok(Value::Int(value))
 }
 
 ///|
@@ -3984,48 +4367,72 @@ fn builtin_isinstance(
   }
   let obj = positional[0]
   let cls = positional[1]
-  match cls {
-    Value::Function(func) =>
-      if func.body.length() == 0 {
-        let ok = value_matches_builtin_class(obj, func.name)
-        Ok(Value::Bool(ok))
-      } else {
-        Ok(Value::Bool(false))
-      }
-    Value::Class(klass) =>
-      if klass.name == "type" {
-        match obj {
-          Value::Class(_) => Ok(Value::Bool(true))
-          _ => Ok(Value::Bool(false))
+  fn isinstance_single(obj : Value, cls : Value) -> Result[Bool, RuntimeError] {
+    match cls {
+      Value::Function(func) =>
+        if func.body.length() == 0 {
+          let ok = value_matches_builtin_class(obj, func.name)
+          Ok(ok)
+        } else {
+          Ok(false)
         }
-      } else if value_matches_builtin_class(obj, klass.name) {
-        Ok(Value::Bool(true))
-      } else {
-        match obj {
-          Value::Instance(inst) => {
-            let mro = match class_mro(inst.class) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            for c in mro {
-              if c.name == klass.name {
-                return Ok(Value::Bool(true))
-              }
-            }
-            Ok(Value::Bool(false))
+      Value::Class(klass) =>
+        if klass.name == "type" {
+          match obj {
+            Value::Class(_) => Ok(true)
+            _ => Ok(false)
           }
-          Value::Class(c) => Ok(Value::Bool(c.name == klass.name))
-          _ => Ok(Value::Bool(false))
+        } else if value_matches_builtin_class(obj, klass.name) {
+          Ok(true)
+        } else {
+          match obj {
+            Value::Instance(inst) => {
+              let mro = match class_mro(inst.class) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              for c in mro {
+                if c.name == klass.name {
+                  return Ok(true)
+                }
+              }
+              Ok(false)
+            }
+            Value::Class(c) => Ok(c.name == klass.name)
+            _ => Ok(false)
+          }
         }
-      }
-    _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "isinstance() arg 2 must be a type".to_string(),
-        ),
-      )
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "isinstance() arg 2 must be a type or tuple of types".to_string(),
+          ),
+        )
+    }
   }
+  fn isinstance_multi(obj : Value, cls : Value) -> Result[Bool, RuntimeError] {
+    match cls {
+      Value::Tuple(values) => {
+        for entry in values {
+          let ok = match isinstance_multi(obj, entry) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if ok {
+            return Ok(true)
+          }
+        }
+        Ok(false)
+      }
+      _ => isinstance_single(obj, cls)
+    }
+  }
+  let ok = match isinstance_multi(obj, cls) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(ok))
 }
 
 ///|
@@ -5870,6 +6277,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
+    BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
