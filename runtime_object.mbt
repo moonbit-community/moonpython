@@ -2071,6 +2071,24 @@ fn call_callable_with_env(
           )
         }
         Ok(Value::Bool(!eq_value(positional[0], positional[1])))
+      } else if func.body.length() == 0 {
+        match
+          eval_builtin_call(
+            func.name,
+            positional,
+            keywords,
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(Some(value)) => Ok(value)
+          Ok(None) =>
+            (eval_function_with_kwargs_ref.val)(
+              func, positional, keywords, globals, builtins, io,
+            )
+          Err(err) => Err(err)
+        }
       } else {
         (eval_function_with_kwargs_ref.val)(
           func, positional, keywords, globals, builtins, io,
