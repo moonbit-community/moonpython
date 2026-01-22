@@ -1,0 +1,941 @@
+///|
+/// Core builtins (print/len/range/sum/max/min/any/all/enumerate/zip/map/filter/reversed/sorted).
+
+///|
+fn builtin_print(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut sep = " ".to_string()
+  let mut end = "\n".to_string()
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "sep" =>
+        match value {
+          Value::Str(text) => sep = text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() sep must be str".to_string(),
+              ),
+            )
+        }
+      "end" =>
+        match value {
+          Value::Str(text) => end = text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() end must be str".to_string(),
+              ),
+            )
+        }
+      "file" =>
+        match value {
+          Value::None => ()
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::NotImplemented,
+                "print() file is not supported".to_string(),
+              ),
+            )
+        }
+      "flush" =>
+        match value {
+          Value::Bool(_) => ()
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "print() flush must be bool".to_string(),
+              ),
+            )
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "print() got an unexpected keyword argument '" + key + "'",
+          ),
+        )
+    }
+  }
+  let buf = StringBuilder::new()
+  for i = 0; i < positional.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string(sep)
+    }
+    buf.write_string(value_to_string(positional[i]))
+  }
+  buf.write_string(end)
+  io.write_stdout(buf.to_string())
+  Ok(Value::None)
+}
+
+///|
+fn builtin_len(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("len", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "len() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  match target {
+    Value::Str(text) => Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::List(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Tuple(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Dict(pairs) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+    Value::Set(values) =>
+      Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+    Value::Instance(inst) => {
+      let _ = locals
+      let len_method = match
+        get_attr_from_value(
+          Value::Instance(inst),
+          "__len__",
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(v) => v
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "object has no len()".to_string(),
+                ),
+              )
+            _ => return Err(err)
+          }
+      }
+      let value = match
+        call_callable_with_env(len_method, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match value {
+        Value::Int(v) =>
+          if v < 0N {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: __len__() should return >= 0".to_string(),
+              ),
+            )
+          } else {
+            Ok(Value::Int(v))
+          }
+        Value::Bool(b) => Ok(Value::Int(if b { 1N } else { 0N }))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__len__() should return an int".to_string(),
+            ),
+          )
+      }
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "object has no len()".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_range(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("range", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  fn to_int(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
+    match value {
+      Value::Int(v) => Ok(v)
+      Value::Bool(v) => Ok(if v { 1N } else { 0N })
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "range() integer argument expected".to_string(),
+          ),
+        )
+    }
+  }
+
+  if positional.length() == 0 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range() takes 1 to 3 arguments".to_string(),
+      ),
+    )
+  }
+  let mut start = 0N
+  let mut stop = 0N
+  let mut step = 1N
+  if positional.length() == 1 {
+    stop = match to_int(positional[0]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else if positional.length() == 2 {
+    start = match to_int(positional[0]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    stop = match to_int(positional[1]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    start = match to_int(positional[0]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    stop = match to_int(positional[1]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    step = match to_int(positional[2]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  if step == 0N {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range() arg 3 must not be zero".to_string(),
+      ),
+    )
+  }
+  let items : Array[Value] = []
+  // NOTE: still returns a realized list (moonpython simplification).
+  // Convert to Int for looping; raise if it doesn't fit.
+  let start_i = match bigint_to_int_checked(start) {
+    Ok(v) => v
+    Err(_) => return Ok(Value::List([]))
+  }
+  let stop_i = match bigint_to_int_checked(stop) {
+    Ok(v) => v
+    Err(_) => return Ok(Value::List([]))
+  }
+  let step_i = match bigint_to_int_checked(step) {
+    Ok(v) => v
+    Err(_) => return Ok(Value::List([]))
+  }
+  if step_i == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range() arg 3 must not be zero".to_string(),
+      ),
+    )
+  }
+  let mut i = start_i
+  if step_i > 0 {
+    while i < stop_i {
+      items.push(Value::Int(@bigint.BigInt::from_int(i)))
+      i = i + step_i
+    }
+  } else {
+    while i > stop_i {
+      items.push(Value::Int(@bigint.BigInt::from_int(i)))
+      i = i + step_i
+    }
+  }
+  Ok(Value::List(items))
+}
+
+///|
+fn builtin_sum(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sum", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "sum() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let items = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut is_float = false
+  let mut total = 0.0
+  if positional.length() == 2 {
+    let (start_is_float, start_num) = match number_value(positional[1]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    is_float = start_is_float
+    total = start_num
+  }
+  for item in items {
+    let (item_is_float, item_num) = match number_value(item) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    if item_is_float {
+      is_float = true
+    }
+    total = total + item_num
+  }
+  if is_float {
+    Ok(Value::Float(total))
+  } else {
+    Ok(Value::Int(@bigint.BigInt::from_int64(total.to_int64())))
+  }
+}
+
+///|
+fn builtin_max(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("max", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "max() takes at least 1 argument".to_string(),
+      ),
+    )
+  }
+  let items = if positional.length() == 1 {
+    match iterable_values(positional[0]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    positional
+  }
+  if items.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "max() arg is an empty sequence".to_string(),
+      ),
+    )
+  }
+  let mut best = items[0]
+  match best {
+    Value::Str(best_text) => {
+      let mut current = best_text
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Str(text) =>
+            if cmp_string_for_sorted(text, current) > 0 {
+              best = item
+              current = text
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "max() expected strings".to_string(),
+              ),
+            )
+        }
+      }
+    }
+    _ => {
+      let (_, first_num) = match number_value(best) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let mut best_num = first_num
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let (_, item_num) = match number_value(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if item_num > best_num {
+          best = item
+          best_num = item_num
+        }
+      }
+    }
+  }
+  Ok(best)
+}
+
+///|
+fn builtin_min(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("min", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "min() takes at least 1 argument".to_string(),
+      ),
+    )
+  }
+  let items = if positional.length() == 1 {
+    match iterable_values(positional[0]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    positional
+  }
+  if items.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "min() arg is an empty sequence".to_string(),
+      ),
+    )
+  }
+  let mut best = items[0]
+  match best {
+    Value::Str(best_text) => {
+      let mut current = best_text
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Str(text) =>
+            if cmp_string_for_sorted(text, current) < 0 {
+              best = item
+              current = text
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "min() expected strings".to_string(),
+              ),
+            )
+        }
+      }
+    }
+    _ => {
+      let (_, first_num) = match number_value(best) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let mut best_num = first_num
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let (_, item_num) = match number_value(item) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if item_num < best_num {
+          best = item
+          best_num = item_num
+        }
+      }
+    }
+  }
+  Ok(best)
+}
+
+///|
+fn builtin_any(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("any", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "any() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let items = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for item in items {
+    if bool_from_value(item) {
+      return Ok(Value::Bool(true))
+    }
+  }
+  Ok(Value::Bool(false))
+}
+
+///|
+fn builtin_all(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("all", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "all() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let items = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for item in items {
+    if !bool_from_value(item) {
+      return Ok(Value::Bool(false))
+    }
+  }
+  Ok(Value::Bool(true))
+}
+
+///|
+fn builtin_enumerate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("enumerate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "enumerate() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let items = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut start = 0N
+  if positional.length() == 2 {
+    match positional[1] {
+      Value::Int(v) => start = v
+      Value::Bool(v) => start = if v { 1N } else { 0N }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "enumerate() integer argument expected".to_string(),
+          ),
+        )
+    }
+  }
+  let pairs : Array[Value] = []
+  let mut i = start
+  for item in items {
+    pairs.push(Value::Tuple([Value::Int(i), item]))
+    i = i + 1N
+  }
+  Ok(Value::List(pairs))
+}
+
+///|
+fn builtin_zip(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let iterables : Array[Array[Value]] = []
+  let _ = match ensure_no_keywords("zip", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for value in positional {
+    let items = match iterable_values(value) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    iterables.push(items)
+  }
+  if iterables.length() == 0 {
+    return Ok(Value::List([]))
+  }
+  let mut min_len = iterables[0].length()
+  for i = 1; i < iterables.length(); i = i + 1 {
+    let n = iterables[i].length()
+    if n < min_len {
+      min_len = n
+    }
+  }
+  let result : Array[Value] = []
+  for i = 0; i < min_len; i = i + 1 {
+    let tuple_items : Array[Value] = []
+    for items in iterables {
+      tuple_items.push(items[i])
+    }
+    result.push(Value::Tuple(tuple_items))
+  }
+  Ok(Value::List(result))
+}
+
+///|
+fn builtin_map(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("map", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "map() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let func = positional[0]
+  let items = match iterable_values(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  for item in items {
+    let mapped = match
+      call_callable_with_env(func, [item], [], globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    results.push(mapped)
+  }
+  Ok(make_iterator(results))
+}
+
+///|
+fn builtin_filter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("filter", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "filter() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let predicate = positional[0]
+  let items = match iterable_values(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let results : Array[Value] = []
+  for item in items {
+    let keep = if predicate is Value::None {
+      bool_from_value(item)
+    } else {
+      let test_value = match
+        call_callable_with_env(predicate, [item], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      bool_from_value(test_value)
+    }
+    if keep {
+      results.push(item)
+    }
+  }
+  Ok(make_iterator(results))
+}
+
+///|
+fn builtin_reversed(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("reversed", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "reversed() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let items = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::List(reverse_values(items)))
+}
+
+///|
+fn builtin_sorted(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "sorted() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let mut reverse = false
+  let mut key_value : Value? = None
+  for pair in keywords {
+    if pair.0 == "key" {
+      key_value = Some(pair.1)
+    } else if pair.0 == "reverse" {
+      reverse = bool_from_value(pair.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sorted() got unexpected keyword arguments".to_string(),
+        ),
+      )
+    }
+  }
+  if positional.length() == 2 {
+    if key_value is Some(_) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sorted() got multiple values for argument 'key'".to_string(),
+        ),
+      )
+    }
+    key_value = Some(positional[1])
+  }
+  let items_in = match iterable_values(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let items : Array[Value] = []
+  for item in items_in {
+    items.push(item)
+  }
+  if items.length() == 0 {
+    return Ok(Value::List([]))
+  }
+  let mut out : Array[Value] = []
+  match key_value {
+    Some(key_fn) => {
+      let key_pairs : Array[(Value, Value)] = []
+      for item in items {
+        let key = if key_fn is Value::None {
+          item
+        } else {
+          match call_callable_with_env(
+            key_fn,
+            [item],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+        }
+        key_pairs.push((key, item))
+      }
+      let mut kind_opt : SortKind? = None
+      for pair in key_pairs {
+        match sort_kind_for_sorted(pair.0) {
+          Some(kind) =>
+            match kind_opt {
+              None => kind_opt = Some(kind)
+              Some(prev) =>
+                if prev != kind {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "sorted() cannot compare values".to_string(),
+                    ),
+                  )
+                }
+            }
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "sorted() cannot compare values".to_string(),
+              ),
+            )
+        }
+      }
+      let kind = match kind_opt {
+        Some(kind) => kind
+        None => return Ok(Value::List([]))
+      }
+      let sorted_pairs = match stable_sort_pairs_by_key(key_pairs, kind) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for pair in sorted_pairs {
+        out.push(pair.1)
+      }
+    }
+    None => {
+      let mut kind_opt : SortKind? = None
+      for item in items {
+        match sort_kind_for_sorted(item) {
+          Some(kind) =>
+            match kind_opt {
+              None => kind_opt = Some(kind)
+              Some(prev) =>
+                if prev != kind {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "sorted() cannot compare values".to_string(),
+                    ),
+                  )
+                }
+            }
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "sorted() cannot compare values".to_string(),
+              ),
+            )
+        }
+      }
+      let kind = match kind_opt {
+        Some(kind) => kind
+        None => return Ok(Value::List([]))
+      }
+      out = match stable_sort_for_sorted(items, kind) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+    }
+  }
+  if reverse {
+    out = reverse_values(out)
+  }
+  Ok(Value::List(out))
+}
