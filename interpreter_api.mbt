@@ -638,14 +638,19 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let lookup_error_class = ClassValue::{
+    name: "LookupError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let index_error_class = ClassValue::{
     name: "IndexError",
-    bases: [Value::Class(exception_class)],
+    bases: [Value::Class(lookup_error_class)],
     dict: [],
   }
   let key_error_class = ClassValue::{
     name: "KeyError",
-    bases: [Value::Class(exception_class)],
+    bases: [Value::Class(lookup_error_class)],
     dict: [],
   }
   let not_implemented_error_class = ClassValue::{
@@ -816,6 +821,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),
     ("AttributeError", Value::Class(attribute_error_class)),
+    ("LookupError", Value::Class(lookup_error_class)),
     ("IndexError", Value::Class(index_error_class)),
     ("KeyError", Value::Class(key_error_class)),
     ("NotImplementedError", Value::Class(not_implemented_error_class)),

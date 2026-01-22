@@ -63,6 +63,7 @@ fn is_exception_class_name(name : String) -> Bool {
   name == "UnboundLocalError" ||
   name == "TypeError" ||
   name == "AttributeError" ||
+  name == "LookupError" ||
   name == "IndexError" ||
   name == "KeyError" ||
   name == "NotImplementedError" ||

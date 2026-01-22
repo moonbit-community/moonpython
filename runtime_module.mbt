@@ -479,6 +479,21 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
       ("rounds", Value::Int(1N)),
     ],
   })
+  let hash_info_class = ClassValue::{ name: "hash_info", bases: [], dict: [] }
+  let hash_info_value = Value::Instance(InstanceValue::{
+    class: hash_info_class,
+    dict: [
+      ("width", Value::Int(64N)),
+      ("modulus", Value::Int(2305843009213693951N)),
+      ("inf", Value::Int(314159N)),
+      ("nan", Value::Int(0N)),
+      ("imag", Value::Int(1000003N)),
+      ("algorithm", Value::Str("siphash13")),
+      ("hash_bits", Value::Int(64N)),
+      ("seed_bits", Value::Int(128N)),
+      ("cutoff", Value::Int(0N)),
+    ],
+  })
   let flags_class = ClassValue::{ name: "flags", bases: [], dict: [] }
   let flags_value = Value::Instance(InstanceValue::{
     class: flags_class,
@@ -510,6 +525,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("platform", Value::Str("mpython")),
     ("implementation", impl_value),
     ("float_info", float_info_value),
+    ("hash_info", hash_info_value),
     ("flags", flags_value),
     ("prefix", prefix_value),
     ("base_prefix", prefix_value),

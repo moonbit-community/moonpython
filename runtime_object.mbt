@@ -265,6 +265,61 @@ fn is_ascii_whitespace(c : Char) -> Bool {
   code == 0x0c
 }
 
+priv enum StripMode {
+  Both
+  Left
+  Right
+} derive(Eq)
+
+fn parse_strip_chars(
+  name : String,
+  value_opt : Value?,
+) -> Result[Array[Char]?, RuntimeError] {
+  match value_opt {
+    None => Ok(None)
+    Some(Value::None) => Ok(None)
+    Some(Value::Str(text)) => Ok(Some(text.to_array()))
+    Some(_) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() expects a str".to_string(),
+        ),
+      )
+  }
+}
+
+fn strip_has_char(c : Char, chars_opt : Array[Char]?) -> Bool {
+  match chars_opt {
+    None => is_ascii_whitespace(c)
+    Some(chars) => {
+      for item in chars {
+        if item == c {
+          return true
+        }
+      }
+      false
+    }
+  }
+}
+
+fn strip_text(text : String, chars_opt : Array[Char]?, mode : StripMode) -> String {
+  let chars = text.to_array()
+  let mut start = 0
+  let mut end = chars.length()
+  if mode == StripMode::Both || mode == StripMode::Left {
+    while start < end && strip_has_char(chars[start], chars_opt) {
+      start += 1
+    }
+  }
+  if mode == StripMode::Both || mode == StripMode::Right {
+    while end > start && strip_has_char(chars[end - 1], chars_opt) {
+      end -= 1
+    }
+  }
+  substring(text, start, end)
+}
+
 ///|
 fn lookup_keyword_value(
   keywords : Array[(String, Value)],
@@ -939,6 +994,22 @@ fn get_attr_raw_from_value(
       }
     }
     Value::Int(_) => {
+      if attr == "bit_length" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "int.bit_length",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "to_bytes" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1116,6 +1187,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "lower" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "lower",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "replace" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1139,6 +1226,54 @@ fn get_attr_raw_from_value(
               name: "split",
               params: ["self", "sep", "maxsplit"],
               defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "strip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "strip",
+              params: ["self", "chars"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "lstrip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "lstrip",
+              params: ["self", "chars"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rstrip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rstrip",
+              params: ["self", "chars"],
+              defaults: [Value::None],
               body: [],
               is_generator: false,
               is_async: false,
@@ -1958,6 +2093,18 @@ fn get_attr_raw_from_value(
               closure: [],
             },
             self: Value::Class(klass),
+          }),
+        )
+      } else if klass.name == "int" && attr == "bit_length" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "int.bit_length",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
           }),
         )
       } else if attr == "__code__" && klass.name == "function" {
@@ -3654,6 +3801,17 @@ fn call_callable_with_env(
                 } else {
                   return Ok(Value::Str(text.to_upper()))
                 }
+              "lower" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "lower() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(Value::Str(text.to_lower()))
+                }
               "replace" => {
                 if positional.length() < 2 || positional.length() > 3 {
                   return Err(
@@ -3730,6 +3888,60 @@ fn call_callable_with_env(
                   builder.write_string(part.to_string())
                 }
                 return Ok(Value::Str(builder.to_string()))
+              }
+              "strip" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "strip() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                let chars_opt = match parse_strip_chars(
+                  "strip",
+                  if positional.length() == 1 { Some(positional[0]) } else { None },
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Both)))
+              }
+              "lstrip" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "lstrip() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                let chars_opt = match parse_strip_chars(
+                  "lstrip",
+                  if positional.length() == 1 { Some(positional[0]) } else { None },
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Left)))
+              }
+              "rstrip" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rstrip() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                let chars_opt = match parse_strip_chars(
+                  "rstrip",
+                  if positional.length() == 1 { Some(positional[0]) } else { None },
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Right)))
               }
               "split" => {
                 if positional.length() > 2 {

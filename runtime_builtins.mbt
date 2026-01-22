@@ -305,10 +305,19 @@ fn collect_items_from_iterable(
 }
 
 ///|
-fn sort_kind_for_sorted(value : Value) -> Bool? {
+priv enum SortKind {
+  Number
+  String
+  Tuple
+  List
+} derive(Eq)
+
+fn sort_kind_for_sorted(value : Value) -> SortKind? {
   match value {
-    Value::Int(_) | Value::Float(_) | Value::Bool(_) => Some(true)
-    Value::Str(_) => Some(false)
+    Value::Int(_) | Value::Float(_) | Value::Bool(_) => Some(SortKind::Number)
+    Value::Str(_) => Some(SortKind::String)
+    Value::Tuple(_) => Some(SortKind::Tuple)
+    Value::List(_) => Some(SortKind::List)
     _ => None
   }
 }
@@ -339,37 +348,145 @@ fn cmp_string_for_sorted(a : String, b : String) -> Int {
 }
 
 ///|
-fn cmp_value_for_sorted(
-  is_number : Bool,
+fn cmp_value_for_sorted_dynamic(
   a : Value,
   b : Value,
 ) -> Result[Int, RuntimeError] {
-  if is_number {
-    let (_, an) = match number_value(a) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
-    let (_, bn) = match number_value(b) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
-    if an < bn {
-      Ok(-1)
-    } else if an > bn {
-      Ok(1)
-    } else {
-      Ok(0)
-    }
-  } else {
-    match (a, b) {
-      (Value::Str(aa), Value::Str(bb)) => Ok(cmp_string_for_sorted(aa, bb))
-      _ =>
+  match (sort_kind_for_sorted(a), sort_kind_for_sorted(b)) {
+    (Some(kind_a), Some(kind_b)) =>
+      if kind_a == kind_b {
+        cmp_value_for_sorted(kind_a, a, b)
+      } else {
         Err(
           make_runtime_error(
             RuntimeErrorKind::Type,
             "sorted() cannot compare values".to_string(),
           ),
         )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sorted() cannot compare values".to_string(),
+        ),
+      )
+  }
+}
+
+fn cmp_value_for_sorted(
+  kind : SortKind,
+  a : Value,
+  b : Value,
+) -> Result[Int, RuntimeError] {
+  match kind {
+    SortKind::Number => {
+      let (_, an) = match number_value(a) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let (_, bn) = match number_value(b) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if an < bn {
+        Ok(-1)
+      } else if an > bn {
+        Ok(1)
+      } else {
+        Ok(0)
+      }
+    }
+    SortKind::String =>
+      match (a, b) {
+        (Value::Str(aa), Value::Str(bb)) => Ok(cmp_string_for_sorted(aa, bb))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() cannot compare values".to_string(),
+            ),
+          )
+      }
+    SortKind::Tuple => {
+      let values_a = match a {
+        Value::Tuple(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() cannot compare values".to_string(),
+            ),
+          )
+      }
+      let values_b = match b {
+        Value::Tuple(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() cannot compare values".to_string(),
+            ),
+          )
+      }
+      let mut i = 0
+      while i < values_a.length() && i < values_b.length() {
+        let cmp = match cmp_value_for_sorted_dynamic(values_a[i], values_b[i]) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp != 0 {
+          return Ok(cmp)
+        }
+        i += 1
+      }
+      if values_a.length() < values_b.length() {
+        Ok(-1)
+      } else if values_a.length() > values_b.length() {
+        Ok(1)
+      } else {
+        Ok(0)
+      }
+    }
+    SortKind::List => {
+      let values_a = match a {
+        Value::List(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() cannot compare values".to_string(),
+            ),
+          )
+      }
+      let values_b = match b {
+        Value::List(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() cannot compare values".to_string(),
+            ),
+          )
+      }
+      let mut i = 0
+      while i < values_a.length() && i < values_b.length() {
+        let cmp = match cmp_value_for_sorted_dynamic(values_a[i], values_b[i]) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp != 0 {
+          return Ok(cmp)
+        }
+        i += 1
+      }
+      if values_a.length() < values_b.length() {
+        Ok(-1)
+      } else if values_a.length() > values_b.length() {
+        Ok(1)
+      } else {
+        Ok(0)
+      }
     }
   }
 }
@@ -377,7 +494,7 @@ fn cmp_value_for_sorted(
 ///|
 fn stable_sort_for_sorted(
   items : Array[Value],
-  is_number : Bool,
+  kind : SortKind,
 ) -> Result[Array[Value], RuntimeError] {
   let mut out : Array[Value] = []
   for item in items {
@@ -385,7 +502,7 @@ fn stable_sort_for_sorted(
     let next : Array[Value] = []
     for existing in out {
       if !inserted {
-        let cmp = match cmp_value_for_sorted(is_number, item, existing) {
+        let cmp = match cmp_value_for_sorted(kind, item, existing) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -407,7 +524,7 @@ fn stable_sort_for_sorted(
 ///|
 fn stable_sort_pairs_by_key(
   pairs : Array[(Value, Value)],
-  is_number : Bool,
+  kind : SortKind,
 ) -> Result[Array[(Value, Value)], RuntimeError] {
   let mut out : Array[(Value, Value)] = []
   for pair in pairs {
@@ -415,7 +532,7 @@ fn stable_sort_pairs_by_key(
     let next : Array[(Value, Value)] = []
     for existing in out {
       if !inserted {
-        let cmp = match cmp_value_for_sorted(is_number, pair.0, existing.0) {
+        let cmp = match cmp_value_for_sorted(kind, pair.0, existing.0) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -1294,7 +1411,7 @@ fn builtin_sorted(
         }
         key_pairs.push((key, item))
       }
-      let mut kind_opt : Bool? = None
+      let mut kind_opt : SortKind? = None
       for pair in key_pairs {
         match sort_kind_for_sorted(pair.0) {
           Some(kind) =>
@@ -1319,11 +1436,11 @@ fn builtin_sorted(
             )
         }
       }
-      let is_number = match kind_opt {
+      let kind = match kind_opt {
         Some(kind) => kind
         None => return Ok(Value::List([]))
       }
-      let sorted_pairs = match stable_sort_pairs_by_key(key_pairs, is_number) {
+      let sorted_pairs = match stable_sort_pairs_by_key(key_pairs, kind) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
@@ -1332,7 +1449,7 @@ fn builtin_sorted(
       }
     }
     None => {
-      let mut kind_opt : Bool? = None
+      let mut kind_opt : SortKind? = None
       for item in items {
         match sort_kind_for_sorted(item) {
           Some(kind) =>
@@ -1357,11 +1474,11 @@ fn builtin_sorted(
             )
         }
       }
-      let is_number = match kind_opt {
+      let kind = match kind_opt {
         Some(kind) => kind
         None => return Ok(Value::List([]))
       }
-      out = match stable_sort_for_sorted(items, is_number) {
+      out = match stable_sort_for_sorted(items, kind) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
@@ -2685,6 +2802,50 @@ fn builtin_int_to_bytes(
 }
 
 ///|
+fn builtin_int_bit_length(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.bit_length", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.bit_length() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let mut value = match positional[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1N } else { 0N }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.bit_length() expects an int".to_string(),
+        ),
+      )
+  }
+  if value < 0N {
+    value = -value
+  }
+  if value == 0N {
+    return Ok(Value::Int(0N))
+  }
+  let text = bigint_to_base_string(value, 2, "0b")
+  let bits = text.length() - 2
+  Ok(Value::Int(@bigint.BigInt::from_int(bits)))
+}
+
+///|
 fn file_unpack_state(
   target : Value,
   method_name : String,
@@ -3801,17 +3962,23 @@ fn builtin_dict(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("dict", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+  if positional.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "dict() takes at most 1 positional argument".to_string(),
+      ),
+    )
   }
-  if positional.length() == 0 {
-    Ok(Value::Dict([]))
-  } else {
+  let pairs : Array[(Value, Value)] = []
+  if positional.length() == 1 {
     match positional[0] {
-      Value::Dict(pairs) => Ok(Value::Dict(pairs))
+      Value::Dict(items) => {
+        for pair in items {
+          pairs.push(pair)
+        }
+      }
       Value::List(items) | Value::Tuple(items) => {
-        let pairs : Array[(Value, Value)] = []
         for item in items {
           match item {
             Value::Tuple(values) | Value::List(values) =>
@@ -3820,7 +3987,6 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-
               } else {
                 return Err(
                   make_runtime_error(
@@ -3838,7 +4004,6 @@ fn builtin_dict(
               )
           }
         }
-        Ok(Value::Dict(pairs))
       }
       other => {
         let items = match
@@ -3846,7 +4011,6 @@ fn builtin_dict(
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        let pairs : Array[(Value, Value)] = []
         for item in items {
           match item {
             Value::Tuple(values) | Value::List(values) =>
@@ -3855,7 +4019,6 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-
               } else {
                 return Err(
                   make_runtime_error(
@@ -3873,10 +4036,16 @@ fn builtin_dict(
               )
           }
         }
-        Ok(Value::Dict(pairs))
       }
     }
   }
+  for item in keywords {
+    let _ = match dict_set_item(pairs, Value::Str(item.0), item.1) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  Ok(Value::Dict(pairs))
 }
 
 ///|
@@ -8057,6 +8226,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "int.__repr__", run: builtin_int_repr },
     BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },
     BuiltinDef::{ name: "int.to_bytes", run: builtin_int_to_bytes },
+    BuiltinDef::{ name: "int.bit_length", run: builtin_int_bit_length },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "float.__repr__", run: builtin_float_repr },
     BuiltinDef::{ name: "complex", run: builtin_complex },
