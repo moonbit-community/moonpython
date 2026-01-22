@@ -4108,6 +4108,48 @@ fn builtin_dict_copy(
 ///|
 
 ///|
+fn builtin_dict_fromkeys(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("dict.fromkeys", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "fromkeys() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let items = match
+    collect_items_from_iterable(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let value = if positional.length() == 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let pairs : Array[(Value, Value)] = []
+  for item in items {
+    let _ = match dict_set_item(pairs, item, value) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  Ok(Value::Dict(pairs))
+}
+
+///|
 fn builtin_dict_get(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -9135,6 +9177,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "frozenset", run: builtin_frozenset },
     BuiltinDef::{ name: "dict", run: builtin_dict },
     BuiltinDef::{ name: "dict.copy", run: builtin_dict_copy },
+    BuiltinDef::{ name: "dict.fromkeys", run: builtin_dict_fromkeys },
     BuiltinDef::{ name: "dict.get", run: builtin_dict_get },
     BuiltinDef::{ name: "dict.pop", run: builtin_dict_pop },
     BuiltinDef::{ name: "dict.setdefault", run: builtin_dict_setdefault },

@@ -635,13 +635,19 @@ fn format_percent_string(
   format : String,
   value : Value,
 ) -> Result[String, RuntimeError] {
+  let mut mapping_pairs : Array[(Value, Value)]? = None
   let args = match value {
     Value::Tuple(values) => values
+    Value::Dict(pairs) => {
+      mapping_pairs = Some(pairs)
+      [value]
+    }
     _ => [value]
   }
   let buf = StringBuilder::new()
   let chars = format.to_array()
   let mut arg_index = 0
+  let mut used_positional = false
   let mut i = 0
   while i < chars.length() {
     let ch = chars[i]
@@ -664,6 +670,35 @@ fn format_percent_string(
       continue
     }
     let mut j = i + 1
+    let mut key_name : String? = None
+    if chars[j] == '(' {
+      let mut k = j + 1
+      while k < chars.length() && chars[k] != ')' {
+        k = k + 1
+      }
+      if k >= chars.length() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "incomplete format".to_string(),
+          ),
+        )
+      }
+      let key_chars : Array[Char] = []
+      for idx = j + 1; idx < k; idx = idx + 1 {
+        key_chars.push(chars[idx])
+      }
+      key_name = Some(String::from_array(key_chars))
+      j = k + 1
+    }
+    if j >= chars.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "incomplete format".to_string(),
+        ),
+      )
+    }
     let mut zero_pad = false
     if chars[j] == '0' {
       zero_pad = true
@@ -682,16 +717,49 @@ fn format_percent_string(
         ),
       )
     }
-    if arg_index >= args.length() {
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "not enough arguments for format string".to_string(),
-        ),
-      )
+    let arg = match key_name {
+      Some(key) => {
+        let pairs = match mapping_pairs {
+          Some(pairs) => pairs
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "format requires a mapping".to_string(),
+              ),
+            )
+        }
+        let key_value = Value::Str(key)
+        let index = match dict_find_index(pairs, key_value) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match index {
+          Some(pos) => pairs[pos].1
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Key,
+                "key not found".to_string(),
+              ),
+            )
+        }
+      }
+      None => {
+        if arg_index >= args.length() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "not enough arguments for format string".to_string(),
+            ),
+          )
+        }
+        let arg = args[arg_index]
+        arg_index = arg_index + 1
+        used_positional = true
+        arg
+      }
     }
-    let arg = args[arg_index]
-    arg_index = arg_index + 1
     let spec = chars[j]
     let raw = match spec {
       's' => Ok(value_to_string(arg))
@@ -724,7 +792,7 @@ fn format_percent_string(
     buf.write_string(formatted)
     i = j + 1
   }
-  if arg_index < args.length() {
+  if used_positional && arg_index < args.length() {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,

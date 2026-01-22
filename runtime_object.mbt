@@ -1427,6 +1427,23 @@ fn get_attr_raw_from_value(
       )
     }
     Value::Dict(_) => {
+      if attr == "fromkeys" {
+        let dict_class = builtin_class_from_name("dict", builtins)
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "dict.fromkeys",
+              params: ["cls", "iterable", "value"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(dict_class),
+          }),
+        )
+      }
       if attr == "get" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -2038,6 +2055,21 @@ fn get_attr_raw_from_value(
             is_generator: false,
             is_async: false,
             closure: [],
+          }),
+        )
+      } else if klass.name == "dict" && attr == "fromkeys" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "dict.fromkeys",
+              params: ["cls", "iterable", "value"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
           }),
         )
       } else if klass.name == "set" && attr == "copy" {
