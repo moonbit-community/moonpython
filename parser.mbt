@@ -2904,6 +2904,19 @@ fn strip_inline_comment(text : String) -> String {
 }
 
 ///|
+fn replace_newlines_with_spaces(text : String) -> String {
+  let buf = StringBuilder::new()
+  for ch in text.to_array() {
+    if ch == '\n' {
+      buf.write_char(' ')
+    } else {
+      buf.write_char(ch)
+    }
+  }
+  buf.to_string()
+}
+
+///|
 fn has_trailing_line_continuation(text : String) -> Bool {
   let chars = text.to_array()
   let mut i = 0
@@ -3400,6 +3413,7 @@ fn has_bare_assign(text : String) -> Bool {
   let mut quote : Char? = None
   let mut triple : Char? = None
   let mut escape = false
+  let mut depth = 0
   while i < chars.length() {
     let c = chars[i]
     match triple {
@@ -3437,10 +3451,17 @@ fn has_bare_assign(text : String) -> Bool {
         } else if c == '\'' || c == '"' {
           quote = Some(c)
           escape = false
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
         } else if c == '=' {
           let prev = if i > 0 { chars[i - 1] } else { '\u{0}' }
           let next = if i + 1 < chars.length() { chars[i + 1] } else { '\u{0}' }
-          if prev != '=' &&
+          if depth == 0 &&
+            prev != '=' &&
             prev != '!' &&
             prev != '<' &&
             prev != '>' &&
@@ -5356,6 +5377,11 @@ fn LineParser::parse_block(
       line_text = line_text + "\n" + appended
       next_index += 1
       balance = bracket_balance(line_text)
+    }
+    if find_triple_quote(line_text) is None {
+      line_text = replace_newlines_with_spaces(line_text)
+        .trim(chars=" \t")
+        .to_string()
     }
     if pending_decorators.length() > 0 &&
       !line_text.has_prefix("@") &&
