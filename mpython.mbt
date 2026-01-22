@@ -3139,66 +3139,123 @@ fn eval_expr_with_env(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let sep = match sep_value {
-              Value::Str(text) => text
-              _ =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    "join separator must be str".to_string(),
-                  ),
-                )
-            }
-            if args.length() != 1 {
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "join() takes exactly one argument".to_string(),
-                ),
-              )
-            }
-            let iter_value = match
-              eval_expr_with_env(args[0], locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let parts : Array[String] = []
-            match iter_value {
-              Value::List(values) =>
-                for v in values {
-                  parts.push(value_to_string(v))
+            match sep_value {
+              Value::Str(sep) => {
+                if args.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "join() takes exactly one argument".to_string(),
+                    ),
+                  )
                 }
-              Value::Tuple(values) =>
-                for v in values {
-                  parts.push(value_to_string(v))
+                let iter_value = match
+                  eval_expr_with_env(args[0], locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
                 }
-              Value::Set(values) =>
-                for v in values {
-                  parts.push(value_to_string(v))
-                }
-              _ =>
-                match iterable_values(iter_value) {
-                  Ok(values) =>
+                let parts : Array[String] = []
+                match iter_value {
+                  Value::List(values) =>
                     for v in values {
                       parts.push(value_to_string(v))
                     }
-                  Err(_) =>
-                    return Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Type,
-                        "can only join an iterable".to_string(),
-                      ),
+                  Value::Tuple(values) =>
+                    for v in values {
+                      parts.push(value_to_string(v))
+                    }
+                  Value::Set(values) =>
+                    for v in values {
+                      parts.push(value_to_string(v))
+                    }
+                  _ =>
+                    match iterable_values(iter_value) {
+                      Ok(values) =>
+                        for v in values {
+                          parts.push(value_to_string(v))
+                        }
+                      Err(_) =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "can only join an iterable".to_string(),
+                          ),
+                        )
+                    }
+                }
+                let buf = StringBuilder::new()
+                for i = 0; i < parts.length(); i = i + 1 {
+                  if i > 0 {
+                    buf.write_string(sep)
+                  }
+                  buf.write_string(parts[i])
+                }
+                Ok(Value::Str(buf.to_string()))
+              }
+              _ => {
+                let callee_value = match
+                  get_attr_from_value(
+                    sep_value,
+                    attr,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                let (arg_values, keywords) = match
+                  eval_call_args(args, locals, globals, builtins, io) {
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+                match callee_value {
+                  Value::Function(func) =>
+                    if func.body.length() == 0 {
+                      match
+                        eval_builtin_call(
+                          func.name,
+                          arg_values,
+                          keywords,
+                          locals,
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                        Ok(Some(value)) => Ok(value)
+                        Ok(None) =>
+                          call_callable_with_env(
+                            callee_value,
+                            arg_values,
+                            keywords,
+                            globals,
+                            builtins,
+                            io,
+                          )
+                        Err(err) => Err(err)
+                      }
+                    } else {
+                      call_callable_with_env(
+                        callee_value,
+                        arg_values,
+                        keywords,
+                        globals,
+                        builtins,
+                        io,
+                      )
+                    }
+                  _ =>
+                    call_callable_with_env(
+                      callee_value,
+                      arg_values,
+                      keywords,
+                      globals,
+                      builtins,
+                      io,
                     )
                 }
-            }
-            let buf = StringBuilder::new()
-            for i = 0; i < parts.length(); i = i + 1 {
-              if i > 0 {
-                buf.write_string(sep)
               }
-              buf.write_string(parts[i])
             }
-            Ok(Value::Str(buf.to_string()))
           } else {
             let callee_value = match
               eval_expr_with_env(

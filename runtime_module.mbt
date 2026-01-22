@@ -434,6 +434,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
       ("version", version_info),
     ],
   })
+  let prefix_value = Value::Str("")
   make_module_instance("sys", [
     ("maxsize", Value::Int(9223372036854775807N)),
     ("version", Value::Str("3.12.0")),
@@ -441,6 +442,10 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("byteorder", Value::Str("little")),
     ("platform", Value::Str("mpython")),
     ("implementation", impl_value),
+    ("prefix", prefix_value),
+    ("base_prefix", prefix_value),
+    ("exec_prefix", prefix_value),
+    ("base_exec_prefix", prefix_value),
     ("builtin_module_names", builtin_module_names),
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List([])),
