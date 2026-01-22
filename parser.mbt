@@ -1121,6 +1121,28 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
 }
 
 ///|
+fn bytes_from_string_literal(
+  value : String,
+  token : Token,
+) -> Result[Array[Int], ParseError] {
+  let out : Array[Int] = []
+  for ch in value.to_array() {
+    let code = ch.to_int()
+    if code > 255 {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "bytes can only contain ASCII literal characters".to_string(),
+          token,
+        ),
+      )
+    }
+    out.push(code)
+  }
+  Ok(out)
+}
+
+///|
 fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
   let token = self.current()
   let mut expr = match token.kind {
@@ -1149,6 +1171,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             let _ = self.advance()
             pieces.push(Expr::FString(text))
           }
+          BytesLit(_) =>
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "cannot mix bytes and nonbytes literals".to_string(),
+                self.current(),
+              ),
+            )
           _ => break
         }
       }
@@ -1182,6 +1212,43 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         expr
       }
     }
+    BytesLit(value) => {
+      let token = self.current()
+      let _ = self.advance()
+      let merged : Array[Int] = []
+      let first = match bytes_from_string_literal(value, token) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for item in first {
+        merged.push(item)
+      }
+      while true {
+        match self.current().kind {
+          BytesLit(text) => {
+            let token = self.current()
+            let _ = self.advance()
+            let more = match bytes_from_string_literal(text, token) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for item in more {
+              merged.push(item)
+            }
+          }
+          StrLit(_) | FStrLit(_) =>
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "cannot mix bytes and nonbytes literals".to_string(),
+                self.current(),
+              ),
+            )
+          _ => break
+        }
+      }
+      Expr::Literal(Literal::Bytes(merged))
+    }
     FStrLit(value) => {
       let _ = self.advance()
       let pieces : Array[Expr] = [Expr::FString(value)]
@@ -1195,6 +1262,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             let _ = self.advance()
             pieces.push(Expr::FString(text))
           }
+          BytesLit(_) =>
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "cannot mix bytes and nonbytes literals".to_string(),
+                self.current(),
+              ),
+            )
           _ => break
         }
       }
@@ -2300,10 +2375,29 @@ fn has_triple_quote_after(line : String, quote : Char, start : Int) -> Bool {
 fn find_triple_quote(line : String) -> (Char, Int)? {
   let chars = line.to_array()
   let mut idx = 0
-  while idx + 2 < chars.length() {
+  let mut quote : Char? = None
+  let mut escaped = false
+  while idx < chars.length() {
     let c = chars[idx]
-    if (c == '\'' || c == '"') && chars[idx + 1] == c && chars[idx + 2] == c {
-      return Some((c, idx))
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if idx + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[idx + 1] == c &&
+          chars[idx + 2] == c {
+          return Some((c, idx))
+        } else if c == '\'' || c == '"' {
+          quote = Some(c)
+          escaped = false
+        }
     }
     idx += 1
   }
@@ -2736,6 +2830,75 @@ fn first_top_level_comma_pos(text : String) -> Int? {
             depth -= 1
           }
         } else if c == ',' && depth == 0 {
+          return Some(i)
+        }
+    }
+    i += 1
+  }
+  None
+}
+
+///|
+fn find_top_level_colon(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut triple : Char? = None
+  let mut escaped = false
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '#' {
+          i += 1
+          while i < chars.length() && chars[i] != '\n' {
+            i += 1
+          }
+          continue
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if c == ':' && depth == 0 {
+          if i + 1 < chars.length() && chars[i + 1] == '=' {
+            i += 1
+            continue
+          }
           return Some(i)
         }
     }
@@ -3529,6 +3692,57 @@ fn find_top_level_from(text : String) -> Int? {
 }
 
 ///|
+fn find_top_level_import(text : String) -> Int? {
+  fn is_space_char(c : Char) -> Bool {
+    c == ' ' || c == '\t' || c == '\n' || c == '\r'
+  }
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  let mut depth = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if depth == 0 && c == 'i' {
+          if i + 5 < chars.length() &&
+            chars[i + 1] == 'm' &&
+            chars[i + 2] == 'p' &&
+            chars[i + 3] == 'o' &&
+            chars[i + 4] == 'r' &&
+            chars[i + 5] == 't' {
+            let prev = if i > 0 { chars[i - 1] } else { ' ' }
+            let next = if i + 6 < chars.length() { chars[i + 6] } else { ' ' }
+            if is_space_char(prev) && is_space_char(next) {
+              return Some(i)
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  None
+}
+
+///|
 fn parse_int64_digits(text : String) -> Int64 {
   let chars = text.to_array()
   let mut value = 0L
@@ -4112,6 +4326,18 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
+  if trimmed == "break" {
+    stmts.push(Stmt::Break)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, span, base_offset,
+    )
+  }
+  if trimmed == "continue" {
+    stmts.push(Stmt::Continue)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, span, base_offset,
+    )
+  }
   if trimmed == "yield" {
     stmts.push(Stmt::Yield(None))
     return finalize_simple_statement(
@@ -4409,11 +4635,18 @@ fn parse_simple_statement(
         ),
       )
     }
-    let import_split : Array[String] = []
-    for part in trimmed.split("import") {
-      import_split.push(part.to_string())
+    let import_pos = match find_top_level_import(trimmed) {
+      Some(pos) => pos
+      None =>
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
     }
-    if import_split.length() < 2 {
+    if import_pos + 6 > trimmed.length() {
       return Err(
         make_parse_error(
           ParseErrorKind::Syntax,
@@ -4424,7 +4657,7 @@ fn parse_simple_statement(
     }
     let mut imported = substring(
         trimmed,
-        trimmed.length() - import_split[1].length(),
+        import_pos + 6,
         trimmed.length(),
       )
       .trim(chars=" \t\n\r")
@@ -5476,7 +5709,7 @@ fn LineParser::parse_block(
       )
     }
     if line_text.has_prefix("match ") || line_text.has_prefix("match(") {
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
       } else {
       let subject_text = substring(line_text, 5, colon_pos.unwrap())
@@ -5575,7 +5808,7 @@ fn LineParser::parse_block(
           )
         }
         let case_no_comment = strip_inline_comment(case_text)
-        let colon_pos = find_last_char(case_no_comment, ':')
+        let colon_pos = find_top_level_colon(case_no_comment)
         if colon_pos is None {
           let token = {
             kind: Eof,
@@ -5761,7 +5994,7 @@ fn LineParser::parse_block(
       let decorators = pending_decorators
       pending_decorators = []
       pending_decorator_token = None
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
           kind: Eof,
@@ -6032,7 +6265,7 @@ fn LineParser::parse_block(
       )
     }
     if line_text.has_prefix("async for ") {
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
           kind: Eof,
@@ -6193,7 +6426,7 @@ fn LineParser::parse_block(
         let else_trimmed = else_line.trim(chars=" \t").to_string()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
-          let colon_pos = find_last_char(else_trimmed, ':')
+          let colon_pos = find_top_level_colon(else_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -6290,14 +6523,14 @@ fn LineParser::parse_block(
     }
     if line_text.has_prefix("async with ") {
       let mut full_line_text = line_text
-      let mut colon_pos = find_last_char(full_line_text, ':')
+      let mut colon_pos = find_top_level_colon(full_line_text)
       let mut header_end_index = next_index
       if colon_pos is None {
         let mut scan = next_index
         while scan < self.lines.length() {
           let part = self.lines[scan].trim(chars=" \t").to_string()
           full_line_text = full_line_text + "\n" + part
-          colon_pos = find_last_char(full_line_text, ':')
+          colon_pos = find_top_level_colon(full_line_text)
           scan += 1
           if colon_pos is Some(_) {
             header_end_index = scan
@@ -6459,7 +6692,7 @@ fn LineParser::parse_block(
         Some(span) => Some(span.1)
         None => None
       }
-      let colon_pos = find_last_char(header, ':')
+      let colon_pos = find_top_level_colon(header)
       if paren_span is None || close_pos is None || colon_pos is None {
         let token = {
           kind: Eof,
@@ -7101,7 +7334,7 @@ fn LineParser::parse_block(
     if line_text.has_prefix("if ") || line_text.has_prefix("if(") {
       let if_line_index = self.index
       let if_indent = current_indent
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
           kind: Eof,
@@ -7260,7 +7493,7 @@ fn LineParser::parse_block(
               .trim(chars=" \t")
               .to_string()
           }
-          let colon_pos = find_last_char(elif_text, ':')
+          let colon_pos = find_top_level_colon(elif_text)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -7322,7 +7555,7 @@ fn LineParser::parse_block(
           continue
         }
         if next_text.has_prefix("else") {
-          let colon_pos = find_last_char(next_text, ':')
+          let colon_pos = find_top_level_colon(next_text)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -7424,7 +7657,7 @@ fn LineParser::parse_block(
       )
     }
     if line_text.has_prefix("for ") {
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
           kind: Eof,
@@ -7528,52 +7761,61 @@ fn LineParser::parse_block(
         )
         .trim(chars=" \t")
         .to_string()
-      if body_text.length() > 0 {
-        let token = {
-          kind: Eof,
-          start: self.offsets[self.index] +
-          current_indent +
-          colon_pos.unwrap() +
-          1,
-          end: self.offsets[self.index] +
-          current_indent +
-          colon_pos.unwrap() +
-          2,
-          line: self.index + 1,
-          column: current_indent + colon_pos.unwrap() + 2,
-        }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            token,
-          ),
-        )
-      }
       self.index = next_index
-      let next_indent = self.peek_next_indent()
-      if next_indent <= current_indent {
-        let missing_line = self.clamp_line_index(
-          self.peek_next_significant_index().unwrap_or(self.index),
-        )
-        let token = {
-          kind: Eof,
-          start: self.offsets[missing_line],
-          end: self.offsets[missing_line] + 1,
-          line: missing_line + 1,
-          column: 1,
+      let mut body : Array[Stmt] = []
+      if body_text.length() > 0 {
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index - 1] +
+            current_indent +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(
+              segment,
+              self.index - 1,
+              self.offsets[self.index - 1],
+              base_offset,
+              self.async_depth > 0,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in parsed {
+            body.push(stmt)
+          }
         }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Indentation,
-            "expected indented block".to_string(),
-            token,
-          ),
-        )
-      }
-      let body = match self.parse_block(next_indent) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      } else {
+        let next_indent = self.peek_next_indent()
+        if next_indent <= current_indent {
+          let missing_line = self.clamp_line_index(
+            self.peek_next_significant_index().unwrap_or(self.index),
+          )
+          let token = {
+            kind: Eof,
+            start: self.offsets[missing_line],
+            end: self.offsets[missing_line] + 1,
+            line: missing_line + 1,
+            column: 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Indentation,
+              "expected indented block".to_string(),
+              token,
+            ),
+          )
+        }
+        body = match self.parse_block(next_indent) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
       }
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {
@@ -7581,7 +7823,7 @@ fn LineParser::parse_block(
         let else_trimmed = else_line.trim(chars=" \t").to_string()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
-          let colon_pos = find_last_char(else_trimmed, ':')
+          let colon_pos = find_top_level_colon(else_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -7677,7 +7919,7 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("while ") {
-      let colon_pos = find_last_char(line_text, ':')
+      let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
           kind: Eof,
@@ -7717,54 +7959,78 @@ fn LineParser::parse_block(
         )
         .trim(chars=" \t")
         .to_string()
-      if body_text.length() > 0 {
-        let token = {
-          kind: Eof,
-          start: self.offsets[self.index] +
-          current_indent +
-          colon_pos.unwrap() +
-          1,
-          end: self.offsets[self.index] +
-          current_indent +
-          colon_pos.unwrap() +
-          2,
-          line: self.index + 1,
-          column: current_indent + colon_pos.unwrap() + 2,
-        }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            token,
-          ),
-        )
-      }
       self.index = next_index
-      let next_indent = self.peek_next_indent()
-      if next_indent <= current_indent {
-        let missing_line = self.clamp_line_index(
-          self.peek_next_significant_index().unwrap_or(self.index),
-        )
-        let token = {
-          kind: Eof,
-          start: self.offsets[missing_line],
-          end: self.offsets[missing_line] + 1,
-          line: missing_line + 1,
-          column: 1,
+      let mut body : Array[Stmt] = []
+      if body_text.length() > 0 {
+        let segments = split_statements(body_text)
+        for segment_pair in segments {
+          let segment = segment_pair.0
+          let offset = segment_pair.1
+          if segment.length() == 0 {
+            continue
+          }
+          let base_offset = self.offsets[self.index - 1] +
+            current_indent +
+            colon_pos.unwrap() +
+            1 +
+            offset
+          let parsed = match
+            parse_simple_statement(
+              segment,
+              self.index - 1,
+              self.offsets[self.index - 1],
+              base_offset,
+              self.async_depth > 0,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for stmt in parsed {
+            body.push(stmt)
+          }
         }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Indentation,
-            "expected indented block".to_string(),
-            token,
-          ),
-        )
-      }
-      if cond_text.contains(":=") {
-        let _ = match self.parse_block(next_indent) {
-          Ok(_) => ()
+      } else {
+        let next_indent = self.peek_next_indent()
+        if next_indent <= current_indent {
+          let missing_line = self.clamp_line_index(
+            self.peek_next_significant_index().unwrap_or(self.index),
+          )
+          let token = {
+            kind: Eof,
+            start: self.offsets[missing_line],
+            end: self.offsets[missing_line] + 1,
+            line: missing_line + 1,
+            column: 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Indentation,
+              "expected indented block".to_string(),
+              token,
+            ),
+          )
+        }
+        if cond_text.contains(":=") {
+          let _ = match self.parse_block(next_indent) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          stmts.push(
+            wrap_stmt_for_line(
+              self.offsets,
+              line_index,
+              current_indent,
+              Stmt::ExprStmt(cond_expr),
+            ),
+          )
+          continue
+        }
+        body = match self.parse_block(next_indent) {
+          Ok(value) => value
           Err(err) => return Err(err)
         }
+      }
+      if cond_text.contains(":=") {
         stmts.push(
           wrap_stmt_for_line(
             self.offsets,
@@ -7775,17 +8041,13 @@ fn LineParser::parse_block(
         )
         continue
       }
-      let body = match self.parse_block(next_indent) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {
         let else_line = self.lines[self.index]
         let else_trimmed = else_line.trim(chars=" \t").to_string()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
-          let colon_pos = find_last_char(else_trimmed, ':')
+          let colon_pos = find_top_level_colon(else_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -8061,7 +8323,7 @@ fn LineParser::parse_block(
               )
             }
           }
-          let colon_pos = find_last_char(next_trimmed, ':')
+          let colon_pos = find_top_level_colon(next_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -8243,7 +8505,7 @@ fn LineParser::parse_block(
               ),
             )
           }
-          let colon_pos = find_last_char(next_trimmed, ':')
+          let colon_pos = find_top_level_colon(next_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -8347,7 +8609,7 @@ fn LineParser::parse_block(
               ),
             )
           }
-          let colon_pos = find_last_char(next_trimmed, ':')
+          let colon_pos = find_top_level_colon(next_trimmed)
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -8464,14 +8726,14 @@ fn LineParser::parse_block(
     }
     if line_text.has_prefix("with ") || line_text.has_prefix("with(") {
       let mut full_line_text = line_text
-      let mut colon_pos = find_last_char(full_line_text, ':')
+      let mut colon_pos = find_top_level_colon(full_line_text)
       let mut header_end_index = next_index
       if colon_pos is None {
         let mut scan = next_index
         while scan < self.lines.length() {
           let part = self.lines[scan].trim(chars=" \t").to_string()
           full_line_text = full_line_text + "\n" + part
-          colon_pos = find_last_char(full_line_text, ':')
+          colon_pos = find_top_level_colon(full_line_text)
           scan += 1
           if colon_pos is Some(_) {
             header_end_index = scan

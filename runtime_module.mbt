@@ -338,6 +338,31 @@ fn make_thread_module(builtins : Array[(String, Value)]) -> Value {
 }
 
 ///|
+fn warnings_function_stub(name : String) -> Value {
+  Value::Function(FunctionValue::{
+    name,
+    params: ["*args", "**kwargs"],
+    defaults: [],
+    body: [],
+    is_generator: false,
+    is_async: false,
+    closure: [],
+  })
+}
+
+///|
+fn make_warnings_module() -> Value {
+  make_module_instance("_warnings", [
+    ("filters", Value::List([])),
+    ("_defaultaction", Value::Str("default")),
+    ("_onceregistry", Value::Dict([])),
+    ("_filters_mutated", warnings_function_stub("_warnings._filters_mutated")),
+    ("warn", warnings_function_stub("_warnings.warn")),
+    ("warn_explicit", warnings_function_stub("_warnings.warn_explicit")),
+  ])
+}
+
+///|
 fn make_itertools_chain_factory() -> Value {
   let dict : Array[(String, Value)] = [
     ("__call__", module_function_stub("itertools.chain")),
@@ -355,6 +380,8 @@ fn make_itertools_module() -> Value {
     ("repeat", module_function_stub("itertools.repeat")),
     ("starmap", module_function_stub("itertools.starmap")),
     ("islice", module_function_stub("itertools.islice")),
+    ("permutations", module_function_stub("itertools.permutations")),
+    ("product", module_function_stub("itertools.product")),
   ])
 }
 
@@ -414,6 +441,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     Value::Str("sys"),
     Value::Str("posix"),
     Value::Str("_thread"),
+    Value::Str("_warnings"),
     Value::Str("_weakref"),
     Value::Str("itertools"),
     Value::Str("math"),
@@ -434,6 +462,45 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
       ("version", version_info),
     ],
   })
+  let float_info_class = ClassValue::{ name: "float_info", bases: [], dict: [] }
+  let float_info_value = Value::Instance(InstanceValue::{
+    class: float_info_class,
+    dict: [
+      ("max", Value::Float(1.7976931348623157e308)),
+      ("max_exp", Value::Int(1024N)),
+      ("max_10_exp", Value::Int(308N)),
+      ("min", Value::Float(2.2250738585072014e-308)),
+      ("min_exp", Value::Int(-1021N)),
+      ("min_10_exp", Value::Int(-307N)),
+      ("digits", Value::Int(15N)),
+      ("mant_dig", Value::Int(53N)),
+      ("epsilon", Value::Float(2.220446049250313e-16)),
+      ("radix", Value::Int(2N)),
+      ("rounds", Value::Int(1N)),
+    ],
+  })
+  let flags_class = ClassValue::{ name: "flags", bases: [], dict: [] }
+  let flags_value = Value::Instance(InstanceValue::{
+    class: flags_class,
+    dict: [
+      ("debug", Value::Int(0N)),
+      ("inspect", Value::Int(0N)),
+      ("interactive", Value::Int(0N)),
+      ("optimize", Value::Int(0N)),
+      ("dont_write_bytecode", Value::Int(0N)),
+      ("no_user_site", Value::Int(0N)),
+      ("no_site", Value::Int(0N)),
+      ("ignore_environment", Value::Int(0N)),
+      ("verbose", Value::Int(0N)),
+      ("bytes_warning", Value::Int(0N)),
+      ("quiet", Value::Int(0N)),
+      ("hash_randomization", Value::Int(0N)),
+      ("isolated", Value::Int(0N)),
+      ("dev_mode", Value::Int(0N)),
+      ("utf8_mode", Value::Int(0N)),
+      ("warn_default_encoding", Value::Int(0N)),
+    ],
+  })
   let prefix_value = Value::Str("")
   make_module_instance("sys", [
     ("maxsize", Value::Int(9223372036854775807N)),
@@ -442,6 +509,8 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("byteorder", Value::Str("little")),
     ("platform", Value::Str("mpython")),
     ("implementation", impl_value),
+    ("float_info", float_info_value),
+    ("flags", flags_value),
     ("prefix", prefix_value),
     ("base_prefix", prefix_value),
     ("exec_prefix", prefix_value),
@@ -686,6 +755,8 @@ fn import_module(
     make_sys_module(builtins)
   } else if module_name == "_thread" {
     make_thread_module(builtins)
+  } else if module_name == "_warnings" {
+    make_warnings_module()
   } else if module_name == "_weakref" {
     make_weakref_module(builtins)
   } else if module_name == "itertools" {

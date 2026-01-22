@@ -721,6 +721,11 @@ fn current_closure_env() -> Array[(String, Value)] {
 }
 
 ///|
+fn has_active_closure_env() -> Bool {
+  closure_env_stack.val.length() > 0
+}
+
+///|
 let active_config_stack : Ref[Array[Config]] = { val: [] }
 
 ///|

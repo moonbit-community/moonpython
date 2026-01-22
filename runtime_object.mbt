@@ -54,13 +54,45 @@ fn clone_class_list(list : Array[ClassValue]) -> Array[ClassValue] {
 }
 
 ///|
-fn class_name_in_list(
+fn class_equal(a : ClassValue, b : ClassValue) -> Bool {
+  if a.name != b.name {
+    return false
+  }
+  if a.bases.length() != b.bases.length() {
+    return false
+  }
+  if a.dict.length() != b.dict.length() {
+    return false
+  }
+  for i = 0; i < a.bases.length(); i = i + 1 {
+    match (a.bases[i], b.bases[i]) {
+      (Value::Class(left), Value::Class(right)) =>
+        if left.name != right.name {
+          return false
+        }
+      (Value::Function(left), Value::Function(right)) =>
+        if left.name != right.name {
+          return false
+        }
+      _ => return false
+    }
+  }
+  for i = 0; i < a.dict.length(); i = i + 1 {
+    if a.dict[i].0 != b.dict[i].0 {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn class_in_list(
   list : Array[ClassValue],
-  name : String,
+  klass : ClassValue,
   start : Int,
 ) -> Bool {
   for i = start; i < list.length(); i = i + 1 {
-    if list[i].name == name {
+    if class_equal(list[i], klass) {
       return true
     }
   }
@@ -95,7 +127,7 @@ fn class_mro_merge(
       let head = seq[0]
       let mut blocked = false
       for other in seqs {
-        if class_name_in_list(other, head.name, 1) {
+        if class_in_list(other, head, 1) {
           blocked = true
           break
         }
@@ -116,9 +148,8 @@ fn class_mro_merge(
     let pick = candidate.unwrap()
     out.push(pick)
     for seq in seqs {
-      if seq.length() > 0 && seq[0].name == pick.name {
+      if seq.length() > 0 && class_equal(seq[0], pick) {
         let _ = seq.remove(0)
-
       }
     }
   }
@@ -128,10 +159,10 @@ fn class_mro_merge(
 ///|
 fn class_mro_with_seen(
   klass : ClassValue,
-  seen : Array[String],
+  seen : Array[ClassValue],
 ) -> Result[Array[ClassValue], RuntimeError] {
-  for name in seen {
-    if name == klass.name {
+  for item in seen {
+    if class_equal(item, klass) {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
@@ -140,11 +171,11 @@ fn class_mro_with_seen(
       )
     }
   }
-  let next_seen : Array[String] = []
-  for name in seen {
-    next_seen.push(name)
+  let next_seen : Array[ClassValue] = []
+  for item in seen {
+    next_seen.push(item)
   }
-  next_seen.push(klass.name)
+  next_seen.push(klass)
   let seqs : Array[Array[ClassValue]] = []
   let direct_bases : Array[ClassValue] = []
   for base in klass.bases {
@@ -906,6 +937,45 @@ fn get_attr_raw_from_value(
             ),
           )
       }
+    }
+    Value::Int(_) => {
+      if attr == "to_bytes" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "int.to_bytes",
+              params: ["self", "length", "byteorder", "signed"],
+              defaults: [Value::Bool(false)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__hash__" {
+        return Ok(
+          Value::Function(FunctionValue::{
+            name: "__hash__",
+            params: [],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      }
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          attr +
+          "'",
+        ),
+      )
     }
     Value::Tuple(_) => {
       if attr == "index" {
@@ -3334,8 +3404,22 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let prefix = match positional[0] {
-                  Value::Str(value) => value
+                let prefixes : Array[String] = []
+                match positional[0] {
+                  Value::Str(value) => prefixes.push(value)
+                  Value::Tuple(values) =>
+                    for item in values {
+                      match item {
+                        Value::Str(value) => prefixes.push(value)
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "startswith() expects a str prefix".to_string(),
+                            ),
+                          )
+                      }
+                    }
                   _ =>
                     return Err(
                       make_runtime_error(
@@ -3376,7 +3460,14 @@ fn call_callable_with_env(
                   end_idx = start_idx
                 }
                 let segment = substring(text, start_idx, end_idx)
-                return Ok(Value::Bool(segment.has_prefix(prefix)))
+                let mut matched = false
+                for prefix in prefixes {
+                  if segment.has_prefix(prefix) {
+                    matched = true
+                    break
+                  }
+                }
+                return Ok(Value::Bool(matched))
               }
               "endswith" => {
                 if positional.length() == 0 || positional.length() > 3 {
@@ -3387,8 +3478,22 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let suffix = match positional[0] {
-                  Value::Str(value) => value
+                let suffixes : Array[String] = []
+                match positional[0] {
+                  Value::Str(value) => suffixes.push(value)
+                  Value::Tuple(values) =>
+                    for item in values {
+                      match item {
+                        Value::Str(value) => suffixes.push(value)
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "endswith() expects a str suffix".to_string(),
+                            ),
+                          )
+                      }
+                    }
                   _ =>
                     return Err(
                       make_runtime_error(
@@ -3429,7 +3534,14 @@ fn call_callable_with_env(
                   end_idx = start_idx
                 }
                 let segment = substring(text, start_idx, end_idx)
-                return Ok(Value::Bool(segment.has_suffix(suffix)))
+                let mut matched = false
+                for suffix in suffixes {
+                  if segment.has_suffix(suffix) {
+                    matched = true
+                    break
+                  }
+                }
+                return Ok(Value::Bool(matched))
               }
               "isascii" =>
                 if positional.length() != 0 {

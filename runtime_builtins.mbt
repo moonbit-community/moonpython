@@ -405,6 +405,36 @@ fn stable_sort_for_sorted(
 }
 
 ///|
+fn stable_sort_pairs_by_key(
+  pairs : Array[(Value, Value)],
+  is_number : Bool,
+) -> Result[Array[(Value, Value)], RuntimeError] {
+  let mut out : Array[(Value, Value)] = []
+  for pair in pairs {
+    let mut inserted = false
+    let next : Array[(Value, Value)] = []
+    for existing in out {
+      if !inserted {
+        let cmp = match cmp_value_for_sorted(is_number, pair.0, existing.0) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp < 0 {
+          next.push(pair)
+          inserted = true
+        }
+      }
+      next.push(existing)
+    }
+    if !inserted {
+      next.push(pair)
+    }
+    out = next
+  }
+  Ok(out)
+}
+
+///|
 fn builtin_print(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1196,10 +1226,6 @@ fn builtin_sorted(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("sorted", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
   if positional.length() == 0 || positional.length() > 2 {
     return Err(
       make_runtime_error(
@@ -1209,17 +1235,31 @@ fn builtin_sorted(
     )
   }
   let mut reverse = false
-  if positional.length() == 2 {
-    match positional[1] {
-      Value::Bool(v) => reverse = v
-      _ =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "sorted() reverse must be bool".to_string(),
-          ),
-        )
+  let mut key_value : Value? = None
+  for pair in keywords {
+    if pair.0 == "key" {
+      key_value = Some(pair.1)
+    } else if pair.0 == "reverse" {
+      reverse = bool_from_value(pair.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sorted() got unexpected keyword arguments".to_string(),
+        ),
+      )
     }
+  }
+  if positional.length() == 2 {
+    if key_value is Some(_) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sorted() got multiple values for argument 'key'".to_string(),
+        ),
+      )
+    }
+    key_value = Some(positional[1])
   }
   let items_in = match iterable_values(positional[0]) {
     Ok(v) => v
@@ -1232,38 +1272,100 @@ fn builtin_sorted(
   if items.length() == 0 {
     return Ok(Value::List([]))
   }
-  let mut kind_opt : Bool? = None
-  for item in items {
-    match sort_kind_for_sorted(item) {
-      Some(kind) =>
-        match kind_opt {
-          None => kind_opt = Some(kind)
-          Some(prev) =>
-            if prev != kind {
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "sorted() cannot compare values".to_string(),
-                ),
-              )
-            }
+  let mut out : Array[Value] = []
+  match key_value {
+    Some(key_fn) => {
+      let key_pairs : Array[(Value, Value)] = []
+      for item in items {
+        let key = if key_fn is Value::None {
+          item
+        } else {
+          match call_callable_with_env(
+            key_fn,
+            [item],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
         }
-      None =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "sorted() cannot compare values".to_string(),
-          ),
-        )
+        key_pairs.push((key, item))
+      }
+      let mut kind_opt : Bool? = None
+      for pair in key_pairs {
+        match sort_kind_for_sorted(pair.0) {
+          Some(kind) =>
+            match kind_opt {
+              None => kind_opt = Some(kind)
+              Some(prev) =>
+                if prev != kind {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "sorted() cannot compare values".to_string(),
+                    ),
+                  )
+                }
+            }
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "sorted() cannot compare values".to_string(),
+              ),
+            )
+        }
+      }
+      let is_number = match kind_opt {
+        Some(kind) => kind
+        None => return Ok(Value::List([]))
+      }
+      let sorted_pairs = match stable_sort_pairs_by_key(key_pairs, is_number) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for pair in sorted_pairs {
+        out.push(pair.1)
+      }
     }
-  }
-  let is_number = match kind_opt {
-    Some(kind) => kind
-    None => return Ok(Value::List([]))
-  }
-  let mut out = match stable_sort_for_sorted(items, is_number) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+    None => {
+      let mut kind_opt : Bool? = None
+      for item in items {
+        match sort_kind_for_sorted(item) {
+          Some(kind) =>
+            match kind_opt {
+              None => kind_opt = Some(kind)
+              Some(prev) =>
+                if prev != kind {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "sorted() cannot compare values".to_string(),
+                    ),
+                  )
+                }
+            }
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "sorted() cannot compare values".to_string(),
+              ),
+            )
+        }
+      }
+      let is_number = match kind_opt {
+        Some(kind) => kind
+        None => return Ok(Value::List([]))
+      }
+      out = match stable_sort_for_sorted(items, is_number) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+    }
   }
   if reverse {
     out = reverse_values(out)
@@ -2431,6 +2533,811 @@ fn builtin_int_from_bytes(
     }
   }
   Ok(Value::Int(value))
+}
+
+///|
+fn builtin_int_to_bytes(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut signed = false
+  for item in keywords {
+    if item.0 == "signed" {
+      signed = bool_from_value(item.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.to_bytes() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  if positional.length() < 3 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.to_bytes() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 4 {
+    signed = bool_from_value(positional[3])
+  }
+  let value = match positional[0] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1N } else { 0N }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.to_bytes() expects an int".to_string(),
+        ),
+      )
+  }
+  let length_val = match positional[1] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1N } else { 0N }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.to_bytes() length must be int".to_string(),
+        ),
+      )
+  }
+  let length = match bigint_to_int_checked(length_val) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if length < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: length argument must be non-negative".to_string(),
+      ),
+    )
+  }
+  let byteorder = match positional[2] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.to_bytes() byteorder must be str".to_string(),
+        ),
+      )
+  }
+  if byteorder != "big" && byteorder != "little" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.to_bytes() byteorder must be 'little' or 'big'".to_string(),
+      ),
+    )
+  }
+  let mut modulus = 1N
+  let mut i = 0
+  while i < length {
+    modulus = modulus * 256
+    i += 1
+  }
+  let mut unsigned_value = value
+  if signed {
+    let limit = modulus / 2
+    if value < -limit || value >= limit {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OverflowError: int too big to convert".to_string(),
+        ),
+      )
+    }
+    if value < 0N {
+      unsigned_value = value + modulus
+    }
+  } else {
+    if value < 0N {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OverflowError: can't convert negative int to unsigned".to_string(),
+        ),
+      )
+    }
+    if value >= modulus {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OverflowError: int too big to convert".to_string(),
+        ),
+      )
+    }
+  }
+  let out : Array[Int] = []
+  let mut v = unsigned_value
+  i = 0
+  while i < length {
+    let byte_val = v % 256N
+    let byte_int = match bigint_to_int_checked(byte_val) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    out.push(byte_int)
+    v = v / 256N
+    i += 1
+  }
+  if byteorder == "big" {
+    let ordered : Array[Int] = []
+    let mut j = out.length() - 1
+    while j >= 0 {
+      ordered.push(out[j])
+      j -= 1
+    }
+    return Ok(Value::Bytes(ordered))
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn file_unpack_state(
+  target : Value,
+  method_name : String,
+) -> Result[(InstanceValue, Bool, Value, Int), RuntimeError] {
+  let inst = match target {
+    Value::Instance(inst) => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          method_name + "() expects a file object".to_string(),
+        ),
+      )
+  }
+  match get_named_value(inst.dict, "__closed__") {
+    Some(Value::Bool(true)) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: I/O operation on closed file.".to_string(),
+        ),
+      )
+    _ => ()
+  }
+  let binary = match get_named_value(inst.dict, "__binary__") {
+    Some(Value::Bool(v)) => v
+    _ => false
+  }
+  let pos_val = match get_named_value(inst.dict, "__pos__") {
+    Some(Value::Int(v)) => v
+    _ => 0N
+  }
+  let pos = match bigint_to_int_checked(pos_val) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let content = match get_named_value(inst.dict, "__content__") {
+    Some(value) => value
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid file object".to_string(),
+        ),
+      )
+  }
+  Ok((inst, binary, content, pos))
+}
+
+///|
+fn file_content_length(binary : Bool, content : Value) -> Result[Int, RuntimeError] {
+  match (binary, content) {
+    (true, Value::Bytes(values)) => Ok(values.length())
+    (false, Value::Str(text)) => Ok(text.length())
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid file content".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn file_slice_content(
+  binary : Bool,
+  content : Value,
+  start : Int,
+  end : Int,
+) -> Result[Value, RuntimeError] {
+  if start >= end {
+    if binary {
+      return Ok(Value::Bytes([]))
+    }
+    return Ok(Value::Str(""))
+  }
+  match (binary, content) {
+    (true, Value::Bytes(values)) => {
+      let out : Array[Int] = []
+      let mut i = start
+      while i < end {
+        out.push(values[i])
+        i += 1
+      }
+      Ok(Value::Bytes(out))
+    }
+    (false, Value::Str(text)) =>
+      Ok(Value::Str(substring(text, start, end)))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid file content".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn file_find_line_end(
+  binary : Bool,
+  content : Value,
+  start : Int,
+  limit : Int,
+) -> Result[Int, RuntimeError] {
+  match (binary, content) {
+    (true, Value::Bytes(values)) => {
+      let mut i = start
+      while i < limit {
+        if values[i] == 10 {
+          return Ok(i + 1)
+        }
+        i += 1
+      }
+      Ok(limit)
+    }
+    (false, Value::Str(text)) => {
+      let chars = text.to_array()
+      let mut i = start
+      while i < limit {
+        if chars[i] == '\n' {
+          return Ok(i + 1)
+        }
+        i += 1
+      }
+      Ok(limit)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid file content".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_file_read(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "read() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let size = if positional.length() == 2 {
+    match positional[1] {
+      Value::None => -1
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+      Value::Bool(v) => if v { 1 } else { 0 }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "read() size must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    -1
+  }
+  let (inst, binary, content, pos) =
+    match file_unpack_state(positional[0], "read") {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+  let length = match file_content_length(binary, content) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut start = pos
+  if start < 0 {
+    start = 0
+  }
+  if start > length {
+    start = length
+  }
+  let mut end = if size < 0 { length } else { start + size }
+  if end > length {
+    end = length
+  }
+  let out = match file_slice_content(binary, content, start, end) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  set_named_value(inst.dict, "__pos__", Value::Int(@bigint.BigInt::from_int(end)))
+  Ok(out)
+}
+
+///|
+fn builtin_file_readline(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "readline() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let size = if positional.length() == 2 {
+    match positional[1] {
+      Value::None => -1
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+      Value::Bool(v) => if v { 1 } else { 0 }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "readline() size must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    -1
+  }
+  let (inst, binary, content, pos) =
+    match file_unpack_state(positional[0], "readline") {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+  let length = match file_content_length(binary, content) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut start = pos
+  if start < 0 {
+    start = 0
+  }
+  if start > length {
+    start = length
+  }
+  let mut limit = if size < 0 { length } else { start + size }
+  if limit > length {
+    limit = length
+  }
+  let end = match file_find_line_end(binary, content, start, limit) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let out = match file_slice_content(binary, content, start, end) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  set_named_value(inst.dict, "__pos__", Value::Int(@bigint.BigInt::from_int(end)))
+  Ok(out)
+}
+
+///|
+fn builtin_file_readlines(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "readlines() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let lines : Array[Value] = []
+  while true {
+    let line = match builtin_file_readline(
+      [positional[0]],
+      [],
+      locals,
+      globals,
+      builtins,
+      io,
+    ) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    let is_empty = match line {
+      Value::Str(text) => text.length() == 0
+      Value::Bytes(values) => values.length() == 0
+      _ => true
+    }
+    if is_empty {
+      break
+    }
+    lines.push(line)
+  }
+  Ok(Value::List(lines))
+}
+
+///|
+fn builtin_file_iter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__iter__() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
+fn builtin_file_next(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__next__() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let line = match builtin_file_readline(
+    [positional[0]],
+    [],
+    locals,
+    globals,
+    builtins,
+    io,
+  ) {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let is_empty = match line {
+    Value::Str(text) => text.length() == 0
+    Value::Bytes(values) => values.length() == 0
+    _ => true
+  }
+  if is_empty {
+    return Err(make_runtime_error(RuntimeErrorKind::Runtime, "StopIteration".to_string()))
+  }
+  Ok(line)
+}
+
+///|
+fn builtin_file_close(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "close() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) =>
+      set_named_value(inst.dict, "__closed__", Value::Bool(true))
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "close() expects a file object".to_string(),
+        ),
+      )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_file_enter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__enter__() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
+fn builtin_file_exit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__exit__() takes 4 arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_open(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if positional.length() == 0 {
+    return Err(missing_required_argument_error("open", "file"))
+  }
+  let path = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "open() file must be str".to_string(),
+        ),
+      )
+  }
+  let mut mode = "r".to_string()
+  let mut mode_from_keyword = false
+  for item in keywords {
+    if item.0 == "mode" {
+      mode_from_keyword = true
+      match item.1 {
+        Value::Str(text) => mode = text
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "open() mode must be str".to_string(),
+            ),
+          )
+      }
+    } else if item.0 == "encoding" ||
+      item.0 == "errors" ||
+      item.0 == "newline" ||
+      item.0 == "buffering" ||
+      item.0 == "closefd" {
+      let _ = item.1
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "open() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  if positional.length() >= 2 {
+    if mode_from_keyword {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "open() got multiple values for argument 'mode'".to_string(),
+        ),
+      )
+    }
+    match positional[1] {
+      Value::Str(text) => mode = text
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "open() mode must be str".to_string(),
+          ),
+        )
+    }
+  }
+  if mode.contains("w") ||
+    mode.contains("a") ||
+    mode.contains("+") ||
+    mode.contains("x") {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "UnsupportedOperation: open() write modes are not supported".to_string(),
+      ),
+    )
+  }
+  let binary = mode.contains("b")
+  let text_content = @fs.read_file_to_string(path) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "FileNotFoundError: cannot open file: " + path,
+        ),
+      )
+  }
+  let content = if binary {
+    Value::Bytes(encode_string_utf8(text_content))
+  } else {
+    Value::Str(text_content)
+  }
+  let base_class = builtin_class_from_name("object", builtins)
+  let file_class = ClassValue::{
+    name: "file",
+    bases: [Value::Class(base_class)],
+    dict: [
+      ("read", Value::Function(FunctionValue::{
+        name: "file.read",
+        params: ["self", "size"],
+        defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("readline", Value::Function(FunctionValue::{
+        name: "file.readline",
+        params: ["self", "size"],
+        defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("readlines", Value::Function(FunctionValue::{
+        name: "file.readlines",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("close", Value::Function(FunctionValue::{
+        name: "file.close",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("__iter__", Value::Function(FunctionValue::{
+        name: "file.__iter__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("__next__", Value::Function(FunctionValue::{
+        name: "file.__next__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("__enter__", Value::Function(FunctionValue::{
+        name: "file.__enter__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+      ("__exit__", Value::Function(FunctionValue::{
+        name: "file.__exit__",
+        params: ["self", "exc_type", "exc", "tb"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      })),
+    ],
+  }
+  let inst = Value::Instance(InstanceValue::{
+    class: file_class,
+    dict: [
+      ("__content__", content),
+      ("__pos__", Value::Int(0N)),
+      ("__binary__", Value::Bool(binary)),
+      ("__closed__", Value::Bool(false)),
+    ],
+  })
+  Ok(inst)
 }
 
 ///|
@@ -4136,6 +5043,35 @@ fn builtin_repr(
       make_runtime_error(
         RuntimeErrorKind::Type,
         "repr() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Str(text) =>
+      Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
+    other => Ok(Value::Str(value_to_string(other)))
+  }
+}
+
+///|
+fn builtin_ascii(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("ascii", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "ascii() takes exactly one argument".to_string(),
       ),
     )
   }
@@ -6810,6 +7746,216 @@ fn builtin_itertools_islice(
 }
 
 ///|
+fn builtin_itertools_permutations(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.permutations", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "permutations() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let values = match positional[0] {
+    Value::Str(text) => {
+      let out : Array[Value] = []
+      for ch in text.to_array() {
+        let buf = StringBuilder::new()
+        buf.write_char(ch)
+        out.push(Value::Str(buf.to_string()))
+      }
+      out
+    }
+    Value::List(items) => items
+    Value::Tuple(items) => items
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "permutations() expects a str or sequence".to_string(),
+        ),
+      )
+  }
+  let r = if positional.length() == 2 {
+    match positional[1] {
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+      Value::Bool(v) => if v { 1 } else { 0 }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "permutations() r must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    values.length()
+  }
+  if r < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: r must be non-negative".to_string(),
+      ),
+    )
+  }
+  if r > values.length() {
+    return Ok(Value::List([]))
+  }
+  fn build_permutations(values : Array[Value], r : Int) -> Array[Value] {
+    if r == 0 {
+      return [Value::Tuple([])]
+    }
+    let out : Array[Value] = []
+    for i = 0; i < values.length(); i = i + 1 {
+      let first = values[i]
+      let rest : Array[Value] = []
+      for j = 0; j < values.length(); j = j + 1 {
+        if j != i {
+          rest.push(values[j])
+        }
+      }
+      let tails = build_permutations(rest, r - 1)
+      for tail in tails {
+        match tail {
+          Value::Tuple(items) => {
+            let combined : Array[Value] = [first]
+            for item in items {
+              combined.push(item)
+            }
+            out.push(Value::Tuple(combined))
+          }
+          _ => ()
+        }
+      }
+    }
+    out
+  }
+  Ok(Value::List(build_permutations(values, r)))
+}
+
+///|
+fn builtin_itertools_product(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut repeat = 1
+  for item in keywords {
+    if item.0 == "repeat" {
+      match item.1 {
+        Value::Int(v) =>
+          match bigint_to_int_checked(v) {
+            Ok(value) => repeat = value
+            Err(err) => return Err(err)
+          }
+        Value::Bool(v) => repeat = if v { 1 } else { 0 }
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "product() repeat must be int".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "product() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  if repeat < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: repeat must be non-negative".to_string(),
+      ),
+    )
+  }
+  if repeat == 0 || positional.length() == 0 {
+    return Ok(Value::List([Value::Tuple([])]))
+  }
+  fn to_values(value : Value) -> Result[Array[Value], RuntimeError] {
+    match value {
+      Value::Str(text) => {
+        let out : Array[Value] = []
+        for ch in text.to_array() {
+          let buf = StringBuilder::new()
+          buf.write_char(ch)
+          out.push(Value::Str(buf.to_string()))
+        }
+        Ok(out)
+      }
+      Value::List(items) => Ok(items)
+      Value::Tuple(items) => Ok(items)
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "product() expects a str or sequence".to_string(),
+          ),
+        )
+    }
+  }
+  let pools : Array[Array[Value]] = []
+  for item in positional {
+    let values = match to_values(item) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    pools.push(values)
+  }
+  let expanded : Array[Array[Value]] = []
+  for pool in pools {
+    for i = 0; i < repeat; i = i + 1 {
+      expanded.push(pool)
+    }
+  }
+  let mut results : Array[Value] = [Value::Tuple([])]
+  for pool in expanded {
+    let next : Array[Value] = []
+    for item in results {
+      match item {
+        Value::Tuple(items) =>
+          for value in pool {
+            let combo : Array[Value] = []
+            for v in items {
+              combo.push(v)
+            }
+            combo.push(value)
+            next.push(Value::Tuple(combo))
+          }
+        _ => ()
+      }
+    }
+    results = next
+  }
+  Ok(Value::List(results))
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -6882,6 +8028,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "itertools.repeat", run: builtin_itertools_repeat },
     BuiltinDef::{ name: "itertools.starmap", run: builtin_itertools_starmap },
     BuiltinDef::{ name: "itertools.islice", run: builtin_itertools_islice },
+    BuiltinDef::{ name: "itertools.permutations", run: builtin_itertools_permutations },
+    BuiltinDef::{ name: "itertools.product", run: builtin_itertools_product },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
     BuiltinDef::{ name: "range", run: builtin_range },
@@ -6897,6 +8045,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "reversed", run: builtin_reversed },
     BuiltinDef::{ name: "sorted", run: builtin_sorted },
     BuiltinDef::{ name: "input", run: builtin_input },
+    BuiltinDef::{ name: "open", run: builtin_open },
     BuiltinDef::{ name: "str", run: builtin_str },
     BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },
@@ -6907,6 +8056,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
     BuiltinDef::{ name: "int.__repr__", run: builtin_int_repr },
     BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },
+    BuiltinDef::{ name: "int.to_bytes", run: builtin_int_to_bytes },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "float.__repr__", run: builtin_float_repr },
     BuiltinDef::{ name: "complex", run: builtin_complex },
@@ -6934,6 +8084,14 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "dict.__delitem__", run: builtin_dict_delitem },
     BuiltinDef::{ name: "dict.__iter__", run: builtin_dict_iter },
     BuiltinDef::{ name: "dict.__len__", run: builtin_dict_len },
+    BuiltinDef::{ name: "file.read", run: builtin_file_read },
+    BuiltinDef::{ name: "file.readline", run: builtin_file_readline },
+    BuiltinDef::{ name: "file.readlines", run: builtin_file_readlines },
+    BuiltinDef::{ name: "file.close", run: builtin_file_close },
+    BuiltinDef::{ name: "file.__iter__", run: builtin_file_iter },
+    BuiltinDef::{ name: "file.__next__", run: builtin_file_next },
+    BuiltinDef::{ name: "file.__enter__", run: builtin_file_enter },
+    BuiltinDef::{ name: "file.__exit__", run: builtin_file_exit },
     BuiltinDef::{ name: "iter", run: builtin_iter },
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
@@ -6945,6 +8103,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
     BuiltinDef::{ name: "register", run: builtin_register },
     BuiltinDef::{ name: "repr", run: builtin_repr },
+    BuiltinDef::{ name: "ascii", run: builtin_ascii },
     BuiltinDef::{ name: "abs", run: builtin_abs },
     BuiltinDef::{ name: "round", run: builtin_round },
     BuiltinDef::{ name: "pow", run: builtin_pow },

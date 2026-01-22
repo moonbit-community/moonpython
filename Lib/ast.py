@@ -685,36 +685,38 @@ class Param(expr_context):
 # We unparse those infinities to INFSTR.
 _INFSTR = "1e" + repr(sys.float_info.max_10_exp + 1)
 
-@_simple_enum(IntEnum)
 class _Precedence:
     """Precedence table that originated from python grammar."""
 
-    NAMED_EXPR = auto()      # <target> := <expr1>
-    TUPLE = auto()           # <expr1>, <expr2>
-    YIELD = auto()           # 'yield', 'yield from'
-    TEST = auto()            # 'if'-'else', 'lambda'
-    OR = auto()              # 'or'
-    AND = auto()             # 'and'
-    NOT = auto()             # 'not'
-    CMP = auto()             # '<', '>', '==', '>=', '<=', '!=',
-                             # 'in', 'not in', 'is', 'is not'
-    EXPR = auto()
-    BOR = EXPR               # '|'
-    BXOR = auto()            # '^'
-    BAND = auto()            # '&'
-    SHIFT = auto()           # '<<', '>>'
-    ARITH = auto()           # '+', '-'
-    TERM = auto()            # '*', '@', '/', '%', '//'
-    FACTOR = auto()          # unary '+', '-', '~'
-    POWER = auto()           # '**'
-    AWAIT = auto()           # 'await'
-    ATOM = auto()
+_PRECEDENCE_ORDER = [
+    "NAMED_EXPR",  # <target> := <expr1>
+    "TUPLE",       # <expr1>, <expr2>
+    "YIELD",       # 'yield', 'yield from'
+    "TEST",        # 'if'-'else', 'lambda'
+    "OR",          # 'or'
+    "AND",         # 'and'
+    "NOT",         # 'not'
+    "CMP",         # '<', '>', '==', '>=', '<=', '!=', 'in', 'not in', 'is', 'is not'
+    "EXPR",
+    "BOR",         # '|'
+    "BXOR",        # '^'
+    "BAND",        # '&'
+    "SHIFT",       # '<<', '>>'
+    "ARITH",       # '+', '-'
+    "TERM",        # '*', '@', '/', '%', '//'
+    "FACTOR",      # unary '+', '-', '~'
+    "POWER",       # '**'
+    "AWAIT",       # 'await'
+    "ATOM",
+]
+for _index, _name in enumerate(_PRECEDENCE_ORDER, 1):
+    setattr(_Precedence, _name, _index)
+_PRECEDENCE_MAX = len(_PRECEDENCE_ORDER)
 
-    def next(self):
-        try:
-            return self.__class__(self + 1)
-        except ValueError:
-            return self
+def _precedence_next(value):
+    if value < _PRECEDENCE_MAX:
+        return value + 1
+    return value
 
 
 _SINGLE_QUOTES = ("'", '"')
@@ -1295,7 +1297,7 @@ class _Unparser(NodeVisitor):
     def visit_FormattedValue(self, node):
         def unparse_inner(inner):
             unparser = type(self)()
-            unparser.set_precedence(_Precedence.TEST.next(), inner)
+            unparser.set_precedence(_precedence_next(_Precedence.TEST), inner)
             return unparser.visit(inner)
 
         with self.delimit("{", "}"):
@@ -1383,7 +1385,7 @@ class _Unparser(NodeVisitor):
         self.set_precedence(_Precedence.TUPLE, node.target)
         self.traverse(node.target)
         self.write(" in ")
-        self.set_precedence(_Precedence.TEST.next(), node.iter, *node.ifs)
+        self.set_precedence(_precedence_next(_Precedence.TEST), node.iter, *node.ifs)
         self.traverse(node.iter)
         for if_clause in node.ifs:
             self.write(" if ")
@@ -1391,7 +1393,7 @@ class _Unparser(NodeVisitor):
 
     def visit_IfExp(self, node):
         with self.require_parens(_Precedence.TEST, node):
-            self.set_precedence(_Precedence.TEST.next(), node.body, node.test)
+            self.set_precedence(_precedence_next(_Precedence.TEST), node.body, node.test)
             self.traverse(node.body)
             self.write(" if ")
             self.traverse(node.test)
@@ -1523,7 +1525,7 @@ class _Unparser(NodeVisitor):
 
     def visit_Compare(self, node):
         with self.require_parens(_Precedence.CMP, node):
-            self.set_precedence(_Precedence.CMP.next(), node.left, *node.comparators)
+            self.set_precedence(_precedence_next(_Precedence.CMP), node.left, *node.comparators)
             self.traverse(node.left)
             for o, e in zip(node.ops, node.comparators):
                 self.write(" " + self.cmpops[o.__class__.__name__] + " ")
@@ -1788,7 +1790,7 @@ class _Unparser(NodeVisitor):
 
     def visit_MatchOr(self, node):
         with self.require_parens(_Precedence.BOR, node):
-            self.set_precedence(_Precedence.BOR.next(), *node.patterns)
+            self.set_precedence(_precedence_next(_Precedence.BOR), *node.patterns)
             self.interleave(lambda: self.write(" | "), self.traverse, node.patterns)
 
 def unparse(ast_obj):

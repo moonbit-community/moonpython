@@ -1633,12 +1633,28 @@ fn eval_block_flow(
         // Best-effort support for zero-arg super(): functions created in this
         // class body can close over a __class__ cell.
         ensure_local_cell(class_dict, "__class__", Value::None)
+        let mut pushed_closure = false
+        if has_active_closure_env() {
+          for i = 0; i < locals.length(); i = i + 1 {
+            let name = locals[i].0
+            let value = locals[i].1
+            if !is_cell_value(value) {
+              ensure_local_cell(locals, name, value)
+            }
+          }
+          let class_closure = merge_cell_closures(locals, current_closure_env())
+          push_closure_env(class_closure)
+          pushed_closure = true
+        }
         let flow = match
           eval_block_flow(
             body, class_dict, globals, builtins, io, config, loop_depth,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
+        }
+        if pushed_closure {
+          pop_closure_env()
         }
         match flow {
           BlockFlow::Normal(_) => ()

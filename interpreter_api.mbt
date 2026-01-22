@@ -336,6 +336,8 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "str", "bytes", "bytearray", "memoryview", "int", "float", "complex", "list",
     "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
     "property", "staticmethod", "classmethod", "delattr", "super", "eval", "exec",
+    "ascii",
+    "open",
     "__import__",
   ]
   for fn_name in builtin_fn_names {
@@ -724,6 +726,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let builtins : Array[(String, Value)] = [
     ("print", function_stub("print")),
     ("input", function_stub("input")),
+    ("open", function_stub("open")),
     ("__debug__", Value::Bool(true)),
     ("__mpython_run", function_stub("__mpython_run")),
     ("__mpython_asyncgenexp_next", function_stub("__mpython_asyncgenexp_next")),
@@ -766,6 +769,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("delattr", function_stub("delattr")),
     ("super", function_stub("super")),
     ("repr", function_stub("repr")),
+    ("ascii", function_stub("ascii")),
     ("abs", function_stub("abs")),
     ("round", function_stub("round")),
     ("pow", function_stub("pow")),

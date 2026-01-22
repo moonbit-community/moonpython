@@ -23,6 +23,7 @@ pub enum Literal {
   Float(Double)
   Complex(Double, Double)
   Str(String)
+  Bytes(Array[Int])
 } derive(ToJson)
 
 ///|

@@ -50,7 +50,15 @@ fn iter_value_to_iterator(
 ) -> Result[Value, RuntimeError] {
   match value {
     Value::Instance(inst) =>
-      if inst.class.name == "iterator" ||
+      if inst.class.name == "dict_keys" ||
+         inst.class.name == "dict_values" ||
+         inst.class.name == "dict_items" {
+        let items = match iterable_values(Value::Instance(inst)) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(make_iterator(items))
+      } else if inst.class.name == "iterator" ||
         inst.class.name == "generator" ||
         inst.class.name == "repeat" ||
         inst.class.name == "count" {

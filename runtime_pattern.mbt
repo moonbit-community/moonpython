@@ -13,6 +13,7 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
         Literal::Float(v) => Value::Float(v)
         Literal::Complex(real, imag) => Value::Complex(real, imag)
         Literal::Str(v) => Value::Str(v)
+        Literal::Bytes(v) => Value::Bytes(v)
       }
       if eq_value(value, lit_value) {
         Some([])

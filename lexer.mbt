@@ -8,6 +8,7 @@ priv enum TokenKind {
   ComplexLit(Double)
   StrLit(String)
   FStrLit(String)
+  BytesLit(String)
   BoolLit(Bool)
   NoneLit
   Ident(String)
@@ -971,6 +972,7 @@ fn tokenize_expr(
       let start = i
       let mut raw_prefix = false
       let mut f_prefix = false
+      let mut b_prefix = false
       let mut j = i
       while j < len {
         let d = chars[j]
@@ -980,7 +982,10 @@ fn tokenize_expr(
         } else if d == 'f' || d == 'F' {
           f_prefix = true
           j += 1
-        } else if d == 'u' || d == 'U' || d == 'b' || d == 'B' {
+        } else if d == 'b' || d == 'B' {
+          b_prefix = true
+          j += 1
+        } else if d == 'u' || d == 'U' {
           j += 1
         } else {
           break
@@ -1014,6 +1019,22 @@ fn tokenize_expr(
           }
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
         }
+        if b_prefix && f_prefix {
+          let token = {
+            kind: Eof,
+            start: base_offset + start,
+            end: base_offset + next_i,
+            line: current_line,
+            column: start - line_start + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "bytes f-strings are not supported".to_string(),
+              token,
+            ),
+          )
+        }
         if f_prefix && fstring_has_empty_expr(value) {
           let mut err_line = current_line
           let mut err_line_start = line_start
@@ -1041,7 +1062,13 @@ fn tokenize_expr(
           )
         }
         i = next_i
-        let kind = if f_prefix { FStrLit(value) } else { StrLit(value) }
+        let kind = if b_prefix {
+          BytesLit(value)
+        } else if f_prefix {
+          FStrLit(value)
+        } else {
+          StrLit(value)
+        }
         tokens.push({
           kind,
           start: base_offset + start,

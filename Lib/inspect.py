@@ -1790,8 +1790,14 @@ def trace(context=1):
 # ------------------------------------------------ static version of getattr
 
 _sentinel = object()
-_static_getmro = type.__dict__['__mro__'].__get__
-_get_dunder_dict_of_class = type.__dict__["__dict__"].__get__
+try:
+    _static_getmro = type.__dict__['__mro__'].__get__
+except Exception:
+    _static_getmro = lambda cls: cls.__mro__
+try:
+    _get_dunder_dict_of_class = type.__dict__["__dict__"].__get__
+except Exception:
+    _get_dunder_dict_of_class = lambda cls: cls.__dict__
 
 
 def _check_instance(obj, attr):

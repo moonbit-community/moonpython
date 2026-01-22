@@ -57,7 +57,33 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
       Ok(items)
     }
     Value::Instance(inst) =>
-      if inst.class.name == "iterator" {
+      if inst.class.name == "dict_keys" ||
+         inst.class.name == "dict_values" ||
+         inst.class.name == "dict_items" {
+        let dict_value = lookup_iterable_field(inst.dict, "dict")
+        match dict_value {
+          Some(Value::Dict(pairs)) => {
+            let out : Array[Value] = []
+            for pair in pairs {
+              if inst.class.name == "dict_keys" {
+                out.push(pair.0)
+              } else if inst.class.name == "dict_values" {
+                out.push(pair.1)
+              } else {
+                out.push(Value::Tuple([pair.0, pair.1]))
+              }
+            }
+            Ok(out)
+          }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "object is not iterable".to_string(),
+              ),
+            )
+        }
+      } else if inst.class.name == "iterator" {
         let items = match lookup_iterable_field(inst.dict, "items") {
           Some(Value::List(items)) => items
           _ => []

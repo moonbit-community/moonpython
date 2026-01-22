@@ -859,6 +859,16 @@ fn eval_binary_op_values(
           }
           Ok(Value::List(merged))
         }
+        (Value::Tuple(a), Value::Tuple(b)) => {
+          let merged : Array[Value] = []
+          for item in a {
+            merged.push(item)
+          }
+          for item in b {
+            merged.push(item)
+          }
+          Ok(Value::Tuple(merged))
+        }
         _ => {
           if left_val is Value::Instance(_) {
             match
@@ -1032,6 +1042,40 @@ fn eval_binary_op_values(
               }
             }
             Ok(Value::ByteArray(out))
+          }
+        (Value::List(values), Value::Int(count))
+        | (Value::Int(count), Value::List(values)) =>
+          if count <= 0N {
+            Ok(Value::List([]))
+          } else {
+            let count_i = match bigint_to_int_checked(count) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let out : Array[Value] = []
+            for i = 0; i < count_i; i = i + 1 {
+              for item in values {
+                out.push(item)
+              }
+            }
+            Ok(Value::List(out))
+          }
+        (Value::Tuple(values), Value::Int(count))
+        | (Value::Int(count), Value::Tuple(values)) =>
+          if count <= 0N {
+            Ok(Value::Tuple([]))
+          } else {
+            let count_i = match bigint_to_int_checked(count) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let out : Array[Value] = []
+            for i = 0; i < count_i; i = i + 1 {
+              for item in values {
+                out.push(item)
+              }
+            }
+            Ok(Value::Tuple(out))
           }
         _ =>
           Err(
@@ -1557,6 +1601,7 @@ fn eval_expr_with_env(
         Literal::Float(value) => Ok(Value::Float(value))
         Literal::Complex(real, imag) => Ok(Value::Complex(real, imag))
         Literal::Str(value) => Ok(Value::Str(value))
+        Literal::Bytes(value) => Ok(Value::Bytes(value))
       }
     Expr::Name(name) => lookup_name_value(name, locals, globals, builtins)
     Expr::FString(text) =>
@@ -2141,6 +2186,7 @@ fn eval_expr_with_env(
         | Value::Instance(_)
         | Value::Class(_)
         | Value::Str(_)
+        | Value::Int(_)
         | Value::List(_)
         | Value::Tuple(_)
         | Value::Dict(_)
