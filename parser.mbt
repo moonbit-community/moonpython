@@ -7195,11 +7195,48 @@ fn LineParser::parse_block(
         if next_indent != current_indent {
           break
         }
-        let next_text = substring(next_line, next_indent, next_line.length())
+        let mut next_text = substring(next_line, next_indent, next_line.length())
           .trim(chars=" \t")
           .to_string()
+        if find_triple_quote(next_text) is None {
+          next_text = strip_inline_comment(next_text).trim(chars=" \t").to_string()
+        }
         if next_text.has_prefix("elif ") || next_text.has_prefix("elif(") {
-          let colon_pos = find_last_char(next_text, ':')
+          let mut elif_text = next_text
+          let mut elif_next_index = self.index + 1
+          while has_trailing_line_continuation(elif_text) &&
+                elif_next_index < self.lines.length() {
+            elif_text = substring(elif_text, 0, elif_text.length() - 1)
+              .trim(chars=" \t")
+              .to_string()
+            let next_line = self.lines[elif_next_index]
+            let appended = if find_triple_quote(next_line) is Some(_) {
+              next_line
+            } else {
+              strip_inline_comment(next_line)
+            }
+            elif_text = elif_text + "\n" + appended
+            elif_next_index += 1
+            elif_text = elif_text.trim(chars=" \t").to_string()
+          }
+          let mut balance = bracket_balance(elif_text)
+          while balance > 0 && elif_next_index < self.lines.length() {
+            let next_line = self.lines[elif_next_index]
+            let appended = if find_triple_quote(next_line) is Some(_) {
+              next_line
+            } else {
+              strip_inline_comment(next_line)
+            }
+            elif_text = elif_text + "\n" + appended
+            elif_next_index += 1
+            balance = bracket_balance(elif_text)
+          }
+          if find_triple_quote(elif_text) is None {
+            elif_text = replace_newlines_with_spaces(elif_text)
+              .trim(chars=" \t")
+              .to_string()
+          }
+          let colon_pos = find_last_char(elif_text, ':')
           if colon_pos is None {
             let token = {
               kind: Eof,
@@ -7216,7 +7253,7 @@ fn LineParser::parse_block(
               ),
             )
           }
-          let cond_text = substring(next_text, 4, colon_pos.unwrap())
+          let cond_text = substring(elif_text, 4, colon_pos.unwrap())
             .trim(chars=" \t")
             .to_string()
           let cond_tokens = match
@@ -7232,7 +7269,7 @@ fn LineParser::parse_block(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          self.index += 1
+          self.index = elif_next_index
           let elif_indent = self.peek_next_indent()
           if elif_indent <= next_indent {
             let missing_line = self.clamp_line_index(
