@@ -1,4 +1,4 @@
-# Minimal _codecs stub for mpython.
+# Minimal _codecs stub for moonpython.
 
 _search_functions = []
 _error_handlers = {}

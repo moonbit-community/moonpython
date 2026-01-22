@@ -1,5 +1,5 @@
 ///|
-/// Core value utilities for the mpython runtime.
+/// Core value utilities for the moonpython runtime.
 
 ///|
 fn bool_from_value(value : Value) -> Bool {

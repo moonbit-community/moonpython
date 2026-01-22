@@ -1,4 +1,4 @@
-"""Minimal _warnings stub for mpython."""
+"""Minimal _warnings stub for moonpython."""
 
 filters = []
 _defaultaction = "default"

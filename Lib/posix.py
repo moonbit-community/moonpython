@@ -1,4 +1,4 @@
-"""Minimal posix shim for mpython (no real OS access)."""
+"""Minimal posix shim for moonpython (no real OS access)."""
 
 __all__ = [
     "name",

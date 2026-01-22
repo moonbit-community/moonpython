@@ -3,5 +3,5 @@
 
 import hello
 
-print(hello.greet("mpython"))
+print(hello.greet("moonpython"))
 print(hello.VALUE)

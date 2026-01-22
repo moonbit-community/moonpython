@@ -1,7 +1,7 @@
 ///|
-/// Builtin function implementations for the mpython runtime.
+/// Builtin function implementations for the moonpython runtime.
 ///
-/// This file centralizes builtin dispatch so `mpython.mbt` can focus on
+/// This file centralizes builtin dispatch so `moonpython.mbt` can focus on
 /// expression evaluation and general call semantics.
 
 ///|
@@ -805,7 +805,7 @@ fn builtin_range(
     )
   }
   let items : Array[Value] = []
-  // NOTE: still returns a realized list (mpython simplification).
+  // NOTE: still returns a realized list (moonpython simplification).
   // Convert to Int for looping; raise if it doesn't fit.
   let start_i = match bigint_to_int_checked(start) {
     Ok(v) => v

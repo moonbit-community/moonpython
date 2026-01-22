@@ -1,4 +1,4 @@
-"""Minimal errno constants for mpython stdlib."""
+"""Minimal errno constants for moonpython stdlib."""
 
 ENOENT = 2
 ENOTDIR = 20

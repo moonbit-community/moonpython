@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "Milky2018/mpython"
+package "moonbit-community/moonpython"
 
-import(
-  "moonbitlang/core/bigint"
-)
+import {
+  "moonbitlang/core/bigint",
+}
 
 // Values
 pub fn coroutine_await(Value) -> Result[Value, RuntimeError]
@@ -92,6 +92,7 @@ pub struct Config {
   main_path : String?
 }
 pub fn Config::default() -> Self
+pub fn Config::for_cli(Array[String], String?) -> Self
 pub impl ToJson for Config
 
 pub struct ExceptHandler {
@@ -177,6 +178,7 @@ pub enum Literal {
   Float(Double)
   Complex(Double, Double)
   Str(String)
+  Bytes(Array[Int])
 }
 pub impl ToJson for Literal
 
@@ -267,6 +269,7 @@ pub enum Stmt {
   ExprStmt(Expr)
   Assign(target~ : Target, value~ : Expr)
   AugAssign(target~ : Target, op~ : BinaryOp, value~ : Expr)
+  TypeAlias(name~ : String, type_params~ : Array[String], value~ : Expr)
   Return(Expr?)
   Yield(Expr?)
   YieldFrom(Expr)
@@ -277,19 +280,19 @@ pub enum Stmt {
   AsyncFor(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Break
   Continue
-  Function(name~ : String, decorators~ : Array[Expr], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
+  Function(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
   Pass
   Global(Array[String])
   Nonlocal(Array[String])
   Assert(condition~ : Expr, message~ : Expr?)
   Raise(exc~ : Expr?, cause~ : Expr?)
   Del(Array[Target])
-  Import(module~ : String, alias~ : String?)
-  FromImport(module~ : String, names~ : Array[(String, String?)])
+  Import(module_name~ : String, alias_name~ : String?)
+  FromImport(module_name~ : String, names~ : Array[(String, String?)])
   With(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   AsyncWith(context~ : Expr, target~ : String?, body~ : Array[Stmt])
   Try(body~ : Array[Stmt], handlers~ : Array[ExceptHandler], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
-  Class(name~ : String, decorators~ : Array[Expr], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
+  Class(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
   WithSpan(span~ : Span, stmt~ : Stmt)
 }
 pub impl ToJson for Stmt
@@ -350,3 +353,4 @@ pub impl ToJson for Value
 // Type aliases
 
 // Traits
+

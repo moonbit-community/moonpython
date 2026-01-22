@@ -1,4 +1,4 @@
-"""Minimal _sha2 shim for mpython."""
+"""Minimal _sha2 shim for moonpython."""
 
 
 def _mix_bytes(data):

@@ -1,4 +1,4 @@
-# Milky2018/mpython
+# moonbit-community/moonpython
 
 A small Python parser + interpreter implemented in MoonBit.
 
@@ -18,7 +18,7 @@ See `ROADMAP.md` for the current checklist and milestone status.
 
 ## Run a Python program (file)
 
-From the `aaom-mpython/` directory:
+From the `moonpython/` directory:
 
 ```bash
 moon run cmd/main -- path/to/program.py
@@ -32,7 +32,7 @@ moon run cmd/main -- examples/tasks.py
 
 ## Using the CPython `Lib/` snapshot
 
-This repo vendors CPython's `Lib/` under `aaom-mpython/Lib/`. You can point the
+This repo vendors CPython's `Lib/` under `moonpython/Lib/`. You can point the
 interpreter to it with `--stdlib`:
 
 ```bash

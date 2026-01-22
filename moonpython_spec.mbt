@@ -1,5 +1,5 @@
 ///|
-/// mpython interpreter specification
+/// moonpython interpreter specification
 ///
 /// This file defines the public API contract for a MoonBit-based
 /// Python interpreter. Implementations should live in separate files

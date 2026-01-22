@@ -1,4 +1,4 @@
-"""Minimal _imp stub for mpython (no C extensions or frozen modules)."""
+"""Minimal _imp stub for moonpython (no C extensions or frozen modules)."""
 
 import sys
 

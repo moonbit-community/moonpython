@@ -1,4 +1,4 @@
-"""Minimal _collections shim for mpython (no C extensions)."""
+"""Minimal _collections shim for moonpython (no C extensions)."""
 
 from operator import itemgetter
 

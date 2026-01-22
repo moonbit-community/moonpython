@@ -230,7 +230,7 @@ def normalize_syntax_message(message: str) -> str:
 
 def format_error(err: Exception) -> str:
     # We intentionally normalize SyntaxError reporting (message + column)
-    # because mpython's parser does not aim to match CPython's exact offsets.
+    # because moonpython's parser does not aim to match CPython's exact offsets.
     if isinstance(err, IndentationError):
         line = err.lineno or 1
         return f"line {line}:1 expected indented block"

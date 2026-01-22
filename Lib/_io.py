@@ -1,4 +1,4 @@
-"""Minimal stub of the CPython _io module for mpython."""
+"""Minimal stub of the CPython _io module for moonpython."""
 
 DEFAULT_BUFFER_SIZE = 8192
 

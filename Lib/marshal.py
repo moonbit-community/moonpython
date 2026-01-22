@@ -1,4 +1,4 @@
-"""Minimal marshal stub for mpython (bytecode marshal unsupported)."""
+"""Minimal marshal stub for moonpython (bytecode marshal unsupported)."""
 
 version = 0
 

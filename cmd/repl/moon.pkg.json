@@ -1,7 +1,7 @@
 {
   "is-main": true,
   "import": [
-    { "path": "Milky2018/mpython", "alias": "mpython" },
+    { "path": "moonbit-community/moonpython", "alias": "mpython" },
     "moonbitlang/x/fs",
     "moonbitlang/x/sys"
   ]

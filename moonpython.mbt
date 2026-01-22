@@ -1,5 +1,5 @@
 ///|
-/// Expression evaluation for the mpython runtime.
+/// Expression evaluation for the moonpython runtime.
 ///
 /// Most runtime utilities are split into dedicated files:
 /// - runtime_value.mbt

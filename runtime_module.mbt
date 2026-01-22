@@ -477,7 +477,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
   let impl_value = Value::Instance(InstanceValue::{
     class: impl_class,
     dict: [
-      ("name", Value::Str("mpython")),
+      ("name", Value::Str("moonpython")),
       ("version", version_info),
     ],
   })
@@ -541,7 +541,7 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("version", Value::Str("3.12.0")),
     ("version_info", version_info),
     ("byteorder", Value::Str("little")),
-    ("platform", Value::Str("mpython")),
+    ("platform", Value::Str("moonpython")),
     ("implementation", impl_value),
     ("float_info", float_info_value),
     ("hash_info", hash_info_value),

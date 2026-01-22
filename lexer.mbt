@@ -1,5 +1,5 @@
 ///|
-/// Lexer for the mpython interpreter.
+/// Lexer for the moonpython interpreter.
 
 ///|
 priv enum TokenKind {

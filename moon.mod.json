@@ -1,11 +1,11 @@
 {
-  "name": "Milky2018/mpython",
+  "name": "moonbit-community/moonpython",
   "version": "0.1.0",
   "deps": {
     "moonbitlang/x": "0.4.38"
   },
   "readme": "README.mbt.md",
-  "repository": "",
+  "repository": "https://github.com/moonbit-community/moonpython.git",
   "license": "Apache-2.0",
   "keywords": [],
   "description": ""

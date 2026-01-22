@@ -1,5 +1,5 @@
 ///|
-/// Parser for the mpython interpreter.
+/// Parser for the moonpython interpreter.
 
 ///|
 priv struct ExprParser {

@@ -1,6 +1,6 @@
-# mpython ROADMAP (checklist toward Python 3.12)
+# moonpython ROADMAP (checklist toward Python 3.12)
 
-`mpython` is currently a small Python *parser + interpreter* (MoonBit) that targets a practical subset of the language. This checklist tracks feature parity work toward **CPython 3.12** and keeps the project usable at every milestone.
+`moonpython` is currently a small Python *parser + interpreter* (MoonBit) that targets a practical subset of the language. This checklist tracks feature parity work toward **CPython 3.12** and keeps the project usable at every milestone.
 
 ## Scope
 
@@ -93,5 +93,5 @@
 
 ## Conformance approach
 
-- Treat `aaom-mpython/spec_generated_test.mbt` and the `aaom-mpython/reference_test/` corpus as the main compatibility signals.
+- Treat `moonpython/spec_generated_test.mbt` and the `moonpython/reference_test/` corpus as the main compatibility signals.
 - Prefer adding targeted end-to-end tests in MoonBit when implementing each missing feature, then grow the Python reference subset over time.

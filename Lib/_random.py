@@ -1,4 +1,4 @@
-"""Minimal _random shim for mpython (LCG-based)."""
+"""Minimal _random shim for moonpython (LCG-based)."""
 
 _MODULUS = 2 ** 64
 _MULTIPLIER = 6364136223846793005

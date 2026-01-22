@@ -1,4 +1,4 @@
-# A small "real-world"-ish script for mpython.
+# A small "real-world"-ish script for moonpython.
 #
 # It intentionally exercises:
 # - functions
@@ -6,7 +6,7 @@
 # - comprehensions
 # - while/for, break/continue
 # - match (pattern matching)
-# - with (mpython's minimal implementation)
+# - with (moonpython's minimal implementation)
 #
 # It also *includes* (but does not execute) examples of:
 # - classes
@@ -118,4 +118,3 @@ print("pairs:", pairs)
 # A dict comprehension (useful in real scripts)
 index = {t: i for i, t in pairs}
 print("index:", index)
-

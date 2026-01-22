@@ -1,4 +1,4 @@
-"""Minimal re shim for mpython (limited regex engine)."""
+"""Minimal re shim for moonpython (limited regex engine)."""
 
 __all__ = [
     "compile",

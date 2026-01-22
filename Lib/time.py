@@ -1,4 +1,4 @@
-"""Minimal time shim for mpython."""
+"""Minimal time shim for moonpython."""
 
 __all__ = [
     "time",

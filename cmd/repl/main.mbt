@@ -183,7 +183,7 @@ fn main {
     print_usage()
     @sys.exit(1)
   }
-  println("mpython REPL (Ctrl-D to exit)")
+  println("moonpython REPL (Ctrl-D to exit)")
   let source = @fs.read_file_to_string("/dev/stdin") catch { _ => "" }
   let config = @mpython.Config::for_cli(stdlib_paths, None)
   let interpreter = @mpython.Interpreter::with_config(config)
