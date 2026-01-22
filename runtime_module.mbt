@@ -244,8 +244,25 @@ fn make_math_module() -> Value {
   make_module_instance("math", [
     ("pi", Value::Float(3.141592653589793)),
     ("e", Value::Float(2.718281828459045)),
+    ("tau", Value::Float(6.283185307179586)),
     ("sqrt", module_function_stub("math.sqrt")),
     ("pow", module_function_stub("math.pow")),
+    ("log", module_function_stub("math.log")),
+    ("log2", module_function_stub("math.log2")),
+    ("exp", module_function_stub("math.exp")),
+    ("ceil", module_function_stub("math.ceil")),
+    ("floor", module_function_stub("math.floor")),
+    ("acos", module_function_stub("math.acos")),
+    ("cos", module_function_stub("math.cos")),
+    ("sin", module_function_stub("math.sin")),
+    ("hypot", module_function_stub("math.hypot")),
+    ("fabs", module_function_stub("math.fabs")),
+    ("erf", module_function_stub("math.erf")),
+    ("lgamma", module_function_stub("math.lgamma")),
+    ("fsum", module_function_stub("math.fsum")),
+    ("sumprod", module_function_stub("math.sumprod")),
+    ("isfinite", module_function_stub("math.isfinite")),
+    ("isqrt", module_function_stub("math.isqrt")),
   ])
 }
 
@@ -376,6 +393,8 @@ fn make_itertools_chain_factory() -> Value {
 fn make_itertools_module() -> Value {
   make_module_instance("itertools", [
     ("chain", make_itertools_chain_factory()),
+    ("accumulate", module_function_stub("itertools.accumulate")),
+    ("groupby", module_function_stub("itertools.groupby")),
     ("count", module_function_stub("itertools.count")),
     ("repeat", module_function_stub("itertools.repeat")),
     ("starmap", module_function_stub("itertools.starmap")),

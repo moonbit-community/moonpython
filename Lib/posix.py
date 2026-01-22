@@ -24,6 +24,7 @@ __all__ = [
     "fstat",
     "open",
     "close",
+    "urandom",
 ]
 
 name = "posix"
@@ -126,3 +127,9 @@ def open(path, flags, mode=0o777, *args, **kwargs):
 
 def close(fd):
     _raise_unavailable()
+
+
+def urandom(n):
+    if n < 0:
+        raise ValueError("negative argument not allowed")
+    return bytes([0]) * n
