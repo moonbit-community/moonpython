@@ -2137,7 +2137,8 @@ fn eval_expr_with_env(
         )
       }
       match target {
-        Value::Instance(_)
+        Value::None
+        | Value::Instance(_)
         | Value::Class(_)
         | Value::Str(_)
         | Value::List(_)

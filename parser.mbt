@@ -8,6 +8,9 @@ priv struct ExprParser {
 }
 
 ///|
+let assign_temp_id_ref : Ref[Int] = { val: 0 }
+
+///|
 fn ExprParser::new(tokens : Array[Token]) -> ExprParser {
   ExprParser::{ tokens, view: tokens[:] }
 }
@@ -5172,6 +5175,23 @@ fn parse_simple_statement(
       Ok(value) => value
       Err(err) => return Err(err)
     }
+    let temp_name : String? =
+      if assign_positions.length() > 1 {
+        let next_id = assign_temp_id_ref.val
+        assign_temp_id_ref.val = next_id + 1
+        Some("$__mpython_assign_tmp__" + next_id.to_string())
+      } else {
+        None
+      }
+    match temp_name {
+      Some(name) =>
+        stmts.push(Stmt::Assign(target=Target::Name(name), value=value_expr))
+      None => ()
+    }
+    let assigned_expr = match temp_name {
+      Some(name) => Expr::Name(name)
+      None => value_expr
+    }
     for seg = 0; seg < assign_positions.length(); seg = seg + 1 {
       let start = if seg == 0 { 0 } else { assign_positions[seg - 1] + 1 }
       let end = assign_positions[seg]
@@ -5201,7 +5221,11 @@ fn parse_simple_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(Stmt::Assign(target~, value=value_expr))
+      stmts.push(Stmt::Assign(target~, value=assigned_expr))
+    }
+    match temp_name {
+      Some(name) => stmts.push(Stmt::Del([Target::Name(name)]))
+      None => ()
     }
   } else {
     let expr = match parse_tokens_expr(tokens) {

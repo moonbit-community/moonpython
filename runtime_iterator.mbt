@@ -82,6 +82,87 @@ fn iter_value_to_iterator(
             }
         }
       }
+    Value::Class(klass) => {
+      let class_value = Value::Class(klass)
+      match
+        get_attr_from_value(
+          class_value,
+          "__iter__",
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(iter_method) =>
+          call_callable_with_env(iter_method, [], [], globals, builtins, io)
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute => {
+              let names_value = get_named_value(klass.dict, "_member_names_")
+              let map_value = get_named_value(klass.dict, "_member_map_")
+              match (names_value, map_value) {
+                (Some(Value::List(names)), Some(Value::Dict(pairs))) => {
+                  let items : Array[Value] = []
+                  for name_value in names {
+                    match name_value {
+                      Value::Str(name) => {
+                        let idx = match dict_find_index(pairs, Value::Str(name)) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        match idx {
+                          Some(i) => items.push(pairs[i].1)
+                          None => ()
+                        }
+                      }
+                      _ => ()
+                    }
+                  }
+                  if items.length() == 0 && pairs.length() > 0 {
+                    for pair in pairs {
+                      items.push(pair.1)
+                    }
+                  }
+                  Ok(make_iterator(items))
+                }
+                _ => {
+                  let mut is_enum = false
+                  match class_mro(klass) {
+                    Ok(mro) =>
+                      for cls in mro {
+                        if cls.name == "Enum" ||
+                           cls.name == "Flag" ||
+                           cls.name == "IntFlag" ||
+                           cls.name == "StrEnum" {
+                          is_enum = true
+                          break
+                        }
+                      }
+                    Err(err) => return Err(err)
+                  }
+                  if is_enum {
+                    let items : Array[Value] = []
+                    for pair in klass.dict {
+                      if !pair.0.has_prefix("_") {
+                        items.push(pair.1)
+                      }
+                    }
+                    if items.length() > 0 {
+                      return Ok(make_iterator(items))
+                    }
+                  }
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "object is not iterable".to_string(),
+                    ),
+                  )
+                }
+              }
+            }
+            _ => Err(err)
+          }
+      }
+    }
     other => {
       let items = match iterable_values(other) {
         Ok(v) => v

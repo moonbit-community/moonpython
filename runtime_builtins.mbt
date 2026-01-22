@@ -5000,10 +5000,7 @@ fn builtin_type(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("type", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
+  let _ = keywords
   if positional.length() == 1 {
     let value = positional[0]
     return match value {

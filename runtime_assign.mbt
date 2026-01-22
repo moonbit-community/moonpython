@@ -15,6 +15,53 @@ fn replace_array_values(values : Array[Value], next : Array[Value]) -> Unit {
 }
 
 ///|
+fn collect_unpack_items(
+  assigned : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Array[Value], RuntimeError] {
+  match assigned {
+    Value::Tuple(values) => Ok(values)
+    Value::List(values) => Ok(values)
+    _ => {
+      let iterator = match
+        iter_value_to_iterator(assigned, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Type =>
+              if err.message == "object is not iterable" {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "cannot unpack non-iterable".to_string(),
+                  ),
+                )
+              } else {
+                return Err(err)
+              }
+            _ => return Err(err)
+          }
+      }
+      let items : Array[Value] = []
+      while true {
+        match iterator_next(iterator, None, globals, builtins, io) {
+          Ok(value) => items.push(value)
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              break
+            } else {
+              return Err(err)
+            }
+        }
+      }
+      Ok(items)
+    }
+  }
+}
+
+///|
 fn assign_target_with_env(
   target : Target,
   assigned : Value,
@@ -29,16 +76,9 @@ fn assign_target_with_env(
       Ok(())
     }
     Target::Tuple(targets) | Target::List(targets) => {
-      let items = match assigned {
-        Value::Tuple(values) => values
-        Value::List(values) => values
-        _ =>
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "cannot unpack non-iterable".to_string(),
-            ),
-          )
+      let items = match collect_unpack_items(assigned, globals, builtins, io) {
+        Ok(values) => values
+        Err(err) => return Err(err)
       }
       if items.length() != targets.length() {
         let expected = targets.length()

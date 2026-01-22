@@ -595,6 +595,17 @@ fn get_attr_raw_from_value(
   }
 
   match target {
+    Value::None =>
+      if attr == "__doc__" {
+        Ok(Value::Str("None"))
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Attribute,
+            "'NoneType' object has no attribute '" + attr + "'",
+          ),
+        )
+      }
     Value::Instance(inst) => {
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
@@ -1848,6 +1859,22 @@ fn get_attr_raw_from_value(
             closure: [],
           }),
         )
+      } else if klass.name == "object" &&
+        (attr == "__repr__" ||
+         attr == "__str__" ||
+         attr == "__format__" ||
+         attr == "__reduce_ex__") {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: attr,
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
       } else if klass.name == "int" && attr == "from_bytes" {
         Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1882,7 +1909,101 @@ fn get_attr_raw_from_value(
               Ok(None) => Ok(value)
               Err(err) => Err(err)
             }
-          Ok(None) =>
+          Ok(None) => {
+            let mut is_enum = false
+            let mut member_type_value =
+              Value::Class(builtin_class_from_name("object", builtins))
+            match class_mro(klass) {
+              Ok(mro) =>
+                for cls in mro {
+                  if cls.name == "Enum" ||
+                     cls.name == "Flag" ||
+                     cls.name == "IntFlag" ||
+                     cls.name == "StrEnum" {
+                    is_enum = true
+                  }
+                  if cls.name == "int" {
+                    member_type_value = Value::Class(cls)
+                  } else if cls.name == "str" {
+                    member_type_value = Value::Class(cls)
+                  }
+                }
+              Err(err) => return Err(err)
+            }
+            if is_enum {
+              match attr {
+                "_use_args_" => {
+                  let value = Value::Bool(false)
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                "_member_names_" => {
+                  let value = Value::List([])
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                "_member_map_" => {
+                  let value = Value::Dict([])
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                "_value2member_map_" => {
+                  let value = Value::Dict([])
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                "_unhashable_values_" => {
+                  let value = Value::List([])
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                "_member_type_" => {
+                  set_named_value(klass.dict, attr, member_type_value)
+                  return Ok(member_type_value)
+                }
+                "_value_repr_" => {
+                  let mut repr_value : Value? = None
+                  for pair in builtins {
+                    if pair.0 == "repr" {
+                      repr_value = Some(pair.1)
+                      break
+                    }
+                  }
+                  let value = match repr_value {
+                    Some(v) => v
+                    None =>
+                      Value::Function(FunctionValue::{
+                        name: "repr",
+                        params: ["obj"],
+                        defaults: [],
+                        body: [],
+                        is_generator: false,
+                        is_async: false,
+                        closure: [],
+                      })
+                  }
+                  set_named_value(klass.dict, attr, value)
+                  return Ok(value)
+                }
+                _ => ()
+              }
+            }
+            if attr == "__repr__" ||
+               attr == "__str__" ||
+               attr == "__format__" ||
+               attr == "__reduce_ex__" {
+              return Ok(
+                Value::Function(FunctionValue::{
+                  name: attr,
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                }),
+              )
+            }
             if attr == "register" {
               Ok(
                 Value::BoundMethod(BoundMethodValue::{
@@ -1906,6 +2027,7 @@ fn get_attr_raw_from_value(
                 ),
               )
             }
+          }
           Err(err) => Err(err)
         }
       }
