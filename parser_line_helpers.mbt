@@ -1,6 +1,7 @@
 ///|
 /// Line-level parsing helpers for moonpython.
 ///
+
 ///|
 fn count_indent(line : String) -> Int {
   let chars = line.to_array()
@@ -577,7 +578,7 @@ fn strip_wrapping_parens(text : String) -> String {
   for i = 0; i < chars.length(); i = i + 1 {
     let c = chars[i]
     match quote {
-      Some(q) => {
+      Some(q) =>
         if escaped {
           escaped = false
         } else if c == '\\' {
@@ -585,8 +586,7 @@ fn strip_wrapping_parens(text : String) -> String {
         } else if c == q {
           quote = None
         }
-      }
-      None => {
+      None =>
         if c == '\'' || c == '"' {
           quote = Some(c)
           escaped = false
@@ -600,7 +600,6 @@ fn strip_wrapping_parens(text : String) -> String {
             return trimmed
           }
         }
-      }
     }
   }
   if depth == 0 {
@@ -713,6 +712,80 @@ fn find_top_level_augassign(text : String) -> (Int, String)? {
           return Some((i, c.to_string() + "="))
         }
       }
+    }
+    i += 1
+  }
+  None
+}
+
+///|
+/// Find the first top-level occurrence of a character, ignoring any nested
+/// (), [], {}, and string literals (single/double/triple quoted).
+fn find_top_level_char(text : String, target : Char) -> Int? {
+  let chars = text.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut triple : Char? = None
+  let mut escaped = false
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    match quote {
+      Some(q) => {
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if i + 2 < chars.length() &&
+      (c == '\'' || c == '"') &&
+      chars[i + 1] == c &&
+      chars[i + 2] == c {
+      triple = Some(c)
+      i += 3
+      continue
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      i += 1
+      continue
+    }
+    if c == '(' || c == '[' || c == '{' {
+      depth += 1
+      i += 1
+      continue
+    }
+    if c == ')' || c == ']' || c == '}' {
+      if depth > 0 {
+        depth -= 1
+      }
+      i += 1
+      continue
+    }
+    if depth == 0 && c == target {
+      return Some(i)
     }
     i += 1
   }
@@ -1230,6 +1303,7 @@ fn line_has_await_keyword(line : String) -> Bool {
 }
 
 ///|
+
 ///|
 fn has_bare_assign(text : String) -> Bool {
   let chars = text.to_array()
@@ -1305,6 +1379,7 @@ fn find_top_level_from(text : String) -> Int? {
   fn is_space_char(c : Char) -> Bool {
     c == ' ' || c == '\t' || c == '\n' || c == '\r'
   }
+
   let chars = text.to_array()
   let mut i = 0
   let mut quote : Char? = None
@@ -1354,6 +1429,7 @@ fn find_top_level_import(text : String) -> Int? {
   fn is_space_char(c : Char) -> Bool {
     c == ' ' || c == '\t' || c == '\n' || c == '\r'
   }
+
   let chars = text.to_array()
   let mut i = 0
   let mut quote : Char? = None

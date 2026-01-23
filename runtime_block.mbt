@@ -807,7 +807,11 @@ fn eval_block_flow(
         let inherited = merge_cell_closures(current_closure_env(), extra_cells)
         let closure = merge_cell_closures(locals, inherited)
         let globals_marker = Value::Instance(InstanceValue::{
-          class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
+          class: ClassValue::{
+            name: "__mpython_globals__",
+            bases: [],
+            dict: [],
+          },
           dict: globals,
         })
         closure.push(("$__mpython_globals__", globals_marker))
@@ -1059,7 +1063,8 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::FromImport(module_name~, names~) => {
-        let resolved_name = match resolve_relative_module_name(module_name, globals) {
+        let resolved_name = match
+          resolve_relative_module_name(module_name, globals) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -1171,10 +1176,7 @@ fn eval_block_flow(
           }
           Err(err) => {
             let exc_value = exception_value_from_runtime_error(
-              err,
-              globals,
-              builtins,
-              io,
+              err, globals, builtins, io,
             )
             let exc_type_value = match exc_value {
               Value::Instance(inst) => Value::Class(inst.class)
@@ -1184,11 +1186,7 @@ fn eval_block_flow(
             let exit_result = match
               call_callable_with_env(
                 exit_value,
-                [
-                  exc_type_value,
-                  exc_value,
-                  tb_value,
-                ],
+                [exc_type_value, exc_value, tb_value],
                 [],
                 globals,
                 builtins,
@@ -1273,10 +1271,7 @@ fn eval_block_flow(
           }
           Err(err) => {
             let exc_value = exception_value_from_runtime_error(
-              err,
-              globals,
-              builtins,
-              io,
+              err, globals, builtins, io,
             )
             let exc_type_value = match exc_value {
               Value::Instance(inst) => Value::Class(inst.class)
@@ -1287,11 +1282,7 @@ fn eval_block_flow(
             let exit_call = match
               call_callable_with_env(
                 aexit,
-                [
-                  exc_type_value,
-                  exc_value,
-                  tb_value,
-                ],
+                [exc_type_value, exc_value, tb_value],
                 [],
                 globals,
                 builtins,
@@ -1579,11 +1570,7 @@ fn eval_block_flow(
             Value::Instance(_) =>
               match
                 get_attr_from_value(
-                  base_value,
-                  "__mro_entries__",
-                  globals,
-                  builtins,
-                  io,
+                  base_value, "__mro_entries__", globals, builtins, io,
                 ) {
                 Ok(mro_entries) => {
                   let bases_tuple : Array[Value] = []
@@ -1744,23 +1731,26 @@ fn eval_block_flow(
         ) -> Result[Bool, RuntimeError] {
           match
             get_attr_from_value(
-              value,
-              "__isabstractmethod__",
-              globals,
-              builtins,
-              io,
+              value, "__isabstractmethod__", globals, builtins, io,
             ) {
             Ok(flag) => truthy_from_value_with_env(flag, globals, builtins, io)
             Err(err) =>
               match err.kind {
                 RuntimeErrorKind::Attribute => Ok(false)
-                _ => Err(err)
+                _ =>
+                  if err.exc_type == "AttributeError" {
+                    Ok(false)
+                  } else {
+                    Err(err)
+                  }
               }
           }
         }
+
         let abstract_names : Array[Value] = []
         for pair in class_dict {
-          let is_abstract = match value_is_abstract(pair.1, globals, builtins, io) {
+          let is_abstract = match
+            value_is_abstract(pair.1, globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
@@ -1775,7 +1765,10 @@ fn eval_block_flow(
         for base_value in base_values {
           match base_value {
             Value::Class(base_class) => {
-              let base_abs = get_named_value(base_class.dict, "__abstractmethods__")
+              let base_abs = get_named_value(
+                base_class.dict,
+                "__abstractmethods__",
+              )
               if base_abs is Some(_) {
                 has_abstractmethods_attr = true
               }
@@ -1819,22 +1812,35 @@ fn eval_block_flow(
             Value::Set(abstract_names),
           )
         }
-        let init_subclass = match
-          get_attr_from_value(
-            Value::Class(klass),
-            "__init_subclass__",
-            globals,
-            builtins,
-            io,
-          ) {
-          Ok(value) => Some(value)
+        // Call `__init_subclass__` on the *base* (PEP 487). When defining a class
+        // that itself defines `__init_subclass__`, CPython does not call the new
+        // class' own hook for its creation; it calls the inherited hook via `super()`.
+        let inherited_init_subclass : Value? = match class_mro(klass) {
+          Ok(mro) => {
+            let mut found : Value? = None
+            for i = 1; i < mro.length(); i = i + 1 {
+              match get_named_value(mro[i].dict, "__init_subclass__") {
+                Some(Value::Function(func)) => {
+                  found = Some(
+                    Value::BoundMethod(BoundMethodValue::{
+                      function: func,
+                      self: Value::Class(klass),
+                    }),
+                  )
+                  break
+                }
+                _ => ()
+              }
+            }
+            found
+          }
           Err(_) => None
         }
-        match init_subclass {
-          Some(Value::BoundMethod(bound)) => {
+        match inherited_init_subclass {
+          Some(hook) => {
             let _ = match
               call_callable_with_env(
-                Value::BoundMethod(bound),
+                hook,
                 [],
                 class_kwargs,
                 globals,
@@ -1844,34 +1850,7 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-          }
-          Some(Value::Function(func)) => {
-            let _ = match
-              call_callable_with_env(
-                Value::Function(func),
-                [Value::Class(klass)],
-                class_kwargs,
-                globals,
-                builtins,
-                io,
-              ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-          }
-          Some(hook) => {
-            let _ = match
-              call_callable_with_env(
-                hook,
-                [Value::Class(klass)],
-                class_kwargs,
-                globals,
-                builtins,
-                io,
-              ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
+
           }
           None => ()
         }

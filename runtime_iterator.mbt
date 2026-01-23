@@ -2,6 +2,55 @@
 /// Iterator protocol helpers (internal).
 
 ///|
+let iterator_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+let repeat_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+let count_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+let enumerate_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
+  match cache.val {
+    Some(value) => return value
+    None => ()
+  }
+  let dict : Array[(String, Value)] = [
+    (
+      "__iter__",
+      Value::Function(FunctionValue::{
+        name: "__mpython.internal_iter",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "__next__",
+      Value::Function(FunctionValue::{
+        name: "__mpython.internal_next",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  ]
+  let klass = ClassValue::{ name, bases: [], dict }
+  cache.val = Some(klass)
+  klass
+}
+
+///|
 fn make_iterator(items_in : Array[Value]) -> Value {
   let items : Array[Value] = []
   for item in items_in {
@@ -11,7 +60,7 @@ fn make_iterator(items_in : Array[Value]) -> Value {
   dict.push(("items", Value::List(items)))
   dict.push(("pos", Value::Int(0N)))
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "iterator", bases: [], dict: [] },
+    class: internal_iter_class("iterator", iterator_class_ref),
     dict,
   })
 }
@@ -25,7 +74,7 @@ fn make_repeat_iterator(value : Value, remaining : @bigint.BigInt?) -> Value {
     None => dict.push(("remaining", Value::None))
   }
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "repeat", bases: [], dict: [] },
+    class: internal_iter_class("repeat", repeat_class_ref),
     dict,
   })
 }
@@ -36,7 +85,7 @@ fn make_count_iterator(start : Value, step : Value) -> Value {
   dict.push(("current", start))
   dict.push(("step", step))
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "count", bases: [], dict: [] },
+    class: internal_iter_class("count", count_class_ref),
     dict,
   })
 }
@@ -47,7 +96,7 @@ fn make_enumerate_iterator(iterator : Value, start : @bigint.BigInt) -> Value {
   dict.push(("iterator", iterator))
   dict.push(("index", Value::Int(start)))
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "enumerate", bases: [], dict: [] },
+    class: internal_iter_class("enumerate", enumerate_class_ref),
     dict,
   })
 }
@@ -67,8 +116,8 @@ fn iter_value_to_iterator(
         _ => ()
       }
       if inst.class.name == "dict_keys" ||
-         inst.class.name == "dict_values" ||
-         inst.class.name == "dict_items" {
+        inst.class.name == "dict_values" ||
+        inst.class.name == "dict_items" {
         let items = match iterable_values(Value::Instance(inst)) {
           Ok(v) => v
           Err(err) => return Err(err)
@@ -111,13 +160,7 @@ fn iter_value_to_iterator(
     Value::Class(klass) => {
       let class_value = Value::Class(klass)
       match
-        get_attr_from_value(
-          class_value,
-          "__iter__",
-          globals,
-          builtins,
-          io,
-        ) {
+        get_attr_from_value(class_value, "__iter__", globals, builtins, io) {
         Ok(iter_method) =>
           call_callable_with_env(iter_method, [], [], globals, builtins, io)
         Err(err) =>
@@ -131,7 +174,8 @@ fn iter_value_to_iterator(
                   for name_value in names {
                     match name_value {
                       Value::Str(name) => {
-                        let idx = match dict_find_index(pairs, Value::Str(name)) {
+                        let idx = match
+                          dict_find_index(pairs, Value::Str(name)) {
                           Ok(v) => v
                           Err(err) => return Err(err)
                         }
@@ -156,9 +200,9 @@ fn iter_value_to_iterator(
                     Ok(mro) =>
                       for cls in mro {
                         if cls.name == "Enum" ||
-                           cls.name == "Flag" ||
-                           cls.name == "IntFlag" ||
-                           cls.name == "StrEnum" {
+                          cls.name == "Flag" ||
+                          cls.name == "IntFlag" ||
+                          cls.name == "StrEnum" {
                           is_enum = true
                           break
                         }
@@ -248,7 +292,7 @@ fn iterator_next(
         }
         match get_named_value(inst.dict, "remaining") {
           Some(Value::None) => Ok(value)
-          Some(Value::Int(v)) => {
+          Some(Value::Int(v)) =>
             if v <= 0N {
               match default_value {
                 Some(v2) => Ok(v2)
@@ -264,7 +308,6 @@ fn iterator_next(
               set_named_value(inst.dict, "remaining", Value::Int(v - 1N))
               Ok(value)
             }
-          }
           _ =>
             Err(
               make_runtime_error(

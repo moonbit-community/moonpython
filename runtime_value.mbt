@@ -63,6 +63,7 @@ fn fresh_object_hashvalue() -> @bigint.BigInt {
 }
 
 ///|
+
 ///|
 fn lookup_instance_field(
   dict : Array[(String, Value)],
@@ -710,9 +711,21 @@ fn eq_value(a : Value, b : Value) -> Bool {
         eq_value(av, bv)
       } else {
         match (instance_list_values(a), instance_list_values(b)) {
-          (Some(values_a), Some(values_b)) => list_values_equal(values_a, values_b)
+          (Some(values_a), Some(values_b)) =>
+            list_values_equal(values_a, values_b)
           (Some(_), None) | (None, Some(_)) => false
-          (None, None) => a.class.name == b.class.name
+          (None, None) =>
+            // Default instance equality should behave like `object`: identity
+            // by default. Most instances created through `object.__new__`
+            // already carry a unique `hashvalue`.
+            match
+              (
+                get_named_value(a.dict, "hashvalue"),
+                get_named_value(b.dict, "hashvalue"),
+              ) {
+              (Some(Value::Int(ha)), Some(Value::Int(hb))) => ha == hb
+              _ => a.class.name == b.class.name
+            }
         }
       }
     _ => false
@@ -754,7 +767,9 @@ fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
           Err(
             make_runtime_error(
               RuntimeErrorKind::Type,
-              "unhashable type: '" + type_name_from_value(Value::Instance(inst)) + "'",
+              "unhashable type: '" +
+              type_name_from_value(Value::Instance(inst)) +
+              "'",
             ),
           )
       }

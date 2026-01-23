@@ -356,19 +356,38 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(os_error_class)],
     dict: [],
   }
+  let file_exists_error_class = ClassValue::{
+    name: "FileExistsError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let permission_error_class = ClassValue::{
+    name: "PermissionError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let is_a_directory_error_class = ClassValue::{
+    name: "IsADirectoryError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let not_a_directory_error_class = ClassValue::{
+    name: "NotADirectoryError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = []
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
-    "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_abc_cache_token",
-    "__mpython_abc_cache_token_bump",
-    "print", "len", "range",
-    "str", "bytes", "bytearray", "memoryview", "int", "float", "complex", "list",
-    "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
-    "property", "staticmethod", "classmethod", "delattr", "super", "eval", "exec",
-    "ascii",
-    "open",
-    "__import__",
+    "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_posix_open",
+    "__mpython_posix_write", "__mpython_posix_close", "__mpython_posix_unlink", "__mpython_posix_mkdir",
+    "__mpython_posix_rmdir", "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir",
+    "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump", "print", "len",
+    "range", "str", "bytes", "bytearray", "memoryview", "int", "float", "complex",
+    "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter",
+    "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr", "super",
+    "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -399,24 +418,15 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
   builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
+  builtins.push(("FileExistsError", Value::Class(file_exists_error_class)))
+  builtins.push(("PermissionError", Value::Class(permission_error_class)))
+  builtins.push(("IsADirectoryError", Value::Class(is_a_directory_error_class)))
+  builtins.push(
+    ("NotADirectoryError", Value::Class(not_a_directory_error_class)),
+  )
   let builtin_type_names : Array[String] = [
-    "bool",
-    "int",
-    "float",
-    "complex",
-    "str",
-    "bytes",
-    "bytearray",
-    "memoryview",
-    "list",
-    "tuple",
-    "dict",
-    "set",
-    "frozenset",
-    "range",
-    "type",
-    "property",
-    "staticmethod",
+    "bool", "int", "float", "complex", "str", "bytes", "bytearray", "memoryview",
+    "list", "tuple", "dict", "set", "frozenset", "range", "type", "property", "staticmethod",
     "classmethod",
   ]
   for type_name in builtin_type_names {
@@ -734,6 +744,26 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let unicode_error_class = ClassValue::{
+    name: "UnicodeError",
+    bases: [Value::Class(value_error_class)],
+    dict: [],
+  }
+  let unicode_decode_error_class = ClassValue::{
+    name: "UnicodeDecodeError",
+    bases: [Value::Class(unicode_error_class)],
+    dict: [],
+  }
+  let unicode_encode_error_class = ClassValue::{
+    name: "UnicodeEncodeError",
+    bases: [Value::Class(unicode_error_class)],
+    dict: [],
+  }
+  let unicode_translate_error_class = ClassValue::{
+    name: "UnicodeTranslateError",
+    bases: [Value::Class(unicode_error_class)],
+    dict: [],
+  }
   let os_error_class = ClassValue::{
     name: "OSError",
     bases: [Value::Class(exception_class)],
@@ -744,9 +774,34 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(os_error_class)],
     dict: [],
   }
+  let file_exists_error_class = ClassValue::{
+    name: "FileExistsError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let permission_error_class = ClassValue::{
+    name: "PermissionError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let is_a_directory_error_class = ClassValue::{
+    name: "IsADirectoryError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let not_a_directory_error_class = ClassValue::{
+    name: "NotADirectoryError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let import_error_class = ClassValue::{
     name: "ImportError",
     bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let module_not_found_error_class = ClassValue::{
+    name: "ModuleNotFoundError",
+    bases: [Value::Class(import_error_class)],
     dict: [],
   }
   let assertion_error_class = ClassValue::{
@@ -795,8 +850,20 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_asyncgen_send", function_stub("__mpython_asyncgen_send")),
     ("__mpython_asyncgen_throw", function_stub("__mpython_asyncgen_throw")),
     ("__mpython_asyncgen_close", function_stub("__mpython_asyncgen_close")),
+    ("__mpython_posix_open", function_stub("__mpython_posix_open")),
+    ("__mpython_posix_write", function_stub("__mpython_posix_write")),
+    ("__mpython_posix_close", function_stub("__mpython_posix_close")),
+    ("__mpython_posix_unlink", function_stub("__mpython_posix_unlink")),
+    ("__mpython_posix_mkdir", function_stub("__mpython_posix_mkdir")),
+    ("__mpython_posix_rmdir", function_stub("__mpython_posix_rmdir")),
+    ("__mpython_posix_stat", function_stub("__mpython_posix_stat")),
+    ("__mpython_posix_getcwd", function_stub("__mpython_posix_getcwd")),
+    ("__mpython_posix_chdir", function_stub("__mpython_posix_chdir")),
     ("__mpython_abc_cache_token", function_stub("__mpython_abc_cache_token")),
-    ("__mpython_abc_cache_token_bump", function_stub("__mpython_abc_cache_token_bump")),
+    (
+      "__mpython_abc_cache_token_bump",
+      function_stub("__mpython_abc_cache_token_bump"),
+    ),
     ("str", function_stub("str")),
     ("bytes", function_stub("bytes")),
     ("bytearray", function_stub("bytearray")),
@@ -849,6 +916,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("id", function_stub("id")),
     ("hash", function_stub("hash")),
     ("globals", function_stub("globals")),
+    ("vars", function_stub("vars")),
     ("locals", function_stub("locals")),
     ("eval", function_stub("eval")),
     ("exec", function_stub("exec")),
@@ -889,9 +957,18 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("ZeroDivisionError", Value::Class(zero_division_error_class)),
     ("OverflowError", Value::Class(overflow_error_class)),
     ("ValueError", Value::Class(value_error_class)),
+    ("UnicodeError", Value::Class(unicode_error_class)),
+    ("UnicodeDecodeError", Value::Class(unicode_decode_error_class)),
+    ("UnicodeEncodeError", Value::Class(unicode_encode_error_class)),
+    ("UnicodeTranslateError", Value::Class(unicode_translate_error_class)),
     ("OSError", Value::Class(os_error_class)),
     ("FileNotFoundError", Value::Class(file_not_found_error_class)),
+    ("FileExistsError", Value::Class(file_exists_error_class)),
+    ("PermissionError", Value::Class(permission_error_class)),
+    ("IsADirectoryError", Value::Class(is_a_directory_error_class)),
+    ("NotADirectoryError", Value::Class(not_a_directory_error_class)),
     ("ImportError", Value::Class(import_error_class)),
+    ("ModuleNotFoundError", Value::Class(module_not_found_error_class)),
     ("AssertionError", Value::Class(assertion_error_class)),
     ("SyntaxError", Value::Class(syntax_error_class)),
     ("IndentationError", Value::Class(indentation_error_class)),
@@ -901,25 +978,9 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("RuntimeError", Value::Class(runtime_error_class)),
   ]
   let builtin_type_names : Array[String] = [
-    "bool",
-    "int",
-    "float",
-    "complex",
-    "str",
-    "bytes",
-    "bytearray",
-    "memoryview",
-    "list",
-    "tuple",
-    "slice",
-    "dict",
-    "set",
-    "frozenset",
-    "range",
-    "type",
-    "property",
-    "staticmethod",
-    "classmethod",
+    "bool", "int", "float", "complex", "str", "bytes", "bytearray", "memoryview",
+    "list", "tuple", "slice", "dict", "set", "frozenset", "range", "type", "property",
+    "staticmethod", "classmethod",
   ]
   for type_name in builtin_type_names {
     let klass = builtin_class_from_name(type_name, builtins)
@@ -930,14 +991,12 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__package__", Value::Str("")),
   ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
-  let main_module = Value::Instance(InstanceValue::{ class: module_class, dict: globals })
+  let main_module = Value::Instance(InstanceValue::{
+    class: module_class,
+    dict: globals,
+  })
   module_cache_set("__main__", main_module)
-  Interpreter::{
-    config,
-    globals,
-    builtins,
-    io,
-  }
+  Interpreter::{ config, globals, builtins, io }
 }
 
 ///|
@@ -1103,4 +1162,13 @@ pub fn Interpreter::set_global(
   value : Value,
 ) -> Unit {
   set_global_value(self.globals, name, value)
+}
+
+///|
+pub fn Interpreter::set_global_str(
+  self : Interpreter,
+  name : String,
+  value : String,
+) -> Unit {
+  set_global_value(self.globals, name, Value::Str(value))
 }

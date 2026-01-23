@@ -98,6 +98,7 @@ fn set_eval_generator_with_kwargs_callback(
 ) -> Unit {
   eval_generator_with_kwargs_ref.val = callback
 }
+
 ///|
 fn call_callable_with_env(
   callee : Value,
@@ -245,7 +246,9 @@ fn call_callable_with_env(
             if class_includes_dict(klass) {
               inst_dict.push((dict_storage_name, Value::Dict([])))
             }
-            Ok(Value::Instance(InstanceValue::{ class: klass, dict: inst_dict }))
+            Ok(
+              Value::Instance(InstanceValue::{ class: klass, dict: inst_dict }),
+            )
           }
           _ =>
             Err(
@@ -798,7 +801,8 @@ fn call_callable_with_env(
           if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 &&
               bound_method.function.name != "split" &&
-              bound_method.function.name != "splitlines" {
+              bound_method.function.name != "splitlines" &&
+              bound_method.function.name != "format" {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
@@ -841,17 +845,27 @@ fn call_callable_with_env(
                       ),
                     )
                 }
-                let start = match index_from_value(
-                  if positional.length() >= 2 { positional[1] } else { Value::None },
-                  0,
-                ) {
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let end = match index_from_value(
-                  if positional.length() == 3 { positional[2] } else { Value::None },
-                  text.length(),
-                ) {
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    text.length(),
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -901,17 +915,27 @@ fn call_callable_with_env(
                       ),
                     )
                 }
-                let start = match index_from_value(
-                  if positional.length() >= 2 { positional[1] } else { Value::None },
-                  0,
-                ) {
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let end = match index_from_value(
-                  if positional.length() == 3 { positional[2] } else { Value::None },
-                  text.length(),
-                ) {
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    text.length(),
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -970,17 +994,27 @@ fn call_callable_with_env(
                       ),
                     )
                 }
-                let start = match index_from_value(
-                  if positional.length() >= 2 { positional[1] } else { Value::None },
-                  0,
-                ) {
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let end = match index_from_value(
-                  if positional.length() == 3 { positional[2] } else { Value::None },
-                  text.length(),
-                ) {
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    text.length(),
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -1004,7 +1038,7 @@ fn call_callable_with_env(
                 if needle.length() == 0 {
                   return Ok(Value::Int(@bigint.BigInt::from_int(end_idx)))
                 }
-                if needle.length() > (end_idx - start_idx) {
+                if needle.length() > end_idx - start_idx {
                   return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
                 }
                 let mut found = -1
@@ -1043,10 +1077,7 @@ fn call_callable_with_env(
                 }
                 let bytes = match
                   encode_string_with_encoding(
-                    "encode",
-                    text,
-                    encoding_value,
-                    errors_value,
+                    "encode", text, encoding_value, errors_value,
                   ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
@@ -1086,17 +1117,27 @@ fn call_callable_with_env(
                       ),
                     )
                 }
-                let start = match index_from_value(
-                  if positional.length() >= 2 { positional[1] } else { Value::None },
-                  0,
-                ) {
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let end = match index_from_value(
-                  if positional.length() == 3 { positional[2] } else { Value::None },
-                  text.length(),
-                ) {
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    text.length(),
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -1193,15 +1234,154 @@ fn call_callable_with_env(
                   match text.find(sep) {
                     Some(pos) => {
                       let head = substring(text, 0, pos)
-                      let tail = substring(text, pos + sep.length(), text.length())
-                      return Ok(Value::Tuple([Value::Str(head), Value::Str(sep), Value::Str(tail)]))
+                      let tail = substring(
+                        text,
+                        pos + sep.length(),
+                        text.length(),
+                      )
+                      return Ok(
+                        Value::Tuple([
+                          Value::Str(head),
+                          Value::Str(sep),
+                          Value::Str(tail),
+                        ]),
+                      )
                     }
                     None =>
                       return Ok(
-                        Value::Tuple([Value::Str(text), Value::Str(""), Value::Str("")]),
+                        Value::Tuple([
+                          Value::Str(text),
+                          Value::Str(""),
+                          Value::Str(""),
+                        ]),
                       )
                   }
                 }
+              "expandtabs" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "expandtabs() takes at most one argument".to_string(),
+                    ),
+                  )
+                }
+                let mut tabsize = 8
+                if positional.length() == 1 {
+                  match positional[0] {
+                    Value::Int(v) => tabsize = v.to_int64().to_int()
+                    Value::Bool(v) => tabsize = if v { 1 } else { 0 }
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "expandtabs() expects an int tabsize".to_string(),
+                        ),
+                      )
+                  }
+                }
+                if tabsize < 0 {
+                  tabsize = 0
+                }
+                let chars = text.to_array()
+                let buf = StringBuilder::new()
+                let mut col = 0
+                for c in chars {
+                  if c == '\t' {
+                    if tabsize == 0 {
+                      continue
+                    }
+                    let space_count = tabsize - col % tabsize
+                    for _k = 0; _k < space_count; _k = _k + 1 {
+                      buf.write_char(' ')
+                    }
+                    col += space_count
+                  } else {
+                    buf.write_char(c)
+                    if c == '\n' || c == '\r' {
+                      col = 0
+                    } else {
+                      col += 1
+                    }
+                  }
+                }
+                return Ok(Value::Str(buf.to_string()))
+              }
+              "translate" => {
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "translate() takes exactly one argument".to_string(),
+                    ),
+                  )
+                }
+                let table = match positional[0] {
+                  Value::Dict(pairs) => pairs
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "translate() expects a dict table".to_string(),
+                      ),
+                    )
+                }
+                let chars = text.to_array()
+                let buf = StringBuilder::new()
+                for c in chars {
+                  let code = c.to_int()
+                  let idx = match
+                    dict_find_index(
+                      table,
+                      Value::Int(@bigint.BigInt::from_int(code)),
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  match idx {
+                    Some(pos) =>
+                      match table[pos].1 {
+                        Value::None => ()
+                        Value::Str(rep) => buf.write_string(rep)
+                        Value::Int(v) => {
+                          let out_code = v.to_int64().to_int()
+                          match out_code.to_char() {
+                            Some(ch) => buf.write_char(ch)
+                            None =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Runtime,
+                                  "ValueError: invalid character in translate table".to_string(),
+                                ),
+                              )
+                          }
+                        }
+                        Value::Bool(v) => {
+                          let out_code = if v { 1 } else { 0 }
+                          match out_code.to_char() {
+                            Some(ch) => buf.write_char(ch)
+                            None =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Runtime,
+                                  "ValueError: invalid character in translate table".to_string(),
+                                ),
+                              )
+                          }
+                        }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "translate() table values must be int, str, or None".to_string(),
+                            ),
+                          )
+                      }
+                    None => buf.write_char(c)
+                  }
+                }
+                return Ok(Value::Str(buf.to_string()))
+              }
               "isidentifier" =>
                 if positional.length() != 0 {
                   return Err(
@@ -1292,7 +1472,11 @@ fn call_callable_with_env(
                 if old.length() == 0 {
                   let chars = text.to_array()
                   let total = chars.length() + 1
-                  let limit = if count < 0 || count > total { total } else { count }
+                  let limit = if count < 0 || count > total {
+                    total
+                  } else {
+                    count
+                  }
                   let builder = StringBuilder::new()
                   let mut inserted = 0
                   for i = 0; i < chars.length(); i = i + 1 {
@@ -1335,14 +1519,21 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let chars_opt = match parse_strip_chars(
-                  "strip",
-                  if positional.length() == 1 { Some(positional[0]) } else { None },
-                ) {
+                let chars_opt = match
+                  parse_strip_chars(
+                    "strip",
+                    if positional.length() == 1 {
+                      Some(positional[0])
+                    } else {
+                      None
+                    },
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Both)))
+                return Ok(
+                  Value::Str(strip_text(text, chars_opt, StripMode::Both)),
+                )
               }
               "lstrip" => {
                 if positional.length() > 1 {
@@ -1353,14 +1544,21 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let chars_opt = match parse_strip_chars(
-                  "lstrip",
-                  if positional.length() == 1 { Some(positional[0]) } else { None },
-                ) {
+                let chars_opt = match
+                  parse_strip_chars(
+                    "lstrip",
+                    if positional.length() == 1 {
+                      Some(positional[0])
+                    } else {
+                      None
+                    },
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Left)))
+                return Ok(
+                  Value::Str(strip_text(text, chars_opt, StripMode::Left)),
+                )
               }
               "rstrip" => {
                 if positional.length() > 1 {
@@ -1371,14 +1569,21 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let chars_opt = match parse_strip_chars(
-                  "rstrip",
-                  if positional.length() == 1 { Some(positional[0]) } else { None },
-                ) {
+                let chars_opt = match
+                  parse_strip_chars(
+                    "rstrip",
+                    if positional.length() == 1 {
+                      Some(positional[0])
+                    } else {
+                      None
+                    },
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                return Ok(Value::Str(strip_text(text, chars_opt, StripMode::Right)))
+                return Ok(
+                  Value::Str(strip_text(text, chars_opt, StripMode::Right)),
+                )
               }
               "split" => {
                 if positional.length() > 2 {
@@ -1457,7 +1662,9 @@ fn call_callable_with_env(
                       while end > i && is_ascii_whitespace(chars[end - 1]) {
                         end -= 1
                       }
-                      return Ok(Value::List([Value::Str(substring(text, i, end))]))
+                      return Ok(
+                        Value::List([Value::Str(substring(text, i, end))]),
+                      )
                     }
                     let parts : Array[Value] = []
                     let mut splits = 0
@@ -1472,7 +1679,8 @@ fn call_callable_with_env(
                         }
                         if maxsplit >= 0 && splits >= maxsplit {
                           let mut tail_end = len
-                          while tail_end > i && is_ascii_whitespace(chars[tail_end - 1]) {
+                          while tail_end > i &&
+                                is_ascii_whitespace(chars[tail_end - 1]) {
                             tail_end -= 1
                           }
                           if tail_end > i {
@@ -1554,8 +1762,7 @@ fn call_callable_with_env(
                       return Err(
                         make_runtime_error(
                           RuntimeErrorKind::Type,
-                          "splitlines() got multiple values for argument 'keepends'"
-                            .to_string(),
+                          "splitlines() got multiple values for argument 'keepends'".to_string(),
                         ),
                       )
                     }
@@ -1595,7 +1802,9 @@ fn call_callable_with_env(
                       builder.write_char(c)
                       has_text = true
                     }
-                    if c == '\r' && i + 1 < chars.length() && chars[i + 1] == '\n' {
+                    if c == '\r' &&
+                      i + 1 < chars.length() &&
+                      chars[i + 1] == '\n' {
                       if keepends {
                         builder.write_char('\n')
                         has_text = true
@@ -1880,7 +2089,6 @@ fn call_callable_with_env(
                 if values.length() == 0 {
                   return Ok(Value::None)
                 }
-
                 fn lt_for_sort(
                   a : Value,
                   b : Value,
@@ -1942,14 +2150,15 @@ fn call_callable_with_env(
                       let key = if key_fn is Value::None {
                         item
                       } else {
-                        match call_callable_with_env(
-                          key_fn,
-                          [item],
-                          [],
-                          globals,
-                          builtins,
-                          io,
-                        ) {
+                        match
+                          call_callable_with_env(
+                            key_fn,
+                            [item],
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
                           Ok(value) => value
                           Err(err) => return Err(err)
                         }
@@ -1968,7 +2177,13 @@ fn call_callable_with_env(
                         let mut j = i
                         while j > 0 {
                           let less = match
-                            lt_for_sort(item.0, pairs[j - 1].0, globals, builtins, io) {
+                            lt_for_sort(
+                              item.0,
+                              pairs[j - 1].0,
+                              globals,
+                              builtins,
+                              io,
+                            ) {
                             Ok(v) => v
                             Err(err) => return Err(err)
                           }
@@ -1999,36 +2214,34 @@ fn call_callable_with_env(
                         None => can_use_fast = false
                       }
                     }
-
-                    let sorted_pairs =
-                      if can_use_fast {
-                        let kind = match kind_opt {
-                          Some(kind) => kind
-                          None => return Ok(Value::None)
-                        }
-                        match stable_sort_pairs_by_key(key_pairs, kind) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                      } else {
-                        let _ = match
-                          insertion_sort_pairs_by_key(
-                            key_pairs,
-                            globals,
-                            builtins,
-                            io,
-                          ) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                        key_pairs
+                    let sorted_pairs = if can_use_fast {
+                      let kind = match kind_opt {
+                        Some(kind) => kind
+                        None => return Ok(Value::None)
                       }
+                      match stable_sort_pairs_by_key(key_pairs, kind) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                    } else {
+                      let _ = match
+                        insertion_sort_pairs_by_key(
+                          key_pairs, globals, builtins, io,
+                        ) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      key_pairs
+                    }
                     let sorted_items : Array[Value] = []
                     for pair in sorted_pairs {
                       sorted_items.push(pair.1)
                     }
-                    let out =
-                      if reverse { reverse_values(sorted_items) } else { sorted_items }
+                    let out = if reverse {
+                      reverse_values(sorted_items)
+                    } else {
+                      sorted_items
+                    }
                     replace_array_values(values, out)
                     return Ok(Value::None)
                   }
@@ -2048,49 +2261,41 @@ fn call_callable_with_env(
                         None => can_use_fast = false
                       }
                     }
-
-                    let mut out =
-                      if can_use_fast {
-                        let kind = match kind_opt {
-                          Some(kind) => kind
-                          None => return Ok(Value::None)
-                        }
-                        match stable_sort_for_sorted(values, kind) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                      } else {
-                        let out : Array[Value] = []
-                        for item in values {
-                          out.push(item)
-                        }
-                        let mut i = 1
-                        while i < out.length() {
-                          let item = out[i]
-                          let mut j = i
-                          while j > 0 {
-                            let less = match
-                              lt_for_sort(
-                                item,
-                                out[j - 1],
-                                globals,
-                                builtins,
-                                io,
-                              ) {
-                              Ok(v) => v
-                              Err(err) => return Err(err)
-                            }
-                            if !less {
-                              break
-                            }
-                            out[j] = out[j - 1]
-                            j -= 1
-                          }
-                          out[j] = item
-                          i += 1
-                        }
-                        out
+                    let mut out = if can_use_fast {
+                      let kind = match kind_opt {
+                        Some(kind) => kind
+                        None => return Ok(Value::None)
                       }
+                      match stable_sort_for_sorted(values, kind) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                    } else {
+                      let out : Array[Value] = []
+                      for item in values {
+                        out.push(item)
+                      }
+                      let mut i = 1
+                      while i < out.length() {
+                        let item = out[i]
+                        let mut j = i
+                        while j > 0 {
+                          let less = match
+                            lt_for_sort(item, out[j - 1], globals, builtins, io) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          if !less {
+                            break
+                          }
+                          out[j] = out[j - 1]
+                          j -= 1
+                        }
+                        out[j] = item
+                        i += 1
+                      }
+                      out
+                    }
                     if reverse {
                       out = reverse_values(out)
                     }
@@ -2124,17 +2329,27 @@ fn call_callable_with_env(
                   )
                 }
                 let needle = positional[0]
-                let start = match index_from_value(
-                  if positional.length() >= 2 { positional[1] } else { Value::None },
-                  0,
-                ) {
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let end = match index_from_value(
-                  if positional.length() == 3 { positional[2] } else { Value::None },
-                  values.length(),
-                ) {
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    values.length(),
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -2158,9 +2373,7 @@ fn call_callable_with_env(
                 let mut i = start_idx
                 while i < end_idx {
                   if eq_value(values[i], needle) {
-                    return Ok(
-                      Value::Int(@bigint.BigInt::from_int(i)),
-                    )
+                    return Ok(Value::Int(@bigint.BigInt::from_int(i)))
                   }
                   i += 1
                 }
@@ -2456,7 +2669,8 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  let _ = match dict_set_item(pairs, positional[0], positional[1]) {
+                  let _ = match
+                    dict_set_item(pairs, positional[0], positional[1]) {
                     Ok(v) => v
                     Err(err) => return Err(err)
                   }
@@ -2509,7 +2723,9 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+                  return Ok(
+                    Value::Int(@bigint.BigInt::from_int(pairs.length())),
+                  )
                 }
               _ => ()
             }
@@ -2706,10 +2922,54 @@ fn call_callable_with_env(
                         Ok(_) => ()
                         Err(err) => return Err(err)
                       }
+
                     }
                   }
                   return Ok(Value::Set(out))
                 }
+              "difference_update" => {
+                // Remove all elements found in any of the provided iterables.
+                if positional.length() == 0 {
+                  return Ok(Value::None)
+                }
+                let remove_values : Array[Value] = []
+                for arg in positional {
+                  let iterator = match
+                    iter_value_to_iterator(arg, globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_add_unique(remove_values, item) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                }
+                let mut i = values.length()
+                while i > 0 {
+                  i = i - 1
+                  let item = values[i]
+                  let index = match set_find_index(remove_values, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if index is Some(_) {
+                    let _ = values.remove(i)
+
+                  }
+                }
+                return Ok(Value::None)
+              }
               "issuperset" =>
                 if positional.length() != 1 {
                   return Err(
@@ -2824,7 +3084,9 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+                  return Ok(
+                    Value::Int(@bigint.BigInt::from_int(values.length())),
+                  )
                 }
               _ => ()
             }
@@ -2862,10 +3124,7 @@ fn call_callable_with_env(
                 }
                 let text = match
                   decode_bytes_with_encoding(
-                    "decode",
-                    values,
-                    encoding_value,
-                    errors_value,
+                    "decode", values, encoding_value, errors_value,
                   ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
@@ -2908,10 +3167,7 @@ fn call_callable_with_env(
                 }
                 let text = match
                   decode_bytes_with_encoding(
-                    "decode",
-                    values,
-                    encoding_value,
-                    errors_value,
+                    "decode", values, encoding_value, errors_value,
                   ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
@@ -2954,10 +3210,7 @@ fn call_callable_with_env(
                 }
                 let text = match
                   decode_bytes_with_encoding(
-                    "decode",
-                    values,
-                    encoding_value,
-                    errors_value,
+                    "decode", values, encoding_value, errors_value,
                   ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
@@ -3065,7 +3318,8 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
       }
-      let abstract_values_opt = match get_named_value(klass.dict, "__abstractmethods__") {
+      let abstract_values_opt = match
+        get_named_value(klass.dict, "__abstractmethods__") {
         Some(Value::Set(values)) => Some(values)
         Some(Value::Tuple(values)) => Some(values)
         _ => None
@@ -3099,8 +3353,7 @@ fn call_callable_with_env(
             }
             builder.write_string("'" + names[i] + "'")
           }
-          let label =
-            if names.length() == 1 { "method" } else { "methods" }
+          let label = if names.length() == 1 { "method" } else { "methods" }
           return Err(
             make_runtime_error(
               RuntimeErrorKind::Type,
@@ -3283,6 +3536,7 @@ fn call_callable_with_env(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
+
               }
             _ => ()
           }

@@ -58,8 +58,8 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
     }
     Value::Instance(inst) =>
       if inst.class.name == "dict_keys" ||
-         inst.class.name == "dict_values" ||
-         inst.class.name == "dict_items" {
+        inst.class.name == "dict_values" ||
+        inst.class.name == "dict_items" {
         let dict_value = lookup_iterable_field(inst.dict, "dict")
         match dict_value {
           Some(Value::Dict(pairs)) => {

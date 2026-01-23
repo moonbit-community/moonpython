@@ -2,6 +2,56 @@
 /// Core builtins (print/len/range/sum/max/min/any/all/enumerate/zip/map/filter/reversed/sorted).
 
 ///|
+fn builtin_internal_iter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__mpython.internal_iter", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython.internal_iter() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
+fn builtin_internal_next(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__mpython.internal_next", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython.internal_next() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  iterator_next(positional[0], None, globals, builtins, io)
+}
+
+///|
 fn builtin_print(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -599,7 +649,8 @@ fn builtin_enumerate(
       ),
     )
   }
-  let iterator = match iter_value_to_iterator(positional[0], globals, builtins, io) {
+  let iterator = match
+    iter_value_to_iterator(positional[0], globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -841,14 +892,8 @@ fn builtin_sorted(
         let key = if key_fn is Value::None {
           item
         } else {
-          match call_callable_with_env(
-            key_fn,
-            [item],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
+          match
+            call_callable_with_env(key_fn, [item], [], globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
@@ -956,7 +1001,11 @@ fn builtin_sys_exit(
       ),
     )
   }
-  let status = if positional.length() == 0 { Value::None } else { positional[0] }
+  let status = if positional.length() == 0 {
+    Value::None
+  } else {
+    positional[0]
+  }
   let msg = match status {
     Value::None => "SystemExit".to_string()
     _ => "SystemExit: " + value_to_string(status)

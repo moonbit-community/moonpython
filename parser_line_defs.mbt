@@ -40,8 +40,7 @@ fn parse_class_stmt(
     .to_string()
   let paren_span = find_top_level_paren_span(header)
   let name_part = match paren_span {
-    Some(span) =>
-      substring(header, 0, span.0).trim(chars=" \t\n\r").to_string()
+    Some(span) => substring(header, 0, span.0).trim(chars=" \t\n\r").to_string()
     None => header
   }
   let name_token = {
@@ -213,14 +212,7 @@ fn parse_class_stmt(
         parser.offsets,
         line_index,
         current_indent,
-        Stmt::Class(
-          name~,
-          decorators~,
-          type_params~,
-          bases~,
-          keywords~,
-          body~,
-        ),
+        Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~),
       ),
     )
     parser.index = next_index
@@ -256,14 +248,7 @@ fn parse_class_stmt(
       parser.offsets,
       line_index,
       current_indent,
-      Stmt::Class(
-        name~,
-        decorators~,
-        type_params~,
-        bases~,
-        keywords~,
-        body~,
-      ),
+      Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~),
     ),
   )
   Ok((true, next_pending, next_token))
@@ -384,9 +369,7 @@ fn parse_def_stmt(
     let eq_pos_full = find_char(trimmed_param, '=')
     let has_default = eq_pos_full is Some(_)
     if eq_pos_full is Some(eq_idx) {
-      name = substring(trimmed_param, 0, eq_idx)
-        .trim(chars=" \t")
-        .to_string()
+      name = substring(trimmed_param, 0, eq_idx).trim(chars=" \t").to_string()
     }
     if name == "/" {
       name = ""
@@ -485,22 +468,14 @@ fn parse_def_stmt(
       }
       let eq_pos = find_char(raw_param, '=')
       if eq_pos is Some(eq_idx) {
-        let default_text = substring(
-            raw_param,
-            eq_idx + 1,
-            raw_param.length(),
-          )
+        let default_text = substring(raw_param, eq_idx + 1, raw_param.length())
           .trim(chars=" \t\n\r")
           .to_string()
         let tokens = match
           tokenize_expr(
             default_text,
             parser.index + 1,
-            parser.offsets[parser.index] +
-            param_base +
-            param_start +
-            eq_idx +
-            1,
+            parser.offsets[parser.index] + param_base + param_start + eq_idx + 1,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -524,6 +499,7 @@ fn parse_def_stmt(
     params.push(encoded)
     Ok(())
   }
+
   while idx < params_chars.length() {
     let c = params_chars[idx]
     match quote {
@@ -619,6 +595,41 @@ fn parse_def_stmt(
                   match normalize_param_name_for_compare(param) {
                     Some(param_name) =>
                       if param_name == name {
+                        let token = {
+                          kind: Eof,
+                          start: parser.offsets[parser.index] +
+                          current_indent +
+                          4 +
+                          colon_pos.unwrap() +
+                          2,
+                          end: parser.offsets[parser.index] +
+                          current_indent +
+                          4 +
+                          colon_pos.unwrap() +
+                          3,
+                          line: parser.index + 1,
+                          column: current_indent + 4 + colon_pos.unwrap() + 3,
+                        }
+                        return Err(
+                          make_parse_error(
+                            ParseErrorKind::Syntax,
+                            "name '" + name + "' is parameter and global",
+                            token,
+                          ),
+                        )
+                      }
+                    None => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        Stmt::Global(names) =>
+          for name in names {
+            for param in params {
+              match normalize_param_name_for_compare(param) {
+                Some(param_name) =>
+                  if param_name == name {
                     let token = {
                       kind: Eof,
                       start: parser.offsets[parser.index] +
@@ -641,41 +652,6 @@ fn parse_def_stmt(
                         token,
                       ),
                     )
-                      }
-                    None => ()
-                  }
-                }
-              }
-            _ => ()
-          }
-        Stmt::Global(names) =>
-          for name in names {
-            for param in params {
-              match normalize_param_name_for_compare(param) {
-                Some(param_name) =>
-                  if param_name == name {
-                let token = {
-                  kind: Eof,
-                  start: parser.offsets[parser.index] +
-                  current_indent +
-                  4 +
-                  colon_pos.unwrap() +
-                  2,
-                  end: parser.offsets[parser.index] +
-                  current_indent +
-                  4 +
-                  colon_pos.unwrap() +
-                  3,
-                  line: parser.index + 1,
-                  column: current_indent + 4 + colon_pos.unwrap() + 3,
-                }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "name '" + name + "' is parameter and global",
-                    token,
-                  ),
-                )
                   }
                 None => ()
               }
@@ -849,9 +825,9 @@ fn parse_def_stmt(
           scan_expr_for_yield(pair.0, has_yield_ref, has_yield_from_ref)
           scan_expr_for_yield(pair.1, has_yield_ref, has_yield_from_ref)
         }
-      Expr::ListComp(elt~, clauses~, filters~) |
-      Expr::GenExp(elt~, clauses~, filters~) |
-      Expr::SetComp(elt~, clauses~, filters~) => {
+      Expr::ListComp(elt~, clauses~, filters~)
+      | Expr::GenExp(elt~, clauses~, filters~)
+      | Expr::SetComp(elt~, clauses~, filters~) => {
         scan_expr_for_yield(elt, has_yield_ref, has_yield_from_ref)
         for clause in clauses {
           scan_expr_for_yield(clause.iter, has_yield_ref, has_yield_from_ref)
@@ -932,6 +908,7 @@ fn parse_def_stmt(
       _ => ()
     }
   }
+
   fn scan_target_for_yield(
     target : Target,
     has_yield_ref : Ref[Bool],
@@ -948,9 +925,12 @@ fn parse_def_stmt(
         for item in items {
           scan_target_for_yield(item, has_yield_ref, has_yield_from_ref)
         }
+      Target::Starred(inner) =>
+        scan_target_for_yield(inner, has_yield_ref, has_yield_from_ref)
       _ => ()
     }
   }
+
   fn scan_stmt_for_yield(
     stmt : Stmt,
     has_yield_ref : Ref[Bool],
@@ -960,10 +940,7 @@ fn parse_def_stmt(
     match stmt {
       Stmt::WithSpan(span=_, stmt=inner) =>
         scan_stmt_for_yield(
-          inner,
-          has_yield_ref,
-          has_yield_from_ref,
-          has_return_value_ref,
+          inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
         )
       Stmt::ExprStmt(expr) =>
         scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
@@ -977,7 +954,7 @@ fn parse_def_stmt(
       }
       Stmt::TypeAlias(name=_, type_params=_, value~) =>
         scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
-      Stmt::Return(value) => {
+      Stmt::Return(value) =>
         match value {
           Some(expr) => {
             has_return_value_ref.val = true
@@ -985,7 +962,6 @@ fn parse_def_stmt(
           }
           None => ()
         }
-      }
       Stmt::Yield(value) => {
         has_yield_ref.val = true
         match value {
@@ -1003,18 +979,12 @@ fn parse_def_stmt(
         scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
         for inner in body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
         for inner in else_body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
       }
@@ -1030,10 +1000,7 @@ fn parse_def_stmt(
           }
           for inner in case_body {
             scan_stmt_for_yield(
-              inner,
-              has_yield_ref,
-              has_yield_from_ref,
-              has_return_value_ref,
+              inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
             )
           }
         }
@@ -1042,39 +1009,27 @@ fn parse_def_stmt(
         scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
         for inner in body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
         for inner in else_body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
       }
-      Stmt::For(target~, iter~, body~, else_body~) |
-      Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      Stmt::For(target~, iter~, body~, else_body~)
+      | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
         scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
         scan_expr_for_yield(iter, has_yield_ref, has_yield_from_ref)
         for inner in body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
         for inner in else_body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
       }
@@ -1102,25 +1057,19 @@ fn parse_def_stmt(
         for target in targets {
           scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
         }
-      Stmt::With(context~, target=_, body~) |
-      Stmt::AsyncWith(context~, target=_, body~) => {
+      Stmt::With(context~, target=_, body~)
+      | Stmt::AsyncWith(context~, target=_, body~) => {
         scan_expr_for_yield(context, has_yield_ref, has_yield_from_ref)
         for inner in body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
         for inner in body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
         for handler in handlers {
@@ -1131,41 +1080,29 @@ fn parse_def_stmt(
           }
           for inner in handler.body {
             scan_stmt_for_yield(
-              inner,
-              has_yield_ref,
-              has_yield_from_ref,
-              has_return_value_ref,
+              inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
             )
           }
         }
         for inner in else_body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
         for inner in finally_body {
           scan_stmt_for_yield(
-            inner,
-            has_yield_ref,
-            has_yield_from_ref,
-            has_return_value_ref,
+            inner, has_yield_ref, has_yield_from_ref, has_return_value_ref,
           )
         }
       }
-      Stmt::Function(..) | Stmt::Class(..) =>
-        ()
+      Stmt::Function(..) | Stmt::Class(..) => ()
       _ => ()
     }
   }
+
   for stmt in body {
     scan_stmt_for_yield(
-      stmt,
-      has_yield_ref,
-      has_yield_from_ref,
-      has_return_value_ref,
+      stmt, has_yield_ref, has_yield_from_ref, has_return_value_ref,
     )
   }
   let is_generator = has_yield_ref.val || has_yield_from_ref.val
@@ -1281,20 +1218,20 @@ fn parse_def_stmt(
             match normalize_param_name_for_compare(param) {
               Some(param_name) =>
                 if param_name == name {
-              let token = {
-                kind: Eof,
-                start: parser.offsets[parser.index - 1] + current_indent + 1,
-                end: parser.offsets[parser.index - 1] + current_indent + 2,
-                line: parser.index,
-                column: current_indent + 2,
-              }
-              return Err(
-                make_parse_error(
-                  ParseErrorKind::Syntax,
-                  "name '" + name + "' is parameter and global",
-                  token,
-                ),
-              )
+                  let token = {
+                    kind: Eof,
+                    start: parser.offsets[parser.index - 1] + current_indent + 1,
+                    end: parser.offsets[parser.index - 1] + current_indent + 2,
+                    line: parser.index,
+                    column: current_indent + 2,
+                  }
+                  return Err(
+                    make_parse_error(
+                      ParseErrorKind::Syntax,
+                      "name '" + name + "' is parameter and global",
+                      token,
+                    ),
+                  )
                 }
               None => ()
             }

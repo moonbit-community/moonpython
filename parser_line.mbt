@@ -6,6 +6,7 @@
 /// - parser_line_match.mbt
 /// - parser_line_defs.mbt
 ///
+
 ///|
 fn LineParser::parse_block(
   self : LineParser,
@@ -253,12 +254,7 @@ fn LineParser::parse_block(
     }
     let handled = match
       parse_match_stmt(
-        self,
-        stmts,
-        line_text,
-        line_index,
-        current_indent,
-        next_index,
+        self, stmts, line_text, line_index, current_indent, next_index,
       ) {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -314,14 +310,8 @@ fn LineParser::parse_block(
     }
     let (handled, next_pending, next_token) = match
       parse_class_stmt(
-        self,
-        stmts,
-        pending_decorators,
-        pending_decorator_token,
-        line_text,
-        line_index,
-        current_indent,
-        next_index,
+        self, stmts, pending_decorators, pending_decorator_token, line_text, line_index,
+        current_indent, next_index,
       ) {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -422,10 +412,6 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let target_expr = match parse_tokens_expr(target_tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
       let target_token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent + 10,
@@ -433,7 +419,9 @@ fn LineParser::parse_block(
         line: self.index + 1,
         column: 1,
       }
-      let target = match target_from_expr(target_expr, target_token) {
+      // `for` targets allow starred assignment targets like `for a, *_ in xs:`.
+      let target = match
+        target_from_assignment_tokens(target_tokens, target_token) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -767,15 +755,8 @@ fn LineParser::parse_block(
     }
     let (handled, next_pending, next_token) = match
       parse_def_stmt(
-        self,
-        stmts,
-        pending_decorators,
-        pending_decorator_token,
-        line_text,
-        line,
-        line_index,
-        current_indent,
-        next_index,
+        self, stmts, pending_decorators, pending_decorator_token, line_text, line,
+        line_index, current_indent, next_index,
       ) {
       Ok(value) => value
       Err(err) => return Err(err)
@@ -906,11 +887,17 @@ fn LineParser::parse_block(
         if next_indent != current_indent {
           break
         }
-        let mut next_text = substring(next_line, next_indent, next_line.length())
+        let mut next_text = substring(
+            next_line,
+            next_indent,
+            next_line.length(),
+          )
           .trim(chars=" \t")
           .to_string()
         if find_triple_quote(next_text) is None {
-          next_text = strip_inline_comment(next_text).trim(chars=" \t").to_string()
+          next_text = strip_inline_comment(next_text)
+            .trim(chars=" \t")
+            .to_string()
         }
         if next_text.has_prefix("elif ") || next_text.has_prefix("elif(") {
           let mut elif_text = next_text
@@ -1181,10 +1168,6 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let target_expr = match parse_tokens_expr(target_tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
       let target_token = {
         kind: Eof,
         start: self.offsets[self.index] + current_indent + 4,
@@ -1192,7 +1175,9 @@ fn LineParser::parse_block(
         line: self.index + 1,
         column: current_indent + 5,
       }
-      let target = match target_from_expr(target_expr, target_token) {
+      // `for` targets allow starred assignment targets like `for a, *_ in xs:`.
+      let target = match
+        target_from_assignment_tokens(target_tokens, target_token) {
         Ok(value) => value
         Err(err) => return Err(err)
       }

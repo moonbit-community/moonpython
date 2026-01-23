@@ -461,7 +461,7 @@ fn parse_string_literal(
     let c = chars[i]
     if fstring && brace_depth > 0 {
       match expr_quote {
-        Some(q) => {
+        Some(q) =>
           if expr_escape {
             expr_escape = false
           } else if c == '\\' {
@@ -469,8 +469,7 @@ fn parse_string_literal(
           } else if c == q {
             expr_quote = None
           }
-        }
-        None => {
+        None =>
           if c == '\'' || c == '"' {
             expr_quote = Some(c)
             expr_escape = false
@@ -481,7 +480,6 @@ fn parse_string_literal(
               brace_depth -= 1
             }
           }
-        }
       }
       buf.write_char(c)
       i += 1
@@ -1040,10 +1038,7 @@ fn tokenize_expr(
           chars[j + 1] == chars[j] &&
           chars[j + 2] == chars[j]
         let (value, next_i, closed) = parse_string_literal(
-          chars,
-          j,
-          raw_prefix,
-          f_prefix,
+          chars, j, raw_prefix, f_prefix,
         )
         if !closed {
           let mut detected_line = current_line

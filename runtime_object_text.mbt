@@ -30,12 +30,14 @@ fn is_ascii_whitespace(c : Char) -> Bool {
   code == 0x0c
 }
 
+///|
 priv enum StripMode {
   Both
   Left
   Right
 } derive(Eq)
 
+///|
 fn parse_strip_chars(
   name : String,
   value_opt : Value?,
@@ -54,6 +56,7 @@ fn parse_strip_chars(
   }
 }
 
+///|
 fn strip_has_char(c : Char, chars_opt : Array[Char]?) -> Bool {
   match chars_opt {
     None => is_ascii_whitespace(c)
@@ -68,7 +71,12 @@ fn strip_has_char(c : Char, chars_opt : Array[Char]?) -> Bool {
   }
 }
 
-fn strip_text(text : String, chars_opt : Array[Char]?, mode : StripMode) -> String {
+///|
+fn strip_text(
+  text : String,
+  chars_opt : Array[Char]?,
+  mode : StripMode,
+) -> String {
   let chars = text.to_array()
   let mut start = 0
   let mut end = chars.length()
@@ -135,13 +143,7 @@ fn format_value_with_spec(
   match type_char {
     None | Some('s') => {
       let out = value_to_string(value)
-      Ok(
-        pad_left(
-          out,
-          width,
-          if zero_pad { '0' } else { ' ' },
-        ),
-      )
+      Ok(pad_left(out, width, if zero_pad { '0' } else { ' ' }))
     }
     Some('d') | Some('i') => {
       let raw = match format_decimal_value(value) {
@@ -214,8 +216,7 @@ fn format_string_with_args(
         }
       }
       let field_name = match colon {
-        Some(pos) =>
-          substring(field, 0, pos).trim(chars=" \t").to_string()
+        Some(pos) => substring(field, 0, pos).trim(chars=" \t").to_string()
         None => field.trim(chars=" \t").to_string()
       }
       let spec = match colon {

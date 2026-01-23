@@ -663,12 +663,11 @@ fn eval_expr_with_env(
         Expr::Yield(_) | Expr::YieldFrom(_) => true
         _ => false
       }
-      let func_body : Array[Stmt] =
-        if is_generator {
-          [Stmt::ExprStmt(body)]
-        } else {
-          [Stmt::Return(Some(body))]
-        }
+      let func_body : Array[Stmt] = if is_generator {
+        [Stmt::ExprStmt(body)]
+      } else {
+        [Stmt::Return(Some(body))]
+      }
       let closure = capture_cell_closure(locals)
       let globals_marker = Value::Instance(InstanceValue::{
         class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
@@ -693,82 +692,7 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match target {
-        Value::None
-        | Value::Instance(_)
-        | Value::Class(_)
-        | Value::Str(_)
-        | Value::Int(_)
-        | Value::List(_)
-        | Value::Tuple(_)
-        | Value::Dict(_)
-        | Value::Set(_)
-        | Value::Function(_)
-        | Value::BoundMethod(_) =>
-          get_attr_from_value(target, attr, globals, builtins, io)
-        _ =>
-          match (target, attr) {
-            (Value::Str(text), "upper") => Ok(Value::Str(text.to_upper()))
-            (Value::Int(_), "__hash__") =>
-              Ok(
-                Value::Function(FunctionValue::{
-                  name: "__hash__",
-                  params: [],
-                  defaults: [],
-                  body: [],
-                  is_generator: false,
-                  is_async: false,
-                  closure: [],
-                }),
-              )
-            (Value::Function(_), "__hash__") =>
-              Ok(
-                Value::Function(FunctionValue::{
-                  name: "__hash__",
-                  params: [],
-                  defaults: [],
-                  body: [],
-                  is_generator: false,
-                  is_async: false,
-                  closure: [],
-                }),
-              )
-            (Value::Function(func), "__doc__") =>
-              if func.body.length() > 0 {
-                let first_stmt = match func.body[0] {
-                  Stmt::WithSpan(span=_, stmt=inner) => inner
-                  stmt => stmt
-                }
-                match first_stmt {
-                  Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
-                    Ok(Value::Str(text))
-                  _ => Ok(Value::None)
-                }
-              } else {
-                Ok(Value::None)
-              }
-            (Value::Function(func), "__name__") => Ok(Value::Str(func.name))
-            (Value::Function(func), "__qualname__") => Ok(Value::Str(func.name))
-            (Value::Function(_), "__code__") => Ok(Value::Str("<code>"))
-            _ => {
-              let type_name = match target {
-                Value::Str(text) =>
-                  if text == "<code>" {
-                    "code"
-                  } else {
-                    "str"
-                  }
-                _ => type_name_from_value(target)
-              }
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Attribute,
-                  "'" + type_name + "' object has no attribute '" + attr + "'",
-                ),
-              )
-            }
-          }
-      }
+      get_attr_from_value(target, attr, globals, builtins, io)
     }
     Expr::Subscript(value~, index~) => {
       let target = match
@@ -815,6 +739,7 @@ fn eval_expr_with_env(
             }
             Ok(Value::List(slice_values_by_indices(values, indices)))
           }
+
           match target {
             Value::List(values) => slice_list(values)
             Value::Instance(inst) =>
@@ -930,9 +855,7 @@ fn eval_expr_with_env(
                   Value::Tuple(values) => values
                   _ => [idx_value]
                 }
-                return Ok(
-                  make_generic_alias(Value::Class(klass), args),
-                )
+                return Ok(make_generic_alias(Value::Class(klass), args))
               }
             _ => ()
           }
@@ -940,11 +863,7 @@ fn eval_expr_with_env(
             Value::Class(_) | Value::Function(_) =>
               match
                 get_attr_from_value(
-                  target,
-                  "__class_getitem__",
-                  globals,
-                  builtins,
-                  io,
+                  target, "__class_getitem__", globals, builtins, io,
                 ) {
                 Ok(class_getitem) => {
                   let args = match class_getitem {
@@ -980,7 +899,9 @@ fn eval_expr_with_env(
                   Some(v) => v
                   None => Value::None
                 }
-                fn slice_list(values : Array[Value]) -> Result[Value, RuntimeError] {
+                fn slice_list(
+                  values : Array[Value],
+                ) -> Result[Value, RuntimeError] {
                   let indices = match
                     slice_indices_from_values(
                       values.length(),
@@ -993,6 +914,7 @@ fn eval_expr_with_env(
                   }
                   Ok(Value::List(slice_values_by_indices(values, indices)))
                 }
+
                 return match target {
                   Value::List(values) => slice_list(values)
                   Value::Instance(list_inst) =>
@@ -1088,11 +1010,7 @@ fn eval_expr_with_env(
             Value::Instance(_) =>
               match
                 get_attr_from_value(
-                  target,
-                  "__getitem__",
-                  globals,
-                  builtins,
-                  io,
+                  target, "__getitem__", globals, builtins, io,
                 ) {
                 Ok(getitem) =>
                   return call_callable_with_env(
@@ -1149,6 +1067,7 @@ fn eval_expr_with_env(
                   )
                 }
               }
+
               match target {
                 Value::List(values) => index_list(values, idx)
                 Value::Instance(inst) =>
@@ -1347,7 +1266,7 @@ fn eval_expr_with_env(
         let ok = match ops[i] {
           CompareOp::Eq => eq_value(previous, current)
           CompareOp::NotEq => !eq_value(previous, current)
-          CompareOp::Lt => {
+          CompareOp::Lt =>
             match (previous, current) {
               (Value::Set(left), Value::Set(right)) => {
                 let mut ok = true
@@ -1376,8 +1295,7 @@ fn eval_expr_with_env(
                 left_num < right_num
               }
             }
-          }
-          CompareOp::Lte => {
+          CompareOp::Lte =>
             match (previous, current) {
               (Value::Set(left), Value::Set(right)) => {
                 let mut ok = true
@@ -1406,8 +1324,7 @@ fn eval_expr_with_env(
                 left_num <= right_num
               }
             }
-          }
-          CompareOp::Gt => {
+          CompareOp::Gt =>
             match (previous, current) {
               (Value::Set(left), Value::Set(right)) => {
                 let mut ok = true
@@ -1436,8 +1353,7 @@ fn eval_expr_with_env(
                 left_num > right_num
               }
             }
-          }
-          CompareOp::Gte => {
+          CompareOp::Gte =>
             match (previous, current) {
               (Value::Set(left), Value::Set(right)) => {
                 let mut ok = true
@@ -1466,7 +1382,6 @@ fn eval_expr_with_env(
                 left_num >= right_num
               }
             }
-          }
           CompareOp::Is =>
             match (previous, current) {
               (Value::Function(a), Value::Function(b)) => a.name == b.name
@@ -1785,13 +1700,7 @@ fn eval_expr_with_env(
               }
               _ => {
                 let callee_value = match
-                  get_attr_from_value(
-                    sep_value,
-                    attr,
-                    globals,
-                    builtins,
-                    io,
-                  ) {
+                  get_attr_from_value(sep_value, attr, globals, builtins, io) {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
@@ -1816,33 +1725,19 @@ fn eval_expr_with_env(
                         Ok(Some(value)) => Ok(value)
                         Ok(None) =>
                           call_callable_with_env(
-                            callee_value,
-                            arg_values,
-                            keywords,
-                            globals,
-                            builtins,
+                            callee_value, arg_values, keywords, globals, builtins,
                             io,
                           )
                         Err(err) => Err(err)
                       }
                     } else {
                       call_callable_with_env(
-                        callee_value,
-                        arg_values,
-                        keywords,
-                        globals,
-                        builtins,
-                        io,
+                        callee_value, arg_values, keywords, globals, builtins, io,
                       )
                     }
                   _ =>
                     call_callable_with_env(
-                      callee_value,
-                      arg_values,
-                      keywords,
-                      globals,
-                      builtins,
-                      io,
+                      callee_value, arg_values, keywords, globals, builtins, io,
                     )
                 }
               }

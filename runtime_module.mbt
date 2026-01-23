@@ -16,10 +16,7 @@ fn module_cache_get(name : String) -> Value? {
   }
   for pair in sys_modules_ref.val {
     match pair.0 {
-      Value::Str(text) =>
-        if text == name {
-          return Some(pair.1)
-        }
+      Value::Str(text) => if text == name { return Some(pair.1) }
       _ => ()
     }
   }
@@ -267,6 +264,147 @@ fn make_math_module() -> Value {
 }
 
 ///|
+fn make_time_module() -> Value {
+  make_module_instance("time", [
+    ("time", module_function_stub("time.time")),
+    ("monotonic", module_function_stub("time.monotonic")),
+    ("perf_counter", module_function_stub("time.perf_counter")),
+    ("perf_counter_ns", module_function_stub("time.perf_counter_ns")),
+    ("process_time", module_function_stub("time.process_time")),
+    ("process_time_ns", module_function_stub("time.process_time_ns")),
+    ("sleep", module_function_stub("time.sleep")),
+    ("strftime", module_function_stub("time.strftime")),
+  ])
+}
+
+///|
+fn make_faulthandler_module() -> Value {
+  // CPython exposes faulthandler as a C extension; for moonpython we provide a
+  // minimal no-op shim so the stdlib test harness can import and call it.
+  make_module_instance("faulthandler", [
+    ("enable", module_function_stub("faulthandler.enable")),
+    ("disable", module_function_stub("faulthandler.disable")),
+    ("register", module_function_stub("faulthandler.register")),
+    ("unregister", module_function_stub("faulthandler.unregister")),
+    ("dump_traceback", module_function_stub("faulthandler.dump_traceback")),
+    (
+      "dump_traceback_later",
+      module_function_stub("faulthandler.dump_traceback_later"),
+    ),
+    (
+      "cancel_dump_traceback_later",
+      module_function_stub("faulthandler.cancel_dump_traceback_later"),
+    ),
+    ("is_enabled", module_function_stub("faulthandler.is_enabled")),
+  ])
+}
+
+///|
+fn make_select_module() -> Value {
+  make_module_instance("select", [
+    ("select", module_function_stub("select.select")),
+  ])
+}
+
+///|
+fn make_struct_module(builtins : Array[(String, Value)]) -> Value {
+  let exc_base = match get_named_value(builtins, "Exception") {
+    Some(Value::Class(c)) => Value::Class(c)
+    _ => Value::None
+  }
+  let struct_error_class = ClassValue::{
+    name: "error",
+    bases: if exc_base is Value::Class(_) {
+      [exc_base]
+    } else {
+      []
+    },
+    dict: [],
+  }
+  let struct_class = ClassValue::{
+    name: "Struct",
+    bases: [],
+    dict: [
+      (
+        "__init__",
+        Value::Function(FunctionValue::{
+          name: "_struct.Struct.__init__",
+          params: ["self", "format"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "pack",
+        Value::Function(FunctionValue::{
+          name: "_struct.Struct.pack",
+          params: [],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "unpack",
+        Value::Function(FunctionValue::{
+          name: "_struct.Struct.unpack",
+          params: ["self", "buffer"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "calcsize",
+        Value::Function(FunctionValue::{
+          name: "_struct.Struct.calcsize",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  make_module_instance("_struct", [
+    ("calcsize", module_function_stub("_struct.calcsize")),
+    ("pack", module_function_stub("_struct.pack")),
+    ("pack_into", module_function_stub("_struct.pack_into")),
+    ("unpack", module_function_stub("_struct.unpack")),
+    ("unpack_from", module_function_stub("_struct.unpack_from")),
+    ("iter_unpack", module_function_stub("_struct.iter_unpack")),
+    ("Struct", Value::Class(struct_class)),
+    ("error", Value::Class(struct_error_class)),
+    ("_clearcache", module_function_stub("_struct._clearcache")),
+    ("__doc__", Value::Str("Minimal _struct shim for moonpython")),
+  ])
+}
+
+///|
+fn make_gc_module() -> Value {
+  // CPython exposes `gc` as a C extension. For moonpython we provide a minimal
+  // shim that is sufficient for importing/running parts of the stdlib tests.
+  make_module_instance("gc", [
+    ("enable", module_function_stub("gc.enable")),
+    ("disable", module_function_stub("gc.disable")),
+    ("isenabled", module_function_stub("gc.isenabled")),
+    ("collect", module_function_stub("gc.collect")),
+    ("get_threshold", module_function_stub("gc.get_threshold")),
+    ("set_threshold", module_function_stub("gc.set_threshold")),
+    ("get_count", module_function_stub("gc.get_count")),
+  ])
+}
+
+///|
 fn make_asyncio_module() -> Value {
   make_module_instance("asyncio", [
     ("run", module_function_stub("asyncio.run")),
@@ -285,15 +423,14 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
   }
   let bases : Array[Value] = []
   match get_named_value(builtins, "object") {
-    Some(Value::Class(object_class)) =>
-      bases.push(Value::Class(object_class))
+    Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
     _ => ()
   }
   let dict : Array[(String, Value)] = [
     (
       "__enter__",
       Value::Function(FunctionValue::{
-        name: "__enter__",
+        name: "_thread.RLock.__enter__",
         params: ["self"],
         defaults: [],
         body: [],
@@ -305,7 +442,7 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
     (
       "__exit__",
       Value::Function(FunctionValue::{
-        name: "__exit__",
+        name: "_thread.RLock.__exit__",
         params: ["self", "exc_type", "exc", "tb"],
         defaults: [],
         body: [],
@@ -317,8 +454,8 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
     (
       "acquire",
       Value::Function(FunctionValue::{
-        name: "acquire",
-        params: ["self"],
+        name: "_thread.RLock.acquire",
+        params: ["self", "blocking", "timeout"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -329,7 +466,31 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
     (
       "release",
       Value::Function(FunctionValue::{
-        name: "release",
+        name: "_thread.RLock.release",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "locked",
+      Value::Function(FunctionValue::{
+        name: "_thread.RLock.locked",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "_at_fork_reinit",
+      Value::Function(FunctionValue::{
+        name: "_thread.RLock._at_fork_reinit",
         params: ["self"],
         defaults: [],
         body: [],
@@ -347,9 +508,23 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
 ///|
 fn make_thread_module(builtins : Array[(String, Value)]) -> Value {
   let rlock_class = thread_rlock_class(builtins)
+  let exc_bases : Array[Value] = []
+  match get_named_value(builtins, "Exception") {
+    Some(Value::Class(exception_class)) =>
+      exc_bases.push(Value::Class(exception_class))
+    _ => ()
+  }
+  let error_class = ClassValue::{ name: "error", bases: exc_bases, dict: [] }
   make_module_instance("_thread", [
     ("get_ident", module_function_stub("_thread.get_ident")),
     ("allocate_lock", module_function_stub("_thread.allocate_lock")),
+    ("start_new_thread", module_function_stub("_thread.start_new_thread")),
+    ("daemon_threads_allowed", Value::Bool(true)),
+    ("_set_sentinel", module_function_stub("_thread._set_sentinel")),
+    ("_count", module_function_stub("_thread._count")),
+    ("stack_size", module_function_stub("_thread.stack_size")),
+    ("TIMEOUT_MAX", Value::Float(9223372036.0)),
+    ("error", Value::Class(error_class)),
     ("RLock", Value::Class(rlock_class)),
   ])
 }
@@ -380,6 +555,17 @@ fn make_warnings_module() -> Value {
 }
 
 ///|
+fn make_string_cmodule() -> Value {
+  make_module_instance("_string", [
+    ("formatter_parser", module_function_stub("_string.formatter_parser")),
+    (
+      "formatter_field_name_split",
+      module_function_stub("_string.formatter_field_name_split"),
+    ),
+  ])
+}
+
+///|
 fn make_itertools_chain_factory() -> Value {
   let dict : Array[(String, Value)] = [
     ("__call__", module_function_stub("itertools.chain")),
@@ -394,6 +580,7 @@ fn make_itertools_module() -> Value {
   make_module_instance("itertools", [
     ("chain", make_itertools_chain_factory()),
     ("accumulate", module_function_stub("itertools.accumulate")),
+    ("filterfalse", module_function_stub("itertools.filterfalse")),
     ("groupby", module_function_stub("itertools.groupby")),
     ("count", module_function_stub("itertools.count")),
     ("repeat", module_function_stub("itertools.repeat")),
@@ -408,8 +595,7 @@ fn make_itertools_module() -> Value {
 fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
   let bases : Array[Value] = []
   match get_named_value(builtins, "object") {
-    Some(Value::Class(object_class)) =>
-      bases.push(Value::Class(object_class))
+    Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
     _ => ()
   }
   let weakref_dict : Array[(String, Value)] = [
@@ -421,11 +607,7 @@ fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
     bases,
     dict: weakref_dict,
   }
-  let proxy_type_class = ClassValue::{
-    name: "ProxyType",
-    bases,
-    dict: [],
-  }
+  let proxy_type_class = ClassValue::{ name: "ProxyType", bases, dict: [] }
   let callable_proxy_type_class = ClassValue::{
     name: "CallableProxyType",
     bases,
@@ -436,7 +618,10 @@ fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
     ("proxy", module_function_stub("_weakref.proxy")),
     ("getweakrefcount", module_function_stub("_weakref.getweakrefcount")),
     ("getweakrefs", module_function_stub("_weakref.getweakrefs")),
-    ("_remove_dead_weakref", module_function_stub("_weakref._remove_dead_weakref")),
+    (
+      "_remove_dead_weakref",
+      module_function_stub("_weakref._remove_dead_weakref"),
+    ),
     ("ReferenceType", Value::Class(reference_type_class)),
     ("ProxyType", Value::Class(proxy_type_class)),
     ("CallableProxyType", Value::Class(callable_proxy_type_class)),
@@ -459,11 +644,17 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     Value::Str("builtins"),
     Value::Str("sys"),
     Value::Str("posix"),
+    Value::Str("_struct"),
+    Value::Str("gc"),
+    Value::Str("faulthandler"),
+    Value::Str("select"),
     Value::Str("_thread"),
     Value::Str("_warnings"),
     Value::Str("_weakref"),
+    Value::Str("_string"),
     Value::Str("itertools"),
     Value::Str("math"),
+    Value::Str("time"),
     Value::Str("asyncio"),
   ])
   let version_info = Value::Tuple([
@@ -476,10 +667,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   let impl_class = ClassValue::{ name: "implementation", bases: [], dict: [] }
   let impl_value = Value::Instance(InstanceValue::{
     class: impl_class,
-    dict: [
-      ("name", Value::Str("moonpython")),
-      ("version", version_info),
-    ],
+    dict: [("name", Value::Str("moonpython")), ("version", version_info)],
   })
   let float_info_class = ClassValue::{ name: "float_info", bases: [], dict: [] }
   let float_info_value = Value::Instance(InstanceValue::{
@@ -563,6 +751,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
           closure: [],
         }),
       ),
+      (
+        "reconfigure",
+        Value::Function(FunctionValue::{
+          name: "sys.stdout.reconfigure",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
   let stderr_class = ClassValue::{
@@ -593,10 +793,36 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
           closure: [],
         }),
       ),
+      (
+        "reconfigure",
+        Value::Function(FunctionValue::{
+          name: "sys.stderr.reconfigure",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
-  let stdout_value = Value::Instance(InstanceValue::{ class: stdout_class, dict: [] })
-  let stderr_value = Value::Instance(InstanceValue::{ class: stderr_class, dict: [] })
+  let stdout_value = Value::Instance(InstanceValue::{
+    class: stdout_class,
+    dict: [
+      ("encoding", Value::Str("utf-8")),
+      ("errors", Value::Str("strict")),
+      ("newline", Value::None),
+    ],
+  })
+  let stderr_value = Value::Instance(InstanceValue::{
+    class: stderr_class,
+    dict: [
+      ("encoding", Value::Str("utf-8")),
+      ("errors", Value::Str("strict")),
+      ("newline", Value::None),
+    ],
+  })
   let prefix_value = Value::Str("")
 
   // `sys.argv` and `sys.path` are heavily relied upon by the CPython stdlib
@@ -605,7 +831,6 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   for arg in config.argv {
     argv_values.push(Value::Str(arg))
   }
-
   let path_values : Array[Value] = []
   let mut script_dir = "".to_string()
   match config.main_path {
@@ -624,13 +849,17 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   for root in config.import_paths {
     path_values.push(Value::Str(root))
   }
-
   make_module_instance("sys", [
     ("maxsize", Value::Int(9223372036854775807N)),
-    ("version", Value::Str("3.12.0")),
+    ("version", Value::Str("3.12.0 (#0, Jan 01 1970, 00:00:00) [moonpython]")),
     ("version_info", version_info),
     ("byteorder", Value::Str("little")),
-    ("platform", Value::Str("moonpython")),
+    // Use a CPython-recognized platform tag so the stdlib can take appropriate
+    // feature-gating branches (no subprocess/fork on WASI).
+    ("platform", Value::Str("wasi")),
+    ("platlibdir", Value::Str("lib")),
+    ("abiflags", Value::Str("")),
+    ("executable", Value::Str("moonpython")),
     ("implementation", impl_value),
     ("float_info", float_info_value),
     ("hash_info", hash_info_value),
@@ -708,7 +937,62 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
         closure: [],
       }),
     ),
+    (
+      "getrecursionlimit",
+      Value::Function(FunctionValue::{
+        name: "sys.getrecursionlimit",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "setrecursionlimit",
+      Value::Function(FunctionValue::{
+        name: "sys.setrecursionlimit",
+        params: ["limit"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "excepthook",
+      Value::Function(FunctionValue::{
+        name: "sys.excepthook",
+        params: ["exctype", "value", "traceback"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "__excepthook__",
+      Value::Function(FunctionValue::{
+        name: "sys.excepthook",
+        params: ["exctype", "value", "traceback"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
   ])
+}
+
+///|
+fn make_sysconfigdata_module(name : String) -> Value {
+  // CPython generates this at build-time; we provide a minimal stub so the
+  // vendored stdlib (sysconfig + test.support) can import and proceed.
+  make_module_instance(name, [("build_time_vars", Value::Dict([]))])
 }
 
 ///|
@@ -719,14 +1003,33 @@ fn make_python_module(
   io : MockIO,
   config : Config,
   package_name? : String = "",
+  filename? : String = "<module>",
 ) -> Result[Value, RuntimeError] {
   let program = match parse(source) {
     Ok(v) => v
-    Err(err) => return Err(make_parse_runtime_error(err))
+    Err(err) => {
+      // Include filename for stdlib/import syntax errors to make debugging and
+      // conformance triage practical.
+      let base = make_parse_runtime_error(err)
+      let message = filename + ": " + base.message
+      return Err(RuntimeError::{
+        kind: base.kind,
+        message,
+        span: base.span,
+        traceback: base.traceback,
+        exc_type: base.exc_type,
+        exc_args: [message],
+        exc_value: base.exc_value,
+        exc_cause: base.exc_cause,
+        exc_context: base.exc_context,
+        exc_suppress_context: base.exc_suppress_context,
+      })
+    }
   }
   let module_globals : Array[(String, Value)] = [
     ("__name__", Value::Str(name)),
     ("__package__", Value::Str(package_name)),
+    ("__file__", Value::Str(filename)),
   ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let module_value = Value::Instance(InstanceValue::{
@@ -741,6 +1044,7 @@ fn make_python_module(
   let saved_scope_decls_stack = scope_decls_stack.val
   closure_env_stack.val = []
   scope_decls_stack.val = []
+  push_traceback_frame("<module>".to_string(), filename)
   let _ = match
     eval_block(
       program.body,
@@ -752,11 +1056,13 @@ fn make_python_module(
     ) {
     Ok(_) => ()
     Err(err) => {
+      pop_traceback_frame()
       closure_env_stack.val = saved_closure_env_stack
       scope_decls_stack.val = saved_scope_decls_stack
       return Err(err)
     }
   }
+  pop_traceback_frame()
   closure_env_stack.val = saved_closure_env_stack
   scope_decls_stack.val = saved_scope_decls_stack
   Ok(module_value)
@@ -781,8 +1087,9 @@ fn candidate_module_paths(
     None => ()
   }
 
-  // Current working directory.
-  paths.push(rel)
+  // Current working directory (honors `os.chdir()` via runtime workdir tracking).
+  let cwd = resolve_path_from_cwd(rel)
+  paths.push(cwd)
 
   // Additional import roots.
   for root in config.import_paths {
@@ -811,7 +1118,7 @@ fn candidate_package_paths(
     }
     None => ()
   }
-  paths.push(rel)
+  paths.push(resolve_path_from_cwd(rel))
   for root in config.import_paths {
     paths.push(@path.Path(root).join(@path.Path(rel)).to_string())
   }
@@ -846,6 +1153,7 @@ fn load_module_from_filesystem(
         io,
         config,
         package_name=module_parent_name(module_name),
+        filename=path,
       )
     }
   }
@@ -869,6 +1177,7 @@ fn load_module_from_filesystem(
         io,
         config,
         package_name=module_name,
+        filename=init_path,
       )
     }
     if @fs.path_exists(path) {
@@ -878,7 +1187,7 @@ fn load_module_from_filesystem(
   Err(
     make_runtime_error(
       RuntimeErrorKind::Runtime,
-      "ImportError: cannot find module " + module_name,
+      "ModuleNotFoundError: No module named '" + module_name + "'",
     ),
   )
 }
@@ -917,11 +1226,11 @@ fn import_module(
   if module_name.contains(".") {
     let parent = module_parent_name(module_name)
     if parent.length() > 0 {
-      let _ = match
-        import_module(parent, globals, builtins, io, config) {
+      let _ = match import_module(parent, globals, builtins, io, config) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
+
     }
     match module_cache_get(module_name) {
       Some(v) => {
@@ -935,16 +1244,30 @@ fn import_module(
     make_builtins_module(builtins)
   } else if module_name == "sys" {
     make_sys_module(builtins, config)
+  } else if module_name.has_prefix("_sysconfigdata_") {
+    make_sysconfigdata_module(module_name)
+  } else if module_name == "_struct" {
+    make_struct_module(builtins)
+  } else if module_name == "gc" {
+    make_gc_module()
+  } else if module_name == "faulthandler" {
+    make_faulthandler_module()
+  } else if module_name == "select" {
+    make_select_module()
   } else if module_name == "_thread" {
     make_thread_module(builtins)
   } else if module_name == "_warnings" {
     make_warnings_module()
+  } else if module_name == "_string" {
+    make_string_cmodule()
   } else if module_name == "_weakref" {
     make_weakref_module(builtins)
   } else if module_name == "itertools" {
     make_itertools_module()
   } else if module_name == "math" {
     make_math_module()
+  } else if module_name == "time" {
+    make_time_module()
   } else if module_name == "asyncio" && config.allow_filesystem_imports {
     make_asyncio_module()
   } else {

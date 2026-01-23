@@ -10,24 +10,24 @@ let dict_storage_name = "$__mpython_dict__"
 ///|
 fn is_builtin_class_name(name : String) -> Bool {
   match name {
-    "bool" |
-    "bytearray" |
-    "bytes" |
-    "classmethod" |
-    "complex" |
-    "dict" |
-    "float" |
-    "frozenset" |
-    "int" |
-    "list" |
-    "memoryview" |
-    "property" |
-    "range" |
-    "set" |
-    "staticmethod" |
-    "str" |
-    "tuple" |
-    "type" => true
+    "bool"
+    | "bytearray"
+    | "bytes"
+    | "classmethod"
+    | "complex"
+    | "dict"
+    | "float"
+    | "frozenset"
+    | "int"
+    | "list"
+    | "memoryview"
+    | "property"
+    | "range"
+    | "set"
+    | "staticmethod"
+    | "str"
+    | "tuple"
+    | "type" => true
     _ => false
   }
 }
@@ -43,8 +43,7 @@ fn builtin_class_from_name(
   }
   let bases : Array[Value] = []
   match get_named_value(builtins, "object") {
-    Some(Value::Class(object_class)) =>
-      bases.push(Value::Class(object_class))
+    Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
     _ => ()
   }
   let dict : Array[(String, Value)] = [
@@ -52,6 +51,22 @@ fn builtin_class_from_name(
     ("__name__", Value::Str(name)),
     ("__qualname__", Value::Str(name)),
   ]
+  if name == "float" {
+    dict.push(
+      (
+        "__getformat__",
+        Value::Function(FunctionValue::{
+          name: "float.__getformat__",
+          params: ["typestr"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "dict" {
     dict.push(
       (
@@ -288,6 +303,20 @@ fn builtin_class_from_name(
           name: "int.__new__",
           params: ["cls", "value"],
           defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__index__",
+        Value::Function(FunctionValue::{
+          name: "int.__index__",
+          params: ["self"],
+          defaults: [],
           body: [],
           is_generator: false,
           is_async: false,
@@ -838,6 +867,32 @@ fn current_config() -> Config {
     Config::default()
   } else {
     active_config_stack.val[active_config_stack.val.length() - 1]
+  }
+}
+
+///|
+let current_workdir_ref : Ref[String] = { val: "." }
+
+///|
+fn current_workdir() -> String {
+  current_workdir_ref.val
+}
+
+///|
+fn set_current_workdir(path : String) -> Unit {
+  current_workdir_ref.val = path
+}
+
+///|
+fn resolve_path_from_cwd(path : String) -> String {
+  if path.has_prefix("/") {
+    return path
+  }
+  let cwd = current_workdir()
+  if cwd.length() == 0 || cwd == "." {
+    path
+  } else {
+    @path.Path(cwd).join(@path.Path(path)).to_string()
   }
 }
 

@@ -313,6 +313,7 @@ priv enum SortKind {
   List
 } derive(Eq)
 
+///|
 fn sort_kind_for_sorted(value : Value) -> SortKind? {
   match value {
     Value::Int(_) | Value::Float(_) | Value::Bool(_) => Some(SortKind::Number)
@@ -358,17 +359,13 @@ fn cmp_value_for_sorted_dynamic(
       if kind_a == kind_b {
         cmp_value_for_sorted(kind_a, a, b)
       } else {
-        Ok(
-          cmp_string_for_sorted(value_to_string(a), value_to_string(b)),
-        )
+        Ok(cmp_string_for_sorted(value_to_string(a), value_to_string(b)))
       }
-    _ =>
-      Ok(
-        cmp_string_for_sorted(value_to_string(a), value_to_string(b)),
-      )
+    _ => Ok(cmp_string_for_sorted(value_to_string(a), value_to_string(b)))
   }
 }
 
+///|
 fn cmp_value_for_sorted(
   kind : SortKind,
   a : Value,
@@ -546,18 +543,6 @@ fn stable_sort_pairs_by_key(
   Ok(out)
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 ///|
 priv struct BuiltinDef {
   name : String
@@ -604,17 +589,171 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "__mpython_asyncgen_close",
       run: builtin_mpython_asyncgen_close,
     },
+    BuiltinDef::{
+      name: "__mpython_posix_open",
+      run: builtin_mpython_posix_open,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_write",
+      run: builtin_mpython_posix_write,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_close",
+      run: builtin_mpython_posix_close,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_unlink",
+      run: builtin_mpython_posix_unlink,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_mkdir",
+      run: builtin_mpython_posix_mkdir,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_rmdir",
+      run: builtin_mpython_posix_rmdir,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_stat",
+      run: builtin_mpython_posix_stat,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_getcwd",
+      run: builtin_mpython_posix_getcwd,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_chdir",
+      run: builtin_mpython_posix_chdir,
+    },
+    BuiltinDef::{ name: "__mpython.internal_iter", run: builtin_internal_iter },
+    BuiltinDef::{ name: "__mpython.internal_next", run: builtin_internal_next },
     BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
     BuiltinDef::{ name: "asyncio.gather", run: builtin_asyncio_gather },
+    BuiltinDef::{ name: "time.time", run: builtin_time_time },
+    BuiltinDef::{ name: "time.monotonic", run: builtin_time_monotonic },
+    BuiltinDef::{ name: "time.perf_counter", run: builtin_time_perf_counter },
+    BuiltinDef::{
+      name: "time.perf_counter_ns",
+      run: builtin_time_perf_counter_ns,
+    },
+    BuiltinDef::{ name: "time.process_time", run: builtin_time_process_time },
+    BuiltinDef::{
+      name: "time.process_time_ns",
+      run: builtin_time_process_time_ns,
+    },
+    BuiltinDef::{ name: "time.sleep", run: builtin_time_sleep },
+    BuiltinDef::{ name: "time.strftime", run: builtin_time_strftime },
+    BuiltinDef::{ name: "faulthandler.enable", run: builtin_faulthandler_noop },
+    BuiltinDef::{ name: "faulthandler.disable", run: builtin_faulthandler_noop },
+    BuiltinDef::{
+      name: "faulthandler.register",
+      run: builtin_faulthandler_noop,
+    },
+    BuiltinDef::{
+      name: "faulthandler.unregister",
+      run: builtin_faulthandler_noop,
+    },
+    BuiltinDef::{
+      name: "faulthandler.dump_traceback",
+      run: builtin_faulthandler_noop,
+    },
+    BuiltinDef::{
+      name: "faulthandler.dump_traceback_later",
+      run: builtin_faulthandler_noop,
+    },
+    BuiltinDef::{
+      name: "faulthandler.cancel_dump_traceback_later",
+      run: builtin_faulthandler_noop,
+    },
+    BuiltinDef::{
+      name: "faulthandler.is_enabled",
+      run: builtin_faulthandler_is_enabled,
+    },
+    BuiltinDef::{ name: "select.select", run: builtin_select_select },
+    BuiltinDef::{ name: "_struct.calcsize", run: builtin_struct_calcsize },
+    BuiltinDef::{ name: "_struct.pack", run: builtin_struct_pack },
+    BuiltinDef::{ name: "_struct.pack_into", run: builtin_struct_pack_into },
+    BuiltinDef::{ name: "_struct.unpack", run: builtin_struct_unpack },
+    BuiltinDef::{ name: "_struct.unpack_from", run: builtin_struct_unpack_from },
+    BuiltinDef::{ name: "_struct.iter_unpack", run: builtin_struct_iter_unpack },
+    BuiltinDef::{ name: "_struct._clearcache", run: builtin_struct_clearcache },
+    BuiltinDef::{
+      name: "_struct.Struct.__init__",
+      run: builtin_struct_struct_init,
+    },
+    BuiltinDef::{ name: "_struct.Struct.pack", run: builtin_struct_struct_pack },
+    BuiltinDef::{
+      name: "_struct.Struct.unpack",
+      run: builtin_struct_struct_unpack,
+    },
+    BuiltinDef::{
+      name: "_struct.Struct.calcsize",
+      run: builtin_struct_struct_calcsize,
+    },
+    BuiltinDef::{ name: "gc.enable", run: builtin_gc_enable },
+    BuiltinDef::{ name: "gc.disable", run: builtin_gc_disable },
+    BuiltinDef::{ name: "gc.isenabled", run: builtin_gc_isenabled },
+    BuiltinDef::{ name: "gc.collect", run: builtin_gc_collect },
+    BuiltinDef::{ name: "gc.get_threshold", run: builtin_gc_get_threshold },
+    BuiltinDef::{ name: "gc.set_threshold", run: builtin_gc_set_threshold },
+    BuiltinDef::{ name: "gc.get_count", run: builtin_gc_get_count },
+    BuiltinDef::{
+      name: "_string.formatter_parser",
+      run: builtin_string_formatter_parser,
+    },
+    BuiltinDef::{
+      name: "_string.formatter_field_name_split",
+      run: builtin_string_formatter_field_name_split,
+    },
     BuiltinDef::{ name: "_thread.get_ident", run: builtin_thread_get_ident },
-    BuiltinDef::{ name: "_thread.allocate_lock", run: builtin_thread_allocate_lock },
+    BuiltinDef::{
+      name: "_thread.allocate_lock",
+      run: builtin_thread_allocate_lock,
+    },
+    BuiltinDef::{
+      name: "_thread.start_new_thread",
+      run: builtin_thread_start_new_thread,
+    },
+    BuiltinDef::{
+      name: "_thread._set_sentinel",
+      run: builtin_thread_set_sentinel,
+    },
+    BuiltinDef::{ name: "_thread._count", run: builtin_thread_count },
+    BuiltinDef::{ name: "_thread.stack_size", run: builtin_thread_stack_size },
+    BuiltinDef::{
+      name: "_thread.RLock.__enter__",
+      run: builtin_thread_rlock_enter,
+    },
+    BuiltinDef::{
+      name: "_thread.RLock.__exit__",
+      run: builtin_thread_rlock_exit,
+    },
+    BuiltinDef::{
+      name: "_thread.RLock.acquire",
+      run: builtin_thread_rlock_acquire,
+    },
+    BuiltinDef::{
+      name: "_thread.RLock.release",
+      run: builtin_thread_rlock_release,
+    },
+    BuiltinDef::{
+      name: "_thread.RLock.locked",
+      run: builtin_thread_rlock_locked,
+    },
+    BuiltinDef::{
+      name: "_thread.RLock._at_fork_reinit",
+      run: builtin_thread_rlock_at_fork_reinit,
+    },
     BuiltinDef::{ name: "_weakref.ref", run: builtin_weakref_ref },
     BuiltinDef::{ name: "_weakref.proxy", run: builtin_weakref_proxy },
     BuiltinDef::{
       name: "_weakref.getweakrefcount",
       run: builtin_weakref_getweakrefcount,
     },
-    BuiltinDef::{ name: "_weakref.getweakrefs", run: builtin_weakref_getweakrefs },
+    BuiltinDef::{
+      name: "_weakref.getweakrefs",
+      run: builtin_weakref_getweakrefs,
+    },
     BuiltinDef::{
       name: "_weakref._remove_dead_weakref",
       run: builtin_weakref_remove_dead_weakref,
@@ -627,13 +766,23 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "itertools.chain.from_iterable",
       run: builtin_itertools_chain_from_iterable,
     },
-    BuiltinDef::{ name: "itertools.accumulate", run: builtin_itertools_accumulate },
+    BuiltinDef::{
+      name: "itertools.filterfalse",
+      run: builtin_itertools_filterfalse,
+    },
+    BuiltinDef::{
+      name: "itertools.accumulate",
+      run: builtin_itertools_accumulate,
+    },
     BuiltinDef::{ name: "itertools.groupby", run: builtin_itertools_groupby },
     BuiltinDef::{ name: "itertools.count", run: builtin_itertools_count },
     BuiltinDef::{ name: "itertools.repeat", run: builtin_itertools_repeat },
     BuiltinDef::{ name: "itertools.starmap", run: builtin_itertools_starmap },
     BuiltinDef::{ name: "itertools.islice", run: builtin_itertools_islice },
-    BuiltinDef::{ name: "itertools.permutations", run: builtin_itertools_permutations },
+    BuiltinDef::{
+      name: "itertools.permutations",
+      run: builtin_itertools_permutations,
+    },
     BuiltinDef::{ name: "itertools.product", run: builtin_itertools_product },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
@@ -659,12 +808,14 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
+    BuiltinDef::{ name: "int.__index__", run: builtin_int_index },
     BuiltinDef::{ name: "int.__repr__", run: builtin_int_repr },
     BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },
     BuiltinDef::{ name: "int.to_bytes", run: builtin_int_to_bytes },
     BuiltinDef::{ name: "int.bit_length", run: builtin_int_bit_length },
     BuiltinDef::{ name: "float", run: builtin_float },
     BuiltinDef::{ name: "float.__repr__", run: builtin_float_repr },
+    BuiltinDef::{ name: "float.__getformat__", run: builtin_float_getformat },
     BuiltinDef::{ name: "complex", run: builtin_complex },
     BuiltinDef::{ name: "list", run: builtin_list },
     BuiltinDef::{ name: "list.copy", run: builtin_list_copy },
@@ -708,7 +859,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "property.setter", run: builtin_property_setter },
     BuiltinDef::{ name: "property.deleter", run: builtin_property_deleter },
     BuiltinDef::{ name: "staticmethod", run: builtin_staticmethod },
-    BuiltinDef::{ name: "staticmethod.__init__", run: builtin_staticmethod_init },
+    BuiltinDef::{
+      name: "staticmethod.__init__",
+      run: builtin_staticmethod_init,
+    },
     BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
     BuiltinDef::{ name: "classmethod.__init__", run: builtin_classmethod_init },
     BuiltinDef::{ name: "register", run: builtin_register },
@@ -757,12 +911,14 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "id", run: builtin_id },
     BuiltinDef::{ name: "hash", run: builtin_hash },
     BuiltinDef::{ name: "globals", run: builtin_globals },
+    BuiltinDef::{ name: "vars", run: builtin_vars },
     BuiltinDef::{ name: "locals", run: builtin_locals },
     BuiltinDef::{ name: "eval", run: builtin_eval },
     BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "__import__", run: builtin_import },
     BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
     BuiltinDef::{ name: "sys.exc_info", run: builtin_sys_exc_info },
+    BuiltinDef::{ name: "sys.excepthook", run: builtin_sys_excepthook },
     BuiltinDef::{
       name: "sys.getfilesystemencoding",
       run: builtin_sys_getfilesystemencoding,
@@ -771,11 +927,27 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "sys.getfilesystemencodeerrors",
       run: builtin_sys_getfilesystemencodeerrors,
     },
+    BuiltinDef::{
+      name: "sys.getrecursionlimit",
+      run: builtin_sys_getrecursionlimit,
+    },
+    BuiltinDef::{
+      name: "sys.setrecursionlimit",
+      run: builtin_sys_setrecursionlimit,
+    },
     BuiltinDef::{ name: "sys.exit", run: builtin_sys_exit },
     BuiltinDef::{ name: "sys.stdout.write", run: builtin_sys_stdout_write },
     BuiltinDef::{ name: "sys.stdout.flush", run: builtin_sys_stdout_flush },
+    BuiltinDef::{
+      name: "sys.stdout.reconfigure",
+      run: builtin_sys_stdout_reconfigure,
+    },
     BuiltinDef::{ name: "sys.stderr.write", run: builtin_sys_stderr_write },
     BuiltinDef::{ name: "sys.stderr.flush", run: builtin_sys_stderr_flush },
+    BuiltinDef::{
+      name: "sys.stderr.reconfigure",
+      run: builtin_sys_stderr_reconfigure,
+    },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

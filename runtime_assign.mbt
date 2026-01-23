@@ -75,48 +75,141 @@ fn assign_target_with_env(
       set_scoped_value(locals, globals, name, assigned)
       Ok(())
     }
+    Target::Starred(_) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: starred assignment target must be in a list or tuple".to_string(),
+        ),
+      )
     Target::Tuple(targets) | Target::List(targets) => {
       let items = match collect_unpack_items(assigned, globals, builtins, io) {
         Ok(values) => values
         Err(err) => return Err(err)
       }
-      if items.length() != targets.length() {
-        let expected = targets.length()
-        if items.length() < expected {
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "ValueError: not enough values to unpack (expected " +
-              expected.to_string() +
-              ")",
-            ),
-          )
-        }
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "ValueError: too many values to unpack (expected " +
-            expected.to_string() +
-            ")",
-          ),
-        )
-      }
+      // Extended iterable unpacking (PEP 3132): a, *rest, b = iterable
+      let mut star_index : Int? = None
       for i = 0; i < targets.length(); i = i + 1 {
-        let _ = match
-          assign_target_with_env(
-            targets[i],
-            items[i],
-            locals,
-            globals,
-            builtins,
-            io,
-          ) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        match targets[i] {
+          Target::Starred(_) =>
+            match star_index {
+              Some(_) =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "SyntaxError: multiple starred expressions in assignment".to_string(),
+                  ),
+                )
+              None => star_index = Some(i)
+            }
+          _ => ()
         }
-
       }
-      Ok(())
+      match star_index {
+        None => {
+          if items.length() != targets.length() {
+            let expected = targets.length()
+            if items.length() < expected {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "ValueError: not enough values to unpack (expected " +
+                  expected.to_string() +
+                  ")",
+                ),
+              )
+            }
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: too many values to unpack (expected " +
+                expected.to_string() +
+                ")",
+              ),
+            )
+          }
+          for i = 0; i < targets.length(); i = i + 1 {
+            let _ = match
+              assign_target_with_env(
+                targets[i],
+                items[i],
+                locals,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          Ok(())
+        }
+        Some(k) => {
+          let left_count = k
+          let right_count = targets.length() - k - 1
+          let expected_min = targets.length() - 1
+          if items.length() < expected_min {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: not enough values to unpack (expected at least " +
+                expected_min.to_string() +
+                ")",
+              ),
+            )
+          }
+          for i = 0; i < left_count; i = i + 1 {
+            let _ = match
+              assign_target_with_env(
+                targets[i],
+                items[i],
+                locals,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          for i = 0; i < right_count; i = i + 1 {
+            let src = items.length() - right_count + i
+            let dst = k + 1 + i
+            let _ = match
+              assign_target_with_env(
+                targets[dst],
+                items[src],
+                locals,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          let mid : Array[Value] = []
+          let end_mid = items.length() - right_count
+          for i = left_count; i < end_mid; i = i + 1 {
+            mid.push(items[i])
+          }
+          match targets[k] {
+            Target::Starred(inner) =>
+              assign_target_with_env(
+                inner,
+                Value::List(mid),
+                locals,
+                globals,
+                builtins,
+                io,
+              )
+            _ => Ok(()) // unreachable
+          }
+        }
+      }
     }
     Target::Attribute(value~, attr~) => {
       let target_value = match
@@ -136,31 +229,33 @@ fn assign_target_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      fn assign_list_subscript(values : Array[Value]) -> Result[Unit, RuntimeError] {
+      fn assign_list_subscript(
+        values : Array[Value],
+      ) -> Result[Unit, RuntimeError] {
         match index {
           Expr::Slice(start~, end~, step~) => {
             let start_value = match start {
               Some(expr) =>
                 match eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
               None => Value::None
             }
             let end_value = match end {
               Some(expr) =>
                 match eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
               None => Value::None
             }
             let step_value = match step {
               Some(expr) =>
                 match eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
               None => Value::None
             }
             let new_items = match iterable_values(assigned) {
@@ -242,6 +337,7 @@ fn assign_target_with_env(
           }
         }
       }
+
       match container {
         Value::List(values) => assign_list_subscript(values)
         Value::Instance(inst) =>
@@ -252,7 +348,8 @@ fn assign_target_with_env(
                 Expr::Slice(start~, end~, step~) => {
                   let start_value = match start {
                     Some(expr) =>
-                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                      match
+                        eval_expr_with_env(expr, locals, globals, builtins, io) {
                         Ok(value) => value
                         Err(err) => return Err(err)
                       }
@@ -260,7 +357,8 @@ fn assign_target_with_env(
                   }
                   let end_value = match end {
                     Some(expr) =>
-                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                      match
+                        eval_expr_with_env(expr, locals, globals, builtins, io) {
                         Ok(value) => value
                         Err(err) => return Err(err)
                       }
@@ -268,7 +366,8 @@ fn assign_target_with_env(
                   }
                   let step_value = match step {
                     Some(expr) =>
-                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                      match
+                        eval_expr_with_env(expr, locals, globals, builtins, io) {
                         Ok(value) => value
                         Err(err) => return Err(err)
                       }
@@ -282,18 +381,15 @@ fn assign_target_with_env(
                   Value::Instance(InstanceValue::{ class: klass, dict })
                 }
                 _ =>
-                  match eval_expr_with_env(index, locals, globals, builtins, io) {
+                  match
+                    eval_expr_with_env(index, locals, globals, builtins, io) {
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
               }
               match
                 get_attr_from_value(
-                  container,
-                  "__setitem__",
-                  globals,
-                  builtins,
-                  io,
+                  container, "__setitem__", globals, builtins, io,
                 ) {
                 Ok(setitem) => {
                   let _ = match
@@ -378,6 +474,13 @@ fn delete_target_with_env(
         Err(err) => Err(err)
       }
     }
+    Target::Starred(_) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "SyntaxError: can't use starred expression here".to_string(),
+        ),
+      )
     Target::Tuple(items) | Target::List(items) => {
       for item in items {
         let _ = match
@@ -493,7 +596,8 @@ fn delete_target_with_env(
             Expr::Slice(start~, end~, step~) => {
               let start_value = match start {
                 Some(expr) =>
-                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                  match
+                    eval_expr_with_env(expr, locals, globals, builtins, io) {
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
@@ -501,7 +605,8 @@ fn delete_target_with_env(
               }
               let end_value = match end {
                 Some(expr) =>
-                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                  match
+                    eval_expr_with_env(expr, locals, globals, builtins, io) {
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
@@ -509,7 +614,8 @@ fn delete_target_with_env(
               }
               let step_value = match step {
                 Some(expr) =>
-                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                  match
+                    eval_expr_with_env(expr, locals, globals, builtins, io) {
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
@@ -529,13 +635,7 @@ fn delete_target_with_env(
               }
           }
           match
-            get_attr_from_value(
-              container,
-              "__delitem__",
-              globals,
-              builtins,
-              io,
-            ) {
+            get_attr_from_value(container, "__delitem__", globals, builtins, io) {
             Ok(delitem) => {
               let _ = match
                 call_callable_with_env(

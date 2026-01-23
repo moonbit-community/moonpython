@@ -127,6 +127,7 @@ pub enum Target {
   Name(String)
   Tuple(Array[Target])
   List(Array[Target])
+  Starred(Target)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
 } derive(ToJson)
@@ -137,6 +138,7 @@ pub enum Pattern {
   Wildcard
   Literal(Literal)
   Name(String)
+  TypeCapture(type_name~ : String, name~ : String)
   Tuple(Array[Pattern])
 } derive(ToJson)
 

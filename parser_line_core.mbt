@@ -26,6 +26,7 @@ fn LineParser::new(source : String) -> LineParser {
 }
 
 ///|
+
 ///|
 fn LineParser::peek_next_indent(self : LineParser) -> Int {
   let mut idx = self.index

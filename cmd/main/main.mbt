@@ -140,57 +140,172 @@ fn print_run(run : @mpython.RunResult) -> Unit {
 
 ///|
 fn print_usage() -> Unit {
-  println("usage: moon run cmd/main -- [--stdlib PATH] program.py")
+  println(
+    "usage: moon run cmd/main -- [--stdlib PATH] (-m MODULE | program.py) [args...]",
+  )
+}
+
+///|
+fn module_rel_path(name : String) -> String {
+  let parts : Array[String] = []
+  for part in name.split(".") {
+    let p = part.to_string()
+    if p.length() > 0 {
+      parts.push(p)
+    }
+  }
+  if parts.length() == 0 {
+    name
+  } else {
+    let mut joined = parts[0]
+    for i = 1; i < parts.length(); i = i + 1 {
+      joined = joined + "/" + parts[i]
+    }
+    joined
+  }
+}
+
+///|
+fn module_parent_name(name : String) -> String {
+  let parts : Array[String] = []
+  for part in name.split(".") {
+    let p = part.to_string()
+    if p.length() > 0 {
+      parts.push(p)
+    }
+  }
+  if parts.length() <= 1 {
+    "".to_string()
+  } else {
+    let mut joined = parts[0]
+    for i = 1; i + 1 < parts.length(); i = i + 1 {
+      joined = joined + "." + parts[i]
+    }
+    joined
+  }
+}
+
+///|
+fn resolve_module_entry(
+  module_name : String,
+  roots : Array[String],
+) -> (String, String)? {
+  // Prefer package execution (pkg/__main__.py) over module (pkg.py) when present.
+  let rel = module_rel_path(module_name)
+  let package_main = rel + "/__main__.py"
+  for root in roots {
+    let candidate = if root.length() == 0 {
+      package_main
+    } else {
+      @path.Path(root).join(@path.Path(package_main)).to_string()
+    }
+    if @fs.path_exists(candidate) {
+      return Some((candidate, module_name))
+    }
+  }
+  let module_file = rel + ".py"
+  for root in roots {
+    let candidate = if root.length() == 0 {
+      module_file
+    } else {
+      @path.Path(root).join(@path.Path(module_file)).to_string()
+    }
+    if @fs.path_exists(candidate) {
+      return Some((candidate, module_parent_name(module_name)))
+    }
+  }
+  None
 }
 
 ///|
 fn main {
   let args = @sys.get_cli_args()
   let mut script_path : String? = None
+  let mut module_name : String? = None
   let stdlib_paths : Array[String] = []
+  let program_args : Array[String] = []
   let mut i = 1
   while i < args.length() {
     let arg = args[i]
-    if arg == "-h" || arg == "--help" {
-      print_usage()
-      @sys.exit(0)
-    }
-    if arg == "--stdlib" || arg == "--stdlib-path" {
-      if i + 1 >= args.length() {
-        println("missing value for " + arg)
+    if module_name is None && script_path is None {
+      if arg == "-h" || arg == "--help" {
         print_usage()
-        @sys.exit(1)
+        @sys.exit(0)
       }
-      stdlib_paths.push(args[i + 1])
-      i += 2
-      continue
-    }
-    if script_path is None {
+      if arg == "--stdlib" || arg == "--stdlib-path" {
+        if i + 1 >= args.length() {
+          println("missing value for " + arg)
+          print_usage()
+          @sys.exit(1)
+        }
+        stdlib_paths.push(args[i + 1])
+        i += 2
+        continue
+      }
+      if arg == "-m" {
+        if i + 1 >= args.length() {
+          println("missing module name for -m")
+          print_usage()
+          @sys.exit(1)
+        }
+        module_name = Some(args[i + 1])
+        i += 2
+        continue
+      }
       script_path = Some(arg)
       i += 1
       continue
     }
-    println("unexpected argument: " + arg)
-    print_usage()
-    @sys.exit(1)
+    program_args.push(arg)
+    i += 1
   }
-  let script_path = match script_path {
-    Some(path) => path
+
+  // Build search roots for -m resolution: cwd first, then explicit stdlib roots.
+  let search_roots : Array[String] = [""]
+  for root in stdlib_paths {
+    search_roots.push(root)
+  }
+  let (entry_path, package_name, argv) = match module_name {
+    Some(modname) => {
+      let resolved = resolve_module_entry(modname, search_roots)
+      if resolved is None {
+        println("cannot find module: " + modname)
+        @sys.exit(1)
+      }
+      let resolved = resolved.unwrap()
+      let argv : Array[String] = [resolved.0]
+      for item in program_args {
+        argv.push(item)
+      }
+      (resolved.0, resolved.1, argv)
+    }
     None => {
-      print_usage()
-      @sys.exit(1)
-      ""
+      let script_path = match script_path {
+        Some(path) => path
+        None => {
+          print_usage()
+          @sys.exit(1)
+          ""
+        }
+      }
+      let argv : Array[String] = [script_path]
+      for item in program_args {
+        argv.push(item)
+      }
+      (script_path, "".to_string(), argv)
     }
   }
-  let source = @fs.read_file_to_string(script_path) catch {
+  let source = @fs.read_file_to_string(entry_path) catch {
     _ => {
-      println("cannot read file: " + script_path)
+      println("cannot read file: " + entry_path)
       @sys.exit(1)
       ""
     }
   }
-  let config = @mpython.Config::for_cli(stdlib_paths, Some(script_path), [script_path])
+  let config = @mpython.Config::for_cli(stdlib_paths, Some(entry_path), argv)
   let interpreter = @mpython.Interpreter::with_config(config)
+  interpreter.set_global_str("__file__", entry_path)
+  interpreter.set_global_str("__package__", package_name)
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)
     Err(err) => {

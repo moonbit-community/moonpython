@@ -165,10 +165,7 @@ fn normalize_param_name(param : String) -> String? {
 fn param_list_has_name(params : Array[String], name : String) -> Bool {
   for param in params {
     match normalize_param_name(param) {
-      Some(param_name) =>
-        if param_name == name {
-          return true
-        }
+      Some(param_name) => if param_name == name { return true }
       None => ()
     }
   }
@@ -273,6 +270,7 @@ fn collect_function_local_names(
         for item in items {
           add_target(item)
         }
+      Target::Starred(inner) => add_target(inner)
       _ => ()
     }
   }

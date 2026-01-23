@@ -1,6 +1,7 @@
 ///|
 /// Statement parsing helpers for moonpython.
 ///
+
 ///|
 fn expr_has_async_comprehension(expr : Expr) -> Bool {
   match expr {
@@ -165,6 +166,7 @@ fn target_has_async_comprehension(target : Target) -> Bool {
       }
       false
     }
+    Target::Starred(inner) => target_has_async_comprehension(inner)
     Target::Attribute(value~, attr~) => {
       let _ = attr
       expr_has_async_comprehension(value)
@@ -398,6 +400,40 @@ fn parse_pattern(
       ),
     )
   }
+  fn is_valid_ident(text : String) -> Bool {
+    if text.length() == 0 {
+      return false
+    }
+    let chars = text.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      let c = chars[i]
+      if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+        return false
+      }
+    }
+    true
+  }
+
+  // Minimal support for class patterns like `str(name)` used by the stdlib.
+  // This is not a full PEP 634 implementation.
+  match find_top_level_paren_span(trimmed) {
+    Some(span) => {
+      let open_pos = span.0
+      let close_pos = span.1
+      if open_pos > 0 && close_pos == trimmed.length() - 1 {
+        let type_name = substring(trimmed, 0, open_pos)
+          .trim(chars=" \t\n\r")
+          .to_string()
+        let inner = substring(trimmed, open_pos + 1, close_pos)
+          .trim(chars=" \t\n\r")
+          .to_string()
+        if is_valid_ident(type_name) && is_valid_ident(inner) {
+          return Ok(Pattern::TypeCapture(type_name~, name=inner))
+        }
+      }
+    }
+    None => ()
+  }
   let is_tuple = trimmed.contains(",") ||
     (chars.length() >= 2 && chars[0] == '(' && chars[chars.length() - 1] == ')')
   if is_tuple {
@@ -466,12 +502,35 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
     Expr::Name(name) => Ok(Target::Name(name))
     Expr::Attribute(value~, attr~) => Ok(Target::Attribute(value~, attr~))
     Expr::Subscript(value~, index~) => Ok(Target::Subscript(value~, index~))
+    Expr::Starred(value~) => {
+      let inner = match target_from_expr(value, token) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(Target::Starred(inner))
+    }
     Expr::Tuple(items) => {
       let targets : Array[Target] = []
+      let mut star_count = 0
       for item in items {
         let target = match target_from_expr(item, token) {
           Ok(value) => value
           Err(err) => return Err(err)
+        }
+        match target {
+          Target::Starred(_) => {
+            star_count += 1
+            if star_count > 1 {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  token,
+                ),
+              )
+            }
+          }
+          _ => ()
         }
         targets.push(target)
       }
@@ -479,10 +538,26 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
     }
     Expr::List(items) => {
       let targets : Array[Target] = []
+      let mut star_count = 0
       for item in items {
         let target = match target_from_expr(item, token) {
           Ok(value) => value
           Err(err) => return Err(err)
+        }
+        match target {
+          Target::Starred(_) => {
+            star_count += 1
+            if star_count > 1 {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  token,
+                ),
+              )
+            }
+          }
+          _ => ()
         }
         targets.push(target)
       }
@@ -497,6 +572,122 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
         ),
       )
   }
+}
+
+///|
+/// Parse assignment targets from a token slice. This is more permissive than
+/// expression parsing: it supports `a, *rest = ...` where `*rest` is only valid
+/// in assignment target context.
+fn target_from_assignment_tokens(
+  tokens : Array[Token],
+  token : Token,
+) -> Result[Target, ParseError] {
+  if tokens.length() == 0 {
+    return Err(
+      make_parse_error(
+        ParseErrorKind::Syntax,
+        "invalid syntax".to_string(),
+        token,
+      ),
+    )
+  }
+
+  // `tokens` are expected to include an Eof at the end (see assignment parsing below).
+  let body_end = if tokens.length() > 0 { tokens.length() - 1 } else { 0 }
+  let body = slice_tokens(tokens, 0, body_end)
+  let mut has_top_comma = false
+  let mut depth = 0
+  for t in body {
+    let kind = t.kind
+    if kind == LParen || kind == LBracket || kind == LBrace {
+      depth += 1
+    } else if kind == RParen || kind == RBracket || kind == RBrace {
+      if depth > 0 {
+        depth -= 1
+      }
+    } else if kind == Comma && depth == 0 {
+      has_top_comma = true
+      break
+    }
+  }
+  if !has_top_comma {
+    let expr = match parse_tokens_expr(tokens) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    return target_from_expr(expr, token)
+  }
+  let parts : Array[Array[Token]] = []
+  let mut start = 0
+  depth = 0
+  for i = 0; i < body.length(); i = i + 1 {
+    let kind = body[i].kind
+    if kind == LParen || kind == LBracket || kind == LBrace {
+      depth += 1
+    } else if kind == RParen || kind == RBracket || kind == RBrace {
+      if depth > 0 {
+        depth -= 1
+      }
+    } else if kind == Comma && depth == 0 {
+      parts.push(slice_tokens(body, start, i))
+      start = i + 1
+    }
+  }
+  parts.push(slice_tokens(body, start, body.length()))
+  let targets : Array[Target] = []
+  let mut star_count = 0
+  for part in parts {
+    if part.length() == 0 {
+      continue
+    }
+    let is_star = part[0].kind == Star
+    let inner_part = if is_star {
+      slice_tokens(part, 1, part.length())
+    } else {
+      part
+    }
+    if is_star {
+      star_count += 1
+      if star_count > 1 {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+    }
+    if inner_part.length() == 0 {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    inner_part.push({
+      kind: Eof,
+      start: token.start,
+      end: token.start,
+      line: token.line,
+      column: token.column,
+    })
+    let expr = match parse_tokens_expr(inner_part) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    let mut target0 = match target_from_expr(expr, token) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    if is_star {
+      target0 = Target::Starred(target0)
+    }
+    targets.push(target0)
+  }
+  Ok(Target::Tuple(targets))
 }
 
 ///|
@@ -902,11 +1093,7 @@ fn parse_simple_statement(
         ),
       )
     }
-    let mut imported = substring(
-        trimmed,
-        import_pos + 6,
-        trimmed.length(),
-      )
+    let mut imported = substring(trimmed, import_pos + 6, trimmed.length())
       .trim(chars=" \t\n\r")
       .to_string()
     if imported.has_prefix("(") && imported.has_suffix(")") {
@@ -1085,7 +1272,8 @@ fn parse_simple_statement(
         }
       }
       let value_offset = base_offset + 5 + eq_pos + 1 + value_leading
-      let tokens = match tokenize_expr(value_text, line_index + 1, value_offset) {
+      let tokens = match
+        tokenize_expr(value_text, line_index + 1, value_offset) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1204,13 +1392,17 @@ fn parse_simple_statement(
     if from_idx is Some(idx) {
       if idx == 0 {
         return Err(
-          make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), Token::{
-            kind: TokenKind::Eof,
-            start: 0,
-            end: 0,
-            line: line_index + 1,
-            column: base_offset + 1,
-          }),
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            Token::{
+              kind: TokenKind::Eof,
+              start: 0,
+              end: 0,
+              line: line_index + 1,
+              column: base_offset + 1,
+            },
+          ),
         )
       }
       exc_text = substring(rest, 0, idx).trim(chars=" \t").to_string()
@@ -1351,23 +1543,40 @@ fn parse_simple_statement(
       ),
     )
   }
-  if trimmed.contains(":") && !trimmed.contains("=") {
-    let colon_pos = find_char(trimmed, ':')
-    if colon_pos is Some(colon_pos) {
-      let name_text = substring(trimmed, 0, colon_pos)
-        .trim(chars=" \t")
-        .to_string()
-      if name_text.length() > 0 {
-        let mut valid = true
-        let chars = name_text.to_array()
-        for i = 0; i < chars.length(); i = i + 1 {
-          let c = chars[i]
-          if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
-            valid = false
-            break
-          }
+  // PEP 526 annotated assignment. We keep annotations as parse-time no-ops for
+  // now, but accept attribute/subscript targets so the CPython stdlib can load.
+  if trimmed.contains(":") {
+    let colon_pos = find_top_level_char(trimmed, ':')
+    let eq_pos = find_top_level_char(trimmed, '=')
+    match (colon_pos, eq_pos) {
+      (Some(colon_pos), None) => {
+        let left_text = substring(trimmed, 0, colon_pos)
+          .trim(chars=" \t")
+          .to_string()
+        // Avoid swallowing other colon-terminated statements like `match x:`
+        // and `if x:`: only treat it as an annotation when the left side parses
+        // as an assignment target.
+        let left_target = match
+          tokenize_expr(left_text, line_index + 1, base_offset) {
+          Ok(tokens) =>
+            match parse_tokens_expr(tokens) {
+              Ok(expr) =>
+                match
+                  target_from_expr(expr, {
+                    kind: Eof,
+                    start: base_offset,
+                    end: base_offset + 1,
+                    line: line_index + 1,
+                    column: 1,
+                  }) {
+                  Ok(target) => Some(target)
+                  Err(_) => None
+                }
+              Err(_) => None
+            }
+          Err(_) => None
         }
-        if valid {
+        if left_target is Some(_) {
           let annotation_text = substring(
               trimmed,
               colon_pos + 1,
@@ -1431,52 +1640,110 @@ fn parse_simple_statement(
           )
         }
       }
-    }
-  }
-  if trimmed.contains(":") && trimmed.contains("=") {
-    let colon_pos = find_char(trimmed, ':')
-    let eq_pos = find_char(trimmed, '=')
-    if colon_pos is Some(colon_pos) &&
-      eq_pos is Some(eq_pos) &&
-      colon_pos < eq_pos {
-      let name_text = substring(trimmed, 0, colon_pos)
-        .trim(chars=" \t")
-        .to_string()
-      if name_text.length() > 0 {
-        let mut valid = true
-        let chars = name_text.to_array()
-        for i = 0; i < chars.length(); i = i + 1 {
-          let c = chars[i]
-          if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
-            valid = false
-            break
-          }
-        }
-        if valid {
-          let mut value_text = substring(trimmed, eq_pos + 1, trimmed.length())
+      (Some(colon_pos), Some(eq_pos)) =>
+        if colon_pos < eq_pos {
+          let left_text = substring(trimmed, 0, colon_pos)
             .trim(chars=" \t")
             .to_string()
-          let comma_pos = find_char(value_text, ',')
-          if value_text.contains("*") && comma_pos is Some(comma_pos) {
-            value_text = substring(value_text, 0, comma_pos)
-              .trim(chars=" \t")
-              .to_string()
+          let left_expr = match
+            tokenize_expr(left_text, line_index + 1, base_offset) {
+            Ok(tokens) =>
+              match parse_tokens_expr(tokens) {
+                Ok(expr) => Some(expr)
+                Err(_) => None
+              }
+            Err(_) => None
           }
-          let tokens = match
-            tokenize_expr(value_text, line_index + 1, base_offset + eq_pos + 1) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          match left_expr {
+            Some(left_expr) => {
+              let target_opt = match
+                target_from_expr(left_expr, {
+                  kind: Eof,
+                  start: base_offset,
+                  end: base_offset + 1,
+                  line: line_index + 1,
+                  column: 1,
+                }) {
+                Ok(value) => Some(value)
+                // Not an assignment target; let the general statement parser handle it.
+                Err(_) => None
+              }
+              match target_opt {
+                Some(target) => {
+                  // Validate annotation syntax, but ignore it for now.
+                  let annotation_text = substring(
+                      trimmed,
+                      colon_pos + 1,
+                      eq_pos,
+                    )
+                    .trim(chars=" \t")
+                    .to_string()
+                  if annotation_text.length() == 0 {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        {
+                          kind: Eof,
+                          start: base_offset + colon_pos,
+                          end: base_offset + colon_pos + 1,
+                          line: line_index + 1,
+                          column: colon_pos + 1,
+                        },
+                      ),
+                    )
+                  }
+                  let ann_tokens = match
+                    tokenize_expr(
+                      annotation_text,
+                      line_index + 1,
+                      base_offset + colon_pos + 1,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  let _ = match parse_tokens_expr(ann_tokens) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  let mut value_text = substring(
+                      trimmed,
+                      eq_pos + 1,
+                      trimmed.length(),
+                    )
+                    .trim(chars=" \t")
+                    .to_string()
+                  let comma_pos = find_char(value_text, ',')
+                  if value_text.contains("*") && comma_pos is Some(comma_pos) {
+                    value_text = substring(value_text, 0, comma_pos)
+                      .trim(chars=" \t")
+                      .to_string()
+                  }
+                  let tokens = match
+                    tokenize_expr(
+                      value_text,
+                      line_index + 1,
+                      base_offset + eq_pos + 1,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  let expr = match parse_tokens_expr(tokens) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                  stmts.push(Stmt::Assign(target~, value=expr))
+                  return finalize_simple_statement(
+                    stmts, allow_async_comprehensions, span, base_offset,
+                  )
+                }
+                None => ()
+              }
+            }
+            None => ()
           }
-          let expr = match parse_tokens_expr(tokens) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          stmts.push(Stmt::Assign(target=Target::Name(name_text), value=expr))
-          return finalize_simple_statement(
-            stmts, allow_async_comprehensions, span, base_offset,
-          )
         }
-      }
+      _ => ()
     }
   }
   if has_keyword_prefix(trimmed, "lambda") {
@@ -1575,61 +1842,6 @@ fn parse_simple_statement(
     }
     None => ()
   }
-  if has_bare_assign(trimmed) {
-    let eq_pos = find_char(trimmed, '=')
-    if eq_pos is Some(eq_pos) {
-      let left_text = substring(trimmed, 0, eq_pos)
-        .trim(chars=" \t")
-        .to_string()
-      if left_text.contains("*") {
-        let right_text = substring(trimmed, eq_pos + 1, trimmed.length())
-          .trim(chars=" \t")
-          .to_string()
-        let value_tokens = match
-          tokenize_expr(right_text, line_index + 1, base_offset + eq_pos + 1) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        let value_expr = match parse_tokens_expr(value_tokens) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        for part in left_text.split(",") {
-          let target_text = part.trim(chars=" \t").to_string()
-          if target_text.length() == 0 {
-            continue
-          }
-          if target_text.has_prefix("*") {
-            continue
-          }
-          let target_tokens = match
-            tokenize_expr(target_text, line_index + 1, base_offset) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let target_expr = match parse_tokens_expr(target_tokens) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let target = match
-            target_from_expr(target_expr, {
-              kind: Eof,
-              start: base_offset,
-              end: base_offset + 1,
-              line: line_index + 1,
-              column: 1,
-            }) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          stmts.push(Stmt::Assign(target~, value=value_expr))
-        }
-        return finalize_simple_statement(
-          stmts, allow_async_comprehensions, span, base_offset,
-        )
-      }
-    }
-  }
   let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
     Ok(value) => value
     Err(err) => return Err(err)
@@ -1655,14 +1867,13 @@ fn parse_simple_statement(
       Ok(value) => value
       Err(err) => return Err(err)
     }
-    let temp_name : String? =
-      if assign_positions.length() > 1 {
-        let next_id = assign_temp_id_ref.val
-        assign_temp_id_ref.val = next_id + 1
-        Some("$__mpython_assign_tmp__" + next_id.to_string())
-      } else {
-        None
-      }
+    let temp_name : String? = if assign_positions.length() > 1 {
+      let next_id = assign_temp_id_ref.val
+      assign_temp_id_ref.val = next_id + 1
+      Some("$__mpython_assign_tmp__" + next_id.to_string())
+    } else {
+      None
+    }
     match temp_name {
       Some(name) =>
         stmts.push(Stmt::Assign(target=Target::Name(name), value=value_expr))
@@ -1692,12 +1903,8 @@ fn parse_simple_statement(
         line: tokens[end].line,
         column: tokens[end].column,
       })
-      let target_expr = match parse_tokens_expr(target_tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
       let token = if end > 0 { tokens[end - 1] } else { tokens[end] }
-      let target = match target_from_expr(target_expr, token) {
+      let target = match target_from_assignment_tokens(target_tokens, token) {
         Ok(value) => value
         Err(err) => return Err(err)
       }

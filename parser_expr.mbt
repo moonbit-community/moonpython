@@ -1,6 +1,7 @@
 ///|
 /// Expression parser for moonpython.
 ///
+
 ///|
 priv struct ExprParser {
   tokens : Array[Token]
@@ -253,13 +254,13 @@ fn ExprParser::parse_or(self : ExprParser) -> Result[Expr, ParseError] {
 ///|
 fn ExprParser::parse_and(self : ExprParser) -> Result[Expr, ParseError] {
   let values : Array[Expr] = []
-  match self.parse_compare() {
+  match self.parse_not() {
     Ok(first) => values.push(first)
     Err(err) => return Err(err)
   }
   while self.view() is [{ kind: And, .. }, .. rest] {
     self.update_view(rest)
-    match self.parse_compare() {
+    match self.parse_not() {
       Ok(next) => values.push(next)
       Err(err) => return Err(err)
     }
@@ -268,6 +269,23 @@ fn ExprParser::parse_and(self : ExprParser) -> Result[Expr, ParseError] {
     Ok(values[0])
   } else {
     Ok(Expr::BoolOp(op=BoolOp::And, values~))
+  }
+}
+
+///|
+fn ExprParser::parse_not(self : ExprParser) -> Result[Expr, ParseError] {
+  // `not` has lower precedence than comparisons in Python, but higher than
+  // `and`/`or`. Parse it here (not as a factor-level unary op) so expressions
+  // like `not x in y` behave like `not (x in y)`.
+  if self.view() is [{ kind: Not, .. }, .. rest] {
+    self.update_view(rest)
+    let expr = match self.parse_not() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    Ok(Expr::Unary(op=UnaryOp::Not, expr~))
+  } else {
+    self.parse_compare()
   }
 }
 
@@ -523,14 +541,6 @@ fn ExprParser::parse_factor(self : ExprParser) -> Result[Expr, ParseError] {
         Err(err) => return Err(err)
       }
       Ok(Expr::Unary(op=UnaryOp::Neg, expr~))
-    }
-    [{ kind: Not, .. }, .. rest] => {
-      self.update_view(rest)
-      let expr = match self.parse_factor() {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      Ok(Expr::Unary(op=UnaryOp::Not, expr~))
     }
     [{ kind: Tilde, .. }, .. rest] => {
       self.update_view(rest)
@@ -1361,7 +1371,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                     return Err(
                       make_parse_error(
                         ParseErrorKind::Syntax,
-                        "duplicate argument '" + name + "' in function definition",
+                        "duplicate argument '" +
+                        name +
+                        "' in function definition",
                         current,
                       ),
                     )
@@ -1393,7 +1405,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                     return Err(
                       make_parse_error(
                         ParseErrorKind::Syntax,
-                        "duplicate argument '" + name + "' in function definition",
+                        "duplicate argument '" +
+                        name +
+                        "' in function definition",
                         current,
                       ),
                     )
@@ -1416,6 +1430,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             }
             Slash => {
               let _ = self.advance()
+
             }
             _ => return Err(unexpected_token_error(current))
           }

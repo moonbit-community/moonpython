@@ -20,7 +20,9 @@ fn runtime_error_exc(
       let prefixes : Array[String] = [
         "ValueError:", "OverflowError:", "ImportError:", "AssertionError:", "RuntimeError:",
         "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:", "UnboundLocalError:",
-        "StopAsyncIteration:",
+        "StopAsyncIteration:", "UnicodeError:", "UnicodeDecodeError:", "UnicodeEncodeError:",
+        "UnicodeTranslateError:", "ModuleNotFoundError:", "OSError:", "FileNotFoundError:",
+        "FileExistsError:", "PermissionError:", "IsADirectoryError:", "NotADirectoryError:",
         "SystemExit:",
       ]
       if message == "StopIteration" {

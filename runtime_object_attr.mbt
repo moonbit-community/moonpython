@@ -46,14 +46,8 @@ fn truthy_from_value_with_env(
       // __bool__()
       match get_attr_from_value(value, "__bool__", globals, builtins, io) {
         Ok(callable) => {
-          let result = match call_callable_with_env(
-            callable,
-            [],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
+          let result = match
+            call_callable_with_env(callable, [], [], globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
@@ -78,14 +72,8 @@ fn truthy_from_value_with_env(
       // __len__()
       match get_attr_from_value(value, "__len__", globals, builtins, io) {
         Ok(callable) => {
-          let result = match call_callable_with_env(
-            callable,
-            [],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
+          let result = match
+            call_callable_with_env(callable, [], [], globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
@@ -253,11 +241,12 @@ fn get_attr_raw_from_value(
       Value::Instance(inst) => return Ok(Value::Class(inst.class))
       _ =>
         return Ok(
-          Value::Class(builtin_class_from_name(type_name_from_value(target), builtins)),
+          Value::Class(
+            builtin_class_from_name(type_name_from_value(target), builtins),
+          ),
         )
     }
   }
-
   match target {
     Value::None =>
       if attr == "__doc__" {
@@ -272,6 +261,13 @@ fn get_attr_raw_from_value(
       }
     Value::Instance(inst) => {
       if inst.class.name == "module" && attr == "__dict__" {
+        let pairs : Array[(Value, Value)] = []
+        for item in inst.dict {
+          pairs.push((Value::Str(item.0), item.1))
+        }
+        return Ok(Value::Dict(pairs))
+      }
+      if attr == "__dict__" {
         let pairs : Array[(Value, Value)] = []
         for item in inst.dict {
           pairs.push((Value::Str(item.0), item.1))
@@ -293,17 +289,13 @@ fn get_attr_raw_from_value(
             }
             match idx {
               Some(i) =>
-                truthy_from_value_with_env(
-                  pairs[i].1,
-                  globals,
-                  builtins,
-                  io,
-                )
+                truthy_from_value_with_env(pairs[i].1, globals, builtins, io)
               None => Ok(false)
             }
           }
           Value::Instance(inner) =>
-            if inner.class.name == "classmethod" || inner.class.name == "staticmethod" {
+            if inner.class.name == "classmethod" ||
+              inner.class.name == "staticmethod" {
               match get_named_value(inner.dict, "func") {
                 Some(func_value) => abstract_flag_from_value(func_value)
                 None => Ok(false)
@@ -314,6 +306,7 @@ fn get_attr_raw_from_value(
           _ => Ok(false)
         }
       }
+
       if attr == "__isabstractmethod__" {
         if class_has_base_name(inst.class, "property") {
           let mut is_abstract = false
@@ -752,6 +745,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "__index__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "int.__index__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "to_bytes" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -784,7 +793,9 @@ fn get_attr_raw_from_value(
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
-          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          "'" +
+          type_name_from_value(target) +
+          "' object has no attribute '" +
           attr +
           "'",
         ),
@@ -828,7 +839,9 @@ fn get_attr_raw_from_value(
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
-          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          "'" +
+          type_name_from_value(target) +
+          "' object has no attribute '" +
           attr +
           "'",
         ),
@@ -921,6 +934,38 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "partition",
               params: ["self", "sep"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "expandtabs" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "expandtabs",
+              params: ["self", "tabsize"],
+              defaults: [Value::Int(8N)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "translate" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "translate",
+              params: ["self", "table"],
               defaults: [],
               body: [],
               is_generator: false,
@@ -1150,7 +1195,9 @@ fn get_attr_raw_from_value(
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
-          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          "'" +
+          type_name_from_value(target) +
+          "' object has no attribute '" +
           attr +
           "'",
         ),
@@ -1782,6 +1829,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "difference_update" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "difference_update",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -1940,9 +2003,18 @@ fn get_attr_raw_from_value(
         // Provide that bit based on __abstractmethods__.
         let mut is_abstract = false
         match lookup_class_attr(klass, "__abstractmethods__") {
-          Ok(Some(Value::Set(items))) => if items.length() > 0 { is_abstract = true }
-          Ok(Some(Value::Tuple(items))) => if items.length() > 0 { is_abstract = true }
-          Ok(Some(Value::List(items))) => if items.length() > 0 { is_abstract = true }
+          Ok(Some(Value::Set(items))) =>
+            if items.length() > 0 {
+              is_abstract = true
+            }
+          Ok(Some(Value::Tuple(items))) =>
+            if items.length() > 0 {
+              is_abstract = true
+            }
+          Ok(Some(Value::List(items))) =>
+            if items.length() > 0 {
+              is_abstract = true
+            }
           Ok(Some(_)) => ()
           Ok(None) => ()
           Err(err) => return Err(err)
@@ -2048,10 +2120,12 @@ fn get_attr_raw_from_value(
           }),
         )
       } else if klass.name == "object" &&
-        (attr == "__repr__" ||
-         attr == "__str__" ||
-         attr == "__format__" ||
-         attr == "__reduce_ex__") {
+        (
+          attr == "__repr__" ||
+          attr == "__str__" ||
+          attr == "__format__" ||
+          attr == "__reduce_ex__"
+        ) {
         Ok(
           Value::Function(FunctionValue::{
             name: attr,
@@ -2103,6 +2177,18 @@ fn get_attr_raw_from_value(
         )
       } else {
         match lookup_class_attr(klass, attr) {
+          Ok(Some(Value::Function(func))) =>
+            if attr == "__init_subclass__" || attr == "__class_getitem__" {
+              // PEP 487 / PEP 560: these are implicitly class methods on the class object.
+              Ok(
+                Value::BoundMethod(BoundMethodValue::{
+                  function: func,
+                  self: Value::Class(klass),
+                }),
+              )
+            } else {
+              Ok(Value::Function(func))
+            }
           Ok(Some(value)) =>
             match apply_descriptor(value, Value::None, Value::Class(klass)) {
               Ok(Some(v)) => Ok(v)
@@ -2111,15 +2197,16 @@ fn get_attr_raw_from_value(
             }
           Ok(None) => {
             let mut is_enum = false
-            let mut member_type_value =
-              Value::Class(builtin_class_from_name("object", builtins))
+            let mut member_type_value = Value::Class(
+              builtin_class_from_name("object", builtins),
+            )
             match class_mro(klass) {
               Ok(mro) =>
                 for cls in mro {
                   if cls.name == "Enum" ||
-                     cls.name == "Flag" ||
-                     cls.name == "IntFlag" ||
-                     cls.name == "StrEnum" {
+                    cls.name == "Flag" ||
+                    cls.name == "IntFlag" ||
+                    cls.name == "StrEnum" {
                     is_enum = true
                   }
                   if cls.name == "int" {
@@ -2189,9 +2276,9 @@ fn get_attr_raw_from_value(
               }
             }
             if attr == "__repr__" ||
-               attr == "__str__" ||
-               attr == "__format__" ||
-               attr == "__reduce_ex__" {
+              attr == "__str__" ||
+              attr == "__format__" ||
+              attr == "__reduce_ex__" {
               return Ok(
                 Value::Function(FunctionValue::{
                   name: attr,

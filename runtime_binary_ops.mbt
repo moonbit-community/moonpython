@@ -662,14 +662,31 @@ fn eval_binary_op_values(
               Ok(v) => v
               Err(err) => return Err(err)
             }
+
           }
           for item in right {
             let _ = match set_add_unique(values, item) {
               Ok(v) => v
               Err(err) => return Err(err)
             }
+
           }
           Ok(Value::Set(values))
+        }
+        (Value::Dict(left), Value::Dict(right)) => {
+          // PEP 584: dict union.
+          let out : Array[(Value, Value)] = []
+          for pair in left {
+            out.push(pair)
+          }
+          for pair in right {
+            let _ = match dict_set_item(out, pair.0, pair.1) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          Ok(Value::Dict(out))
         }
         _ => {
           let left_args = union_args_from_value(left_val, builtins)

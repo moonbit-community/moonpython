@@ -89,10 +89,11 @@ pub struct Config {
   track_spans : Bool
   allow_filesystem_imports : Bool
   import_paths : Array[String]
+  argv : Array[String]
   main_path : String?
 }
 pub fn Config::default() -> Self
-pub fn Config::for_cli(Array[String], String?) -> Self
+pub fn Config::for_cli(Array[String], String?, Array[String]) -> Self
 pub impl ToJson for Config
 
 pub struct ExceptHandler {
@@ -167,6 +168,7 @@ pub fn Interpreter::get_global(Self, String) -> Value?
 pub fn Interpreter::new() -> Self
 pub fn Interpreter::new_spec() -> Self
 pub fn Interpreter::set_global(Self, String, Value) -> Unit
+pub fn Interpreter::set_global_str(Self, String, String) -> Unit
 pub fn Interpreter::with_builtins(Array[(String, Value)], Config) -> Self
 pub fn Interpreter::with_config(Config) -> Self
 pub fn Interpreter::with_io(Config, MockIO) -> Self
@@ -219,6 +221,7 @@ pub enum Pattern {
   Wildcard
   Literal(Literal)
   Name(String)
+  TypeCapture(type_name~ : String, name~ : String)
   Tuple(Array[Pattern])
 }
 pub impl ToJson for Pattern
@@ -301,6 +304,7 @@ pub enum Target {
   Name(String)
   Tuple(Array[Target])
   List(Array[Target])
+  Starred(Target)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
 }

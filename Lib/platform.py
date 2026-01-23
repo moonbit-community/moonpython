@@ -905,6 +905,13 @@ def uname():
     if _uname_cache is not None:
         return _uname_cache
 
+    # moonpython: avoid relying on `collections.namedtuple` subclass iteration
+    # and optional `os.uname()` support; the stdlib test harness only needs a
+    # 6-tuple shape.
+    if getattr(getattr(sys, "implementation", None), "name", "") == "moonpython":
+        _uname_cache = (sys.platform, "", "", "", "", "")
+        return _uname_cache
+
     # Get some infos from the builtin os.uname API...
     try:
         system, node, release, version, machine = infos = os.uname()

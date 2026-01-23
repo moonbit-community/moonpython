@@ -109,7 +109,6 @@ fn bind_function_args_with_kwargs(
   let defaults_by_name : Array[(String, Value)] = []
   let mut default_idx = 0
   let mut kw_only = false
-
   for param in func.params {
     if param_is_posonly_marker(param) {
       continue
@@ -159,7 +158,6 @@ fn bind_function_args_with_kwargs(
       ),
     )
   }
-
   if vararg_name is None && positional.length() > pos_params.length() {
     return Err(
       make_runtime_error(
@@ -173,7 +171,6 @@ fn bind_function_args_with_kwargs(
       ),
     )
   }
-
   fn find_default(
     defaults_by_name : Array[(String, Value)],
     name : String,
@@ -200,7 +197,6 @@ fn bind_function_args_with_kwargs(
   }
   let vararg_values : Array[Value] = []
   let kwarg_values : Array[(Value, Value)] = []
-
   for i = 0; i < positional.length(); i = i + 1 {
     if i < pos_params.length() {
       pos_values[i] = (pos_params[i], positional[i])
@@ -209,7 +205,6 @@ fn bind_function_args_with_kwargs(
       vararg_values.push(positional[i])
     }
   }
-
   for pair in keywords {
     let name = pair.0
     let value = pair.1
@@ -257,10 +252,7 @@ fn bind_function_args_with_kwargs(
         let mut exists = false
         for entry in kwarg_values {
           match entry.0 {
-            Value::Str(key) =>
-              if key == name {
-                exists = true
-              }
+            Value::Str(key) => if key == name { exists = true }
             _ => ()
           }
         }
@@ -283,7 +275,6 @@ fn bind_function_args_with_kwargs(
         )
     }
   }
-
   let missing_pos : Array[String] = []
   for i = 0; i < pos_params.length(); i = i + 1 {
     if !pos_assigned[i] {
@@ -316,7 +307,6 @@ fn bind_function_args_with_kwargs(
     }
     return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
   }
-
   let missing_kw : Array[String] = []
   for i = 0; i < kw_only_params.length(); i = i + 1 {
     if !kw_assigned[i] {
@@ -349,7 +339,6 @@ fn bind_function_args_with_kwargs(
     }
     return Err(make_runtime_error(RuntimeErrorKind::Type, buf.to_string()))
   }
-
   let locals : Array[(String, Value)] = []
   for item in pos_values {
     locals.push(item)

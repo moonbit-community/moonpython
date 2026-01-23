@@ -283,6 +283,7 @@ fn builtin_frozenset(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
+
     }
     Ok(Value::Set(unique))
   }
@@ -309,12 +310,11 @@ fn builtin_dict(
   let pairs : Array[(Value, Value)] = []
   if positional.length() == 1 {
     match positional[0] {
-      Value::Dict(items) => {
+      Value::Dict(items) =>
         for pair in items {
           pairs.push(pair)
         }
-      }
-      Value::List(items) | Value::Tuple(items) => {
+      Value::List(items) | Value::Tuple(items) =>
         for item in items {
           match item {
             Value::Tuple(values) | Value::List(values) =>
@@ -323,6 +323,7 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
+
               } else {
                 return Err(
                   make_runtime_error(
@@ -340,7 +341,6 @@ fn builtin_dict(
               )
           }
         }
-      }
       other => {
         let items = match
           collect_items_from_iterable(other, globals, builtins, io) {
@@ -355,6 +355,7 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
+
               } else {
                 return Err(
                   make_runtime_error(
@@ -380,6 +381,7 @@ fn builtin_dict(
       Ok(v) => v
       Err(err) => return Err(err)
     }
+
   }
   Ok(Value::Dict(pairs))
 }
@@ -470,17 +472,14 @@ fn builtin_dict_fromkeys(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let value = if positional.length() == 3 {
-    positional[2]
-  } else {
-    Value::None
-  }
+  let value = if positional.length() == 3 { positional[2] } else { Value::None }
   let pairs : Array[(Value, Value)] = []
   for item in items {
     let _ = match dict_set_item(pairs, item, value) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
+
   }
   Ok(Value::Dict(pairs))
 }
@@ -565,12 +564,7 @@ fn builtin_dict_pop(
   if positional.length() == 3 {
     return Ok(positional[2])
   }
-  Err(
-    make_runtime_error(
-      RuntimeErrorKind::Key,
-      "key not found".to_string(),
-    ),
-  )
+  Err(make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()))
 }
 
 ///|
@@ -746,11 +740,10 @@ fn builtin_dict_update(
   let other = positional[1]
   let entries : Array[(Value, Value)] = []
   match other {
-    Value::Dict(values) => {
+    Value::Dict(values) =>
       for entry in values {
         entries.push(entry)
       }
-    }
     Value::List(values) | Value::Tuple(values) =>
       for item in values {
         match item {
@@ -781,8 +774,7 @@ fn builtin_dict_update(
         Err(err) => return Err(err)
       }
       while true {
-        let item = match
-          iterator_next(iterator, None, globals, builtins, io) {
+        let item = match iterator_next(iterator, None, globals, builtins, io) {
           Ok(v) => v
           Err(err) =>
             if err.exc_type == "StopIteration" {
@@ -821,6 +813,7 @@ fn builtin_dict_update(
       Ok(v) => v
       Err(err) => return Err(err)
     }
+
   }
   Ok(Value::None)
 }
@@ -855,6 +848,7 @@ fn builtin_dict_clear(
   while i > 0 {
     i = i - 1
     let _ = pairs.remove(i)
+
   }
   Ok(Value::None)
 }

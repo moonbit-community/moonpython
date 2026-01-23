@@ -86,7 +86,9 @@ fn builtin_sys_exc_info(
   match active_exception() {
     None => Ok(Value::Tuple([Value::None, Value::None, Value::None]))
     Some(err) => {
-      let exc_value = exception_value_from_runtime_error(err, globals, builtins, io)
+      let exc_value = exception_value_from_runtime_error(
+        err, globals, builtins, io,
+      )
       let exc_type_value = match exc_value {
         Value::Instance(inst) => Value::Class(inst.class)
         _ => Value::Str(err.exc_type)
@@ -294,10 +296,26 @@ fn builtin_property_init(
     )
   }
   let target = positional[0]
-  let mut fget = if positional.length() >= 2 { positional[1] } else { Value::None }
-  let mut fset = if positional.length() >= 3 { positional[2] } else { Value::None }
-  let mut fdel = if positional.length() >= 4 { positional[3] } else { Value::None }
-  let mut doc = if positional.length() >= 5 { positional[4] } else { Value::None }
+  let mut fget = if positional.length() >= 2 {
+    positional[1]
+  } else {
+    Value::None
+  }
+  let mut fset = if positional.length() >= 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let mut fdel = if positional.length() >= 4 {
+    positional[3]
+  } else {
+    Value::None
+  }
+  let mut doc = if positional.length() >= 5 {
+    positional[4]
+  } else {
+    Value::None
+  }
   let mut has_fget = positional.length() >= 2
   let mut has_fset = positional.length() >= 3
   let mut has_fdel = positional.length() >= 4
@@ -334,7 +352,8 @@ fn builtin_property_init(
           doc = value
           has_doc = true
         }
-      _ => return Err(unexpected_keyword_argument_error("property.__init__", key))
+      _ =>
+        return Err(unexpected_keyword_argument_error("property.__init__", key))
     }
   }
   match target {
@@ -906,6 +925,7 @@ fn builtin_ascii(
     other => Ok(Value::Str(value_to_string(other)))
   }
 }
+
 ///|
 fn builtin_callable(
   positional : Array[Value],
@@ -1096,6 +1116,7 @@ fn builtin_isinstance(
         )
     }
   }
+
   fn isinstance_multi(obj : Value, cls : Value) -> Result[Bool, RuntimeError] {
     match cls {
       Value::Tuple(values) => {
@@ -1113,6 +1134,7 @@ fn builtin_isinstance(
       _ => isinstance_single(obj, cls)
     }
   }
+
   let ok = match isinstance_multi(obj, cls) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1148,6 +1170,7 @@ fn issubclass_matches_builtin_names(
   }
 }
 
+///|
 fn is_not_implemented_value(value : Value) -> Bool {
   match value {
     Value::Instance(inst) => inst.class.name == "NotImplementedType"
@@ -1177,13 +1200,14 @@ fn issubclass_pair(
       Ok(false)
     }
     Value::Class(base_class) => {
-      let subclass_hook = match get_attr_raw_from_value(
-        Value::Class(base_class),
-        "__subclasshook__",
-        globals,
-        builtins,
-        io,
-      ) {
+      let subclass_hook = match
+        get_attr_raw_from_value(
+          Value::Class(base_class),
+          "__subclasshook__",
+          globals,
+          builtins,
+          io,
+        ) {
         Ok(v) => Some(v)
         Err(err) =>
           match err.kind {
@@ -1192,14 +1216,8 @@ fn issubclass_pair(
           }
       }
       if subclass_hook is Some(hook_value) {
-        let result = match call_callable_with_env(
-          hook_value,
-          [cls],
-          [],
-          globals,
-          builtins,
-          io,
-        ) {
+        let result = match
+          call_callable_with_env(hook_value, [cls], [], globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -1249,14 +1267,15 @@ fn issubclass_pair(
             // validate it and use it as a fallback (ABCMeta does this).
             match get_named_value(base_class.dict, "__subclasses__") {
               Some(subclasses_value) => {
-                let raw = match call_callable_with_env(
-                  subclasses_value,
-                  [],
-                  [],
-                  globals,
-                  builtins,
-                  io,
-                ) {
+                let raw = match
+                  call_callable_with_env(
+                    subclasses_value,
+                    [],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -1711,6 +1730,52 @@ fn builtin_globals(
     pairs.push((Value::Str(pair.0), pair.1))
   }
   Ok(Value::Dict(pairs))
+}
+
+///|
+fn builtin_vars(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("vars", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 {
+    // vars() -> locals()
+    let pairs : Array[(Value, Value)] = []
+    for pair in locals {
+      pairs.push((Value::Str(pair.0), pair.1))
+    }
+    return Ok(Value::Dict(pairs))
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "vars() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  match get_attr_from_value(positional[0], "__dict__", globals, builtins, io) {
+    Ok(v) => Ok(v)
+    Err(err) =>
+      match err.kind {
+        RuntimeErrorKind::Attribute =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "vars() argument must have __dict__ attribute".to_string(),
+            ),
+          )
+        _ => Err(err)
+      }
+  }
 }
 
 ///|
@@ -2253,6 +2318,7 @@ fn builtin_super(
         None => Ok(None)
       }
     }
+
     let cls_opt = match
       lookup_name_value("__class__", locals, globals, builtins) {
       Ok(v) => Some(v)

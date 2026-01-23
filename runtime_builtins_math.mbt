@@ -208,11 +208,7 @@ fn builtin_math_floor(
     Value::Int(v) => Ok(Value::Int(v))
     Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Float(v) =>
-      Ok(
-        Value::Int(
-          @bigint.BigInt::from_int64(@math.floor(v).to_int64()),
-        ),
-      )
+      Ok(Value::Int(@bigint.BigInt::from_int64(@math.floor(v).to_int64())))
     _ =>
       Err(
         make_runtime_error(
@@ -253,11 +249,7 @@ fn builtin_math_ceil(
     Value::Int(v) => Ok(Value::Int(v))
     Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Float(v) =>
-      Ok(
-        Value::Int(
-          @bigint.BigInt::from_int64(@math.ceil(v).to_int64()),
-        ),
-      )
+      Ok(Value::Int(@bigint.BigInt::from_int64(@math.ceil(v).to_int64())))
     _ =>
       Err(
         make_runtime_error(
@@ -450,11 +442,11 @@ fn erf_approx(x : Double) -> Double {
   let ax = if x < 0.0 { -x } else { x }
   let t = 1.0 / (1.0 + p * ax)
   let y = 1.0 -
-    (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) *
-    @math.exp(-ax * ax)
+    ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * @math.exp(-ax * ax)
   sign * y
 }
 
+///|
 fn lgamma_lanczos(x : Double) -> Double {
   let c1 = 76.18009172947146
   let c2 = -86.50532032941677
@@ -481,6 +473,7 @@ fn lgamma_lanczos(x : Double) -> Double {
   log_tmp + @math.ln(2.5066282746310005 * ser / x)
 }
 
+///|
 fn lgamma_approx(x : Double) -> Double {
   let pi = 3.141592653589793
   if x < 0.5 {
@@ -678,8 +671,7 @@ fn builtin_math_isfinite(
     )
   }
   match positional[0] {
-    Value::Float(v) =>
-      Ok(Value::Bool(!v.is_nan() && !v.is_inf()))
+    Value::Float(v) => Ok(Value::Bool(!v.is_nan() && !v.is_inf()))
     Value::Int(_) | Value::Bool(_) => Ok(Value::Bool(true))
     _ =>
       Err(

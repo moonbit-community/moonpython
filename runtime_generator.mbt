@@ -357,9 +357,9 @@ fn generator_unwind_to_loop(
         }
         return Ok(())
       }
-    _ => ()
+      _ => ()
+    }
   }
-}
   Err(
     make_runtime_error(
       RuntimeErrorKind::Runtime,
@@ -733,6 +733,125 @@ fn generator_step_statement(
           ),
         )
       }
+    Stmt::Import(module_name~, alias_name~) => {
+      let module_value = match
+        import_module(
+          module_name,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+          current_config(),
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let binding = match alias_name {
+        Some(name) => name
+        None => module_top_name(module_name)
+      }
+      let binding_value = match alias_name {
+        Some(_) => module_value
+        None =>
+          if module_name.contains(".") {
+            match module_cache_get(binding) {
+              Some(value) => value
+              None => module_value
+            }
+          } else {
+            module_value
+          }
+      }
+      set_scoped_value(
+        state.val.locals,
+        state.val.globals,
+        binding,
+        binding_value,
+      )
+      Ok(None)
+    }
+    Stmt::FromImport(module_name~, names~) => {
+      let resolved_name = match
+        resolve_relative_module_name(module_name, state.val.globals) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let module_value = match
+        import_module(
+          resolved_name,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+          current_config(),
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for item in names {
+        let name = item.0
+        let alias_opt = item.1
+        if name == "*" {
+          match module_value {
+            Value::Instance(inst) =>
+              for pair in inst.dict {
+                if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                  set_scoped_value(
+                    state.val.locals,
+                    state.val.globals,
+                    pair.0,
+                    pair.1,
+                  )
+                }
+              }
+            _ => ()
+          }
+          continue
+        }
+        let imported = match
+          get_attr_from_value(
+            module_value,
+            name,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
+          Ok(value) => value
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => {
+                let submodule = resolved_name + "." + name
+                match
+                  import_module(
+                    submodule,
+                    state.val.globals,
+                    state.val.builtins,
+                    state.val.io,
+                    current_config(),
+                  ) {
+                  Ok(value) => value
+                  Err(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "ImportError: cannot import name '" +
+                        name +
+                        "' from '" +
+                        resolved_name +
+                        "'",
+                      ),
+                    )
+                }
+              }
+              _ => return Err(err)
+            }
+        }
+        let binding = match alias_opt {
+          Some(alias_name) => alias_name
+          None => name
+        }
+        set_scoped_value(state.val.locals, state.val.globals, binding, imported)
+      }
+      Ok(None)
+    }
     Stmt::Pass | Stmt::Global(_) | Stmt::Nonlocal(_) => Ok(None)
     Stmt::With(context~, target~, body~) => {
       let ctx_value = match
@@ -770,7 +889,8 @@ fn generator_step_statement(
         Err(err) => return Err(err)
       }
       match target {
-        Some(name) => set_scoped_value(state.val.locals, state.val.globals, name, entered)
+        Some(name) =>
+          set_scoped_value(state.val.locals, state.val.globals, name, entered)
         None => ()
       }
       let exit_value = match
@@ -936,6 +1056,88 @@ fn generator_step_statement(
           Err(err2)
         }
       }
+    Stmt::Match(subject~, cases~) => {
+      let subject_value = match
+        eval_expr_with_env(
+          subject,
+          state.val.locals,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      for case in cases {
+        let pattern = case.0
+        let guard_expr_opt : Expr? = case.1
+        let case_body = case.2
+        match match_pattern(subject_value, pattern) {
+          Some(bindings) => {
+            let previous : Array[(String, Value?)] = []
+            for binding in bindings {
+              previous.push(
+                (
+                  binding.0,
+                  get_scoped_value(
+                    state.val.locals,
+                    state.val.globals,
+                    binding.0,
+                  ),
+                ),
+              )
+              set_scoped_value(
+                state.val.locals,
+                state.val.globals,
+                binding.0,
+                binding.1,
+              )
+            }
+            let mut guard_ok = true
+            if guard_expr_opt is Some(guard_expr) {
+              let guard_value = match
+                eval_expr_with_env(
+                  guard_expr,
+                  state.val.locals,
+                  state.val.globals,
+                  state.val.builtins,
+                  state.val.io,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              guard_ok = bool_from_value(guard_value)
+            }
+            if guard_ok {
+              state.val.frames.push(
+                GenFrame::Block(body=case_body, index=0, loop_depth~),
+              )
+              return Ok(None)
+            }
+            // Guard failed: rollback bindings before trying the next case.
+            for prev in previous {
+              if prev.1 is Some(value) {
+                set_scoped_value(
+                  state.val.locals,
+                  state.val.globals,
+                  prev.0,
+                  value,
+                )
+              } else {
+                let _ = delete_scoped_value(
+                  state.val.locals,
+                  state.val.globals,
+                  prev.0,
+                )
+
+              }
+            }
+          }
+          None => ()
+        }
+      }
+      Ok(None)
+    }
     Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
       // except* (PEP 654) is not supported in the generator interpreter yet.
       for h in handlers {
@@ -1001,12 +1203,14 @@ fn generator_try_handler_matches(
         Err(e) => return Err(e)
       }
       match exc_value {
-        Value::Class(klass) => exception_matches_handler(err, klass, state.val.builtins)
+        Value::Class(klass) =>
+          exception_matches_handler(err, klass, state.val.builtins)
         Value::Tuple(items) => {
           for item in items {
             match item {
               Value::Class(klass) =>
-                match exception_matches_handler(err, klass, state.val.builtins) {
+                match
+                  exception_matches_handler(err, klass, state.val.builtins) {
                   Ok(true) => return Ok(true)
                   Ok(false) => ()
                   Err(e) => return Err(e)
@@ -1048,6 +1252,7 @@ fn generator_dispatch_error(
         // Unwind everything above the cleanup frame.
         while state.val.frames.length() > idx + 1 {
           let _ = state.val.frames.pop()
+
         }
         match state.val.frames[idx] {
           GenFrame::WithExit(exit~) => {
@@ -1091,13 +1296,14 @@ fn generator_dispatch_error(
             phase~,
             pending~,
             handler_active~,
-            loop_depth~,
+            loop_depth~
           ) => {
             let _ = else_body
             let _ = pending
             // If we're leaving an except handler, clear the active exception.
             if handler_active && active_exception_stack.val.length() > 0 {
               let _ = active_exception_stack.val.pop()
+
             }
 
             // `phase` tracks which block is currently active: 0=body, 1=else,
@@ -1105,7 +1311,8 @@ fn generator_dispatch_error(
             if phase != 2 && phase != 3 {
               let mut matched : ExceptHandler? = None
               for h in handlers {
-                let ok = match generator_try_handler_matches(current, h, state) {
+                let ok = match
+                  generator_try_handler_matches(current, h, state) {
                   Ok(v) => v
                   Err(e) => return Err(e)
                 }
@@ -1149,7 +1356,6 @@ fn generator_dispatch_error(
                 None => ()
               }
             }
-
             if finally_body.length() > 0 {
               state.val.frames[idx] = GenFrame::Try(
                 handlers~,
@@ -1494,7 +1700,7 @@ fn generator_resume_inner(
         phase~,
         pending~,
         handler_active~,
-        loop_depth~,
+        loop_depth~
       ) => {
         let _ = handlers
         let _ = loop_depth
@@ -1536,6 +1742,7 @@ fn generator_resume_inner(
         if phase == 1 || phase == 2 {
           if handler_active && active_exception_stack.val.length() > 0 {
             let _ = active_exception_stack.val.pop()
+
           }
           if finally_body.length() > 0 {
             state.val.frames[top_index] = GenFrame::Try(

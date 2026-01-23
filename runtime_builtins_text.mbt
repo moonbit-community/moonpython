@@ -91,6 +91,7 @@ fn builtin_str_maketrans(
             Ok(v) => v
             Err(err) => return Err(err)
           }
+
         }
         Ok(Value::Dict(out))
       }
@@ -141,6 +142,7 @@ fn builtin_str_maketrans(
         Ok(v) => v
         Err(err) => return Err(err)
       }
+
     }
     if positional.length() == 3 {
       let delete_text = match positional[2] {
@@ -160,6 +162,7 @@ fn builtin_str_maketrans(
           Ok(v) => v
           Err(err) => return Err(err)
         }
+
       }
     }
     Ok(Value::Dict(out))
@@ -235,8 +238,7 @@ fn builtin_sys_getfilesystemencodeerrors(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match
-    ensure_no_keywords("sys.getfilesystemencodeerrors", keywords) {
+  let _ = match ensure_no_keywords("sys.getfilesystemencodeerrors", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -249,6 +251,101 @@ fn builtin_sys_getfilesystemencodeerrors(
     )
   }
   Ok(Value::Str("surrogateescape"))
+}
+
+///|
+fn builtin_sys_getrecursionlimit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.getrecursionlimit", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getrecursionlimit() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Int(@bigint.BigInt::from_int(current_config().max_recursion)))
+}
+
+///|
+fn builtin_sys_setrecursionlimit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.setrecursionlimit", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "setrecursionlimit() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let limit = match positional[0] {
+    Value::Int(v) =>
+      match bigint_to_int_checked(v) {
+        Ok(n) => n
+        Err(err) => return Err(err)
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "recursion limit must be int".to_string(),
+        ),
+      )
+  }
+  if limit < 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: recursion limit must be >= 1".to_string(),
+      ),
+    )
+  }
+  let cfg = current_config()
+  let updated = Config::{
+    max_recursion: limit,
+    traceback_limit: cfg.traceback_limit,
+    track_spans: cfg.track_spans,
+    allow_filesystem_imports: cfg.allow_filesystem_imports,
+    import_paths: cfg.import_paths,
+    argv: cfg.argv,
+    main_path: cfg.main_path,
+  }
+  if active_config_stack.val.length() == 0 {
+    active_config_stack.val.push(updated)
+  } else {
+    active_config_stack.val[active_config_stack.val.length() - 1] = updated
+  }
+  Ok(Value::None)
 }
 
 ///|
@@ -285,6 +382,58 @@ fn encode_string_utf8(text : String) -> Array[Int] {
 }
 
 ///|
+let surrogateescape_pua_base = 0xF0000
+
+///|
+fn surrogateescape_char_from_byte(b : Int) -> Char {
+  // MoonBit strings cannot represent surrogate code points (U+DCxx),
+  // so we use a private-use marker range to round-trip surrogateescape.
+  (surrogateescape_pua_base + (b & 0xFF)).to_char().unwrap()
+}
+
+///|
+fn surrogateescape_byte_from_char(ch : Char) -> Int? {
+  let code = ch.to_int()
+  if code >= surrogateescape_pua_base && code < surrogateescape_pua_base + 256 {
+    Some(code - surrogateescape_pua_base)
+  } else {
+    None
+  }
+}
+
+///|
+fn encode_string_utf8_with_errors(text : String, errors : String) -> Array[Int] {
+  if errors != "surrogateescape" {
+    return encode_string_utf8(text)
+  }
+  let out : Array[Int] = []
+  for ch in text.to_array() {
+    match surrogateescape_byte_from_char(ch) {
+      Some(b) => out.push(b)
+      None => {
+        let code = ch.to_int()
+        if code <= 0x7F {
+          out.push(code)
+        } else if code <= 0x7FF {
+          out.push(0xC0 | (code >> 6))
+          out.push(0x80 | (code & 0x3F))
+        } else if code <= 0xFFFF {
+          out.push(0xE0 | (code >> 12))
+          out.push(0x80 | ((code >> 6) & 0x3F))
+          out.push(0x80 | (code & 0x3F))
+        } else {
+          out.push(0xF0 | (code >> 18))
+          out.push(0x80 | ((code >> 12) & 0x3F))
+          out.push(0x80 | ((code >> 6) & 0x3F))
+          out.push(0x80 | (code & 0x3F))
+        }
+      }
+    }
+  }
+  out
+}
+
+///|
 fn encode_string_ascii(text : String) -> Result[Array[Int], RuntimeError] {
   let out : Array[Int] = []
   for ch in text.to_array() {
@@ -298,6 +447,37 @@ fn encode_string_ascii(text : String) -> Result[Array[Int], RuntimeError] {
       )
     }
     out.push(code)
+  }
+  Ok(out)
+}
+
+///|
+fn encode_string_ascii_with_errors(
+  name : String,
+  text : String,
+  errors : String,
+) -> Result[Array[Int], RuntimeError] {
+  let _ = name
+  if errors != "surrogateescape" {
+    return encode_string_ascii(text)
+  }
+  let out : Array[Int] = []
+  for ch in text.to_array() {
+    match surrogateescape_byte_from_char(ch) {
+      Some(b) => out.push(b)
+      None => {
+        let code = ch.to_int()
+        if code > 0x7F {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "UnicodeEncodeError: 'ascii' codec can't encode character".to_string(),
+            ),
+          )
+        }
+        out.push(code)
+      }
+    }
   }
   Ok(out)
 }
@@ -319,7 +499,7 @@ fn encode_string_with_encoding(
         ),
       )
   }
-  match errors_value {
+  let errors = match errors_value {
     Some(Value::Str(errs)) =>
       if errs != "strict" && errs != "surrogateescape" {
         return Err(
@@ -328,6 +508,8 @@ fn encode_string_with_encoding(
             "LookupError: unknown error handler".to_string(),
           ),
         )
+      } else {
+        errs
       }
     Some(_) =>
       return Err(
@@ -336,12 +518,12 @@ fn encode_string_with_encoding(
           name + "() errors must be str".to_string(),
         ),
       )
-    None => ()
+    None => "strict"
   }
   if encoding == "utf-8" || encoding == "utf8" {
-    Ok(encode_string_utf8(text))
+    Ok(encode_string_utf8_with_errors(text, errors))
   } else if encoding == "ascii" {
-    encode_string_ascii(text)
+    encode_string_ascii_with_errors(name, text, errors)
   } else {
     Err(
       make_runtime_error(
@@ -353,7 +535,11 @@ fn encode_string_with_encoding(
 }
 
 ///|
-fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, RuntimeError] {
+fn decode_bytes_utf8(
+  name : String,
+  bytes : Array[Int],
+  errors : String,
+) -> Result[String, RuntimeError] {
   let _ = name
   let buf = StringBuilder::new()
   let mut i = 0
@@ -371,6 +557,12 @@ fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, Runtim
     } else if (b0 & 0xF8) == 0xF0 {
       (3, b0 & 0x07)
     } else {
+      if errors == "surrogateescape" {
+        // Map invalid bytes to U+DCxx, matching Python's surrogateescape.
+        buf.write_char(surrogateescape_char_from_byte(b0))
+        i += 1
+        continue
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -380,6 +572,15 @@ fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, Runtim
     }
     let mut code = code0
     if i + need >= bytes.length() {
+      if errors == "surrogateescape" {
+        // Truncated sequence: treat remaining bytes as undecodable.
+        while i < bytes.length() {
+          let b = bytes[i] & 0xFF
+          buf.write_char(surrogateescape_char_from_byte(b))
+          i += 1
+        }
+        break
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -387,10 +588,18 @@ fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, Runtim
         ),
       )
     }
+    let mut bad_lead = false
     let mut j = 0
     while j < need {
       let b = bytes[i + 1 + j] & 0xFF
       if (b & 0xC0) != 0x80 {
+        if errors == "surrogateescape" {
+          // Bad continuation: treat the lead byte as undecodable and retry from next byte.
+          buf.write_char(surrogateescape_char_from_byte(b0))
+          i += 1
+          bad_lead = true
+          break
+        }
         return Err(
           make_runtime_error(
             RuntimeErrorKind::Runtime,
@@ -401,6 +610,9 @@ fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, Runtim
       code = (code << 6) | (b & 0x3F)
       j += 1
     }
+    if bad_lead {
+      continue
+    }
     buf.write_char(code.to_char().unwrap())
     i += 1 + need
   }
@@ -408,12 +620,20 @@ fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, Runtim
 }
 
 ///|
-fn decode_bytes_ascii(name : String, bytes : Array[Int]) -> Result[String, RuntimeError] {
+fn decode_bytes_ascii(
+  name : String,
+  bytes : Array[Int],
+  errors : String,
+) -> Result[String, RuntimeError] {
   let _ = name
   let buf = StringBuilder::new()
   for b in bytes {
     let v = b & 0xFF
     if v > 0x7F {
+      if errors == "surrogateescape" {
+        buf.write_char(surrogateescape_char_from_byte(v))
+        continue
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -443,7 +663,7 @@ fn decode_bytes_with_encoding(
         ),
       )
   }
-  match errors_value {
+  let errors = match errors_value {
     Some(Value::Str(errs)) =>
       if errs != "strict" && errs != "surrogateescape" {
         return Err(
@@ -452,6 +672,8 @@ fn decode_bytes_with_encoding(
             "LookupError: unknown error handler".to_string(),
           ),
         )
+      } else {
+        errs
       }
     Some(_) =>
       return Err(
@@ -460,12 +682,12 @@ fn decode_bytes_with_encoding(
           name + "() errors must be str".to_string(),
         ),
       )
-    None => ()
+    None => "strict"
   }
   if encoding == "utf-8" || encoding == "utf8" {
-    decode_bytes_utf8(name, bytes)
+    decode_bytes_utf8(name, bytes, errors)
   } else if encoding == "ascii" {
-    decode_bytes_ascii(name, bytes)
+    decode_bytes_ascii(name, bytes, errors)
   } else {
     Err(
       make_runtime_error(

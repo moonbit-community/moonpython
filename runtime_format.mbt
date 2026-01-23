@@ -546,6 +546,21 @@ fn pad_left(text : String, width : Int, pad_char : Char) -> String {
 }
 
 ///|
+fn pad_right(text : String, width : Int, pad_char : Char) -> String {
+  if width <= text.length() {
+    text
+  } else {
+    let buf = StringBuilder::new()
+    buf.write_string(text)
+    let pad_len = width - text.length()
+    for _i = 0; _i < pad_len; _i = _i + 1 {
+      buf.write_char(pad_char)
+    }
+    buf.to_string()
+  }
+}
+
+///|
 fn pad_numeric(text : String, width : Int, zero_pad : Bool) -> String {
   if !zero_pad {
     return pad_left(text, width, ' ')
@@ -603,7 +618,7 @@ fn format_hex_value(
     Value::Int(v) => {
       let neg = v < 0N
       let abs_value = if neg { -v } else { v }
-      let mut out = abs_value.to_hex(uppercase=uppercase)
+      let mut out = abs_value.to_hex(uppercase~)
       if neg {
         out = "-" + out
       }
@@ -658,7 +673,10 @@ fn format_float_fixed(value : Double, precision : Int) -> String {
 }
 
 ///|
-fn format_float_value(value : Value, precision_opt : Int?) -> Result[String, RuntimeError] {
+fn format_float_value(
+  value : Value,
+  precision_opt : Int?,
+) -> Result[String, RuntimeError] {
   let precision = match precision_opt {
     Some(p) => p
     None => 6
@@ -670,7 +688,8 @@ fn format_float_value(value : Value, precision_opt : Int?) -> Result[String, Run
         Ok(d) => Ok(format_float_fixed(d, precision))
         Err(err) => Err(err)
       }
-    Value::Bool(v) => Ok(format_float_fixed(if v { 1.0 } else { 0.0 }, precision))
+    Value::Bool(v) =>
+      Ok(format_float_fixed(if v { 1.0 } else { 0.0 }, precision))
     _ =>
       Err(
         make_runtime_error(
@@ -750,26 +769,95 @@ fn format_percent_string(
         ),
       )
     }
+    fn star_int_value(name : String, v : Value) -> Result[Int, RuntimeError] {
+      match v {
+        Value::Int(b) => Ok(b.to_int64().to_int())
+        Value::Bool(b) => Ok(if b { 1 } else { 0 })
+        Value::Float(f) => Ok(f.to_int64().to_int())
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              name + " is not an integer".to_string(),
+            ),
+          )
+      }
+    }
+
+    let mut left_adjust = false
     let mut zero_pad = false
-    if chars[j] == '0' {
-      zero_pad = true
-      j = j + 1
+    while j < chars.length() {
+      if chars[j] == '-' {
+        left_adjust = true
+        zero_pad = false
+        j = j + 1
+        continue
+      }
+      if chars[j] == '0' && !left_adjust {
+        zero_pad = true
+        j = j + 1
+        continue
+      }
+      break
     }
     let mut width = 0
-    while j < chars.length() && chars[j].is_ascii_digit() {
-      width = width * 10 + (chars[j].to_int() - '0'.to_int())
+    if j < chars.length() && chars[j] == '*' {
+      if arg_index >= args.length() {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "not enough arguments for format string".to_string(),
+          ),
+        )
+      }
+      let w = match star_int_value("width".to_string(), args[arg_index]) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      arg_index = arg_index + 1
+      used_positional = true
+      if w < 0 {
+        left_adjust = true
+        width = -w
+      } else {
+        width = w
+      }
       j = j + 1
+    } else {
+      while j < chars.length() && chars[j].is_ascii_digit() {
+        width = width * 10 + (chars[j].to_int() - '0'.to_int())
+        j = j + 1
+      }
     }
     // Optional precision: `%.3f`
     let mut precision : Int? = None
     if j < chars.length() && chars[j] == '.' {
       j = j + 1
-      let mut p = 0
-      while j < chars.length() && chars[j].is_ascii_digit() {
-        p = p * 10 + (chars[j].to_int() - '0'.to_int())
+      if j < chars.length() && chars[j] == '*' {
+        if arg_index >= args.length() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "not enough arguments for format string".to_string(),
+            ),
+          )
+        }
+        let p = match star_int_value("precision".to_string(), args[arg_index]) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        arg_index = arg_index + 1
+        used_positional = true
+        precision = Some(p)
         j = j + 1
+      } else {
+        let mut p = 0
+        while j < chars.length() && chars[j].is_ascii_digit() {
+          p = p * 10 + (chars[j].to_int() - '0'.to_int())
+          j = j + 1
+        }
+        precision = Some(p)
       }
-      precision = Some(p)
     }
     if j >= chars.length() {
       return Err(
@@ -843,17 +931,15 @@ fn format_percent_string(
         )
     }
     let formatted = match raw {
-      Ok(text) => {
-        match spec {
-          'd' | 'i' | 'x' | 'X' => pad_numeric(text, width, zero_pad)
-          _ =>
-            pad_left(
-              text,
-              width,
-              if zero_pad { '0' } else { ' ' },
-            )
+      Ok(text) =>
+        if left_adjust {
+          pad_right(text, width, ' ')
+        } else {
+          match spec {
+            'd' | 'i' | 'x' | 'X' => pad_numeric(text, width, zero_pad)
+            _ => pad_left(text, width, if zero_pad { '0' } else { ' ' })
+          }
         }
-      }
       Err(err) => return Err(err)
     }
     buf.write_string(formatted)

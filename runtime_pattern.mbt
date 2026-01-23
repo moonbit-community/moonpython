@@ -22,6 +22,12 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
       }
     }
     Pattern::Name(name) => Some([(name, value)])
+    Pattern::TypeCapture(type_name~, name~) =>
+      if type_name_from_value(value) == type_name {
+        Some([(name, value)])
+      } else {
+        None
+      }
     Pattern::Tuple(patterns) =>
       match value {
         Value::Tuple(values) | Value::List(values) =>

@@ -84,6 +84,53 @@ fn builtin_sys_stdout_flush(
 }
 
 ///|
+fn builtin_sys_stdout_reconfigure(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  // CPython signature: reconfigure(*, encoding=None, errors=None, newline=None, ...)
+  // We accept common keywords and treat them as no-ops (but store on the instance dict).
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "reconfigure() takes no positional arguments".to_string(),
+      ),
+    )
+  }
+  for kw in keywords {
+    let name = kw.0
+    if name == "encoding" ||
+      name == "errors" ||
+      name == "newline" ||
+      name == "line_buffering" ||
+      name == "write_through" {
+      match positional[0] {
+        Value::Instance(inst) =>
+          // Store the most common introspected fields.
+          if name == "encoding" || name == "errors" || name == "newline" {
+            set_named_value(inst.dict, name, kw.1)
+          }
+        _ => ()
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "reconfigure() got an unexpected keyword '" + name + "'",
+        ),
+      )
+    }
+  }
+  Ok(Value::None)
+}
+
+///|
 fn builtin_sys_stderr_write(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -132,6 +179,48 @@ fn builtin_sys_stderr_flush(
       ),
     )
   }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_sys_stderr_reconfigure(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  // Reuse stdout implementation: semantics are identical for our shim.
+  builtin_sys_stdout_reconfigure(
+    positional, keywords, locals, globals, builtins, io,
+  )
+}
+
+///|
+fn builtin_sys_excepthook(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.excepthook", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "excepthook() takes exactly three arguments".to_string(),
+      ),
+    )
+  }
+  // Minimal stub: do nothing. CPython prints the exception; for now we just
+  // provide the hook so stdlib (e.g. threading) can import and run.
   Ok(Value::None)
 }
 
@@ -186,7 +275,10 @@ fn file_unpack_state(
 }
 
 ///|
-fn file_content_length(binary : Bool, content : Value) -> Result[Int, RuntimeError] {
+fn file_content_length(
+  binary : Bool,
+  content : Value,
+) -> Result[Int, RuntimeError] {
   match (binary, content) {
     (true, Value::Bytes(values)) => Ok(values.length())
     (false, Value::Str(text)) => Ok(text.length())
@@ -223,8 +315,7 @@ fn file_slice_content(
       }
       Ok(Value::Bytes(out))
     }
-    (false, Value::Str(text)) =>
-      Ok(Value::Str(substring(text, start, end)))
+    (false, Value::Str(text)) => Ok(Value::Str(substring(text, start, end)))
     _ =>
       Err(
         make_runtime_error(
@@ -313,11 +404,11 @@ fn builtin_file_read(
   } else {
     -1
   }
-  let (inst, binary, content, pos) =
-    match file_unpack_state(positional[0], "read") {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
+  let (inst, binary, content, pos) = match
+    file_unpack_state(positional[0], "read") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
   let length = match file_content_length(binary, content) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -337,7 +428,11 @@ fn builtin_file_read(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  set_named_value(inst.dict, "__pos__", Value::Int(@bigint.BigInt::from_int(end)))
+  set_named_value(
+    inst.dict,
+    "__pos__",
+    Value::Int(@bigint.BigInt::from_int(end)),
+  )
   Ok(out)
 }
 
@@ -380,11 +475,11 @@ fn builtin_file_readline(
   } else {
     -1
   }
-  let (inst, binary, content, pos) =
-    match file_unpack_state(positional[0], "readline") {
-      Ok(value) => value
-      Err(err) => return Err(err)
-    }
+  let (inst, binary, content, pos) = match
+    file_unpack_state(positional[0], "readline") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
   let length = match file_content_length(binary, content) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -408,7 +503,11 @@ fn builtin_file_readline(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  set_named_value(inst.dict, "__pos__", Value::Int(@bigint.BigInt::from_int(end)))
+  set_named_value(
+    inst.dict,
+    "__pos__",
+    Value::Int(@bigint.BigInt::from_int(end)),
+  )
   Ok(out)
 }
 
@@ -433,14 +532,8 @@ fn builtin_file_readlines(
   }
   let lines : Array[Value] = []
   while true {
-    let line = match builtin_file_readline(
-      [positional[0]],
-      [],
-      locals,
-      globals,
-      builtins,
-      io,
-    ) {
+    let line = match
+      builtin_file_readline([positional[0]], [], locals, globals, builtins, io) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -498,14 +591,8 @@ fn builtin_file_next(
       ),
     )
   }
-  let line = match builtin_file_readline(
-    [positional[0]],
-    [],
-    locals,
-    globals,
-    builtins,
-    io,
-  ) {
+  let line = match
+    builtin_file_readline([positional[0]], [], locals, globals, builtins, io) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -515,7 +602,9 @@ fn builtin_file_next(
     _ => true
   }
   if is_empty {
-    return Err(make_runtime_error(RuntimeErrorKind::Runtime, "StopIteration".to_string()))
+    return Err(
+      make_runtime_error(RuntimeErrorKind::Runtime, "StopIteration".to_string()),
+    )
   }
   Ok(line)
 }
@@ -645,6 +734,7 @@ fn builtin_open(
       item.0 == "buffering" ||
       item.0 == "closefd" {
       let _ = item.1
+
     } else {
       return Err(
         make_runtime_error(
@@ -686,7 +776,8 @@ fn builtin_open(
     )
   }
   let binary = mode.contains("b")
-  let text_content = @fs.read_file_to_string(path) catch {
+  let resolved_path = resolve_path_from_cwd(path)
+  let text_content = @fs.read_file_to_string(resolved_path) catch {
     _ =>
       return Err(
         make_runtime_error(
@@ -705,78 +796,102 @@ fn builtin_open(
     name: "file",
     bases: [Value::Class(base_class)],
     dict: [
-      ("read", Value::Function(FunctionValue::{
-        name: "file.read",
-        params: ["self", "size"],
-        defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("readline", Value::Function(FunctionValue::{
-        name: "file.readline",
-        params: ["self", "size"],
-        defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("readlines", Value::Function(FunctionValue::{
-        name: "file.readlines",
-        params: ["self"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("close", Value::Function(FunctionValue::{
-        name: "file.close",
-        params: ["self"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("__iter__", Value::Function(FunctionValue::{
-        name: "file.__iter__",
-        params: ["self"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("__next__", Value::Function(FunctionValue::{
-        name: "file.__next__",
-        params: ["self"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("__enter__", Value::Function(FunctionValue::{
-        name: "file.__enter__",
-        params: ["self"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
-      ("__exit__", Value::Function(FunctionValue::{
-        name: "file.__exit__",
-        params: ["self", "exc_type", "exc", "tb"],
-        defaults: [],
-        body: [],
-        is_generator: false,
-        is_async: false,
-        closure: [],
-      })),
+      (
+        "read",
+        Value::Function(FunctionValue::{
+          name: "file.read",
+          params: ["self", "size"],
+          defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "readline",
+        Value::Function(FunctionValue::{
+          name: "file.readline",
+          params: ["self", "size"],
+          defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "readlines",
+        Value::Function(FunctionValue::{
+          name: "file.readlines",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "close",
+        Value::Function(FunctionValue::{
+          name: "file.close",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "__iter__",
+        Value::Function(FunctionValue::{
+          name: "file.__iter__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "__next__",
+        Value::Function(FunctionValue::{
+          name: "file.__next__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "__enter__",
+        Value::Function(FunctionValue::{
+          name: "file.__enter__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "__exit__",
+        Value::Function(FunctionValue::{
+          name: "file.__exit__",
+          params: ["self", "exc_type", "exc", "tb"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
   let inst = Value::Instance(InstanceValue::{
@@ -789,4 +904,500 @@ fn builtin_open(
     ],
   })
   Ok(inst)
+}
+
+///|
+/// Host filesystem-backed helpers for the stdlib's `os`/`tempfile` needs.
+
+///|
+priv struct PosixFdEntry {
+  path : String
+  buffer : Array[Byte]
+}
+
+///|
+let posix_next_fd : Ref[Int] = { val: 3 }
+
+///|
+let posix_fd_table : Ref[Array[(Int, PosixFdEntry)]] = { val: [] }
+
+///|
+fn posix_lookup_fd(fd : Int) -> PosixFdEntry? {
+  for pair in posix_fd_table.val {
+    if pair.0 == fd {
+      return Some(pair.1)
+    }
+  }
+  None
+}
+
+///|
+fn posix_update_fd(fd : Int, entry : PosixFdEntry) -> Unit {
+  for i = 0; i < posix_fd_table.val.length(); i = i + 1 {
+    if posix_fd_table.val[i].0 == fd {
+      posix_fd_table.val[i] = (fd, entry)
+      return
+    }
+  }
+  posix_fd_table.val.push((fd, entry))
+}
+
+///|
+fn posix_remove_fd(fd : Int) -> PosixFdEntry? {
+  for i = 0; i < posix_fd_table.val.length(); i = i + 1 {
+    if posix_fd_table.val[i].0 == fd {
+      let entry = posix_fd_table.val[i].1
+      let _ = posix_fd_table.val.remove(i)
+      return Some(entry)
+    }
+  }
+  None
+}
+
+///|
+fn posix_path_from_value(
+  value : Value,
+  name : String,
+) -> Result[String, RuntimeError] {
+  match value {
+    Value::Str(s) => Ok(s)
+    Value::Bytes(bytes) => decode_bytes_utf8(name, bytes, "surrogateescape") // best-effort
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() path must be str or bytes",
+        ),
+      )
+  }
+}
+
+///|
+fn posix_bytes_from_value(
+  value : Value,
+  name : String,
+) -> Result[Array[Byte], RuntimeError] {
+  match value {
+    Value::Bytes(items) => {
+      let out : Array[Byte] = []
+      for b in items {
+        out.push((b & 0xFF).to_byte())
+      }
+      Ok(out)
+    }
+    Value::ByteArray(items) => {
+      let out : Array[Byte] = []
+      for b in items {
+        out.push((b & 0xFF).to_byte())
+      }
+      Ok(out)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() data must be bytes-like",
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_mpython_posix_open(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_open() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_open") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  let flags = match index_from_value(positional[1], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _mode = if positional.length() == 3 {
+    match index_from_value(positional[2], 0) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    0o777
+  }
+  let o_creat = 0x40
+  let o_excl = 0x80
+  let creating = (flags & o_creat) != 0
+  let exclusive = (flags & o_excl) != 0
+  if creating && exclusive && @fs.path_exists(path) {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileExistsError: file exists".to_string(),
+      ),
+    )
+  }
+  if !creating && !@fs.path_exists(path) {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileNotFoundError: no such file".to_string(),
+      ),
+    )
+  }
+  let fd = posix_next_fd.val
+  posix_next_fd.val = posix_next_fd.val + 1
+  posix_fd_table.val.push((fd, PosixFdEntry::{ path, buffer: [] }))
+  Ok(Value::Int(@bigint.BigInt::from_int(fd)))
+}
+
+///|
+fn builtin_mpython_posix_write(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_write() takes 2 arguments".to_string(),
+      ),
+    )
+  }
+  let fd = match index_from_value(positional[0], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let entry = match posix_lookup_fd(fd) {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: bad file descriptor",
+        ),
+      )
+  }
+  let bytes = match
+    posix_bytes_from_value(positional[1], "__mpython_posix_write") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for b in bytes {
+    entry.buffer.push(b)
+  }
+  posix_update_fd(fd, entry)
+  Ok(Value::Int(@bigint.BigInt::from_int(bytes.length())))
+}
+
+///|
+fn builtin_mpython_posix_close(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_close() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let fd = match index_from_value(positional[0], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let entry = match posix_remove_fd(fd) {
+    Some(v) => v
+    None => return Ok(Value::None)
+  }
+  let bytes = Bytes::from_array(entry.buffer)
+  let _ = @fs.write_bytes_to_file(entry.path, bytes) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: cannot write file".to_string(),
+        ),
+      )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_unlink(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_unlink() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_unlink") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  if !@fs.path_exists(path) {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileNotFoundError: no such file".to_string(),
+      ),
+    )
+  }
+  let _ = @fs.remove_file(path) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: cannot unlink".to_string(),
+        ),
+      )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_mkdir(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 1 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_mkdir() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_mkdir") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  let _mode = if positional.length() == 2 {
+    match index_from_value(positional[1], 0) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    0o777
+  }
+  if @fs.path_exists(path) {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileExistsError: file exists".to_string(),
+      ),
+    )
+  }
+  let _ = @fs.create_dir(path) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: cannot create directory".to_string(),
+        ),
+      )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_rmdir(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_rmdir() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_rmdir") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  let _ = @fs.remove_dir(path) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: cannot remove directory".to_string(),
+        ),
+      )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_stat(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_stat() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_stat") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  if !@fs.path_exists(path) {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileNotFoundError: no such file".to_string(),
+      ),
+    )
+  }
+  let is_dir = @fs.is_dir(path) catch { _ => false }
+  let st_mode = if is_dir { 0o040000 | 0o777 } else { 0o100000 | 0o666 }
+  let st_size = if is_dir {
+    0
+  } else {
+    let bytes = @fs.read_file_to_bytes(path) catch { _ => b"" }
+    bytes.length()
+  }
+  Ok(
+    Value::Tuple([
+      Value::Int(@bigint.BigInt::from_int(st_mode)), // st_mode
+      Value::Int(0N), // st_ino
+      Value::Int(0N), // st_dev
+      Value::Int(1N), // st_nlink
+      Value::Int(0N), // st_uid
+      Value::Int(0N), // st_gid
+      Value::Int(@bigint.BigInt::from_int(st_size)), // st_size
+      Value::Int(0N), // st_atime
+      Value::Int(0N), // st_mtime
+      Value::Int(0N), // st_ctime
+    ]),
+  )
+}
+
+///|
+fn builtin_mpython_posix_getcwd(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_getcwd() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str(current_workdir()))
+}
+
+///|
+fn builtin_mpython_posix_chdir(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_chdir() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_path_from_value(positional[0], "__mpython_posix_chdir") {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let resolved = resolve_path_from_cwd(path)
+  let is_dir = @fs.is_dir(resolved) catch { _ => false }
+  if !is_dir {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileNotFoundError: no such directory".to_string(),
+      ),
+    )
+  }
+  set_current_workdir(resolved)
+  Ok(Value::None)
 }

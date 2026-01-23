@@ -82,11 +82,7 @@ fn parse_match_stmt(
         ),
       )
     }
-    let mut case_text = substring(
-        case_line,
-        case_indent,
-        case_line.length(),
-      )
+    let mut case_text = substring(case_line, case_indent, case_line.length())
       .trim(chars=" \t")
       .to_string()
     let mut case_next_index = parser.index + 1
@@ -146,16 +142,14 @@ fn parse_match_stmt(
       }
     }
     let base_offset = parser.offsets[parser.index] + case_indent + 5
-    let pattern = match
-      parse_pattern(pattern_text, parser.index, base_offset) {
+    let pattern = match parse_pattern(pattern_text, parser.index, base_offset) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
     let mut guard_expr : Expr? = None
     match guard_text {
       Some(text) => {
-        let tokens = match
-          tokenize_expr(text, parser.index + 1, base_offset) {
+        let tokens = match tokenize_expr(text, parser.index + 1, base_offset) {
           Ok(value) => value
           Err(err) => return Err(err)
         }

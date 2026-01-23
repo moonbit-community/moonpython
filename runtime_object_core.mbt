@@ -150,6 +150,7 @@ fn class_mro_merge(
     for seq in seqs {
       if seq.length() > 0 && class_equal(seq[0], pick) {
         let _ = seq.remove(0)
+
       }
     }
   }

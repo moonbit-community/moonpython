@@ -100,6 +100,9 @@ class TextWrapper:
     # splits into
     #   Hello/ /there/ /--/ /you/ /goof-ball,/ /use/ /the/ /-b/ /option!/
     wordsep_simple_re = re.compile(r'(%s+)' % whitespace)
+    # moonpython's `re` is intentionally minimal: fall back to the simple
+    # whitespace splitter even when `break_on_hyphens` is requested.
+    wordsep_re = wordsep_simple_re
     del whitespace
 
     # XXX this is not locale- or charset-aware -- string.lowercase

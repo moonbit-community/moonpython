@@ -1,6 +1,7 @@
 ///|
 /// Parser entrypoints for moonpython (see parser_*.mbt for implementation).
 ///
+
 ///|
 pub fn parse(source : String) -> Result[Module, ParseError] {
   let lex_source = source.to_string()

@@ -18,7 +18,9 @@ fn int_parse_digit(ch : Char) -> Int? {
 fn int_text_from_value(value : Value) -> Result[String, RuntimeError] {
   match value {
     Value::Str(text) => Ok(text)
-    Value::Bytes(values) | Value::ByteArray(values) | Value::MemoryView(values) => {
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => {
       let chars : Array[Char] = []
       for byte in values {
         chars.push(byte.unsafe_to_char())
@@ -91,11 +93,9 @@ fn parse_bigint_from_string(
     if idx + 1 < chars.length() && chars[idx] == '0' {
       if base == 16 && (chars[idx + 1] == 'x' || chars[idx + 1] == 'X') {
         idx = idx + 2
-      } else if base == 8 &&
-        (chars[idx + 1] == 'o' || chars[idx + 1] == 'O') {
+      } else if base == 8 && (chars[idx + 1] == 'o' || chars[idx + 1] == 'O') {
         idx = idx + 2
-      } else if base == 2 &&
-        (chars[idx + 1] == 'b' || chars[idx + 1] == 'B') {
+      } else if base == 2 && (chars[idx + 1] == 'b' || chars[idx + 1] == 'B') {
         idx = idx + 2
       }
     }
@@ -217,13 +217,7 @@ fn builtin_int(
     match positional[0] {
       Value::Instance(_) => {
         let int_method = match
-          get_attr_from_value(
-            positional[0],
-            "__int__",
-            globals,
-            builtins,
-            io,
-          ) {
+          get_attr_from_value(positional[0], "__int__", globals, builtins, io) {
           Ok(v) => v
           Err(_) =>
             return Err(
@@ -234,14 +228,7 @@ fn builtin_int(
             )
         }
         let value = match
-          call_callable_with_env(
-            int_method,
-            [],
-            [],
-            globals,
-            builtins,
-            io,
-          ) {
+          call_callable_with_env(int_method, [], [], globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -318,8 +305,7 @@ fn builtin_int_new(
   match positional[1] {
     Value::Int(v) => Ok(Value::Int(v))
     Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    Value::Float(v) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
+    Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
     Value::Str(text) => {
       let parsed = @strconv.parse_int(text) catch {
         _ =>
@@ -378,6 +364,41 @@ fn builtin_int_repr(
 }
 
 ///|
+fn builtin_int_index(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.__index__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__index__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.__index__() expects an int".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_int_from_bytes(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -412,8 +433,9 @@ fn builtin_int_from_bytes(
     signed = bool_from_value(positional[3])
   }
   let bytes = match positional[1] {
-    Value::Bytes(values) | Value::ByteArray(values) | Value::MemoryView(values) =>
-      values
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => values
     other =>
       match bytes_from_iterable("int.from_bytes", other) {
         Ok(value) => value
@@ -660,6 +682,7 @@ fn builtin_int_bit_length(
   let bits = text.length() - 2
   Ok(Value::Int(@bigint.BigInt::from_int(bits)))
 }
+
 ///|
 fn builtin_float(
   positional : Array[Value],
@@ -745,6 +768,52 @@ fn builtin_float_repr(
 }
 
 ///|
+fn builtin_float_getformat(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("float.__getformat__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "float.__getformat__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let kind = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float.__getformat__() argument must be str".to_string(),
+        ),
+      )
+  }
+  // CPython returns strings like "IEEE, little-endian". Most stdlib probes only
+  // check that it starts with "IEEE".
+  if kind == "double" || kind == "float" {
+    Ok(Value::Str("IEEE, little-endian"))
+  } else {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: unknown float format".to_string(),
+      ),
+    )
+  }
+}
+
+///|
 fn builtin_complex(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -823,6 +892,7 @@ fn builtin_complex(
     Ok(Value::Complex(real, imag))
   }
 }
+
 ///|
 fn builtin_abs(
   positional : Array[Value],
@@ -991,6 +1061,7 @@ fn builtin_pow(
     }
   }
 }
+
 ///|
 fn floor_divmod_int(
   a : @bigint.BigInt,

@@ -21,19 +21,28 @@ __all__ = [
     "fsdecode",
     "fspath",
     "getcwd",
+    "getpid",
+    "cpu_count",
     "listdir",
     "stat",
     "stat_result",
     "lstat",
     "fstat",
     "open",
+    "write",
     "close",
     "unlink",
     "remove",
+    "mkdir",
     "rmdir",
     "terminal_size",
     "get_terminal_size",
     "urandom",
+    "O_RDONLY",
+    "O_WRONLY",
+    "O_RDWR",
+    "O_CREAT",
+    "O_EXCL",
 ]
 
 name = "posix"
@@ -54,10 +63,16 @@ X_OK = 1
 W_OK = 2
 R_OK = 4
 
+O_RDONLY = 0
+O_WRONLY = 1
+O_RDWR = 2
+O_CREAT = 0x40
+O_EXCL = 0x80
+
 error = OSError
 _have_functions = set()
 
-class stat_result(tuple):
+class stat_result:
     _fields = (
         "st_mode",
         "st_ino",
@@ -75,8 +90,17 @@ class stat_result(tuple):
     n_unnamed_fields = 0
     __match_args__ = _fields
 
-    def __new__(cls, seq):
-        return tuple.__new__(cls, seq)
+    def __init__(self, seq):
+        self._seq = tuple(seq)
+
+    def __iter__(self):
+        return iter(self._seq)
+
+    def __len__(self):
+        return len(self._seq)
+
+    def __getitem__(self, idx):
+        return self._seq[idx]
 
     def __getattr__(self, name):
         if name in self._fields:
@@ -84,15 +108,24 @@ class stat_result(tuple):
         raise AttributeError(name)
 
 
-class terminal_size(tuple):
+class terminal_size:
     _fields = ("columns", "lines")
     n_sequence_fields = len(_fields)
     n_fields = len(_fields)
     n_unnamed_fields = 0
     __match_args__ = _fields
 
-    def __new__(cls, seq):
-        return tuple.__new__(cls, seq)
+    def __init__(self, seq):
+        self._seq = tuple(seq)
+
+    def __iter__(self):
+        return iter(self._seq)
+
+    def __len__(self):
+        return len(self._seq)
+
+    def __getitem__(self, idx):
+        return self._seq[idx]
 
     def __getattr__(self, name):
         if name in self._fields:
@@ -128,7 +161,19 @@ def fsdecode(filename):
 
 
 def getcwd():
-    return curdir
+    return __mpython_posix_getcwd()
+
+
+def chdir(path):
+    return __mpython_posix_chdir(path)
+
+
+def getpid():
+    return 1
+
+
+def cpu_count():
+    return 1
 
 
 def get_terminal_size(fd=0):
@@ -144,35 +189,48 @@ def _raise_unavailable():
 
 
 def stat(path, *args, **kwargs):
-    _raise_unavailable()
+    return stat_result(__mpython_posix_stat(path))
 
 
 def lstat(path, *args, **kwargs):
-    _raise_unavailable()
+    return stat(path, *args, **kwargs)
 
 
 def fstat(fd, *args, **kwargs):
-    _raise_unavailable()
+    # Minimal: we don't currently track file metadata separately per fd.
+    raise OSError("operation not supported")
 
 
 def open(path, flags, mode=0o777, *args, **kwargs):
-    _raise_unavailable()
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_open(path, flags, mode)
+
+def write(fd, data):
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_write(fd, data)
 
 
 def close(fd):
-    _raise_unavailable()
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_close(fd)
 
 
 def unlink(path, *args, **kwargs):
-    _raise_unavailable()
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_unlink(path)
 
 
 def remove(path, *args, **kwargs):
     return unlink(path, *args, **kwargs)
 
+def mkdir(path, mode=0o777, *args, **kwargs):
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_mkdir(path, mode)
+
 
 def rmdir(path, *args, **kwargs):
-    _raise_unavailable()
+    # Backed by host filesystem helpers in the interpreter runtime.
+    return __mpython_posix_rmdir(path)
 
 
 def urandom(n):

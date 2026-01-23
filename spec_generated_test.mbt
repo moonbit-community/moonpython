@@ -6,8 +6,10 @@
 
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
-
-fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Unit raise {
+fn assert_run(
+  result : Result[RunResult, RuntimeError],
+  expected : String,
+) -> Unit raise {
   let json = @json.parse(expected) catch { _ => fail("invalid json") }
   match json {
     Array(items) => {
@@ -27814,4 +27816,3 @@ test "generated/program/1000" {
   let expected = "[\"err\", \"NameError: name '__name__' is not defined\"]"
   assert_run(result, expected)
 }
-
