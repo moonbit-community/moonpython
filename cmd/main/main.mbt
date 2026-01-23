@@ -189,7 +189,7 @@ fn main {
       ""
     }
   }
-  let config = @mpython.Config::for_cli(stdlib_paths, Some(script_path))
+  let config = @mpython.Config::for_cli(stdlib_paths, Some(script_path), [script_path])
   let interpreter = @mpython.Interpreter::with_config(config)
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)

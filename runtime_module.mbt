@@ -453,7 +453,7 @@ fn make_builtins_module(builtins : Array[(String, Value)]) -> Value {
 }
 
 ///|
-fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
+fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value {
   let _ = builtins
   let builtin_module_names = Value::Tuple([
     Value::Str("builtins"),
@@ -535,7 +535,96 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
       ("warn_default_encoding", Value::Int(0N)),
     ],
   })
+  let stdout_class = ClassValue::{
+    name: "stdout",
+    bases: [],
+    dict: [
+      (
+        "write",
+        Value::Function(FunctionValue::{
+          name: "sys.stdout.write",
+          params: ["self", "text"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "flush",
+        Value::Function(FunctionValue::{
+          name: "sys.stdout.flush",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  let stderr_class = ClassValue::{
+    name: "stderr",
+    bases: [],
+    dict: [
+      (
+        "write",
+        Value::Function(FunctionValue::{
+          name: "sys.stderr.write",
+          params: ["self", "text"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "flush",
+        Value::Function(FunctionValue::{
+          name: "sys.stderr.flush",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  let stdout_value = Value::Instance(InstanceValue::{ class: stdout_class, dict: [] })
+  let stderr_value = Value::Instance(InstanceValue::{ class: stderr_class, dict: [] })
   let prefix_value = Value::Str("")
+
+  // `sys.argv` and `sys.path` are heavily relied upon by the CPython stdlib
+  // (e.g. `unittest` assumes `argv[0]` exists).
+  let argv_values : Array[Value] = []
+  for arg in config.argv {
+    argv_values.push(Value::Str(arg))
+  }
+
+  let path_values : Array[Value] = []
+  let mut script_dir = "".to_string()
+  match config.main_path {
+    Some(main_path) => {
+      let base = @path.Path(main_path).dirname().to_string()
+      if base.length() > 0 && base != "." {
+        script_dir = base
+      }
+    }
+    None => ()
+  }
+  path_values.push(Value::Str(script_dir))
+  if script_dir.length() > 0 {
+    path_values.push(Value::Str(""))
+  }
+  for root in config.import_paths {
+    path_values.push(Value::Str(root))
+  }
+
   make_module_instance("sys", [
     ("maxsize", Value::Int(9223372036854775807N)),
     ("version", Value::Str("3.12.0")),
@@ -552,9 +641,37 @@ fn make_sys_module(builtins : Array[(String, Value)]) -> Value {
     ("base_exec_prefix", prefix_value),
     ("builtin_module_names", builtin_module_names),
     ("modules", Value::Dict(sys_modules_ref.val)),
-    ("path", Value::List([])),
-    ("argv", Value::List([])),
+    ("path", Value::List(path_values)),
+    ("argv", Value::List(argv_values)),
     ("warnoptions", Value::List([])),
+    ("stdout", stdout_value),
+    ("stderr", stderr_value),
+    ("__stdout__", stdout_value),
+    ("__stderr__", stderr_value),
+    (
+      "exit",
+      Value::Function(FunctionValue::{
+        name: "sys.exit",
+        params: ["status"],
+        defaults: [Value::None],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "exc_info",
+      Value::Function(FunctionValue::{
+        name: "sys.exc_info",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
     (
       "intern",
       Value::Function(FunctionValue::{
@@ -617,6 +734,13 @@ fn make_python_module(
     dict: module_globals,
   })
   module_cache_set(name, module_value)
+  // Module-level execution must not inherit the caller's closure/scope stacks
+  // (e.g. `import x` from inside a function should not make module code see
+  // that function's locals as "closure" candidates).
+  let saved_closure_env_stack = closure_env_stack.val
+  let saved_scope_decls_stack = scope_decls_stack.val
+  closure_env_stack.val = []
+  scope_decls_stack.val = []
   let _ = match
     eval_block(
       program.body,
@@ -627,8 +751,14 @@ fn make_python_module(
       config,
     ) {
     Ok(_) => ()
-    Err(err) => return Err(err)
+    Err(err) => {
+      closure_env_stack.val = saved_closure_env_stack
+      scope_decls_stack.val = saved_scope_decls_stack
+      return Err(err)
+    }
   }
+  closure_env_stack.val = saved_closure_env_stack
+  scope_decls_stack.val = saved_scope_decls_stack
   Ok(module_value)
 }
 
@@ -784,10 +914,27 @@ fn import_module(
     }
     None => ()
   }
+  if module_name.contains(".") {
+    let parent = module_parent_name(module_name)
+    if parent.length() > 0 {
+      let _ = match
+        import_module(parent, globals, builtins, io, config) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+    }
+    match module_cache_get(module_name) {
+      Some(v) => {
+        register_module_hierarchy(module_name, v)
+        return Ok(v)
+      }
+      None => ()
+    }
+  }
   let module_value = if module_name == "builtins" {
     make_builtins_module(builtins)
   } else if module_name == "sys" {
-    make_sys_module(builtins)
+    make_sys_module(builtins, config)
   } else if module_name == "_thread" {
     make_thread_module(builtins)
   } else if module_name == "_warnings" {

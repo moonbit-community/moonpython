@@ -358,19 +358,13 @@ fn cmp_value_for_sorted_dynamic(
       if kind_a == kind_b {
         cmp_value_for_sorted(kind_a, a, b)
       } else {
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "sorted() cannot compare values".to_string(),
-          ),
+        Ok(
+          cmp_string_for_sorted(value_to_string(a), value_to_string(b)),
         )
       }
     _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "sorted() cannot compare values".to_string(),
-        ),
+      Ok(
+        cmp_string_for_sorted(value_to_string(a), value_to_string(b)),
       )
   }
 }
@@ -709,12 +703,23 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
     BuiltinDef::{ name: "property", run: builtin_property },
+    BuiltinDef::{ name: "property.__init__", run: builtin_property_init },
     BuiltinDef::{ name: "property.getter", run: builtin_property_getter },
     BuiltinDef::{ name: "property.setter", run: builtin_property_setter },
     BuiltinDef::{ name: "property.deleter", run: builtin_property_deleter },
     BuiltinDef::{ name: "staticmethod", run: builtin_staticmethod },
+    BuiltinDef::{ name: "staticmethod.__init__", run: builtin_staticmethod_init },
     BuiltinDef::{ name: "classmethod", run: builtin_classmethod },
+    BuiltinDef::{ name: "classmethod.__init__", run: builtin_classmethod_init },
     BuiltinDef::{ name: "register", run: builtin_register },
+    BuiltinDef::{
+      name: "__mpython_abc_cache_token",
+      run: builtin_mpython_abc_cache_token,
+    },
+    BuiltinDef::{
+      name: "__mpython_abc_cache_token_bump",
+      run: builtin_mpython_abc_cache_token_bump,
+    },
     BuiltinDef::{ name: "repr", run: builtin_repr },
     BuiltinDef::{ name: "ascii", run: builtin_ascii },
     BuiltinDef::{ name: "abs", run: builtin_abs },
@@ -748,6 +753,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "isinstance", run: builtin_isinstance },
     BuiltinDef::{ name: "issubclass", run: builtin_issubclass },
     BuiltinDef::{ name: "type", run: builtin_type },
+    BuiltinDef::{ name: "type.__new__", run: builtin_type_new },
     BuiltinDef::{ name: "id", run: builtin_id },
     BuiltinDef::{ name: "hash", run: builtin_hash },
     BuiltinDef::{ name: "globals", run: builtin_globals },
@@ -756,6 +762,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "__import__", run: builtin_import },
     BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
+    BuiltinDef::{ name: "sys.exc_info", run: builtin_sys_exc_info },
     BuiltinDef::{
       name: "sys.getfilesystemencoding",
       run: builtin_sys_getfilesystemencoding,
@@ -764,6 +771,11 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "sys.getfilesystemencodeerrors",
       run: builtin_sys_getfilesystemencodeerrors,
     },
+    BuiltinDef::{ name: "sys.exit", run: builtin_sys_exit },
+    BuiltinDef::{ name: "sys.stdout.write", run: builtin_sys_stdout_write },
+    BuiltinDef::{ name: "sys.stdout.flush", run: builtin_sys_stdout_flush },
+    BuiltinDef::{ name: "sys.stderr.write", run: builtin_sys_stderr_write },
+    BuiltinDef::{ name: "sys.stderr.flush", run: builtin_sys_stderr_flush },
     BuiltinDef::{ name: "dir", run: builtin_dir },
     BuiltinDef::{ name: "getattr", run: builtin_getattr },
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },

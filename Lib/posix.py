@@ -12,6 +12,10 @@ __all__ = [
     "altsep",
     "devnull",
     "environ",
+    "F_OK",
+    "R_OK",
+    "W_OK",
+    "X_OK",
     "error",
     "fsencode",
     "fsdecode",
@@ -24,6 +28,11 @@ __all__ = [
     "fstat",
     "open",
     "close",
+    "unlink",
+    "remove",
+    "rmdir",
+    "terminal_size",
+    "get_terminal_size",
     "urandom",
 ]
 
@@ -39,6 +48,11 @@ altsep = None
 devnull = "/dev/null"
 
 environ = {}
+
+F_OK = 0
+X_OK = 1
+W_OK = 2
+R_OK = 4
 
 error = OSError
 _have_functions = set()
@@ -56,6 +70,22 @@ class stat_result(tuple):
         "st_mtime",
         "st_ctime",
     )
+    n_sequence_fields = len(_fields)
+    n_fields = len(_fields)
+    n_unnamed_fields = 0
+    __match_args__ = _fields
+
+    def __new__(cls, seq):
+        return tuple.__new__(cls, seq)
+
+    def __getattr__(self, name):
+        if name in self._fields:
+            return self[self._fields.index(name)]
+        raise AttributeError(name)
+
+
+class terminal_size(tuple):
+    _fields = ("columns", "lines")
     n_sequence_fields = len(_fields)
     n_fields = len(_fields)
     n_unnamed_fields = 0
@@ -101,6 +131,10 @@ def getcwd():
     return curdir
 
 
+def get_terminal_size(fd=0):
+    return (80, 24)
+
+
 def listdir(path=curdir):
     return []
 
@@ -126,6 +160,18 @@ def open(path, flags, mode=0o777, *args, **kwargs):
 
 
 def close(fd):
+    _raise_unavailable()
+
+
+def unlink(path, *args, **kwargs):
+    _raise_unavailable()
+
+
+def remove(path, *args, **kwargs):
+    return unlink(path, *args, **kwargs)
+
+
+def rmdir(path, *args, **kwargs):
     _raise_unavailable()
 
 

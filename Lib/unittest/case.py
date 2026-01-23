@@ -229,7 +229,8 @@ class _AssertRaisesBaseContext(_BaseTestCaseContext):
                                     'this function' % (next(iter(kwargs)),))
                 return self
 
-            callable_obj, *args = args
+            callable_obj = args[0]
+            args = args[1:]
             try:
                 self.obj_name = callable_obj.__name__
             except AttributeError:

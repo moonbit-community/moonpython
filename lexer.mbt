@@ -446,6 +446,7 @@ fn parse_string_literal(
   chars : Array[Char],
   start : Int,
   raw : Bool,
+  fstring : Bool,
 ) -> (String, Int, Bool) {
   let quote = chars[start]
   let triple = start + 2 < chars.length() &&
@@ -453,8 +454,51 @@ fn parse_string_literal(
     chars[start + 2] == quote
   let mut i = if triple { start + 3 } else { start + 1 }
   let buf = StringBuilder::new()
+  let mut brace_depth = 0
+  let mut expr_quote : Char? = None
+  let mut expr_escape = false
   while i < chars.length() {
     let c = chars[i]
+    if fstring && brace_depth > 0 {
+      match expr_quote {
+        Some(q) => {
+          if expr_escape {
+            expr_escape = false
+          } else if c == '\\' {
+            expr_escape = true
+          } else if c == q {
+            expr_quote = None
+          }
+        }
+        None => {
+          if c == '\'' || c == '"' {
+            expr_quote = Some(c)
+            expr_escape = false
+          } else if c == '{' {
+            brace_depth += 1
+          } else if c == '}' {
+            if brace_depth > 0 {
+              brace_depth -= 1
+            }
+          }
+        }
+      }
+      buf.write_char(c)
+      i += 1
+      continue
+    }
+    if fstring && c == '{' {
+      if i + 1 < chars.length() && chars[i + 1] == '{' {
+        // Escaped brace in f-string literal.
+        buf.write_char(c)
+        i += 1
+      } else {
+        brace_depth = 1
+        buf.write_char(c)
+        i += 1
+        continue
+      }
+    }
     if !raw && c == '\\' {
       if i + 1 < chars.length() && chars[i + 1] == '\n' {
         // Line continuation inside string literal
@@ -479,7 +523,7 @@ fn parse_string_literal(
           i += 3
           return (buf.to_string(), i, true)
         }
-      } else {
+      } else if !fstring || brace_depth == 0 {
         i += 1
         return (buf.to_string(), i, true)
       }
@@ -925,7 +969,7 @@ fn tokenize_expr(
       let triple = start + 2 < chars.length() &&
         chars[start + 1] == chars[start] &&
         chars[start + 2] == chars[start]
-      let (value, next_i, closed) = parse_string_literal(chars, i, false)
+      let (value, next_i, closed) = parse_string_literal(chars, i, false, false)
       if !closed {
         let mut detected_line = current_line
         for ch in substring_chars(chars, start, chars.length()).to_array() {
@@ -995,7 +1039,12 @@ fn tokenize_expr(
         let triple = j + 2 < chars.length() &&
           chars[j + 1] == chars[j] &&
           chars[j + 2] == chars[j]
-        let (value, next_i, closed) = parse_string_literal(chars, j, raw_prefix)
+        let (value, next_i, closed) = parse_string_literal(
+          chars,
+          j,
+          raw_prefix,
+          f_prefix,
+        )
         if !closed {
           let mut detected_line = current_line
           for ch in substring_chars(chars, start, chars.length()).to_array() {

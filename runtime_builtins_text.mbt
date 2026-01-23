@@ -321,7 +321,7 @@ fn encode_string_with_encoding(
   }
   match errors_value {
     Some(Value::Str(errs)) =>
-      if errs != "strict" {
+      if errs != "strict" && errs != "surrogateescape" {
         return Err(
           make_runtime_error(
             RuntimeErrorKind::Runtime,
@@ -342,6 +342,130 @@ fn encode_string_with_encoding(
     Ok(encode_string_utf8(text))
   } else if encoding == "ascii" {
     encode_string_ascii(text)
+  } else {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "LookupError: unknown encoding".to_string(),
+      ),
+    )
+  }
+}
+
+///|
+fn decode_bytes_utf8(name : String, bytes : Array[Int]) -> Result[String, RuntimeError] {
+  let _ = name
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < bytes.length() {
+    let b0 = bytes[i] & 0xFF
+    if b0 < 0x80 {
+      buf.write_char(b0.to_char().unwrap())
+      i += 1
+      continue
+    }
+    let (need, code0) = if (b0 & 0xE0) == 0xC0 {
+      (1, b0 & 0x1F)
+    } else if (b0 & 0xF0) == 0xE0 {
+      (2, b0 & 0x0F)
+    } else if (b0 & 0xF8) == 0xF0 {
+      (3, b0 & 0x07)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "UnicodeDecodeError: invalid start byte".to_string(),
+        ),
+      )
+    }
+    let mut code = code0
+    if i + need >= bytes.length() {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "UnicodeDecodeError: unexpected end of data".to_string(),
+        ),
+      )
+    }
+    let mut j = 0
+    while j < need {
+      let b = bytes[i + 1 + j] & 0xFF
+      if (b & 0xC0) != 0x80 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "UnicodeDecodeError: invalid continuation byte".to_string(),
+          ),
+        )
+      }
+      code = (code << 6) | (b & 0x3F)
+      j += 1
+    }
+    buf.write_char(code.to_char().unwrap())
+    i += 1 + need
+  }
+  Ok(buf.to_string())
+}
+
+///|
+fn decode_bytes_ascii(name : String, bytes : Array[Int]) -> Result[String, RuntimeError] {
+  let _ = name
+  let buf = StringBuilder::new()
+  for b in bytes {
+    let v = b & 0xFF
+    if v > 0x7F {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "UnicodeDecodeError: 'ascii' codec can't decode byte".to_string(),
+        ),
+      )
+    }
+    buf.write_char(v.to_char().unwrap())
+  }
+  Ok(buf.to_string())
+}
+
+///|
+fn decode_bytes_with_encoding(
+  name : String,
+  bytes : Array[Int],
+  encoding_value : Value,
+  errors_value : Value?,
+) -> Result[String, RuntimeError] {
+  let encoding = match encoding_value {
+    Value::Str(value) => value
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() encoding must be str".to_string(),
+        ),
+      )
+  }
+  match errors_value {
+    Some(Value::Str(errs)) =>
+      if errs != "strict" && errs != "surrogateescape" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "LookupError: unknown error handler".to_string(),
+          ),
+        )
+      }
+    Some(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + "() errors must be str".to_string(),
+        ),
+      )
+    None => ()
+  }
+  if encoding == "utf-8" || encoding == "utf8" {
+    decode_bytes_utf8(name, bytes)
+  } else if encoding == "ascii" {
+    decode_bytes_ascii(name, bytes)
   } else {
     Err(
       make_runtime_error(

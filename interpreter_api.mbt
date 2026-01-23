@@ -22,6 +22,7 @@ pub fn Config::default() -> Config {
     track_spans: true,
     allow_filesystem_imports: false,
     import_paths: [],
+    argv: [],
     main_path: None,
   }
 }
@@ -30,6 +31,7 @@ pub fn Config::default() -> Config {
 pub fn Config::for_cli(
   import_paths : Array[String],
   main_path : String?,
+  argv : Array[String],
 ) -> Config {
   let base = Config::default()
   Config::{
@@ -38,6 +40,7 @@ pub fn Config::for_cli(
     track_spans: base.track_spans,
     allow_filesystem_imports: true,
     import_paths,
+    argv,
     main_path,
   }
 }
@@ -91,6 +94,7 @@ pub fn Interpreter::new() -> Interpreter {
     track_spans: true,
     allow_filesystem_imports: true,
     import_paths: [],
+    argv: [],
     main_path: None,
   }
   Interpreter::with_io(config, MockIO::new([]))
@@ -167,6 +171,20 @@ pub fn Interpreter::new_spec() -> Interpreter {
       Value::Function(FunctionValue::{
         name: "__init__",
         params: ["self", "*args", "**kwargs"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__init_subclass__",
+      Value::Function(FunctionValue::{
+        name: "__init_subclass__",
+        params: ["cls", "**kwargs"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -265,6 +283,16 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
+  let system_exit_class = ClassValue::{
+    name: "SystemExit",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let keyboard_interrupt_class = ClassValue::{
+    name: "KeyboardInterrupt",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
   let base_exception_group_class = ClassValue::{
     name: "BaseExceptionGroup",
     bases: [Value::Class(base_exception_class)],
@@ -332,7 +360,9 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
-    "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "print", "len", "range",
+    "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_abc_cache_token",
+    "__mpython_abc_cache_token_bump",
+    "print", "len", "range",
     "str", "bytes", "bytearray", "memoryview", "int", "float", "complex", "list",
     "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter", "any", "all", "sum",
     "property", "staticmethod", "classmethod", "delattr", "super", "eval", "exec",
@@ -347,6 +377,8 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("Ellipsis", ellipsis_value))
   builtins.push(("NotImplemented", not_implemented_value))
   builtins.push(("BaseException", Value::Class(base_exception_class)))
+  builtins.push(("SystemExit", Value::Class(system_exit_class)))
+  builtins.push(("KeyboardInterrupt", Value::Class(keyboard_interrupt_class)))
   builtins.push(("Exception", Value::Class(exception_class)))
   builtins.push(
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
@@ -477,6 +509,20 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   )
   object_dict.push(
     (
+      "__init_subclass__",
+      Value::Function(FunctionValue::{
+        name: "__init_subclass__",
+        params: ["cls", "**kwargs"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
       "__eq__",
       Value::Function(FunctionValue::{
         name: "__eq__",
@@ -562,6 +608,16 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   }
   let exception_class = ClassValue::{
     name: "Exception",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let system_exit_class = ClassValue::{
+    name: "SystemExit",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let keyboard_interrupt_class = ClassValue::{
+    name: "KeyboardInterrupt",
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
@@ -739,6 +795,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_asyncgen_send", function_stub("__mpython_asyncgen_send")),
     ("__mpython_asyncgen_throw", function_stub("__mpython_asyncgen_throw")),
     ("__mpython_asyncgen_close", function_stub("__mpython_asyncgen_close")),
+    ("__mpython_abc_cache_token", function_stub("__mpython_abc_cache_token")),
+    ("__mpython_abc_cache_token_bump", function_stub("__mpython_abc_cache_token_bump")),
     ("str", function_stub("str")),
     ("bytes", function_stub("bytes")),
     ("bytearray", function_stub("bytearray")),
@@ -803,6 +861,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("Ellipsis", ellipsis_value),
     ("NotImplemented", not_implemented_value),
     ("BaseException", Value::Class(base_exception_class)),
+    ("SystemExit", Value::Class(system_exit_class)),
+    ("KeyboardInterrupt", Value::Class(keyboard_interrupt_class)),
     ("Exception", Value::Class(exception_class)),
     ("BaseExceptionGroup", Value::Class(base_exception_group_class)),
     ("ExceptionGroup", Value::Class(exception_group_class)),
@@ -865,9 +925,16 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     let klass = builtin_class_from_name(type_name, builtins)
     set_named_value(builtins, type_name, Value::Class(klass))
   }
+  let globals : Array[(String, Value)] = [
+    ("__name__", Value::Str("__main__")),
+    ("__package__", Value::Str("")),
+  ]
+  let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+  let main_module = Value::Instance(InstanceValue::{ class: module_class, dict: globals })
+  module_cache_set("__main__", main_module)
   Interpreter::{
     config,
-    globals: [("__name__", Value::Str("__main__"))],
+    globals,
     builtins,
     io,
   }
@@ -895,7 +962,18 @@ pub fn Interpreter::exec(
   pop_traceback_frame()
   let value = match value_result {
     Ok(value) => value
-    Err(err) => return Err(err)
+    Err(err) =>
+      if err.exc_type == "SystemExit" {
+        // Treat `sys.exit(...)` as normal termination: do not print a traceback.
+        return Ok(RunResult::{
+          value: Value::None,
+          stdout: self.io.take_stdout(),
+          stderr: self.io.take_stderr(),
+          globals: self.globals,
+        })
+      } else {
+        return Err(err)
+      }
   }
   match value {
     Value::Function(_) =>

@@ -42,6 +42,17 @@ fn make_count_iterator(start : Value, step : Value) -> Value {
 }
 
 ///|
+fn make_enumerate_iterator(iterator : Value, start : @bigint.BigInt) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("iterator", iterator))
+  dict.push(("index", Value::Int(start)))
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "enumerate", bases: [], dict: [] },
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -49,7 +60,12 @@ fn iter_value_to_iterator(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   match value {
-    Value::Instance(inst) =>
+    Value::Instance(inst) => {
+      // Treat list subclasses (instances carrying `$__list__`) as iterables.
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(values)) => return Ok(make_iterator(values))
+        _ => ()
+      }
       if inst.class.name == "dict_keys" ||
          inst.class.name == "dict_values" ||
          inst.class.name == "dict_items" {
@@ -61,7 +77,8 @@ fn iter_value_to_iterator(
       } else if inst.class.name == "iterator" ||
         inst.class.name == "generator" ||
         inst.class.name == "repeat" ||
-        inst.class.name == "count" {
+        inst.class.name == "count" ||
+        inst.class.name == "enumerate" {
         Ok(Value::Instance(inst))
       } else {
         // Try the Python protocol first: obj.__iter__() -> iterator
@@ -90,6 +107,7 @@ fn iter_value_to_iterator(
             }
         }
       }
+    }
     Value::Class(klass) => {
       let class_value = Value::Class(klass)
       match
@@ -315,6 +333,37 @@ fn iterator_next(
         }
       } else if inst.class.name == "generator" {
         generator_next(Value::Instance(inst), default_value)
+      } else if inst.class.name == "enumerate" {
+        let inner = match get_named_value(inst.dict, "iterator") {
+          Some(v) => v
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "invalid enumerate iterator".to_string(),
+              ),
+            )
+        }
+        let index0 = match get_named_value(inst.dict, "index") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        match iterator_next(inner, None, globals, builtins, io) {
+          Ok(item) => {
+            set_named_value(inst.dict, "index", Value::Int(index0 + 1N))
+            Ok(Value::Tuple([Value::Int(index0), item]))
+          }
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              match default_value {
+                Some(v) => Ok(v)
+                None => Err(err)
+              }
+            } else {
+              Err(err)
+            }
+        }
       } else {
         let next_method = match
           get_attr_from_value(

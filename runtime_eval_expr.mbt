@@ -693,14 +693,6 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      if attr == "__class__" {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "ValueError: unsupported value".to_string(),
-          ),
-        )
-      }
       match target {
         Value::None
         | Value::Instance(_)
@@ -711,7 +703,8 @@ fn eval_expr_with_env(
         | Value::Tuple(_)
         | Value::Dict(_)
         | Value::Set(_)
-        | Value::Function(_) =>
+        | Value::Function(_)
+        | Value::BoundMethod(_) =>
           get_attr_from_value(target, attr, globals, builtins, io)
         _ =>
           match (target, attr) {
@@ -1091,6 +1084,34 @@ fn eval_expr_with_env(
             _ => ()
           }
           match target {
+            // User-defined `obj[key]` should dispatch to `obj.__getitem__(key)`.
+            Value::Instance(_) =>
+              match
+                get_attr_from_value(
+                  target,
+                  "__getitem__",
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(getitem) =>
+                  return call_callable_with_env(
+                    getitem,
+                    [idx_value],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute => ()
+                    _ => return Err(err)
+                  }
+              }
+            _ => ()
+          }
+          match target {
             Value::Dict(values) => {
               let index = match dict_find_index(values, idx_value) {
                 Ok(v) => v
@@ -1342,6 +1363,7 @@ fn eval_expr_with_env(
                 }
                 ok && left.length() < right.length()
               }
+              (Value::Str(left), Value::Str(right)) => left < right
               _ => {
                 let (_, left_num) = match number_value(previous) {
                   Ok(value) => value
@@ -1371,6 +1393,7 @@ fn eval_expr_with_env(
                 }
                 ok
               }
+              (Value::Str(left), Value::Str(right)) => left <= right
               _ => {
                 let (_, left_num) = match number_value(previous) {
                   Ok(value) => value
@@ -1400,6 +1423,7 @@ fn eval_expr_with_env(
                 }
                 ok && left.length() > right.length()
               }
+              (Value::Str(left), Value::Str(right)) => left > right
               _ => {
                 let (_, left_num) = match number_value(previous) {
                   Ok(value) => value
@@ -1429,6 +1453,7 @@ fn eval_expr_with_env(
                 }
                 ok
               }
+              (Value::Str(left), Value::Str(right)) => left >= right
               _ => {
                 let (_, left_num) = match number_value(previous) {
                   Ok(value) => value

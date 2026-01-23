@@ -8,7 +8,11 @@ def get_cache_token():
     current version of the ABC cache for virtual subclasses. The token changes
     with every call to ``register()`` on any ABC.
     """
-    return ABCMeta._abc_invalidation_counter
+    token = ABCMeta._abc_invalidation_counter
+    try:
+        return max(token, __mpython_abc_cache_token())
+    except Exception:
+        return token
 
 
 class ABCMeta(type):
@@ -56,6 +60,11 @@ class ABCMeta(type):
 
         Returns the subclass, to allow usage as a class decorator.
         """
+        if not hasattr(cls, "_abc_registry"):
+            cls._abc_registry = set()
+            cls._abc_cache = set()
+            cls._abc_negative_cache = set()
+            cls._abc_negative_cache_version = ABCMeta._abc_invalidation_counter
         if not isinstance(subclass, type):
             raise TypeError("Can only register classes")
         if issubclass(subclass, cls):
@@ -67,6 +76,10 @@ class ABCMeta(type):
             raise RuntimeError("Refusing to create an inheritance cycle")
         cls._abc_registry.add(subclass)
         ABCMeta._abc_invalidation_counter += 1  # Invalidate negative cache
+        try:
+            __mpython_abc_cache_token_bump()
+        except Exception:
+            pass
         return subclass
 
     def _dump_registry(cls, file=None):

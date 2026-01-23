@@ -599,7 +599,7 @@ fn builtin_enumerate(
       ),
     )
   }
-  let items = match iterable_values(positional[0]) {
+  let iterator = match iter_value_to_iterator(positional[0], globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -617,13 +617,7 @@ fn builtin_enumerate(
         )
     }
   }
-  let pairs : Array[Value] = []
-  let mut i = start
-  for item in items {
-    pairs.push(Value::Tuple([Value::Int(i), item]))
-    i = i + 1N
-  }
-  Ok(Value::List(pairs))
+  Ok(make_enumerate_iterator(iterator, start))
 }
 
 ///|
@@ -938,4 +932,34 @@ fn builtin_sorted(
     out = reverse_values(out)
   }
   Ok(Value::List(out))
+}
+
+///|
+fn builtin_sys_exit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.exit", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "exit() takes at most 1 argument".to_string(),
+      ),
+    )
+  }
+  let status = if positional.length() == 0 { Value::None } else { positional[0] }
+  let msg = match status {
+    Value::None => "SystemExit".to_string()
+    _ => "SystemExit: " + value_to_string(status)
+  }
+  Err(make_runtime_error(RuntimeErrorKind::Runtime, msg))
 }

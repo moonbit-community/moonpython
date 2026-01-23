@@ -359,22 +359,7 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     inst.class.name
   }
   let args : Array[String] = if message.length() > 0 { [message] } else { [] }
-  let exc_value = if inst.class.name == "StopIteration" {
-    match get_named_value(inst.dict, "args") {
-      Some(Value::Tuple(values)) =>
-        if values.length() > 0 {
-          Some(values[0])
-        } else {
-          Some(Value::None)
-        }
-      _ => Some(Value::None)
-    }
-  } else if inst.class.name == "ExceptionGroup" ||
-    inst.class.name == "BaseExceptionGroup" {
-    Some(Value::Instance(inst))
-  } else {
-    None
-  }
+  let exc_value : Value? = Some(Value::Instance(inst))
   let exc_cause = match get_named_value(inst.dict, "__cause__") {
     Some(Value::None) => (None : Value?)
     Some(value) => Some(value)
@@ -406,6 +391,14 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
 
 ///|
 fn make_frame_value(frame : TracebackFrame) -> Value {
+  let code_value = Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    dict: [
+      ("co_filename", Value::Str(frame.filename)),
+      ("co_name", Value::Str(frame.name)),
+      ("co_firstlineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+    ],
+  })
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "frame", bases: [], dict: [] },
     dict: [
@@ -413,6 +406,12 @@ fn make_frame_value(frame : TracebackFrame) -> Value {
       ("f_filename", Value::Str(frame.filename)),
       ("f_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
       ("f_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+      ("f_code", code_value),
+      ("f_back", Value::None),
+      // Used by parts of the CPython stdlib (e.g. unittest) when cleaning tracebacks.
+      // We don't currently model real frame globals/locals; keep them as empty dicts.
+      ("f_globals", Value::Dict([])),
+      ("f_locals", Value::Dict([])),
     ],
   })
 }
@@ -426,7 +425,11 @@ fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
     })
     return Value::Instance(InstanceValue::{
       class: ClassValue::{ name: "traceback", bases: [], dict: [] },
-      dict: [("tb_frame", frame_value), ("tb_next", Value::None)],
+      dict: [
+        ("tb_frame", frame_value),
+        ("tb_next", Value::None),
+        ("tb_lasti", Value::Int(-1N)),
+      ],
     })
   }
   let mut next_value : Value = Value::None
@@ -439,6 +442,7 @@ fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
     dict.push(("tb_frame", frame_value))
     dict.push(("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))))
     dict.push(("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))))
+    dict.push(("tb_lasti", Value::Int(-1N)))
     dict.push(("tb_next", next_value))
     next_value = Value::Instance(InstanceValue::{
       class: ClassValue::{ name: "traceback", bases: [], dict: [] },
@@ -456,7 +460,37 @@ fn exception_value_from_runtime_error(
   io : MockIO,
 ) -> Value {
   match err.exc_value {
-    Some(Value::Instance(inst)) => return Value::Instance(inst)
+    Some(Value::Instance(inst)) => {
+      // Keep the existing exception object, but sync core metadata so
+      // context managers (assertRaises, etc.) see a proper exc_type/value/tb.
+      set_named_value(
+        inst.dict,
+        "__traceback__",
+        make_traceback_value(err.traceback),
+      )
+      set_named_value(
+        inst.dict,
+        "__cause__",
+        match err.exc_cause {
+          Some(v) => v
+          None => Value::None
+        },
+      )
+      set_named_value(
+        inst.dict,
+        "__context__",
+        match err.exc_context {
+          Some(v) => v
+          None => Value::None
+        },
+      )
+      set_named_value(
+        inst.dict,
+        "__suppress_context__",
+        Value::Bool(err.exc_suppress_context),
+      )
+      return Value::Instance(inst)
+    }
     _ => ()
   }
   let positional : Array[Value] = []
@@ -1136,13 +1170,24 @@ fn eval_block_flow(
             }
           }
           Err(err) => {
+            let exc_value = exception_value_from_runtime_error(
+              err,
+              globals,
+              builtins,
+              io,
+            )
+            let exc_type_value = match exc_value {
+              Value::Instance(inst) => Value::Class(inst.class)
+              _ => Value::Str(err.exc_type)
+            }
+            let tb_value = make_traceback_value(err.traceback)
             let exit_result = match
               call_callable_with_env(
                 exit_value,
                 [
-                  Value::Str(err.exc_type),
-                  Value::Str(format_runtime_error(err)),
-                  Value::None,
+                  exc_type_value,
+                  exc_value,
+                  tb_value,
                 ],
                 [],
                 globals,
@@ -1227,14 +1272,25 @@ fn eval_block_flow(
             }
           }
           Err(err) => {
+            let exc_value = exception_value_from_runtime_error(
+              err,
+              globals,
+              builtins,
+              io,
+            )
+            let exc_type_value = match exc_value {
+              Value::Instance(inst) => Value::Class(inst.class)
+              _ => Value::Str(err.exc_type)
+            }
+            let tb_value = make_traceback_value(err.traceback)
             // exception exit: suppress if await aexit(...) is truthy
             let exit_call = match
               call_callable_with_env(
                 aexit,
                 [
-                  Value::Str(err.exc_type),
-                  Value::Str(format_runtime_error(err)),
-                  Value::None,
+                  exc_type_value,
+                  exc_value,
+                  tb_value,
                 ],
                 [],
                 globals,
@@ -1594,13 +1650,17 @@ fn eval_block_flow(
             }
           }
         }
+        let class_kwargs : Array[(String, Value)] = []
         for keyword in keywords {
-          let _ = match
+          if keyword.0 == "metaclass" {
+            continue
+          }
+          let value = match
             eval_expr_with_env(keyword.1, locals, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           }
-
+          class_kwargs.push((keyword.0, value))
         }
         if base_values.length() == 0 {
           for pair in builtins {
@@ -1675,6 +1735,145 @@ fn eval_block_flow(
         let _ = match class_mro(klass) {
           Ok(_) => ()
           Err(err) => return Err(err)
+        }
+        fn value_is_abstract(
+          value : Value,
+          globals : Array[(String, Value)],
+          builtins : Array[(String, Value)],
+          io : MockIO,
+        ) -> Result[Bool, RuntimeError] {
+          match
+            get_attr_from_value(
+              value,
+              "__isabstractmethod__",
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(flag) => truthy_from_value_with_env(flag, globals, builtins, io)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute => Ok(false)
+                _ => Err(err)
+              }
+          }
+        }
+        let abstract_names : Array[Value] = []
+        for pair in class_dict {
+          let is_abstract = match value_is_abstract(pair.1, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if is_abstract {
+            match set_add_unique(abstract_names, Value::Str(pair.0)) {
+              Ok(_) => ()
+              Err(_) => ()
+            }
+          }
+        }
+        let mut has_abstractmethods_attr = false
+        for base_value in base_values {
+          match base_value {
+            Value::Class(base_class) => {
+              let base_abs = get_named_value(base_class.dict, "__abstractmethods__")
+              if base_abs is Some(_) {
+                has_abstractmethods_attr = true
+              }
+              match base_abs {
+                Some(Value::Set(items)) | Some(Value::Tuple(items)) =>
+                  for item in items {
+                    match item {
+                      Value::Str(name) =>
+                        match lookup_class_attr(klass, name) {
+                          Ok(Some(value)) => {
+                            let is_abstract = match
+                              value_is_abstract(value, globals, builtins, io) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            if is_abstract {
+                              match
+                                set_add_unique(abstract_names, Value::Str(name)) {
+                                Ok(_) => ()
+                                Err(_) => ()
+                              }
+                            }
+                          }
+                          _ => ()
+                        }
+                      _ => ()
+                    }
+                  }
+                _ => ()
+              }
+            }
+            _ => ()
+          }
+        }
+        if abstract_names.length() > 0 || has_abstractmethods_attr {
+          // Override inherited __abstractmethods__ (even when empty) so concrete
+          // subclasses of ABCs don't appear abstract.
+          set_named_value(
+            klass.dict,
+            "__abstractmethods__",
+            Value::Set(abstract_names),
+          )
+        }
+        let init_subclass = match
+          get_attr_from_value(
+            Value::Class(klass),
+            "__init_subclass__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(value) => Some(value)
+          Err(_) => None
+        }
+        match init_subclass {
+          Some(Value::BoundMethod(bound)) => {
+            let _ = match
+              call_callable_with_env(
+                Value::BoundMethod(bound),
+                [],
+                class_kwargs,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+          }
+          Some(Value::Function(func)) => {
+            let _ = match
+              call_callable_with_env(
+                Value::Function(func),
+                [Value::Class(klass)],
+                class_kwargs,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+          }
+          Some(hook) => {
+            let _ = match
+              call_callable_with_env(
+                hook,
+                [Value::Class(klass)],
+                class_kwargs,
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+          }
+          None => ()
         }
         let mut defined : Value = Value::Class(klass)
         for i = decorator_values.length(); i > 0; i = i - 1 {

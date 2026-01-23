@@ -247,13 +247,82 @@ fn assign_target_with_env(
         Value::Instance(inst) =>
           match get_named_value(inst.dict, list_storage_name) {
             Some(Value::List(values)) => assign_list_subscript(values)
-            _ =>
-              Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "object does not support item assignment".to_string(),
-                ),
-              )
+            _ => {
+              let index_arg = match index {
+                Expr::Slice(start~, end~, step~) => {
+                  let start_value = match start {
+                    Some(expr) =>
+                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                    None => Value::None
+                  }
+                  let end_value = match end {
+                    Some(expr) =>
+                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                    None => Value::None
+                  }
+                  let step_value = match step {
+                    Some(expr) =>
+                      match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                    None => Value::None
+                  }
+                  let dict : Array[(String, Value)] = []
+                  dict.push(("start", start_value))
+                  dict.push(("stop", end_value))
+                  dict.push(("step", step_value))
+                  let klass = builtin_class_from_name("slice", builtins)
+                  Value::Instance(InstanceValue::{ class: klass, dict })
+                }
+                _ =>
+                  match eval_expr_with_env(index, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+              }
+              match
+                get_attr_from_value(
+                  container,
+                  "__setitem__",
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(setitem) => {
+                  let _ = match
+                    call_callable_with_env(
+                      setitem,
+                      [index_arg, assigned],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  Ok(())
+                }
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "object does not support item assignment".to_string(),
+                        ),
+                      )
+                    _ => Err(err)
+                  }
+              }
+            }
           }
         Value::Dict(pairs) => {
           let index_value = match
@@ -419,6 +488,82 @@ fn delete_target_with_env(
               Ok(())
             }
           }
+        Value::Instance(_) => {
+          let index_arg = match index {
+            Expr::Slice(start~, end~, step~) => {
+              let start_value = match start {
+                Some(expr) =>
+                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                None => Value::None
+              }
+              let end_value = match end {
+                Some(expr) =>
+                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                None => Value::None
+              }
+              let step_value = match step {
+                Some(expr) =>
+                  match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
+                None => Value::None
+              }
+              let dict : Array[(String, Value)] = []
+              dict.push(("start", start_value))
+              dict.push(("stop", end_value))
+              dict.push(("step", step_value))
+              let klass = builtin_class_from_name("slice", builtins)
+              Value::Instance(InstanceValue::{ class: klass, dict })
+            }
+            _ =>
+              match eval_expr_with_env(index, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+          }
+          match
+            get_attr_from_value(
+              container,
+              "__delitem__",
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(delitem) => {
+              let _ = match
+                call_callable_with_env(
+                  delitem,
+                  [index_arg],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              Ok(())
+            }
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "object does not support item deletion".to_string(),
+                    ),
+                  )
+                _ => Err(err)
+              }
+          }
+        }
         Value::Dict(pairs) => {
           let index_value = match
             eval_expr_with_env(index, locals, globals, builtins, io) {

@@ -20,6 +20,109 @@ fn lookup_class_attr(
 }
 
 ///|
+fn class_has_base_name(klass : ClassValue, name : String) -> Bool {
+  match class_mro(klass) {
+    Ok(mro) => {
+      for cls in mro {
+        if cls.name == name {
+          return true
+        }
+      }
+      false
+    }
+    Err(_) => false
+  }
+}
+
+///|
+fn truthy_from_value_with_env(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Bool, RuntimeError] {
+  match value {
+    Value::Instance(_) => {
+      // __bool__()
+      match get_attr_from_value(value, "__bool__", globals, builtins, io) {
+        Ok(callable) => {
+          let result = match call_callable_with_env(
+            callable,
+            [],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match result {
+            Value::Bool(v) => return Ok(v)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__bool__ should return bool".to_string(),
+                ),
+              )
+          }
+        }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute => ()
+            _ => return Err(err)
+          }
+      }
+
+      // __len__()
+      match get_attr_from_value(value, "__len__", globals, builtins, io) {
+        Ok(callable) => {
+          let result = match call_callable_with_env(
+            callable,
+            [],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let n = match result {
+            Value::Int(v) => v
+            Value::Bool(v) => @bigint.BigInt::from_int(if v { 1 } else { 0 })
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__len__ should return int".to_string(),
+                ),
+              )
+          }
+          if n < 0N {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: __len__() should return >= 0".to_string(),
+              ),
+            )
+          }
+          return Ok(n != 0N)
+        }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute => ()
+            _ => return Err(err)
+          }
+      }
+      Ok(true)
+    }
+    _ => Ok(bool_from_value(value))
+  }
+}
+
+///|
 fn get_attr_raw_from_value(
   target : Value,
   attr : String,
@@ -35,7 +138,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: property(fget, fset, fdel, doc)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "property" {
+        if class_has_base_name(inst.class, "property") {
           match get_named_value(inst.dict, "fget") {
             Some(fget) =>
               match obj {
@@ -72,7 +175,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: staticmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "staticmethod" {
+        if class_has_base_name(inst.class, "staticmethod") {
           match get_named_value(inst.dict, "func") {
             Some(func) => return Ok(Some(func))
             None => return Ok(None)
@@ -84,7 +187,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: classmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "classmethod" {
+        if class_has_base_name(inst.class, "classmethod") {
           match get_named_value(inst.dict, "func") {
             Some(func_value) => {
               let func = match func_value {
@@ -145,6 +248,16 @@ fn get_attr_raw_from_value(
     }
   }
 
+  if attr == "__class__" {
+    match target {
+      Value::Instance(inst) => return Ok(Value::Class(inst.class))
+      _ =>
+        return Ok(
+          Value::Class(builtin_class_from_name(type_name_from_value(target), builtins)),
+        )
+    }
+  }
+
   match target {
     Value::None =>
       if attr == "__doc__" {
@@ -158,11 +271,111 @@ fn get_attr_raw_from_value(
         )
       }
     Value::Instance(inst) => {
+      if inst.class.name == "module" && attr == "__dict__" {
+        let pairs : Array[(Value, Value)] = []
+        for item in inst.dict {
+          pairs.push((Value::Str(item.0), item.1))
+        }
+        return Ok(Value::Dict(pairs))
+      }
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
         return Ok(value)
       }
-      if inst.class.name == "classmethod" || inst.class.name == "staticmethod" {
+      fn abstract_flag_from_value(value : Value) -> Result[Bool, RuntimeError] {
+        match value {
+          Value::Function(func) => {
+            let pairs = function_attr_dict(func)
+            let idx = match
+              dict_find_index(pairs, Value::Str("__isabstractmethod__")) {
+              Ok(v) => v
+              Err(_) => None
+            }
+            match idx {
+              Some(i) =>
+                truthy_from_value_with_env(
+                  pairs[i].1,
+                  globals,
+                  builtins,
+                  io,
+                )
+              None => Ok(false)
+            }
+          }
+          Value::Instance(inner) =>
+            if inner.class.name == "classmethod" || inner.class.name == "staticmethod" {
+              match get_named_value(inner.dict, "func") {
+                Some(func_value) => abstract_flag_from_value(func_value)
+                None => Ok(false)
+              }
+            } else {
+              Ok(false)
+            }
+          _ => Ok(false)
+        }
+      }
+      if attr == "__isabstractmethod__" {
+        if class_has_base_name(inst.class, "property") {
+          let mut is_abstract = false
+          match get_named_value(inst.dict, "fget") {
+            Some(value) =>
+              match abstract_flag_from_value(value) {
+                Ok(true) => is_abstract = true
+                Ok(false) => ()
+                Err(err) => return Err(err)
+              }
+            None => ()
+          }
+          if !is_abstract {
+            match get_named_value(inst.dict, "fset") {
+              Some(value) =>
+                match abstract_flag_from_value(value) {
+                  Ok(true) => is_abstract = true
+                  Ok(false) => ()
+                  Err(err) => return Err(err)
+                }
+              None => ()
+            }
+          }
+          if !is_abstract {
+            match get_named_value(inst.dict, "fdel") {
+              Some(value) =>
+                match abstract_flag_from_value(value) {
+                  Ok(true) => is_abstract = true
+                  Ok(false) => ()
+                  Err(err) => return Err(err)
+                }
+              None => ()
+            }
+          }
+          if !is_abstract {
+            match lookup_class_attr(inst.class, "__isabstractmethod__") {
+              Ok(Some(value)) =>
+                match truthy_from_value_with_env(value, globals, builtins, io) {
+                  Ok(true) => is_abstract = true
+                  Ok(false) => ()
+                  Err(err) => return Err(err)
+                }
+              Ok(None) => ()
+              Err(err) => return Err(err)
+            }
+          }
+          return Ok(Value::Bool(is_abstract))
+        }
+        if class_has_base_name(inst.class, "classmethod") ||
+          class_has_base_name(inst.class, "staticmethod") {
+          match get_named_value(inst.dict, "func") {
+            Some(func_value) =>
+              match abstract_flag_from_value(func_value) {
+                Ok(v) => return Ok(Value::Bool(v))
+                Err(err) => return Err(err)
+              }
+            None => return Ok(Value::Bool(false))
+          }
+        }
+      }
+      if class_has_base_name(inst.class, "classmethod") ||
+        class_has_base_name(inst.class, "staticmethod") {
         if attr == "__func__" {
           match get_named_value(inst.dict, "func") {
             Some(value) => return Ok(value)
@@ -181,6 +394,22 @@ fn get_attr_raw_from_value(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
               name: "code.replace",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if inst.class.name == "frame" && attr == "clear" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "frame.clear",
               params: ["self"],
               defaults: [],
               body: [],
@@ -251,7 +480,10 @@ fn get_attr_raw_from_value(
             if direct is Some(value) {
               match value {
                 Value::Function(func) =>
-                  // Bind like normal instance access
+                  // Bind like normal instance access.
+                  // For class objects, only bind __init_subclass__ so it can be
+                  // called as `super().__init_subclass__(...)` without passing
+                  // `cls` explicitly (matches CPython behavior).
                   match self_value {
                     Value::Instance(_) =>
                       return Ok(
@@ -260,6 +492,15 @@ fn get_attr_raw_from_value(
                           self: self_value,
                         }),
                       )
+                    Value::Class(_) =>
+                      if attr == "__init_subclass__" {
+                        return Ok(
+                          Value::BoundMethod(BoundMethodValue::{
+                            function: func,
+                            self: self_value,
+                          }),
+                        )
+                      }
                     _ => ()
                   }
                 _ => ()
@@ -426,6 +667,27 @@ fn get_attr_raw_from_value(
           }
         }
       }
+      // Provide list methods on list subclasses (instances storing `$__list__`).
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(_)) =>
+          if attr == "append" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "append",
+                  params: ["self", "object"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          }
+        _ => ()
+      }
       let class_attr = match lookup_class_attr(inst.class, attr) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -457,6 +719,21 @@ fn get_attr_raw_from_value(
             ),
           )
       }
+    }
+    Value::BoundMethod(bound_method) => {
+      if attr == "__func__" {
+        return Ok(Value::Function(bound_method.function))
+      }
+      if attr == "__self__" {
+        return Ok(bound_method.self)
+      }
+      get_attr_raw_from_value(
+        Value::Function(bound_method.function),
+        attr,
+        globals,
+        builtins,
+        io,
+      )
     }
     Value::Int(_) => {
       if attr == "bit_length" {
@@ -530,6 +807,24 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "columns" {
+        match target {
+          Value::Tuple(values) =>
+            if values.length() >= 1 {
+              return Ok(values[0])
+            }
+          _ => ()
+        }
+      }
+      if attr == "lines" {
+        match target {
+          Value::Tuple(values) =>
+            if values.length() >= 2 {
+              return Ok(values[1])
+            }
+          _ => ()
+        }
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -546,6 +841,38 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "startswith",
               params: ["self", "prefix", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "find" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "find",
+              params: ["self", "sub", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rfind" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rfind",
+              params: ["self", "sub", "start", "end"],
               defaults: [Value::None, Value::None],
               body: [],
               is_generator: false,
@@ -700,6 +1027,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "splitlines" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "splitlines",
+              params: ["self", "keepends"],
+              defaults: [Value::Bool(false)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "strip" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -748,6 +1091,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "encode" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "encode",
+              params: ["self", "encoding", "errors"],
+              defaults: [Value::Str("utf-8"), Value::Str("strict")],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "format" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -768,6 +1127,32 @@ fn get_attr_raw_from_value(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
           "'str' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
+    Value::Bytes(_) | Value::MemoryView(_) => {
+      if attr == "decode" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "decode",
+              params: ["self", "encoding", "errors"],
+              defaults: [Value::Str("utf-8"), Value::Str("strict")],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'" + type_name_from_value(target) + "' object has no attribute '" +
+          attr +
+          "'",
         ),
       )
     }
@@ -875,6 +1260,38 @@ fn get_attr_raw_from_value(
               name: "copy",
               params: ["self"],
               defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "reverse" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "reverse",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "sort" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "sort",
+              params: ["self", "key", "reverse"],
+              defaults: [Value::None, Value::Bool(false)],
               body: [],
               is_generator: false,
               is_async: false,
@@ -1349,6 +1766,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "difference" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "difference",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -1357,6 +1790,22 @@ fn get_attr_raw_from_value(
       )
     }
     Value::ByteArray(_) => {
+      if attr == "decode" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "decode",
+              params: ["self", "encoding", "errors"],
+              defaults: [Value::Str("utf-8"), Value::Str("strict")],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "copy" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1480,8 +1929,45 @@ fn get_attr_raw_from_value(
         Ok(Value::Str(klass.name))
       } else if attr == "__qualname__" {
         Ok(Value::Str(klass.name))
+      } else if attr == "__module__" {
+        match get_named_value(klass.dict, "__module__") {
+          Some(v) => Ok(v)
+          None => Ok(Value::Str("builtins"))
+        }
+      } else if attr == "__flags__" {
+        // CPython exposes internal type flags on most type objects.
+        // The stdlib uses TPFLAGS_IS_ABSTRACT (1<<20) via inspect.isabstract().
+        // Provide that bit based on __abstractmethods__.
+        let mut is_abstract = false
+        match lookup_class_attr(klass, "__abstractmethods__") {
+          Ok(Some(Value::Set(items))) => if items.length() > 0 { is_abstract = true }
+          Ok(Some(Value::Tuple(items))) => if items.length() > 0 { is_abstract = true }
+          Ok(Some(Value::List(items))) => if items.length() > 0 { is_abstract = true }
+          Ok(Some(_)) => ()
+          Ok(None) => ()
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Int(if is_abstract { 1048576N } else { 0N }))
       } else if attr == "__doc__" {
         Ok(Value::None)
+      } else if attr == "__bases__" {
+        let bases : Array[Value] = []
+        for base in klass.bases {
+          bases.push(base)
+        }
+        Ok(Value::Tuple(bases))
+      } else if attr == "__new__" && klass.name == "type" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "type.__new__",
+            params: ["cls", "name", "bases", "dict"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
       } else if attr == "__dict__" {
         let pairs : Array[(Value, Value)] = []
         for item in klass.dict {
@@ -1883,7 +2369,7 @@ fn set_attr_raw_on_value(
     // Built-in descriptor: property(fget, fset, fdel, doc)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "property" {
+        if class_has_base_name(inst.class, "property") {
           match get_named_value(inst.dict, "fset") {
             Some(fset) => {
               let args : Array[Value] = [obj, value]
@@ -2044,7 +2530,7 @@ fn delete_attr_raw_on_value(
     // Built-in descriptor: property(fget, fset, fdel, doc)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "property" {
+        if class_has_base_name(inst.class, "property") {
           match get_named_value(inst.dict, "fdel") {
             Some(fdel) => {
               let _ = match

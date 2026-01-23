@@ -36,7 +36,21 @@ class BytesIO(_BufferedIOBase):
 
 
 class StringIO(_TextIOBase):
-    pass
+    def __init__(self, initial_value=""):
+        self._buffer = []
+        if initial_value:
+            self._buffer.append(str(initial_value))
+
+    def write(self, s):
+        text = str(s)
+        self._buffer.append(text)
+        return len(text)
+
+    def getvalue(self):
+        return "".join(self._buffer)
+
+    def flush(self):
+        return None
 
 
 class BufferedReader(_BufferedIOBase):

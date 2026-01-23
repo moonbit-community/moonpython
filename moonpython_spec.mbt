@@ -302,6 +302,8 @@ pub struct Config {
   /// The interpreter always searches the main script directory (when `main_path` is set)
   /// and the current working directory (".") first.
   import_paths : Array[String]
+  /// CLI argv to expose as `sys.argv` (including argv[0]).
+  argv : Array[String]
   /// Path of the "main" script being executed (CLI-only).
   main_path : String?
 } derive(ToJson)

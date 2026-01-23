@@ -4,21 +4,22 @@ from enum import IntEnum as _IntEnum
 
 _globals = globals()
 
-_IntEnum._convert_(
-        'Signals', __name__,
-        lambda name:
-            name.isupper()
-            and (name.startswith('SIG') and not name.startswith('SIG_'))
-            or name.startswith('CTRL_'))
-
-_IntEnum._convert_(
-        'Handlers', __name__,
-        lambda name: name in ('SIG_DFL', 'SIG_IGN'))
-
-if 'pthread_sigmask' in _globals:
+if hasattr(_IntEnum, "_convert_"):
     _IntEnum._convert_(
-            'Sigmasks', __name__,
-            lambda name: name in ('SIG_BLOCK', 'SIG_UNBLOCK', 'SIG_SETMASK'))
+            'Signals', __name__,
+            lambda name:
+                name.isupper()
+                and (name.startswith('SIG') and not name.startswith('SIG_'))
+                or name.startswith('CTRL_'))
+
+    _IntEnum._convert_(
+            'Handlers', __name__,
+            lambda name: name in ('SIG_DFL', 'SIG_IGN'))
+
+    if 'pthread_sigmask' in _globals:
+        _IntEnum._convert_(
+                'Sigmasks', __name__,
+                lambda name: name in ('SIG_BLOCK', 'SIG_UNBLOCK', 'SIG_SETMASK'))
 
 
 def _int_to_enum(value, enum_klass):

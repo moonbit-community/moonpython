@@ -621,6 +621,67 @@ fn format_hex_value(
 }
 
 ///|
+fn round_float_to_int64(value : Double) -> Int64 {
+  if value >= 0.0 {
+    @math.floor(value + 0.5).to_int64()
+  } else {
+    @math.ceil(value - 0.5).to_int64()
+  }
+}
+
+///|
+fn format_float_fixed(value : Double, precision : Int) -> String {
+  // Minimal fixed-point formatting for `%f` used throughout the CPython stdlib.
+  // Only intended for small precisions (e.g. `%.3f`).
+  if precision <= 0 {
+    let rounded = round_float_to_int64(value)
+    return rounded.to_string()
+  }
+  let neg = value < 0.0
+  let abs_value = if neg { -value } else { value }
+  let mut scale : Int64 = 1
+  let mut i = 0
+  while i < precision && scale < 1_000_000_000_000_000_000L {
+    scale = scale * 10L
+    i = i + 1
+  }
+  // If precision is too large for Int64 scaling, fall back to default formatting.
+  if i != precision {
+    return (if neg { "-" } else { "" }) + abs_value.to_string()
+  }
+  let scaled = round_float_to_int64(abs_value * scale.to_double())
+  let int_part = scaled / scale
+  let frac_part = scaled % scale
+  let frac_text_raw = frac_part.to_string()
+  let frac_text = pad_left(frac_text_raw, precision, '0')
+  (if neg { "-" } else { "" }) + int_part.to_string() + "." + frac_text
+}
+
+///|
+fn format_float_value(value : Value, precision_opt : Int?) -> Result[String, RuntimeError] {
+  let precision = match precision_opt {
+    Some(p) => p
+    None => 6
+  }
+  match value {
+    Value::Float(v) => Ok(format_float_fixed(v, precision))
+    Value::Int(v) =>
+      match bigint_to_double_checked(v) {
+        Ok(d) => Ok(format_float_fixed(d, precision))
+        Err(err) => Err(err)
+      }
+    Value::Bool(v) => Ok(format_float_fixed(if v { 1.0 } else { 0.0 }, precision))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn format_percent_string(
   format : String,
   value : Value,
@@ -699,6 +760,17 @@ fn format_percent_string(
       width = width * 10 + (chars[j].to_int() - '0'.to_int())
       j = j + 1
     }
+    // Optional precision: `%.3f`
+    let mut precision : Int? = None
+    if j < chars.length() && chars[j] == '.' {
+      j = j + 1
+      let mut p = 0
+      while j < chars.length() && chars[j].is_ascii_digit() {
+        p = p * 10 + (chars[j].to_int() - '0'.to_int())
+        j = j + 1
+      }
+      precision = Some(p)
+    }
     if j >= chars.length() {
       return Err(
         make_runtime_error(
@@ -757,6 +829,11 @@ fn format_percent_string(
       'd' | 'i' => format_decimal_value(arg)
       'x' => format_hex_value(arg, false)
       'X' => format_hex_value(arg, true)
+      'f' | 'F' =>
+        match format_float_value(arg, precision) {
+          Ok(v) => Ok(v)
+          Err(err) => Err(err)
+        }
       _ =>
         Err(
           make_runtime_error(

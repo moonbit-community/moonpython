@@ -356,6 +356,96 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "classmethod" {
+    dict.push(
+      (
+        "__init__",
+        Value::Function(FunctionValue::{
+          name: "classmethod.__init__",
+          params: ["self", "func"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  if name == "staticmethod" {
+    dict.push(
+      (
+        "__init__",
+        Value::Function(FunctionValue::{
+          name: "staticmethod.__init__",
+          params: ["self", "func"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  if name == "property" {
+    dict.push(
+      (
+        "__init__",
+        Value::Function(FunctionValue::{
+          name: "property.__init__",
+          params: ["self", "fget=", "fset=", "fdel=", "doc="],
+          defaults: [Value::None, Value::None, Value::None, Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "getter",
+        Value::Function(FunctionValue::{
+          name: "property.getter",
+          params: ["self", "fget"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "setter",
+        Value::Function(FunctionValue::{
+          name: "property.setter",
+          params: ["self", "fset"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "deleter",
+        Value::Function(FunctionValue::{
+          name: "property.deleter",
+          params: ["self", "fdel"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   ClassValue::{ name, bases, dict }
 }
 

@@ -4,6 +4,9 @@
 ///|
 priv enum GenFrame {
   Block(body~ : Array[Stmt], index~ : Int, loop_depth~ : Int)
+  // Marker pushed when yielding to the caller. Needed so `throw()` can raise
+  // into the suspended generator at the yield point (contextlib.contextmanager).
+  AfterYield
   AfterAssign(target~ : Target, value~ : Value)
   For(
     target~ : Target,
@@ -23,6 +26,16 @@ priv enum GenFrame {
     loop_depth~ : Int
   )
   YieldFrom(iterator~ : Value)
+  WithExit(exit~ : Value)
+  Try(
+    handlers~ : Array[ExceptHandler],
+    else_body~ : Array[Stmt],
+    finally_body~ : Array[Stmt],
+    phase~ : Int,
+    pending~ : RuntimeError?,
+    handler_active~ : Bool,
+    loop_depth~ : Int
+  )
 }
 
 ///|
@@ -344,9 +357,9 @@ fn generator_unwind_to_loop(
         }
         return Ok(())
       }
-      _ => ()
-    }
+    _ => ()
   }
+}
   Err(
     make_runtime_error(
       RuntimeErrorKind::Runtime,
@@ -415,6 +428,7 @@ fn generator_step_statement(
               }
             None => Value::None
           }
+          state.val.frames.push(GenFrame::AfterYield)
           return Ok(Some(value))
         }
         _ => ()
@@ -592,6 +606,7 @@ fn generator_step_statement(
           }
         None => Value::None
       }
+      state.val.frames.push(GenFrame::AfterYield)
       Ok(Some(value))
     }
     Stmt::YieldFrom(expr) => {
@@ -719,6 +734,60 @@ fn generator_step_statement(
         )
       }
     Stmt::Pass | Stmt::Global(_) | Stmt::Nonlocal(_) => Ok(None)
+    Stmt::With(context~, target~, body~) => {
+      let ctx_value = match
+        eval_expr_with_env(
+          context,
+          state.val.locals,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let enter_value = match
+        get_attr_from_value(
+          ctx_value,
+          "__enter__",
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let entered = match
+        call_callable_with_env(
+          enter_value,
+          [],
+          [],
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match target {
+        Some(name) => set_scoped_value(state.val.locals, state.val.globals, name, entered)
+        None => ()
+      }
+      let exit_value = match
+        get_attr_from_value(
+          ctx_value,
+          "__exit__",
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      state.val.frames.push(GenFrame::WithExit(exit=exit_value))
+      state.val.frames.push(GenFrame::Block(body~, index=0, loop_depth~))
+      Ok(None)
+    }
     Stmt::Assert(condition~, message~) => {
       let value = match
         eval_expr_with_env(
@@ -867,6 +936,32 @@ fn generator_step_statement(
           Err(err2)
         }
       }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      // except* (PEP 654) is not supported in the generator interpreter yet.
+      for h in handlers {
+        if h.is_star {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::NotImplemented,
+              "except* not implemented in generator".to_string(),
+            ),
+          )
+        }
+      }
+      state.val.frames.push(
+        GenFrame::Try(
+          handlers~,
+          else_body~,
+          finally_body~,
+          phase=0,
+          pending=None,
+          handler_active=false,
+          loop_depth~,
+        ),
+      )
+      state.val.frames.push(GenFrame::Block(body~, index=0, loop_depth~))
+      Ok(None)
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -878,9 +973,216 @@ fn generator_step_statement(
 }
 
 ///|
+fn generator_try_handler_matches(
+  err : RuntimeError,
+  handler : ExceptHandler,
+  state : Ref[GeneratorState],
+) -> Result[Bool, RuntimeError] {
+  if handler.is_star {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::NotImplemented,
+        "except* not implemented in generator".to_string(),
+      ),
+    )
+  }
+  match handler.exc {
+    None => Ok(true)
+    Some(expr) => {
+      let exc_value = match
+        eval_expr_with_env(
+          expr,
+          state.val.locals,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(e) => return Err(e)
+      }
+      match exc_value {
+        Value::Class(klass) => exception_matches_handler(err, klass, state.val.builtins)
+        Value::Tuple(items) => {
+          for item in items {
+            match item {
+              Value::Class(klass) =>
+                match exception_matches_handler(err, klass, state.val.builtins) {
+                  Ok(true) => return Ok(true)
+                  Ok(false) => ()
+                  Err(e) => return Err(e)
+                }
+              _ => ()
+            }
+          }
+          Ok(false)
+        }
+        _ => Ok(false)
+      }
+    }
+  }
+}
+
+///|
+fn generator_dispatch_error(
+  state : Ref[GeneratorState],
+  err : RuntimeError,
+) -> Result[Bool, RuntimeError] {
+  let current = err
+  while true {
+    // Find the innermost cleanup frame (`with` exit or `try`).
+    let mut cleanup_index : Int? = None
+    let mut i = state.val.frames.length()
+    while i > 0 {
+      i = i - 1
+      match state.val.frames[i] {
+        GenFrame::WithExit(..) | GenFrame::Try(..) => {
+          cleanup_index = Some(i)
+          break
+        }
+        _ => ()
+      }
+    }
+    match cleanup_index {
+      None => return Ok(false)
+      Some(idx) => {
+        // Unwind everything above the cleanup frame.
+        while state.val.frames.length() > idx + 1 {
+          let _ = state.val.frames.pop()
+        }
+        match state.val.frames[idx] {
+          GenFrame::WithExit(exit~) => {
+            // Ensure the exit hook only runs once.
+            let _ = state.val.frames.pop()
+            let exc_value = exception_value_from_runtime_error(
+              current,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            )
+            let exc_type_value = match exc_value {
+              Value::Instance(inst) => Value::Class(inst.class)
+              _ => Value::Str(current.exc_type)
+            }
+            let tb_value = make_traceback_value(current.traceback)
+            let exit_result = match
+              call_callable_with_env(
+                exit,
+                [exc_type_value, exc_value, tb_value],
+                [],
+                state.val.globals,
+                state.val.builtins,
+                state.val.io,
+              ) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if bool_from_value(exit_result) {
+              // Exception suppressed.
+              return Ok(true)
+            } else {
+              // Continue unwinding outward with the same exception.
+              continue
+            }
+          }
+          GenFrame::Try(
+            handlers~,
+            else_body~,
+            finally_body~,
+            phase~,
+            pending~,
+            handler_active~,
+            loop_depth~,
+          ) => {
+            let _ = else_body
+            let _ = pending
+            // If we're leaving an except handler, clear the active exception.
+            if handler_active && active_exception_stack.val.length() > 0 {
+              let _ = active_exception_stack.val.pop()
+            }
+
+            // `phase` tracks which block is currently active: 0=body, 1=else,
+            // 2=handler, 3=finally.
+            if phase != 2 && phase != 3 {
+              let mut matched : ExceptHandler? = None
+              for h in handlers {
+                let ok = match generator_try_handler_matches(current, h, state) {
+                  Ok(v) => v
+                  Err(e) => return Err(e)
+                }
+                if ok {
+                  matched = Some(h)
+                  break
+                }
+              }
+              match matched {
+                Some(h) => {
+                  match h.name {
+                    Some(name) =>
+                      set_scoped_value(
+                        state.val.locals,
+                        state.val.globals,
+                        name,
+                        exception_value_from_runtime_error(
+                          current,
+                          state.val.globals,
+                          state.val.builtins,
+                          state.val.io,
+                        ),
+                      )
+                    None => ()
+                  }
+                  active_exception_stack.val.push(current)
+                  state.val.frames[idx] = GenFrame::Try(
+                    handlers~,
+                    else_body~,
+                    finally_body~,
+                    phase=2,
+                    pending=None,
+                    handler_active=true,
+                    loop_depth~,
+                  )
+                  state.val.frames.push(
+                    GenFrame::Block(body=h.body, index=0, loop_depth~),
+                  )
+                  return Ok(true)
+                }
+                None => ()
+              }
+            }
+
+            if finally_body.length() > 0 {
+              state.val.frames[idx] = GenFrame::Try(
+                handlers~,
+                else_body~,
+                finally_body~,
+                phase=3,
+                pending=Some(current),
+                handler_active=false,
+                loop_depth~,
+              )
+              state.val.frames.push(
+                GenFrame::Block(body=finally_body, index=0, loop_depth~),
+              )
+              return Ok(true)
+            } else {
+              // No finally: drop the try frame and keep searching outward.
+              let _ = state.val.frames.pop()
+              continue
+            }
+          }
+          _ => return Ok(false)
+        }
+      }
+    }
+  }
+  Ok(false)
+}
+
+///|
 fn generator_resume_inner(
   state : Ref[GeneratorState],
   sent_value_in : Value,
+  thrown_in : RuntimeError?,
 ) -> Result[Value, RuntimeError] {
   if state.val.done {
     return Err(generator_stop_iteration())
@@ -899,6 +1201,7 @@ fn generator_resume_inner(
     state.val.started = true
   }
   let mut sent_value = sent_value_in
+  let mut thrown = thrown_in
   // Resume points only care about the sent value when the previous suspension
   // left a marker on the frame stack (yield in assignment, or yield from).
   // For plain `yield` statements, the sent value is ignored.
@@ -918,6 +1221,24 @@ fn generator_resume_inner(
     }
     let top_index = state.val.frames.length() - 1
     match state.val.frames[top_index] {
+      GenFrame::AfterYield => {
+        let _ = state.val.frames.pop()
+        match thrown {
+          Some(err) => {
+            thrown = None
+            let handled = match generator_dispatch_error(state, err) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if handled {
+              continue
+            }
+            state.val.done = true
+            return Err(err)
+          }
+          None => continue
+        }
+      }
       GenFrame::AfterAssign(target~, value~) => {
         let _ = value
         let value_to_assign = sent_value
@@ -932,7 +1253,17 @@ fn generator_resume_inner(
             state.val.io,
           ) {
           Ok(v) => v
-          Err(err) => return Err(err)
+          Err(err) => {
+            let handled = match generator_dispatch_error(state, err) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if handled {
+              continue
+            }
+            state.val.done = true
+            return Err(err)
+          }
         }
         let _ = state.val.frames.pop()
         continue
@@ -965,6 +1296,13 @@ fn generator_resume_inner(
               }
               continue
             } else {
+              let handled = match generator_dispatch_error(state, err) {
+                Ok(v) => v
+                Err(e) => return Err(e)
+              }
+              if handled {
+                continue
+              }
               state.val.done = true
               return Err(err)
             }
@@ -984,6 +1322,13 @@ fn generator_resume_inner(
           Ok(Some(yielded)) => return Ok(yielded)
           Ok(None) => continue
           Err(err) => {
+            let handled = match generator_dispatch_error(state, err) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if handled {
+              continue
+            }
             if is_stop_iteration(err) {
               state.val.done = true
               state.val.frames = []
@@ -1024,7 +1369,17 @@ fn generator_resume_inner(
                 state.val.io,
               ) {
               Ok(v) => v
-              Err(err) => return Err(err)
+              Err(err) => {
+                let handled = match generator_dispatch_error(state, err) {
+                  Ok(v) => v
+                  Err(e) => return Err(e)
+                }
+                if handled {
+                  continue
+                }
+                state.val.done = true
+                return Err(err)
+              }
             }
             state.val.frames.push(
               GenFrame::Block(body~, index=0, loop_depth=loop_depth + 1),
@@ -1049,6 +1404,13 @@ fn generator_resume_inner(
               }
               continue
             } else {
+              let handled = match generator_dispatch_error(state, err) {
+                Ok(v) => v
+                Err(e) => return Err(e)
+              }
+              if handled {
+                continue
+              }
               state.val.done = true
               return Err(err)
             }
@@ -1068,7 +1430,16 @@ fn generator_resume_inner(
             state.val.io,
           ) {
           Ok(value) => value
-          Err(err) => return Err(err)
+          Err(err) => {
+            let handled = match generator_dispatch_error(state, err) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if handled {
+              continue
+            }
+            return Err(err)
+          }
         }
         if bool_from_value(cond_value) {
           state.val.frames.push(
@@ -1091,6 +1462,121 @@ fn generator_resume_inner(
         }
         continue
       }
+      GenFrame::WithExit(exit~) => {
+        let _ = state.val.frames.pop()
+        let call_result = call_callable_with_env(
+          exit,
+          [Value::None, Value::None, Value::None],
+          [],
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        )
+        match call_result {
+          Ok(_) => continue
+          Err(err) => {
+            let handled = match generator_dispatch_error(state, err) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if handled {
+              continue
+            }
+            state.val.done = true
+            return Err(err)
+          }
+        }
+      }
+      GenFrame::Try(
+        handlers~,
+        else_body~,
+        finally_body~,
+        phase~,
+        pending~,
+        handler_active~,
+        loop_depth~,
+      ) => {
+        let _ = handlers
+        let _ = loop_depth
+        // Phase: 0=body done, 1=else done, 2=handler done, 3=finally done.
+        if phase == 0 {
+          if else_body.length() > 0 {
+            state.val.frames[top_index] = GenFrame::Try(
+              handlers~,
+              else_body~,
+              finally_body~,
+              phase=1,
+              pending~,
+              handler_active~,
+              loop_depth~,
+            )
+            state.val.frames.push(
+              GenFrame::Block(body=else_body, index=0, loop_depth~),
+            )
+            continue
+          }
+          if finally_body.length() > 0 {
+            state.val.frames[top_index] = GenFrame::Try(
+              handlers~,
+              else_body~,
+              finally_body~,
+              phase=3,
+              pending~,
+              handler_active~,
+              loop_depth~,
+            )
+            state.val.frames.push(
+              GenFrame::Block(body=finally_body, index=0, loop_depth~),
+            )
+            continue
+          }
+          let _ = state.val.frames.pop()
+          continue
+        }
+        if phase == 1 || phase == 2 {
+          if handler_active && active_exception_stack.val.length() > 0 {
+            let _ = active_exception_stack.val.pop()
+          }
+          if finally_body.length() > 0 {
+            state.val.frames[top_index] = GenFrame::Try(
+              handlers~,
+              else_body~,
+              finally_body~,
+              phase=3,
+              pending~,
+              handler_active=false,
+              loop_depth~,
+            )
+            state.val.frames.push(
+              GenFrame::Block(body=finally_body, index=0, loop_depth~),
+            )
+            continue
+          }
+          let _ = state.val.frames.pop()
+          continue
+        }
+        if phase == 3 {
+          let pending_err = pending
+          let _ = state.val.frames.pop()
+          match pending_err {
+            Some(err) => {
+              let handled = match generator_dispatch_error(state, err) {
+                Ok(v) => v
+                Err(e) => return Err(e)
+              }
+              if handled {
+                continue
+              }
+              state.val.done = true
+              return Err(err)
+            }
+            None => continue
+          }
+        }
+        // Unknown phase: drop the frame.
+        let _ = state.val.frames.pop()
+        continue
+      }
     }
   }
   Err(generator_stop_iteration())
@@ -1100,6 +1586,7 @@ fn generator_resume_inner(
 fn generator_resume(
   state : Ref[GeneratorState],
   sent_value_in : Value,
+  thrown_in : RuntimeError?,
 ) -> Result[Value, RuntimeError] {
   push_traceback_frame(state.val.name, state.val.filename)
   push_closure_env(state.val.closure)
@@ -1110,7 +1597,7 @@ fn generator_resume(
   if state.val.is_async {
     coroutine_enter_context()
   }
-  let result = generator_resume_inner(state, sent_value_in)
+  let result = generator_resume_inner(state, sent_value_in, thrown_in)
   if state.val.is_async {
     coroutine_leave_context()
   }
@@ -1129,7 +1616,7 @@ fn generator_next(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  match generator_resume(state, Value::None) {
+  match generator_resume(state, Value::None, None) {
     Ok(value) => Ok(value)
     Err(err) =>
       if is_stop_iteration(err) {
@@ -1152,7 +1639,7 @@ fn generator_send(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  generator_resume(state, value)
+  generator_resume(state, value, None)
 }
 
 ///|
@@ -1171,7 +1658,7 @@ fn generator_throw(
   generator_value : Value,
   exc : Value,
 ) -> Result[Value, RuntimeError] {
-  let _ = match generator_close(generator_value) {
+  let state = match generator_state_from_value(generator_value) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1188,7 +1675,7 @@ fn generator_throw(
         ),
       )
   }
-  Err(err)
+  generator_resume(state, Value::None, Some(err))
 }
 
 ///|
@@ -1205,7 +1692,7 @@ fn async_generator_next(generator_value : Value) -> Result[Value, RuntimeError] 
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  match generator_resume(state, Value::None) {
+  match generator_resume(state, Value::None, None) {
     Ok(value) => Ok(value)
     Err(err) =>
       if is_stop_iteration(err) {
@@ -1225,7 +1712,7 @@ fn async_generator_send(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  match generator_resume(state, value) {
+  match generator_resume(state, value, None) {
     Ok(value) => Ok(value)
     Err(err) =>
       if is_stop_iteration(err) {
@@ -1254,7 +1741,7 @@ fn async_generator_throw(
   generator_value : Value,
   exc : Value,
 ) -> Result[Value, RuntimeError] {
-  let _ = match async_generator_close(generator_value) {
+  let state = match async_generator_state_from_value(generator_value) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1271,7 +1758,7 @@ fn async_generator_throw(
         ),
       )
   }
-  Err(err)
+  generator_resume(state, Value::None, Some(err))
 }
 
 ///|

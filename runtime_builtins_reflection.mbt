@@ -2,6 +2,9 @@
 /// Reflection/object-model builtins (iter/next/property/bool/repr/callable/type/etc).
 
 ///|
+let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N }
+
+///|
 fn builtin_iter(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -56,6 +59,42 @@ fn builtin_next(
   }
   let _ = locals
   iterator_next(positional[0], default_value, globals, builtins, io)
+}
+
+///|
+fn builtin_sys_exc_info(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.exc_info", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "exc_info() takes no arguments".to_string(),
+      ),
+    )
+  }
+  match active_exception() {
+    None => Ok(Value::Tuple([Value::None, Value::None, Value::None]))
+    Some(err) => {
+      let exc_value = exception_value_from_runtime_error(err, globals, builtins, io)
+      let exc_type_value = match exc_value {
+        Value::Instance(inst) => Value::Class(inst.class)
+        _ => Value::Str(err.exc_type)
+      }
+      let tb_value = make_traceback_value(err.traceback)
+      Ok(Value::Tuple([exc_type_value, exc_value, tb_value]))
+    }
+  }
 }
 
 ///|
@@ -230,6 +269,90 @@ fn builtin_property(
     }
   }
   Ok(make_property_instance(fget, fset, fdel, doc))
+}
+
+///|
+fn builtin_property_init(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  if positional.length() < 1 || positional.length() > 5 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "property.__init__() takes from 1 to 5 positional arguments".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let mut fget = if positional.length() >= 2 { positional[1] } else { Value::None }
+  let mut fset = if positional.length() >= 3 { positional[2] } else { Value::None }
+  let mut fdel = if positional.length() >= 4 { positional[3] } else { Value::None }
+  let mut doc = if positional.length() >= 5 { positional[4] } else { Value::None }
+  let mut has_fget = positional.length() >= 2
+  let mut has_fset = positional.length() >= 3
+  let mut has_fdel = positional.length() >= 4
+  let mut has_doc = positional.length() >= 5
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "fget" =>
+        if has_fget {
+          return Err(multiple_values_error("property.__init__", "fget"))
+        } else {
+          fget = value
+          has_fget = true
+        }
+      "fset" =>
+        if has_fset {
+          return Err(multiple_values_error("property.__init__", "fset"))
+        } else {
+          fset = value
+          has_fset = true
+        }
+      "fdel" =>
+        if has_fdel {
+          return Err(multiple_values_error("property.__init__", "fdel"))
+        } else {
+          fdel = value
+          has_fdel = true
+        }
+      "doc" =>
+        if has_doc {
+          return Err(multiple_values_error("property.__init__", "doc"))
+        } else {
+          doc = value
+          has_doc = true
+        }
+      _ => return Err(unexpected_keyword_argument_error("property.__init__", key))
+    }
+  }
+  match target {
+    Value::Instance(inst) => {
+      set_named_value(inst.dict, "fget", fget)
+      set_named_value(inst.dict, "fset", fset)
+      set_named_value(inst.dict, "fdel", fdel)
+      set_named_value(inst.dict, "doc", doc)
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "property.__init__() expects a property instance".to_string(),
+        ),
+      )
+  }
 }
 
 ///|
@@ -455,6 +578,92 @@ fn builtin_classmethod(
 }
 
 ///|
+fn builtin_classmethod_init(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("classmethod.__init__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "classmethod.__init__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let func_value = positional[1]
+  match target {
+    Value::Instance(inst) => {
+      set_named_value(inst.dict, "func", func_value)
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "classmethod.__init__() expects a classmethod instance".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_staticmethod_init(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("staticmethod.__init__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "staticmethod.__init__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let func_value = positional[1]
+  match target {
+    Value::Instance(inst) => {
+      set_named_value(inst.dict, "func", func_value)
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "staticmethod.__init__() expects a staticmethod instance".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_register(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -476,7 +685,140 @@ fn builtin_register(
       ),
     )
   }
-  Ok(positional[1])
+  let cls_value = positional[0]
+  let subclass_value = positional[1]
+  let subclass = match subclass_value {
+    Value::Class(_) => subclass_value
+    Value::Function(func) =>
+      if func.body.length() == 0 && is_builtin_class_name(func.name) {
+        Value::Class(builtin_class_from_name(func.name, builtins))
+      } else {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "Can only register classes".to_string(),
+          ),
+        )
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "Can only register classes".to_string(),
+        ),
+      )
+  }
+  let cls = match cls_value {
+    Value::Class(klass) => klass
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "register() expects a class".to_string(),
+        ),
+      )
+  }
+  let already_subclass = match
+    issubclass_pair(subclass, Value::Class(cls), globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if already_subclass {
+    return Ok(subclass)
+  }
+  let creates_cycle = match
+    issubclass_pair(Value::Class(cls), subclass, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if creates_cycle {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "Refusing to create an inheritance cycle".to_string(),
+      ),
+    )
+  }
+  let registry = match get_named_value(cls.dict, "_abc_registry") {
+    Some(Value::Set(values)) => values
+    _ => []
+  }
+  match set_add_unique(registry, subclass) {
+    Ok(_) => ()
+    Err(_) => ()
+  }
+  set_named_value(cls.dict, "_abc_registry", Value::Set(registry))
+  let mro = match class_mro(cls) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for base in mro {
+    if base.name == cls.name {
+      continue
+    }
+    let base_registry = match get_named_value(base.dict, "_abc_registry") {
+      Some(Value::Set(values)) => values
+      _ => []
+    }
+    match set_add_unique(base_registry, subclass) {
+      Ok(_) => ()
+      Err(_) => ()
+    }
+    set_named_value(base.dict, "_abc_registry", Value::Set(base_registry))
+  }
+  abc_cache_token_ref.val = abc_cache_token_ref.val + 1N
+  Ok(subclass)
+}
+
+///|
+fn builtin_mpython_abc_cache_token(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__mpython_abc_cache_token", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_abc_cache_token() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Int(abc_cache_token_ref.val))
+}
+
+///|
+fn builtin_mpython_abc_cache_token_bump(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__mpython_abc_cache_token_bump", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_abc_cache_token_bump() takes no arguments".to_string(),
+      ),
+    )
+  }
+  abc_cache_token_ref.val = abc_cache_token_ref.val + 1N
+  Ok(Value::Int(abc_cache_token_ref.val))
 }
 
 ///|
@@ -589,7 +931,11 @@ fn builtin_callable(
   let value = match positional[0] {
     Value::Function(_) | Value::Class(_) | Value::BoundMethod(_) => true
     Value::Instance(inst) =>
-      get_named_value(inst.class.dict, "__call__") is Some(_)
+      match lookup_class_attr(inst.class, "__call__") {
+        Ok(Some(_)) => true
+        Ok(None) => false
+        Err(_) => false
+      }
     _ => false
   }
   Ok(Value::Bool(value))
@@ -706,6 +1052,21 @@ fn builtin_isinstance(
             Value::Class(_) => Ok(true)
             _ => Ok(false)
           }
+        } else if get_named_value(klass.dict, "_abc_registry") is Some(_) {
+          let obj_cls = match obj {
+            Value::Instance(inst) => Value::Class(inst.class)
+            Value::Class(c) => Value::Class(c)
+            _ =>
+              Value::Class(
+                builtin_class_from_name(type_name_from_value(obj), builtins),
+              )
+          }
+          let ok = match
+            issubclass_pair(obj_cls, Value::Class(klass), globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(ok)
         } else if value_matches_builtin_class(obj, klass.name) {
           Ok(true)
         } else {
@@ -787,15 +1148,25 @@ fn issubclass_matches_builtin_names(
   }
 }
 
+fn is_not_implemented_value(value : Value) -> Bool {
+  match value {
+    Value::Instance(inst) => inst.class.name == "NotImplementedType"
+    _ => false
+  }
+}
+
 ///|
 fn issubclass_pair(
   cls : Value,
   base : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Bool, RuntimeError] {
   match base {
     Value::Tuple(values) => {
       for entry in values {
-        let ok = match issubclass_pair(cls, entry) {
+        let ok = match issubclass_pair(cls, entry, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
@@ -806,6 +1177,56 @@ fn issubclass_pair(
       Ok(false)
     }
     Value::Class(base_class) => {
+      let subclass_hook = match get_attr_raw_from_value(
+        Value::Class(base_class),
+        "__subclasshook__",
+        globals,
+        builtins,
+        io,
+      ) {
+        Ok(v) => Some(v)
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute => None
+            _ => return Err(err)
+          }
+      }
+      if subclass_hook is Some(hook_value) {
+        let result = match call_callable_with_env(
+          hook_value,
+          [cls],
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if !is_not_implemented_value(result) {
+          return Ok(bool_from_value(result))
+        }
+      }
+      match get_named_value(base_class.dict, "_abc_registry") {
+        Some(Value::Set(values)) =>
+          for item in values {
+            match item {
+              Value::Class(klass) =>
+                if klass.name == base_class.name {
+                  return Ok(true)
+                }
+              _ => ()
+            }
+            let ok = match issubclass_pair(cls, item, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            if ok {
+              return Ok(true)
+            }
+          }
+        _ => ()
+      }
       if base_class.name == "type" {
         match cls {
           Value::Class(_) => Ok(true)
@@ -823,6 +1244,56 @@ fn issubclass_pair(
               if c.name == base_class.name {
                 return Ok(true)
               }
+            }
+            // If the base provides a custom __subclasses__ implementation,
+            // validate it and use it as a fallback (ABCMeta does this).
+            match get_named_value(base_class.dict, "__subclasses__") {
+              Some(subclasses_value) => {
+                let raw = match call_callable_with_env(
+                  subclasses_value,
+                  [],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let subclasses = match raw {
+                  Value::List(values) => values
+                  Value::Tuple(values) => values
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "issubclass() arg 2 must be a class or tuple of classes".to_string(),
+                      ),
+                    )
+                }
+                for entry in subclasses {
+                  match entry {
+                    Value::Class(_) => {
+                      let ok = match
+                        issubclass_pair(cls, entry, globals, builtins, io) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      if ok {
+                        return Ok(true)
+                      }
+                    }
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "issubclass() arg 2 must be a class or tuple of classes".to_string(),
+                        ),
+                      )
+                  }
+                }
+              }
+              None => ()
             }
             Ok(false)
           }
@@ -887,11 +1358,131 @@ fn builtin_issubclass(
   }
   let cls = positional[0]
   let base = positional[1]
-  let ok = match issubclass_pair(cls, base) {
+  let ok = match issubclass_pair(cls, base, globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
   Ok(Value::Bool(ok))
+}
+
+///|
+fn builtin_type_new(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("type.__new__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "type.__new__() takes exactly 4 arguments".to_string(),
+      ),
+    )
+  }
+  let name = match positional[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type.__new__() name must be str".to_string(),
+        ),
+      )
+  }
+  let base_values : Array[Value] = []
+  let raw_bases = match positional[2] {
+    Value::Tuple(values) => values
+    Value::List(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type.__new__() bases must be a tuple of classes".to_string(),
+        ),
+      )
+  }
+  for base in raw_bases {
+    match base {
+      Value::Class(_) => base_values.push(base)
+      Value::Function(func) =>
+        if func.body.length() == 0 && is_builtin_class_name(func.name) {
+          base_values.push(
+            Value::Class(builtin_class_from_name(func.name, builtins)),
+          )
+        } else {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "type.__new__() bases must be a tuple of classes".to_string(),
+            ),
+          )
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "type.__new__() bases must be a tuple of classes".to_string(),
+          ),
+        )
+    }
+  }
+  if base_values.length() == 0 {
+    match get_named_value(builtins, "object") {
+      Some(Value::Class(object_class)) =>
+        base_values.push(Value::Class(object_class))
+      _ => ()
+    }
+  }
+  let class_dict : Array[(String, Value)] = []
+  let pairs = match positional[3] {
+    Value::Dict(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "type.__new__() dict must be a dict".to_string(),
+        ),
+      )
+  }
+  for pair in pairs {
+    match pair.0 {
+      Value::Str(key) => class_dict.push((key, pair.1))
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "type.__new__() dict must have str keys".to_string(),
+          ),
+        )
+    }
+  }
+  if get_named_value(class_dict, "__name__") is None {
+    class_dict.push(("__name__", Value::Str(name)))
+  }
+  if get_named_value(class_dict, "__qualname__") is None {
+    class_dict.push(("__qualname__", Value::Str(name)))
+  }
+  if get_named_value(class_dict, "__module__") is None {
+    match get_named_value(globals, "__name__") {
+      Some(Value::Str(module_name)) =>
+        class_dict.push(("__module__", Value::Str(module_name)))
+      _ => ()
+    }
+  }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let _ = match class_mro(klass) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Class(klass))
 }
 
 ///|
@@ -1637,6 +2228,31 @@ fn builtin_super(
   let mut thisclass_value : Value = Value::None
   let mut self_value : Value = Value::None
   if positional.length() == 0 {
+    fn read_local_name(
+      name : String,
+      locals : Array[(String, Value)],
+    ) -> Result[Value?, RuntimeError] {
+      match get_local_value(locals, name) {
+        Some(v) =>
+          if is_cell_value(v) {
+            match cell_get_value(v) {
+              Some(value) => Ok(Some(value))
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "UnboundLocalError: local variable '" +
+                    name +
+                    "' referenced before assignment",
+                  ),
+                )
+            }
+          } else {
+            Ok(Some(v))
+          }
+        None => Ok(None)
+      }
+    }
     let cls_opt = match
       lookup_name_value("__class__", locals, globals, builtins) {
       Ok(v) => Some(v)
@@ -1656,23 +2272,13 @@ fn builtin_super(
       )
     }
     thisclass_value = cls_opt.unwrap()
-    let self_opt = match lookup_name_value("self", locals, globals, builtins) {
-      Ok(v) => Some(v)
-      Err(err) =>
-        if err.exc_type == "NameError" {
-          None
-        } else {
-          return Err(err)
-        }
+    let self_opt = match read_local_name("self", locals) {
+      Ok(v) => v
+      Err(err) => return Err(err)
     }
-    let cls_opt2 = match lookup_name_value("cls", locals, globals, builtins) {
-      Ok(v) => Some(v)
-      Err(err) =>
-        if err.exc_type == "NameError" {
-          None
-        } else {
-          return Err(err)
-        }
+    let cls_opt2 = match read_local_name("cls", locals) {
+      Ok(v) => v
+      Err(err) => return Err(err)
     }
     if self_opt is Some(v) {
       self_value = v

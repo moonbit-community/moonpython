@@ -21,12 +21,16 @@ fn runtime_error_exc(
         "ValueError:", "OverflowError:", "ImportError:", "AssertionError:", "RuntimeError:",
         "EOFError:", "SyntaxError:", "IndentationError:", "StopIteration:", "UnboundLocalError:",
         "StopAsyncIteration:",
+        "SystemExit:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])
       }
       if message == "StopAsyncIteration" {
         return ("StopAsyncIteration".to_string(), [])
+      }
+      if message == "SystemExit" {
+        return ("SystemExit".to_string(), [])
       }
       for prefix in prefixes {
         if message.has_prefix(prefix) {

@@ -185,7 +185,7 @@ fn main {
   }
   println("moonpython REPL (Ctrl-D to exit)")
   let source = @fs.read_file_to_string("/dev/stdin") catch { _ => "" }
-  let config = @mpython.Config::for_cli(stdlib_paths, None)
+  let config = @mpython.Config::for_cli(stdlib_paths, None, [""])
   let interpreter = @mpython.Interpreter::with_config(config)
   for line in source.split("\n") {
     run_line(interpreter, line.to_string())

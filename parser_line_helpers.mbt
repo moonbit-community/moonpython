@@ -565,6 +565,52 @@ fn find_top_level_colon(text : String) -> Int? {
 }
 
 ///|
+fn strip_wrapping_parens(text : String) -> String {
+  let trimmed = text.trim(chars=" \t").to_string()
+  if !trimmed.has_prefix("(") || !trimmed.has_suffix(")") {
+    return trimmed
+  }
+  let chars = trimmed.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      }
+      None => {
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escaped = false
+        } else if c == '(' {
+          depth += 1
+        } else if c == ')' {
+          if depth > 0 {
+            depth -= 1
+          }
+          if depth == 0 && i != chars.length() - 1 {
+            return trimmed
+          }
+        }
+      }
+    }
+  }
+  if depth == 0 {
+    substring(trimmed, 1, trimmed.length() - 1).trim(chars=" \t").to_string()
+  } else {
+    trimmed
+  }
+}
+
+///|
 fn find_top_level_augassign(text : String) -> (Int, String)? {
   let chars = text.to_array()
   let mut depth = 0
@@ -1184,51 +1230,6 @@ fn line_has_await_keyword(line : String) -> Bool {
 }
 
 ///|
-fn block_has_yield_keyword(
-  lines : Array[String],
-  start_index : Int,
-  base_indent : Int,
-) -> Bool {
-  let mut idx = start_index
-  while idx < lines.length() {
-    let line = lines[idx]
-    let trimmed = line.trim(chars=" \t").to_string()
-    if trimmed.length() == 0 || trimmed.has_prefix("#") {
-      idx += 1
-      continue
-    }
-    let indent = count_indent(line)
-    if indent < base_indent {
-      break
-    }
-    // Don't treat nested function/class yields as generator markers.
-    if trimmed.has_prefix("def ") ||
-      trimmed.has_prefix("async def ") ||
-      trimmed.has_prefix("class ") {
-      let def_indent = indent
-      idx += 1
-      while idx < lines.length() {
-        let next_line = lines[idx]
-        let next_trimmed = next_line.trim(chars=" \t").to_string()
-        if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
-          idx += 1
-          continue
-        }
-        if count_indent(next_line) <= def_indent {
-          break
-        }
-        idx += 1
-      }
-      continue
-    }
-    if line_has_yield_keyword(line) {
-      return true
-    }
-    idx += 1
-  }
-  false
-}
-
 ///|
 fn has_bare_assign(text : String) -> Bool {
   let chars = text.to_array()

@@ -238,6 +238,7 @@ fn call_callable_with_env(
         match cls_value {
           Value::Class(klass) => {
             let inst_dict : Array[(String, Value)] = []
+            inst_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
             if class_includes_list(klass) {
               inst_dict.push((list_storage_name, Value::List([])))
             }
@@ -439,6 +440,19 @@ fn call_callable_with_env(
         }
         return Ok(Value::None)
       }
+      // Intrinsic: object.__init_subclass__(cls, **kwargs)
+      if bound_method.function.name == "__init_subclass__" &&
+        bound_method.function.body.length() == 0 {
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__init_subclass__() takes no arguments".to_string(),
+            ),
+          )
+        }
+        return Ok(Value::None)
+      }
       match bound_method.self {
         Value::Instance(inst) =>
           if (
@@ -560,6 +574,39 @@ fn call_callable_with_env(
                     }
                   }
                 }
+              _ => ()
+            }
+          } else if bound_method.function.body.length() == 0 &&
+            get_named_value(inst.dict, list_storage_name) is Some(_) {
+            // Support list subclasses: instances created via object.__new__ for a class
+            // that includes `list` in its MRO store their backing array in `$__list__`.
+            match get_named_value(inst.dict, list_storage_name) {
+              Some(Value::List(values)) => {
+                if keywords.length() > 0 && bound_method.function.name != "sort" {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      bound_method.function.name +
+                      "() got unexpected keyword arguments".to_string(),
+                    ),
+                  )
+                }
+                match bound_method.function.name {
+                  "append" =>
+                    if positional.length() != 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "append() takes exactly one argument".to_string(),
+                        ),
+                      )
+                    } else {
+                      values.push(positional[0])
+                      return Ok(Value::None)
+                    }
+                  _ => ()
+                }
+              }
               _ => ()
             }
           } else if inst.class.name == "generator" &&
@@ -750,7 +797,8 @@ fn call_callable_with_env(
         Value::Str(text) =>
           if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 &&
-              bound_method.function.name != "split" {
+              bound_method.function.name != "split" &&
+              bound_method.function.name != "splitlines" {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
@@ -833,6 +881,177 @@ fn call_callable_with_env(
                   }
                 }
                 return Ok(Value::Bool(matched))
+              }
+              "find" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "find() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let needle = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "find() expects a str substring".to_string(),
+                      ),
+                    )
+                }
+                let start = match index_from_value(
+                  if positional.length() >= 2 { positional[1] } else { Value::None },
+                  0,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match index_from_value(
+                  if positional.length() == 3 { positional[2] } else { Value::None },
+                  text.length(),
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, text.length())
+                let mut end_idx = normalize_index(end, text.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > text.length() {
+                  start_idx = text.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > text.length() {
+                  end_idx = text.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                if needle.length() == 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(start_idx)))
+                }
+                let max_start = end_idx - needle.length()
+                let mut found = -1
+                let mut i = start_idx
+                while i <= max_start {
+                  if substring(text, i, i + needle.length()) == needle {
+                    found = i
+                    break
+                  }
+                  i += 1
+                }
+                if found < 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
+                } else {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(found)))
+                }
+              }
+              "rfind" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rfind() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let needle = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "rfind() expects a str substring".to_string(),
+                      ),
+                    )
+                }
+                let start = match index_from_value(
+                  if positional.length() >= 2 { positional[1] } else { Value::None },
+                  0,
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match index_from_value(
+                  if positional.length() == 3 { positional[2] } else { Value::None },
+                  text.length(),
+                ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, text.length())
+                let mut end_idx = normalize_index(end, text.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > text.length() {
+                  start_idx = text.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > text.length() {
+                  end_idx = text.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                if needle.length() == 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(end_idx)))
+                }
+                if needle.length() > (end_idx - start_idx) {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
+                }
+                let mut found = -1
+                let mut i = end_idx - needle.length()
+                while i >= start_idx {
+                  if substring(text, i, i + needle.length()) == needle {
+                    found = i
+                    break
+                  }
+                  i -= 1
+                }
+                if found < 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
+                } else {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(found)))
+                }
+              }
+              "encode" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "encode() takes 0 to 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let encoding_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  Value::Str("utf-8")
+                }
+                let errors_value = if positional.length() == 2 {
+                  Some(positional[1])
+                } else {
+                  None
+                }
+                let bytes = match
+                  encode_string_with_encoding(
+                    "encode",
+                    text,
+                    encoding_value,
+                    errors_value,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Bytes(bytes))
               }
               "endswith" => {
                 if positional.length() == 0 || positional.length() > 3 {
@@ -1316,6 +1535,87 @@ fn call_callable_with_env(
                     )
                 }
               }
+              "splitlines" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "splitlines() takes at most 1 argument".to_string(),
+                    ),
+                  )
+                }
+                let mut keepends_value : Value? = None
+                if positional.length() == 1 {
+                  keepends_value = Some(positional[0])
+                }
+                for pair in keywords {
+                  if pair.0 == "keepends" {
+                    if keepends_value is Some(_) {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "splitlines() got multiple values for argument 'keepends'"
+                            .to_string(),
+                        ),
+                      )
+                    }
+                    keepends_value = Some(pair.1)
+                  } else {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "splitlines() got unexpected keyword argument '" +
+                        pair.0 +
+                        "'",
+                      ),
+                    )
+                  }
+                }
+                let keepends = match keepends_value {
+                  None => false
+                  Some(Value::None) => false
+                  Some(Value::Bool(value)) => value
+                  Some(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "splitlines() keepends must be bool".to_string(),
+                      ),
+                    )
+                }
+                let lines : Array[Value] = []
+                let chars = text.to_array()
+                let mut builder = StringBuilder::new()
+                let mut has_text = false
+                let mut i = 0
+                while i < chars.length() {
+                  let c = chars[i]
+                  if c == '\n' || c == '\r' {
+                    if keepends {
+                      builder.write_char(c)
+                      has_text = true
+                    }
+                    if c == '\r' && i + 1 < chars.length() && chars[i + 1] == '\n' {
+                      if keepends {
+                        builder.write_char('\n')
+                        has_text = true
+                      }
+                      i += 1
+                    }
+                    lines.push(Value::Str(builder.to_string()))
+                    builder = StringBuilder::new()
+                    has_text = false
+                  } else {
+                    builder.write_char(c)
+                    has_text = true
+                  }
+                  i += 1
+                }
+                if has_text {
+                  lines.push(Value::Str(builder.to_string()))
+                }
+                return Ok(Value::List(lines))
+              }
               "format" => {
                 let formatted = match
                   format_string_with_args(text, positional, keywords) {
@@ -1329,7 +1629,7 @@ fn call_callable_with_env(
           }
         Value::List(values) =>
           if bound_method.function.body.length() == 0 {
-            if keywords.length() > 0 {
+            if keywords.length() > 0 && bound_method.function.name != "sort" {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
@@ -1515,6 +1815,290 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::List(out))
                 }
+              "reverse" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "reverse() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  if values.length() == 0 {
+                    return Ok(Value::None)
+                  }
+                  let mut i = 0
+                  let mut j = values.length() - 1
+                  while i < j {
+                    let tmp = values[i]
+                    values[i] = values[j]
+                    values[j] = tmp
+                    i += 1
+                    j -= 1
+                  }
+                  return Ok(Value::None)
+                }
+              "sort" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "sort() takes at most 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let mut reverse = false
+                let mut key_value : Value? = None
+                for pair in keywords {
+                  if pair.0 == "key" {
+                    key_value = Some(pair.1)
+                  } else if pair.0 == "reverse" {
+                    reverse = bool_from_value(pair.1)
+                  } else {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sort() got unexpected keyword arguments".to_string(),
+                      ),
+                    )
+                  }
+                }
+                if positional.length() >= 1 {
+                  if key_value is Some(_) {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sort() got multiple values for argument 'key'".to_string(),
+                      ),
+                    )
+                  }
+                  key_value = Some(positional[0])
+                }
+                if positional.length() == 2 {
+                  reverse = bool_from_value(positional[1])
+                }
+                if values.length() == 0 {
+                  return Ok(Value::None)
+                }
+
+                fn lt_for_sort(
+                  a : Value,
+                  b : Value,
+                  globals : Array[(String, Value)],
+                  builtins : Array[(String, Value)],
+                  io : MockIO,
+                ) -> Result[Bool, RuntimeError] {
+                  match (a, b) {
+                    (Value::Str(x), Value::Str(y)) => Ok(x < y)
+                    (Value::Int(_) | Value::Float(_) | Value::Bool(_), _)
+                    | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
+                      let (_, left_num) = match number_value(a) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      let (_, right_num) = match number_value(b) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      Ok(left_num < right_num)
+                    }
+                    _ => {
+                      let lt = match
+                        get_attr_from_value(a, "__lt__", globals, builtins, io) {
+                        Ok(v) => v
+                        Err(err) =>
+                          match err.kind {
+                            RuntimeErrorKind::Attribute =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Type,
+                                  "sort() cannot compare values".to_string(),
+                                ),
+                              )
+                            _ => return Err(err)
+                          }
+                      }
+                      let result = match
+                        call_callable_with_env(
+                          lt,
+                          [b],
+                          [],
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      Ok(bool_from_value(result))
+                    }
+                  }
+                }
+
+                match key_value {
+                  Some(key_fn) => {
+                    let key_pairs : Array[(Value, Value)] = []
+                    for item in values {
+                      let key = if key_fn is Value::None {
+                        item
+                      } else {
+                        match call_callable_with_env(
+                          key_fn,
+                          [item],
+                          [],
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      }
+                      key_pairs.push((key, item))
+                    }
+                    fn insertion_sort_pairs_by_key(
+                      pairs : Array[(Value, Value)],
+                      globals : Array[(String, Value)],
+                      builtins : Array[(String, Value)],
+                      io : MockIO,
+                    ) -> Result[Unit, RuntimeError] {
+                      let mut i = 1
+                      while i < pairs.length() {
+                        let item = pairs[i]
+                        let mut j = i
+                        while j > 0 {
+                          let less = match
+                            lt_for_sort(item.0, pairs[j - 1].0, globals, builtins, io) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          if !less {
+                            break
+                          }
+                          pairs[j] = pairs[j - 1]
+                          j -= 1
+                        }
+                        pairs[j] = item
+                        i += 1
+                      }
+                      Ok(())
+                    }
+
+                    let mut kind_opt : SortKind? = None
+                    let mut can_use_fast = true
+                    for pair in key_pairs {
+                      match sort_kind_for_sorted(pair.0) {
+                        Some(kind) =>
+                          match kind_opt {
+                            None => kind_opt = Some(kind)
+                            Some(prev) =>
+                              if prev != kind {
+                                can_use_fast = false
+                              }
+                          }
+                        None => can_use_fast = false
+                      }
+                    }
+
+                    let sorted_pairs =
+                      if can_use_fast {
+                        let kind = match kind_opt {
+                          Some(kind) => kind
+                          None => return Ok(Value::None)
+                        }
+                        match stable_sort_pairs_by_key(key_pairs, kind) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                      } else {
+                        let _ = match
+                          insertion_sort_pairs_by_key(
+                            key_pairs,
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        key_pairs
+                      }
+                    let sorted_items : Array[Value] = []
+                    for pair in sorted_pairs {
+                      sorted_items.push(pair.1)
+                    }
+                    let out =
+                      if reverse { reverse_values(sorted_items) } else { sorted_items }
+                    replace_array_values(values, out)
+                    return Ok(Value::None)
+                  }
+                  None => {
+                    let mut kind_opt : SortKind? = None
+                    let mut can_use_fast = true
+                    for item in values {
+                      match sort_kind_for_sorted(item) {
+                        Some(kind) =>
+                          match kind_opt {
+                            None => kind_opt = Some(kind)
+                            Some(prev) =>
+                              if prev != kind {
+                                can_use_fast = false
+                              }
+                          }
+                        None => can_use_fast = false
+                      }
+                    }
+
+                    let mut out =
+                      if can_use_fast {
+                        let kind = match kind_opt {
+                          Some(kind) => kind
+                          None => return Ok(Value::None)
+                        }
+                        match stable_sort_for_sorted(values, kind) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                      } else {
+                        let out : Array[Value] = []
+                        for item in values {
+                          out.push(item)
+                        }
+                        let mut i = 1
+                        while i < out.length() {
+                          let item = out[i]
+                          let mut j = i
+                          while j > 0 {
+                            let less = match
+                              lt_for_sort(
+                                item,
+                                out[j - 1],
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            if !less {
+                              break
+                            }
+                            out[j] = out[j - 1]
+                            j -= 1
+                          }
+                          out[j] = item
+                          i += 1
+                        }
+                        out
+                      }
+                    if reverse {
+                      out = reverse_values(out)
+                    }
+                    replace_array_values(values, out)
+                    return Ok(Value::None)
+                  }
+                }
+              }
               _ => ()
             }
           }
@@ -2081,6 +2665,51 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::None)
                 }
+              "difference" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "difference() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let other_values : Array[Value] = []
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_add_unique(other_values, item) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                  let out : Array[Value] = []
+                  for item in values {
+                    let index = match set_find_index(other_values, item) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    if index is None {
+                      let _ = match set_add_unique(out, item) {
+                        Ok(_) => ()
+                        Err(err) => return Err(err)
+                      }
+                    }
+                  }
+                  return Ok(Value::Set(out))
+                }
               "issuperset" =>
                 if positional.length() != 1 {
                   return Err(
@@ -2200,6 +2829,98 @@ fn call_callable_with_env(
               _ => ()
             }
           }
+        Value::Bytes(values) =>
+          if bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  bound_method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match bound_method.function.name {
+              "decode" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "decode() takes 0 to 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let encoding_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  Value::Str("utf-8")
+                }
+                let errors_value = if positional.length() == 2 {
+                  Some(positional[1])
+                } else {
+                  None
+                }
+                let text = match
+                  decode_bytes_with_encoding(
+                    "decode",
+                    values,
+                    encoding_value,
+                    errors_value,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(text))
+              }
+              _ => ()
+            }
+          }
+        Value::MemoryView(values) =>
+          if bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  bound_method.function.name +
+                  "() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            match bound_method.function.name {
+              "decode" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "decode() takes 0 to 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let encoding_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  Value::Str("utf-8")
+                }
+                let errors_value = if positional.length() == 2 {
+                  Some(positional[1])
+                } else {
+                  None
+                }
+                let text = match
+                  decode_bytes_with_encoding(
+                    "decode",
+                    values,
+                    encoding_value,
+                    errors_value,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(text))
+              }
+              _ => ()
+            }
+          }
         Value::ByteArray(values) =>
           if bound_method.function.body.length() == 0 {
             if keywords.length() > 0 {
@@ -2212,6 +2933,37 @@ fn call_callable_with_env(
               )
             }
             match bound_method.function.name {
+              "decode" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "decode() takes 0 to 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let encoding_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  Value::Str("utf-8")
+                }
+                let errors_value = if positional.length() == 2 {
+                  Some(positional[1])
+                } else {
+                  None
+                }
+                let text = match
+                  decode_bytes_with_encoding(
+                    "decode",
+                    values,
+                    encoding_value,
+                    errors_value,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                return Ok(Value::Str(text))
+              }
               "copy" =>
                 if positional.length() != 0 {
                   return Err(
@@ -2252,6 +3004,36 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
       }
+      if bound_method.function.is_async {
+        if bound_method.function.is_generator {
+          return (eval_generator_with_kwargs_ref.val)(
+            bound_method.function,
+            args,
+            keywords,
+            globals,
+            builtins,
+            io,
+          )
+        }
+        return (eval_function_with_kwargs_ref.val)(
+          bound_method.function,
+          args,
+          keywords,
+          globals,
+          builtins,
+          io,
+        )
+      }
+      if bound_method.function.is_generator {
+        return (eval_generator_with_kwargs_ref.val)(
+          bound_method.function,
+          args,
+          keywords,
+          globals,
+          builtins,
+          io,
+        )
+      }
       (eval_function_with_kwargs_ref.val)(
         bound_method.function,
         args,
@@ -2281,6 +3063,55 @@ fn call_callable_with_env(
           Ok(Some(value)) => return Ok(value)
           Ok(None) => ()
           Err(err) => return Err(err)
+        }
+      }
+      let abstract_values_opt = match get_named_value(klass.dict, "__abstractmethods__") {
+        Some(Value::Set(values)) => Some(values)
+        Some(Value::Tuple(values)) => Some(values)
+        _ => None
+      }
+      if abstract_values_opt is Some(values) {
+        let names : Array[String] = []
+        for item in values {
+          match item {
+            Value::Str(name) => names.push(name)
+            _ => ()
+          }
+        }
+        if names.length() > 0 {
+          for i = 0; i < names.length(); i = i + 1 {
+            let mut best = i
+            for j = i + 1; j < names.length(); j = j + 1 {
+              if cmp_string_for_sorted(names[j], names[best]) < 0 {
+                best = j
+              }
+            }
+            if best != i {
+              let tmp = names[i]
+              names[i] = names[best]
+              names[best] = tmp
+            }
+          }
+          let builder = StringBuilder::new()
+          for i = 0; i < names.length(); i = i + 1 {
+            if i > 0 {
+              builder.write_string(", ")
+            }
+            builder.write_string("'" + names[i] + "'")
+          }
+          let label =
+            if names.length() == 1 { "method" } else { "methods" }
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "class " +
+              klass.name +
+              " without an implementation for abstract " +
+              label +
+              " " +
+              builder.to_string(),
+            ),
+          )
         }
       }
       if klass.name == "BaseExceptionGroup" || klass.name == "ExceptionGroup" {
@@ -2372,34 +3203,14 @@ fn call_callable_with_env(
         dict.push(("exceptions", Value::List(exceptions)))
         return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
       }
-      // Minimal exception instance payload.
-      if klass.name == "BaseException" ||
-        klass.name == "Exception" ||
-        klass.name == "RuntimeError" ||
-        klass.name == "NameError" ||
-        klass.name == "TypeError" ||
-        klass.name == "AttributeError" ||
-        klass.name == "IndexError" ||
-        klass.name == "KeyError" ||
-        klass.name == "NotImplementedError" ||
-        klass.name == "ZeroDivisionError" ||
-        klass.name == "ValueError" ||
-        klass.name == "OSError" ||
-        klass.name == "FileNotFoundError" ||
-        klass.name == "ImportError" ||
-        klass.name == "AssertionError" ||
-        klass.name == "Warning" ||
-        klass.name == "UserWarning" ||
-        klass.name == "DeprecationWarning" ||
-        klass.name == "PendingDeprecationWarning" ||
-        klass.name == "RuntimeWarning" ||
-        klass.name == "ImportWarning" ||
-        klass.name == "ResourceWarning" ||
-        klass.name == "SyntaxError" ||
-        klass.name == "IndentationError" ||
-        klass.name == "EOFError" ||
-        klass.name == "StopIteration" ||
-        klass.name == "StopAsyncIteration" {
+      // Minimal exception instance payload for any BaseException subclass.
+      // This is relied upon by the CPython stdlib (e.g. abc/unittest) for custom
+      // exception classes like `class CustomError(Exception): ...`.
+      let ok = match is_base_exception_class(klass) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if ok {
         let dict : Array[(String, Value)] = []
         dict.push(("__traceback__", Value::None))
         dict.push(("args", Value::Tuple(positional)))

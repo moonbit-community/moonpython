@@ -75,7 +75,7 @@ fn eval_function_with_kwargs(
         func.closure,
         func.name,
         filename,
-        Config::default(),
+        current_config(),
       ),
     )
   }
@@ -88,7 +88,7 @@ fn eval_function_with_kwargs(
     active_globals,
     builtins,
     io,
-    Config::default(),
+    current_config(),
   )
   pop_scope_decls()
   pop_closure_env()
@@ -140,7 +140,7 @@ fn bind_function_args_with_kwargs(
             return Err(
               make_runtime_error(
                 RuntimeErrorKind::Runtime,
-                "RuntimeError: bad function defaults".to_string(),
+                "RuntimeError: bad function defaults in " + func.name,
               ),
             )
           }
@@ -155,7 +155,7 @@ fn bind_function_args_with_kwargs(
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
-        "RuntimeError: bad function defaults".to_string(),
+        "RuntimeError: bad function defaults in " + func.name,
       ),
     )
   }

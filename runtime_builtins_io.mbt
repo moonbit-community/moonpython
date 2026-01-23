@@ -32,6 +32,110 @@ fn builtin_input(
 }
 
 ///|
+fn builtin_sys_stdout_write(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("write", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "write() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let text = value_to_string(positional[1])
+  io.write_stdout(text)
+  Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
+}
+
+///|
+fn builtin_sys_stdout_flush(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("flush", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "flush() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_sys_stderr_write(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("write", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "write() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let text = value_to_string(positional[1])
+  io.write_stderr(text)
+  Ok(Value::Int(@bigint.BigInt::from_int(text.length())))
+}
+
+///|
+fn builtin_sys_stderr_flush(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("flush", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "flush() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::None)
+}
+
+///|
 fn file_unpack_state(
   target : Value,
   method_name : String,

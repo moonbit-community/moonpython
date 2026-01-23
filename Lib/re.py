@@ -296,7 +296,10 @@ class Pattern:
 
     def _run_match(self, string, pos=0, endpos=None):
         if self._matcher is None:
-            raise NotImplementedError("regex engine not available")
+            pos, endpos = _normalize_bounds(string, pos, endpos)
+            if string.startswith(self.pattern, pos) and pos + len(self.pattern) <= endpos:
+                return Match(string, pos, pos + len(self.pattern))
+            return None
         return self._matcher(string, pos=pos, endpos=endpos)
 
     def match(self, string, pos=0, endpos=None):
@@ -312,7 +315,13 @@ class Pattern:
         return m
 
     def search(self, string, pos=0, endpos=None):
-        raise NotImplementedError("regex engine not available")
+        if self._matcher is not None:
+            raise NotImplementedError("regex engine not available")
+        pos, endpos = _normalize_bounds(string, pos, endpos)
+        idx = string.find(self.pattern, pos, endpos)
+        if idx == -1:
+            return None
+        return Match(string, idx, idx + len(self.pattern))
 
     def findall(self, string, pos=0, endpos=None):
         raise NotImplementedError("regex engine not available")

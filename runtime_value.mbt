@@ -53,31 +53,16 @@ fn not_callable_message(value : Value) -> String {
 }
 
 ///|
-fn is_exception_class_name(name : String) -> Bool {
-  name == "BaseException" ||
-  name == "Exception" ||
-  name == "BaseExceptionGroup" ||
-  name == "ExceptionGroup" ||
-  name == "RuntimeError" ||
-  name == "NameError" ||
-  name == "UnboundLocalError" ||
-  name == "TypeError" ||
-  name == "AttributeError" ||
-  name == "LookupError" ||
-  name == "IndexError" ||
-  name == "KeyError" ||
-  name == "NotImplementedError" ||
-  name == "ZeroDivisionError" ||
-  name == "OverflowError" ||
-  name == "ValueError" ||
-  name == "ImportError" ||
-  name == "AssertionError" ||
-  name == "SyntaxError" ||
-  name == "IndentationError" ||
-  name == "EOFError" ||
-  name == "StopIteration"
+let object_hash_counter : Ref[@bigint.BigInt] = { val: 1N }
+
+///|
+fn fresh_object_hashvalue() -> @bigint.BigInt {
+  let value = object_hash_counter.val
+  object_hash_counter.val = value + 1N
+  value
 }
 
+///|
 ///|
 fn lookup_instance_field(
   dict : Array[(String, Value)],
@@ -178,6 +163,21 @@ fn complex_to_string(real : Double, imag : Double) -> String {
 }
 
 ///|
+fn is_base_exception_class_value(klass : ClassValue) -> Bool {
+  match class_mro(klass) {
+    Ok(mro) => {
+      for cls in mro {
+        if cls.name == "BaseException" {
+          return true
+        }
+      }
+      false
+    }
+    Err(_) => false
+  }
+}
+
+///|
 fn value_to_string(value : Value) -> String {
   match value {
     Value::None => "None"
@@ -245,11 +245,26 @@ fn value_to_string(value : Value) -> String {
     Value::Function(func) => "<function " + func.name + ">"
     Value::Class(klass) => "<class '" + klass.name + "'>"
     Value::Instance(inst) =>
-      if is_exception_class_name(inst.class.name) {
+      if is_base_exception_class_value(inst.class) {
+        // Exception stringification: prefer the synthetic `message` field
+        // (populated by the runtime for many exception constructions), then
+        // fall back to `args` like CPython's BaseException.__str__.
         match lookup_instance_field(inst.dict, "message") {
           Some(Value::Str(text)) => text
           Some(other) => value_to_string(other)
-          None => "".to_string()
+          None =>
+            match lookup_instance_field(inst.dict, "args") {
+              Some(Value::Tuple(args)) =>
+                if args.length() == 0 {
+                  "".to_string()
+                } else if args.length() == 1 {
+                  value_to_string(args[0])
+                } else {
+                  value_to_string(Value::Tuple(args))
+                }
+              Some(other) => value_to_string(other)
+              None => "".to_string()
+            }
         }
       } else {
         "<" + inst.class.name + " object>"

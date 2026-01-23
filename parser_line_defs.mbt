@@ -563,22 +563,6 @@ fn parse_def_stmt(
     )
     .trim(chars=" \t")
     .to_string()
-  if !is_async_def && body_text.contains("yield") {
-    let token = {
-      kind: Eof,
-      start: parser.offsets[parser.index] + current_indent,
-      end: parser.offsets[parser.index] + current_indent + 1,
-      line: parser.index + 1,
-      column: 1,
-    }
-    return Err(
-      make_parse_error(
-        ParseErrorKind::Syntax,
-        "invalid syntax".to_string(),
-        token,
-      ),
-    )
-  }
   if !is_async_def && line_has_await_keyword(body_text) {
     let token = {
       kind: Eof,
@@ -733,6 +717,7 @@ fn parse_def_stmt(
     return Ok((true, next_pending, next_token))
   }
   parser.index = next_index
+  let body_start_index = parser.index
   let next_indent = parser.peek_next_indent()
   if next_indent <= current_indent {
     let missing_line = parser.clamp_line_index(
@@ -753,12 +738,7 @@ fn parse_def_stmt(
       ),
     )
   }
-  let is_generator = block_has_yield_keyword(
-    parser.lines,
-    parser.index,
-    next_indent,
-  )
-  let (body, is_generator) = if is_async_def {
+  let (body, _) = if is_async_def {
     let mut idx = parser.index
     while idx < parser.lines.length() {
       let body_line = parser.lines[idx]
@@ -808,8 +788,441 @@ fn parse_def_stmt(
       }
       idx += 1
     }
-    if is_generator {
-      idx = parser.index
+    let prev_async_depth = parser.async_depth
+    parser.async_depth = 1
+    parser.func_depth += 1
+    let parsed = match parser.parse_block(next_indent) {
+      Ok(value) => value
+      Err(err) => {
+        parser.func_depth -= 1
+        parser.async_depth = prev_async_depth
+        return Err(err)
+      }
+    }
+    parser.func_depth -= 1
+    parser.async_depth = prev_async_depth
+    (parsed, false)
+  } else {
+    let prev_async_depth = parser.async_depth
+    parser.async_depth = 0
+    parser.func_depth += 1
+    let parsed = match parser.parse_block(next_indent) {
+      Ok(value) => value
+      Err(err) => {
+        parser.func_depth -= 1
+        parser.async_depth = prev_async_depth
+        return Err(err)
+      }
+    }
+    parser.func_depth -= 1
+    parser.async_depth = prev_async_depth
+    (parsed, false)
+  }
+  let has_yield_ref : Ref[Bool] = { val: false }
+  let has_yield_from_ref : Ref[Bool] = { val: false }
+  let has_return_value_ref : Ref[Bool] = { val: false }
+  fn scan_expr_for_yield(
+    expr : Expr,
+    has_yield_ref : Ref[Bool],
+    has_yield_from_ref : Ref[Bool],
+  ) -> Unit {
+    match expr {
+      Expr::Yield(value) => {
+        has_yield_ref.val = true
+        match value {
+          Some(inner) =>
+            scan_expr_for_yield(inner, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+      }
+      Expr::YieldFrom(value) => {
+        has_yield_ref.val = true
+        has_yield_from_ref.val = true
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      }
+      Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) =>
+        for item in items {
+          scan_expr_for_yield(item, has_yield_ref, has_yield_from_ref)
+        }
+      Expr::Dict(pairs) =>
+        for pair in pairs {
+          scan_expr_for_yield(pair.0, has_yield_ref, has_yield_from_ref)
+          scan_expr_for_yield(pair.1, has_yield_ref, has_yield_from_ref)
+        }
+      Expr::ListComp(elt~, clauses~, filters~) |
+      Expr::GenExp(elt~, clauses~, filters~) |
+      Expr::SetComp(elt~, clauses~, filters~) => {
+        scan_expr_for_yield(elt, has_yield_ref, has_yield_from_ref)
+        for clause in clauses {
+          scan_expr_for_yield(clause.iter, has_yield_ref, has_yield_from_ref)
+        }
+        for filter_expr in filters {
+          scan_expr_for_yield(filter_expr, has_yield_ref, has_yield_from_ref)
+        }
+      }
+      Expr::DictComp(key~, value~, clauses~, filters~) => {
+        scan_expr_for_yield(key, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+        for clause in clauses {
+          scan_expr_for_yield(clause.iter, has_yield_ref, has_yield_from_ref)
+        }
+        for filter_expr in filters {
+          scan_expr_for_yield(filter_expr, has_yield_ref, has_yield_from_ref)
+        }
+      }
+      Expr::Lambda(..) => ()
+      Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+        scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(then_expr, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(else_expr, has_yield_ref, has_yield_from_ref)
+      }
+      Expr::NamedExpr(name=_, value~) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Expr::Await(value) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Expr::Slice(start~, end~, step~) => {
+        match start {
+          Some(value) =>
+            scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+        match end {
+          Some(value) =>
+            scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+        match step {
+          Some(value) =>
+            scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+      }
+      Expr::Attribute(value~, attr=_) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Expr::Subscript(value~, index~) => {
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(index, has_yield_ref, has_yield_from_ref)
+      }
+      Expr::Call(callee~, args~) => {
+        scan_expr_for_yield(callee, has_yield_ref, has_yield_from_ref)
+        for arg in args {
+          scan_expr_for_yield(arg, has_yield_ref, has_yield_from_ref)
+        }
+      }
+      Expr::Keyword(name=_, value~) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Expr::Unary(op=_, expr~) =>
+        scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+      Expr::Binary(op=_, left~, right~) => {
+        scan_expr_for_yield(left, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(right, has_yield_ref, has_yield_from_ref)
+      }
+      Expr::BoolOp(op=_, values~) =>
+        for value in values {
+          scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+        }
+      Expr::Compare(left~, ops=_, comparators~) => {
+        scan_expr_for_yield(left, has_yield_ref, has_yield_from_ref)
+        for value in comparators {
+          scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+        }
+      }
+      _ => ()
+    }
+  }
+  fn scan_target_for_yield(
+    target : Target,
+    has_yield_ref : Ref[Bool],
+    has_yield_from_ref : Ref[Bool],
+  ) -> Unit {
+    match target {
+      Target::Attribute(value~, attr=_) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Target::Subscript(value~, index~) => {
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(index, has_yield_ref, has_yield_from_ref)
+      }
+      Target::Tuple(items) | Target::List(items) =>
+        for item in items {
+          scan_target_for_yield(item, has_yield_ref, has_yield_from_ref)
+        }
+      _ => ()
+    }
+  }
+  fn scan_stmt_for_yield(
+    stmt : Stmt,
+    has_yield_ref : Ref[Bool],
+    has_yield_from_ref : Ref[Bool],
+    has_return_value_ref : Ref[Bool],
+  ) -> Unit {
+    match stmt {
+      Stmt::WithSpan(span=_, stmt=inner) =>
+        scan_stmt_for_yield(
+          inner,
+          has_yield_ref,
+          has_yield_from_ref,
+          has_return_value_ref,
+        )
+      Stmt::ExprStmt(expr) =>
+        scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+      Stmt::Assign(target~, value~) => {
+        scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      }
+      Stmt::AugAssign(target~, op=_, value~) => {
+        scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      }
+      Stmt::TypeAlias(name=_, type_params=_, value~) =>
+        scan_expr_for_yield(value, has_yield_ref, has_yield_from_ref)
+      Stmt::Return(value) => {
+        match value {
+          Some(expr) => {
+            has_return_value_ref.val = true
+            scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+          }
+          None => ()
+        }
+      }
+      Stmt::Yield(value) => {
+        has_yield_ref.val = true
+        match value {
+          Some(expr) =>
+            scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+      }
+      Stmt::YieldFrom(expr) => {
+        has_yield_ref.val = true
+        has_yield_from_ref.val = true
+        scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+      }
+      Stmt::If(condition~, body~, else_body~) => {
+        scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
+        for inner in body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+        for inner in else_body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+      }
+      Stmt::Match(subject~, cases~) => {
+        scan_expr_for_yield(subject, has_yield_ref, has_yield_from_ref)
+        for case_item in cases {
+          let case_guard = case_item.1
+          let case_body = case_item.2
+          match case_guard {
+            Some(expr) =>
+              scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+            None => ()
+          }
+          for inner in case_body {
+            scan_stmt_for_yield(
+              inner,
+              has_yield_ref,
+              has_yield_from_ref,
+              has_return_value_ref,
+            )
+          }
+        }
+      }
+      Stmt::While(condition~, body~, else_body~) => {
+        scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
+        for inner in body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+        for inner in else_body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+      }
+      Stmt::For(target~, iter~, body~, else_body~) |
+      Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+        scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
+        scan_expr_for_yield(iter, has_yield_ref, has_yield_from_ref)
+        for inner in body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+        for inner in else_body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+      }
+      Stmt::Assert(condition~, message~) => {
+        scan_expr_for_yield(condition, has_yield_ref, has_yield_from_ref)
+        match message {
+          Some(expr) =>
+            scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+      }
+      Stmt::Raise(exc~, cause~) => {
+        match exc {
+          Some(expr) =>
+            scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+        match cause {
+          Some(expr) =>
+            scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+          None => ()
+        }
+      }
+      Stmt::Del(targets) =>
+        for target in targets {
+          scan_target_for_yield(target, has_yield_ref, has_yield_from_ref)
+        }
+      Stmt::With(context~, target=_, body~) |
+      Stmt::AsyncWith(context~, target=_, body~) => {
+        scan_expr_for_yield(context, has_yield_ref, has_yield_from_ref)
+        for inner in body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+      }
+      Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+        for inner in body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+        for handler in handlers {
+          match handler.exc {
+            Some(expr) =>
+              scan_expr_for_yield(expr, has_yield_ref, has_yield_from_ref)
+            None => ()
+          }
+          for inner in handler.body {
+            scan_stmt_for_yield(
+              inner,
+              has_yield_ref,
+              has_yield_from_ref,
+              has_return_value_ref,
+            )
+          }
+        }
+        for inner in else_body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+        for inner in finally_body {
+          scan_stmt_for_yield(
+            inner,
+            has_yield_ref,
+            has_yield_from_ref,
+            has_return_value_ref,
+          )
+        }
+      }
+      Stmt::Function(..) | Stmt::Class(..) =>
+        ()
+      _ => ()
+    }
+  }
+  for stmt in body {
+    scan_stmt_for_yield(
+      stmt,
+      has_yield_ref,
+      has_yield_from_ref,
+      has_return_value_ref,
+    )
+  }
+  let is_generator = has_yield_ref.val || has_yield_from_ref.val
+  if is_async_def {
+    if has_yield_from_ref.val {
+      let mut idx = body_start_index
+      while idx < parser.lines.length() {
+        let body_line = parser.lines[idx]
+        let trimmed = body_line.trim(chars=" \t").to_string()
+        if trimmed.length() == 0 || trimmed.has_prefix("#") {
+          idx += 1
+          continue
+        }
+        let body_indent = count_indent(body_line)
+        if body_indent < next_indent {
+          break
+        }
+        if trimmed.has_prefix("def ") ||
+          trimmed.has_prefix("async def ") ||
+          trimmed.has_prefix("class ") {
+          let def_indent = body_indent
+          idx += 1
+          while idx < parser.lines.length() {
+            let next_line = parser.lines[idx]
+            let next_trimmed = next_line.trim(chars=" \t").to_string()
+            if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+              idx += 1
+              continue
+            }
+            if count_indent(next_line) <= def_indent {
+              break
+            }
+            idx += 1
+          }
+          continue
+        }
+        if trimmed.has_prefix("yield from") {
+          let token = {
+            kind: Eof,
+            start: parser.offsets[idx] + body_indent,
+            end: parser.offsets[idx] + body_indent + 1,
+            line: idx + 1,
+            column: body_indent + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "'yield from' inside async function".to_string(),
+              token,
+            ),
+          )
+        }
+        idx += 1
+      }
+    }
+    if is_generator && has_return_value_ref.val {
+      let mut idx = body_start_index
       while idx < parser.lines.length() {
         let body_line = parser.lines[idx]
         let trimmed = body_line.trim(chars=" \t").to_string()
@@ -859,35 +1272,6 @@ fn parse_def_stmt(
         idx += 1
       }
     }
-    let prev_async_depth = parser.async_depth
-    parser.async_depth = 1
-    parser.func_depth += 1
-    let parsed = match parser.parse_block(next_indent) {
-      Ok(value) => value
-      Err(err) => {
-        parser.func_depth -= 1
-        parser.async_depth = prev_async_depth
-        return Err(err)
-      }
-    }
-    parser.func_depth -= 1
-    parser.async_depth = prev_async_depth
-    (parsed, is_generator)
-  } else {
-    let prev_async_depth = parser.async_depth
-    parser.async_depth = 0
-    parser.func_depth += 1
-    let parsed = match parser.parse_block(next_indent) {
-      Ok(value) => value
-      Err(err) => {
-        parser.func_depth -= 1
-        parser.async_depth = prev_async_depth
-        return Err(err)
-      }
-    }
-    parser.func_depth -= 1
-    parser.async_depth = prev_async_depth
-    (parsed, is_generator)
   }
   for stmt in body {
     match stmt {

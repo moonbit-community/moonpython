@@ -101,6 +101,15 @@ fn LineParser::parse_block(
     if find_triple_quote(raw_line) is None {
       line_text = strip_inline_comment(line_text).trim(chars=" \t").to_string()
     }
+    if line_text.has_prefix("async for(") {
+      line_text = "async for " + substring(line_text, 9, line_text.length())
+    }
+    if line_text.has_prefix("for(") {
+      line_text = "for " + substring(line_text, 3, line_text.length())
+    }
+    if line_text.has_prefix("while(") {
+      line_text = "while " + substring(line_text, 5, line_text.length())
+    }
     let mut next_index = self.index + 1
     if find_triple_quote(raw_line) is Some((quote, pos)) {
       if !has_triple_quote_after(raw_line, quote, pos + 3) {
@@ -360,9 +369,10 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let header_text = substring(line_text, 10, colon_pos.unwrap())
+      let mut header_text = substring(line_text, 10, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
+      header_text = strip_wrapping_parens(header_text)
       let in_pos = header_text.find(" in ")
       if in_pos is None {
         let token = {
@@ -1118,9 +1128,10 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let header_text = substring(line_text, 4, colon_pos.unwrap())
+      let mut header_text = substring(line_text, 4, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
+      header_text = strip_wrapping_parens(header_text)
       let in_pos = header_text.find(" in ")
       if in_pos is None {
         let token = {
@@ -1380,9 +1391,10 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let cond_text = substring(line_text, 5, colon_pos.unwrap())
+      let mut cond_text = substring(line_text, 5, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
+      cond_text = strip_wrapping_parens(cond_text)
       let cond_tokens = match
         tokenize_expr(
           cond_text,
