@@ -258,6 +258,28 @@ fn call_callable_with_env(
               ),
             )
         }
+      } else if func.name == "__hash__" && func.body.length() == 0 {
+        // Intrinsic: object.__hash__(self)
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__hash__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__hash__() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        match hash_value(positional[0]) {
+          Ok(hash) => Ok(Value::Int(hash))
+          Err(err) => Err(err)
+        }
       } else if func.name == "__eq__" && func.body.length() == 0 {
         if keywords.length() > 0 {
           return Err(

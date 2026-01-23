@@ -223,6 +223,20 @@ pub fn Interpreter::new_spec() -> Interpreter {
   )
   object_dict.push(
     (
+      "__hash__",
+      Value::Function(FunctionValue::{
+        name: "__hash__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
       "__str__",
       Value::Function(FunctionValue::{
         name: "__str__",
@@ -551,6 +565,20 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{
         name: "__ne__",
         params: ["self", "other"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  object_dict.push(
+    (
+      "__hash__",
+      Value::Function(FunctionValue::{
+        name: "__hash__",
+        params: ["self"],
         defaults: [],
         body: [],
         is_generator: false,
