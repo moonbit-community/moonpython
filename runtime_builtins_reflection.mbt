@@ -1103,7 +1103,28 @@ fn builtin_isinstance(
               }
               Ok(false)
             }
-            Value::Class(c) => Ok(c.name == klass.name)
+            Value::Class(_) =>
+              // Class objects are instances of their metaclass (usually `type`),
+              // not instances of themselves. In this runtime we don't track
+              // custom metaclasses yet, so treat all class objects as instances
+              // of `type` (and therefore also `object`).
+              if klass.name == "object" {
+                Ok(true)
+              } else {
+                let type_class = builtin_class_from_name("type", builtins)
+                let ok = match
+                  issubclass_pair(
+                    Value::Class(type_class),
+                    Value::Class(klass),
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(ok)
+              }
             _ => Ok(false)
           }
         }

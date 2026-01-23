@@ -606,13 +606,16 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AnnAssign(target~, annotation~, value~) => {
-        let ann_value = match
-          eval_expr_with_env(annotation, locals, globals, builtins, io) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
         match target {
           Target::Name(name) => {
+            // Only simple-name annotations contribute to __annotations__.
+            // For attribute/subscript targets (e.g. `self.x: T = ...`), CPython
+            // does not evaluate/store the annotation at runtime.
+            let ann_value = match
+              eval_expr_with_env(annotation, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
             let pairs = match
               get_scoped_value(locals, globals, "__annotations__") {
               Some(Value::Dict(pairs)) => pairs

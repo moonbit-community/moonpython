@@ -525,19 +525,21 @@ fn generator_step_statement(
       Ok(None)
     }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      let ann_value = match
-        eval_expr_with_env(
-          annotation,
-          state.val.locals,
-          state.val.globals,
-          state.val.builtins,
-          state.val.io,
-        ) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
       match target {
         Target::Name(name) => {
+          // Only simple-name annotations contribute to __annotations__. For
+          // attribute/subscript targets, ignore the annotation expression.
+          let ann_value = match
+            eval_expr_with_env(
+              annotation,
+              state.val.locals,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
           let pairs = match
             get_scoped_value(
               state.val.locals,
