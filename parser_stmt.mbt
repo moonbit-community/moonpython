@@ -1543,8 +1543,7 @@ fn parse_simple_statement(
       ),
     )
   }
-  // PEP 526 annotated assignment. We keep annotations as parse-time no-ops for
-  // now, but accept attribute/subscript targets so the CPython stdlib can load.
+  // PEP 526 annotated assignment.
   if trimmed.contains(":") {
     let colon_pos = find_top_level_char(trimmed, ':')
     let eq_pos = find_top_level_char(trimmed, '=')
@@ -1576,50 +1575,16 @@ fn parse_simple_statement(
             }
           Err(_) => None
         }
-        if left_target is Some(_) {
-          let annotation_text = substring(
-              trimmed,
-              colon_pos + 1,
-              trimmed.length(),
-            )
-            .trim(chars=" \t")
-            .to_string()
-          if annotation_text.length() == 0 {
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Syntax,
-                "invalid syntax".to_string(),
-                {
-                  kind: Eof,
-                  start: base_offset + colon_pos,
-                  end: base_offset + colon_pos + 1,
-                  line: line_index + 1,
-                  column: colon_pos + 1,
-                },
-              ),
-            )
-          }
-          let tokens = match
-            tokenize_expr(
-              annotation_text,
-              line_index + 1,
-              base_offset + colon_pos + 1,
-            ) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let _ = match parse_tokens_expr(tokens) {
-            Ok(value) => value
-            Err(err) => {
-              let keep_location = err.message.has_prefix("ValueError:") ||
-                err.message == "unmatched ')'" ||
-                err.message == "unmatched ']'" ||
-                err.message == "unmatched '}'" ||
-                err.message.contains("closing parenthesis") ||
-                err.message.contains("was never closed")
-              if keep_location {
-                return Err(err)
-              }
+        match left_target {
+          Some(target) => {
+            let annotation_text = substring(
+                trimmed,
+                colon_pos + 1,
+                trimmed.length(),
+              )
+              .trim(chars=" \t")
+              .to_string()
+            if annotation_text.length() == 0 {
               return Err(
                 make_parse_error(
                   ParseErrorKind::Syntax,
@@ -1634,10 +1599,50 @@ fn parse_simple_statement(
                 ),
               )
             }
+            let tokens = match
+              tokenize_expr(
+                annotation_text,
+                line_index + 1,
+                base_offset + colon_pos + 1,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let annotation_expr = match parse_tokens_expr(tokens) {
+              Ok(value) => value
+              Err(err) => {
+                let keep_location = err.message.has_prefix("ValueError:") ||
+                  err.message == "unmatched ')'" ||
+                  err.message == "unmatched ']'" ||
+                  err.message == "unmatched '}'" ||
+                  err.message.contains("closing parenthesis") ||
+                  err.message.contains("was never closed")
+                if keep_location {
+                  return Err(err)
+                }
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    {
+                      kind: Eof,
+                      start: base_offset + colon_pos,
+                      end: base_offset + colon_pos + 1,
+                      line: line_index + 1,
+                      column: colon_pos + 1,
+                    },
+                  ),
+                )
+              }
+            }
+            stmts.push(
+              Stmt::AnnAssign(target~, annotation=annotation_expr, value=None),
+            )
+            return finalize_simple_statement(
+              stmts, allow_async_comprehensions, span, base_offset,
+            )
           }
-          return finalize_simple_statement(
-            stmts, allow_async_comprehensions, span, base_offset,
-          )
+          None => ()
         }
       }
       (Some(colon_pos), Some(eq_pos)) =>
@@ -1670,7 +1675,6 @@ fn parse_simple_statement(
               }
               match target_opt {
                 Some(target) => {
-                  // Validate annotation syntax, but ignore it for now.
                   let annotation_text = substring(
                       trimmed,
                       colon_pos + 1,
@@ -1702,7 +1706,7 @@ fn parse_simple_statement(
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
-                  let _ = match parse_tokens_expr(ann_tokens) {
+                  let ann_expr = match parse_tokens_expr(ann_tokens) {
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
@@ -1732,7 +1736,13 @@ fn parse_simple_statement(
                     Ok(value) => value
                     Err(err) => return Err(err)
                   }
-                  stmts.push(Stmt::Assign(target~, value=expr))
+                  stmts.push(
+                    Stmt::AnnAssign(
+                      target~,
+                      annotation=ann_expr,
+                      value=Some(expr),
+                    ),
+                  )
                   return finalize_simple_statement(
                     stmts, allow_async_comprehensions, span, base_offset,
                   )

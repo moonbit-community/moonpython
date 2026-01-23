@@ -605,6 +605,63 @@ fn eval_block_flow(
         }
         last = Value::None
       }
+      Stmt::AnnAssign(target~, annotation~, value~) => {
+        let ann_value = match
+          eval_expr_with_env(annotation, locals, globals, builtins, io) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        match target {
+          Target::Name(name) => {
+            let pairs = match
+              get_scoped_value(locals, globals, "__annotations__") {
+              Some(Value::Dict(pairs)) => pairs
+              Some(_) =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "__annotations__ must be a dict".to_string(),
+                  ),
+                )
+              None => {
+                let pairs : Array[(Value, Value)] = []
+                set_scoped_value(
+                  locals,
+                  globals,
+                  "__annotations__",
+                  Value::Dict(pairs),
+                )
+                pairs
+              }
+            }
+            let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          _ => ()
+        }
+        match value {
+          Some(expr) => {
+            let eval_value = match
+              eval_expr_with_env(expr, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let _ = match
+              assign_target_with_env(
+                target, eval_value, locals, globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          None => ()
+        }
+        last = Value::None
+      }
       Stmt::AugAssign(target~, op~, value~) => {
         let right_val = match
           eval_expr_with_env(value, locals, globals, builtins, io) {

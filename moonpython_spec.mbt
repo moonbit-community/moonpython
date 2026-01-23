@@ -156,6 +156,7 @@ pub struct ExceptHandler {
 pub enum Stmt {
   ExprStmt(Expr)
   Assign(target~ : Target, value~ : Expr)
+  AnnAssign(target~ : Target, annotation~ : Expr, value~ : Expr?)
   AugAssign(target~ : Target, op~ : BinaryOp, value~ : Expr)
   TypeAlias(name~ : String, type_params~ : Array[String], value~ : Expr)
   Return(Expr?)

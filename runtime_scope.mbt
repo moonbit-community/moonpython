@@ -409,6 +409,14 @@ fn collect_function_local_names(
         add_target(target)
         walk_expr(value)
       }
+      Stmt::AnnAssign(target~, annotation~, value~) => {
+        add_target(target)
+        walk_expr(annotation)
+        match value {
+          Some(v) => walk_expr(v)
+          None => ()
+        }
+      }
       Stmt::AugAssign(target~, op~, value~) => {
         let _ = op
         add_target(target)
