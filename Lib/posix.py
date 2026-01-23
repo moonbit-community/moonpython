@@ -38,6 +38,8 @@ __all__ = [
     "terminal_size",
     "get_terminal_size",
     "urandom",
+    "putenv",
+    "unsetenv",
     "O_RDONLY",
     "O_WRONLY",
     "O_RDWR",
@@ -57,6 +59,16 @@ altsep = None
 devnull = "/dev/null"
 
 environ = {}
+
+def putenv(key, value):
+    # Minimal compatibility shim: keep an in-process environment mapping.
+    # CPython's os._Environ expects the underlying `posix.environ` mapping to
+    # store bytes keys/values on POSIX platforms.
+    environ[key] = value
+
+
+def unsetenv(key):
+    environ.pop(key, None)
 
 F_OK = 0
 X_OK = 1

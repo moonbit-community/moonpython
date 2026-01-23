@@ -478,6 +478,28 @@ fn call_callable_with_env(
         }
         return Ok(Value::None)
       }
+      // Intrinsic: type.__subclasses__(cls)
+      if bound_method.function.name == "__subclasses__" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__subclasses__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__subclasses__() takes no arguments".to_string(),
+            ),
+          )
+        }
+        // We don't track subclass relationships yet; return an empty list.
+        return Ok(Value::List([]))
+      }
       match bound_method.self {
         Value::Instance(inst) =>
           if (
@@ -628,6 +650,29 @@ fn call_callable_with_env(
                     } else {
                       values.push(positional[0])
                       return Ok(Value::None)
+                    }
+                  "remove" =>
+                    if positional.length() != 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "remove() takes exactly one argument".to_string(),
+                        ),
+                      )
+                    } else {
+                      let needle = positional[0]
+                      for i = 0; i < values.length(); i = i + 1 {
+                        if eq_value(values[i], needle) {
+                          let _ = values.remove(i)
+                          return Ok(Value::None)
+                        }
+                      }
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "ValueError: list.remove(x): x not in list".to_string(),
+                        ),
+                      )
                     }
                   _ => ()
                 }
@@ -1278,6 +1323,67 @@ fn call_callable_with_env(
                         ]),
                       )
                   }
+                }
+              "rpartition" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rpartition() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let sep = match positional[0] {
+                    Value::Str(value) => value
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "rpartition() expects a str separator".to_string(),
+                        ),
+                      )
+                  }
+                  if sep.length() == 0 {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "ValueError: empty separator".to_string(),
+                      ),
+                    )
+                  }
+                  let mut found = -1
+                  if sep.length() <= text.length() {
+                    let mut i = text.length() - sep.length()
+                    while i >= 0 {
+                      if substring(text, i, i + sep.length()) == sep {
+                        found = i
+                        break
+                      }
+                      i -= 1
+                    }
+                  }
+                  if found < 0 {
+                    return Ok(
+                      Value::Tuple([
+                        Value::Str(""),
+                        Value::Str(""),
+                        Value::Str(text),
+                      ]),
+                    )
+                  }
+                  let head = substring(text, 0, found)
+                  let tail = substring(
+                    text,
+                    found + sep.length(),
+                    text.length(),
+                  )
+                  return Ok(
+                    Value::Tuple([
+                      Value::Str(head),
+                      Value::Str(sep),
+                      Value::Str(tail),
+                    ]),
+                  )
                 }
               "expandtabs" => {
                 if positional.length() > 1 {

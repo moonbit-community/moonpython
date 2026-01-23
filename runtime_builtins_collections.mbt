@@ -342,8 +342,32 @@ fn builtin_dict(
           }
         }
       other => {
+        // If `other` is a mapping, prefer iterating over `other.items()`.
+        let mut source = other
+        match get_attr_from_value(other, "items", globals, builtins, io) {
+          Ok(items_method) => {
+            let items_value = match
+              call_callable_with_env(
+                items_method,
+                [],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            source = items_value
+          }
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => ()
+              _ => return Err(err)
+            }
+        }
         let items = match
-          collect_items_from_iterable(other, globals, builtins, io) {
+          collect_items_from_iterable(source, globals, builtins, io) {
           Ok(v) => v
           Err(err) => return Err(err)
         }

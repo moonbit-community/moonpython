@@ -63,6 +63,8 @@ fn builtin_print(
   touch_env(locals, globals, builtins, io)
   let mut sep = " ".to_string()
   let mut end = "\n".to_string()
+  let mut file_value = Value::None
+  let mut flush = false
   for pair in keywords {
     let key = pair.0
     let value = pair.1
@@ -89,20 +91,10 @@ fn builtin_print(
               ),
             )
         }
-      "file" =>
-        match value {
-          Value::None => ()
-          _ =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::NotImplemented,
-                "print() file is not supported".to_string(),
-              ),
-            )
-        }
+      "file" => file_value = value
       "flush" =>
         match value {
-          Value::Bool(_) => ()
+          Value::Bool(v) => flush = v
           _ =>
             return Err(
               make_runtime_error(
@@ -128,7 +120,53 @@ fn builtin_print(
     buf.write_string(value_to_string(positional[i]))
   }
   buf.write_string(end)
-  io.write_stdout(buf.to_string())
+  let text = buf.to_string()
+  match file_value {
+    Value::None => io.write_stdout(text)
+    _ => {
+      let write_method = match
+        get_attr_from_value(file_value, "write", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let _ = match
+        call_callable_with_env(
+          write_method,
+          [Value::Str(text)],
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if flush {
+        match get_attr_from_value(file_value, "flush", globals, builtins, io) {
+          Ok(flush_method) => {
+            let _ = match
+              call_callable_with_env(
+                flush_method,
+                [],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => ()
+              _ => return Err(err)
+            }
+        }
+      }
+    }
+  }
   Ok(Value::None)
 }
 
@@ -852,7 +890,16 @@ fn builtin_sorted(
     if pair.0 == "key" {
       key_value = Some(pair.1)
     } else if pair.0 == "reverse" {
-      reverse = bool_from_value(pair.1)
+      match pair.1 {
+        Value::Bool(v) => reverse = v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "sorted() reverse must be bool".to_string(),
+            ),
+          )
+      }
     } else {
       return Err(
         make_runtime_error(

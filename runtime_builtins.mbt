@@ -918,6 +918,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "__import__", run: builtin_import },
     BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
     BuiltinDef::{ name: "sys.exc_info", run: builtin_sys_exc_info },
+    BuiltinDef::{ name: "sys.exception", run: builtin_sys_exception },
     BuiltinDef::{ name: "sys.excepthook", run: builtin_sys_excepthook },
     BuiltinDef::{
       name: "sys.getfilesystemencoding",

@@ -871,12 +871,41 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     ("builtin_module_names", builtin_module_names),
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List(path_values)),
+    ("path_hooks", Value::List([])),
+    ("path_importer_cache", Value::Dict([])),
+    ("meta_path", Value::List([])),
     ("argv", Value::List(argv_values)),
     ("warnoptions", Value::List([])),
     ("stdout", stdout_value),
     ("stderr", stderr_value),
+    ("stdin", Value::None),
     ("__stdout__", stdout_value),
     ("__stderr__", stderr_value),
+    ("__stdin__", Value::None),
+    (
+      "unraisablehook",
+      Value::Function(FunctionValue::{
+        name: "sys.unraisablehook",
+        params: ["unraisable"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "__unraisablehook__",
+      Value::Function(FunctionValue::{
+        name: "sys.unraisablehook",
+        params: ["unraisable"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
     (
       "exit",
       Value::Function(FunctionValue::{
@@ -893,6 +922,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       "exc_info",
       Value::Function(FunctionValue::{
         name: "sys.exc_info",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "exception",
+      Value::Function(FunctionValue::{
+        name: "sys.exception",
         params: [],
         defaults: [],
         body: [],
@@ -950,10 +991,34 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       }),
     ),
     (
+      "gettrace",
+      Value::Function(FunctionValue::{
+        name: "sys.gettrace",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
       "setrecursionlimit",
       Value::Function(FunctionValue::{
         name: "sys.setrecursionlimit",
         params: ["limit"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "settrace",
+      Value::Function(FunctionValue::{
+        name: "sys.settrace",
+        params: ["func"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -1170,7 +1235,7 @@ fn load_module_from_filesystem(
             ),
           )
       }
-      return make_python_module(
+      let module_value = make_python_module(
         module_name,
         source,
         builtins,
@@ -1179,9 +1244,30 @@ fn load_module_from_filesystem(
         package_name=module_name,
         filename=init_path,
       )
+      match module_value {
+        Ok(Value::Instance(inst)) =>
+          // Mark as a package so stdlib importlib can resolve submodules.
+          set_named_value(
+            inst.dict,
+            "__path__",
+            Value::List([Value::Str(path)]),
+          )
+        _ => ()
+      }
+      return module_value
     }
     if @fs.path_exists(path) {
-      return Ok(make_module_instance(module_name, []))
+      let module_value = make_module_instance(module_name, [])
+      match module_value {
+        Value::Instance(inst) =>
+          set_named_value(
+            inst.dict,
+            "__path__",
+            Value::List([Value::Str(path)]),
+          )
+        _ => ()
+      }
+      return Ok(module_value)
     }
   }
   Err(

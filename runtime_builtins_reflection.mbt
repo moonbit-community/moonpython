@@ -100,6 +100,35 @@ fn builtin_sys_exc_info(
 }
 
 ///|
+fn builtin_sys_exception(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.exception", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "exception() takes no arguments".to_string(),
+      ),
+    )
+  }
+  match active_exception() {
+    None => Ok(Value::None)
+    Some(err) =>
+      Ok(exception_value_from_runtime_error(err, globals, builtins, io))
+  }
+}
+
+///|
 fn bigint_to_base_string(
   value_in : @bigint.BigInt,
   base : Int,
@@ -2323,15 +2352,7 @@ fn builtin_super(
           if is_cell_value(v) {
             match cell_get_value(v) {
               Some(value) => Ok(Some(value))
-              None =>
-                Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Runtime,
-                    "UnboundLocalError: local variable '" +
-                    name +
-                    "' referenced before assignment",
-                  ),
-                )
+              None => Ok(None)
             }
           } else {
             Ok(Some(v))
@@ -2367,9 +2388,15 @@ fn builtin_super(
       Ok(v) => v
       Err(err) => return Err(err)
     }
+    let type_opt = match read_local_name("type", locals) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
     if self_opt is Some(v) {
       self_value = v
     } else if cls_opt2 is Some(v) {
+      self_value = v
+    } else if type_opt is Some(v) {
       self_value = v
     } else {
       return Err(

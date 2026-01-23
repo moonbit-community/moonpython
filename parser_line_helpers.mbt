@@ -847,13 +847,58 @@ fn strip_inline_comment(text : String) -> String {
 
 ///|
 fn replace_newlines_with_spaces(text : String) -> String {
-  let buf = StringBuilder::new()
-  for ch in text.to_array() {
-    if ch == '\n' {
-      buf.write_char(' ')
-    } else {
-      buf.write_char(ch)
+  // Used to flatten multi-line bracketed statements into a single logical line.
+  //
+  // Important: keep Python string literal semantics. In particular, a
+  // backslash-newline pair inside a (non-triple-quoted) string literal is a
+  // line continuation and should disappear, not turn into `\ `.
+  let chars = text.to_array()
+  let out : Array[Char] = []
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          // Backslash-newline line continuation inside string literal.
+          if c == '\n' {
+            if out.length() > 0 && out[out.length() - 1] == '\\' {
+              let _ = out.pop()
+
+            }
+            escape = false
+            i += 1
+            continue
+          }
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+        // Keep newlines inside non-triple-quoted strings so the lexer can
+        // correctly report unterminated string errors.
+        out.push(c)
+      }
+      None => {
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        }
+        if c == '\n' {
+          out.push(' ')
+        } else {
+          out.push(c)
+        }
+      }
     }
+    i += 1
+  }
+  let buf = StringBuilder::new()
+  for ch in out {
+    buf.write_char(ch)
   }
   buf.to_string()
 }

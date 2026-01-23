@@ -38,7 +38,7 @@ test "with/exit runs and can suppress" {
     #|with ctx:
     #|  x
     #|after = 1
-  inspect(test_exec_global(source, "log"), content="[NameError]")
+  inspect(test_exec_global(source, "log"), content="[<class 'NameError'>]")
   inspect(test_exec_global(source, "after"), content="1")
 }
 

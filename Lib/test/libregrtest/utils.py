@@ -191,7 +191,9 @@ def clear_caches():
     except KeyError:
         pass
     else:
-        re.purge()
+        # moonpython may provide a minimal re shim without purge() during early bringup.
+        if hasattr(re, "purge"):
+            re.purge()
 
     try:
         _strptime = sys.modules['_strptime']
@@ -268,7 +270,8 @@ def clear_caches():
         abs_classes = filter(inspect.isabstract, typing.__dict__.values())
         for abc in abs_classes:
             for obj in abc.__subclasses__() + [abc]:
-                obj._abc_caches_clear()
+                if hasattr(obj, "_abc_caches_clear"):
+                    obj._abc_caches_clear()
 
     try:
         fractions = sys.modules['fractions']

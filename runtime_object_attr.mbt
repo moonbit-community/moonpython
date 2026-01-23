@@ -678,6 +678,21 @@ fn get_attr_raw_from_value(
                 self: Value::Instance(inst),
               }),
             )
+          } else if attr == "remove" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "remove",
+                  params: ["self", "value"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
           }
         _ => ()
       }
@@ -933,6 +948,22 @@ fn get_attr_raw_from_value(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
               name: "partition",
+              params: ["self", "sep"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rpartition" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rpartition",
               params: ["self", "sep"],
               defaults: [],
               body: [],
@@ -1997,6 +2028,21 @@ fn get_attr_raw_from_value(
           Some(v) => Ok(v)
           None => Ok(Value::Str("builtins"))
         }
+      } else if attr == "__subclasses__" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__subclasses__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
+          }),
+        )
       } else if attr == "__flags__" {
         // CPython exposes internal type flags on most type objects.
         // The stdlib uses TPFLAGS_IS_ABSTRACT (1<<20) via inspect.isabstract().

@@ -169,6 +169,19 @@ fn eval_binary_op_values(
           Ok(Value::Float((if a { 1.0 } else { 0.0 }) - b))
         (Value::Float(a), Value::Bool(b)) =>
           Ok(Value::Float(a - (if b { 1.0 } else { 0.0 })))
+        (Value::Set(left), Value::Set(right)) => {
+          let out : Array[Value] = []
+          for item in left {
+            let idx = match set_find_index(right, item) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            if idx is None {
+              out.push(item)
+            }
+          }
+          Ok(Value::Set(out))
+        }
         _ =>
           Err(
             make_runtime_error(

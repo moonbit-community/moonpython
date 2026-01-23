@@ -11,6 +11,7 @@ __all__ = [
     "findall",
     "finditer",
     "escape",
+    "purge",
     "Pattern",
     "Match",
     "error",
@@ -460,6 +461,11 @@ def split(pattern, string, maxsplit=0, flags=0):
 
 def escape(pattern):
     return pattern
+
+
+def purge():
+    # CPython clears the regex caches; this shim does not cache.
+    return None
 
 
 # ----------------------------

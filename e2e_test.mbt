@@ -201,7 +201,7 @@ test "e2e/class_with_suppresses" {
     #|    return self.v
     #|  def __exit__(self, t, v, tb):
     #|    global log
-    #|    log = log + ["exit:" + t]
+    #|    log = log + ["exit:" + t.__name__]
     #|    return True
     #|cm = CM()
     #|with cm as v:
@@ -342,7 +342,7 @@ test "e2e/builtin_max" {
     test_exec_error("max([])"),
     content="TypeError: max() arg is an empty sequence",
   )
-  inspect(test_exec_error("max(['x'])"), content="TypeError: expected number")
+  inspect(e2e_stdout([], "print(max(['x']))"), content="x\n")
 }
 
 ///|
@@ -362,7 +362,7 @@ test "e2e/builtin_min" {
     test_exec_error("min([])"),
     content="TypeError: min() arg is an empty sequence",
   )
-  inspect(test_exec_error("min(['x'])"), content="TypeError: expected number")
+  inspect(e2e_stdout([], "print(min(['x']))"), content="x\n")
 }
 
 ///|
@@ -416,10 +416,10 @@ test "e2e/builtin_all" {
 ///|
 test "e2e/builtin_enumerate" {
   let source =
-    #|pairs = enumerate(["a", "b"])
+    #|pairs = list(enumerate(["a", "b"]))
     #|print(pairs[0][0], pairs[0][1])
     #|print(pairs[1][0], pairs[1][1])
-    #|print(len(enumerate([], 10)))
+    #|print(len(list(enumerate([], 10))))
     #|print(",".join([str(i) for i, _ in enumerate(range(3), 1)]))
   inspect(e2e_stdout([], source), content="0 a\n1 b\n0\n1,2,3\n")
   inspect(
@@ -492,7 +492,7 @@ test "e2e/builtin_sorted" {
     #|print(",".join([str(x) for x in sorted([1, 2.5, 2])]))
     #|print("".join(sorted("cba")))
     #|print(",".join(sorted({"b": 1, "a": 2})))
-    #|print(",".join([str(x) for x in sorted([1, 2, 3], True)]))
+    #|print(",".join([str(x) for x in sorted([1, 2, 3], reverse=True)]))
   inspect(
     e2e_stdout([], source),
     content="1,2,3\n3,1,2\nFalse,True,2\n1,2,2.5\nabc\na,b\n3,2,1\n",
@@ -510,7 +510,7 @@ test "e2e/builtin_sorted" {
     content="TypeError: sorted() cannot compare values",
   )
   inspect(
-    test_exec_error("sorted([1, 2], 1)"),
+    test_exec_error("sorted([1, 2], reverse=1)"),
     content="TypeError: sorted() reverse must be bool",
   )
 }
@@ -613,12 +613,12 @@ test "e2e/builtin_more_cpython" {
       #|0b1010 0o12 0xa
       #|True False
       #|True True True True
-      #|int str list
+      #|<class 'int'> <class 'str'> <class 'list'>
       #|7 1
       #|12805
-      #|__module__,x
+      #|__eq__,__hash__,__init__,__init_subclass__,__module__,__ne__,__new__,__str__,hashvalue,x
       #|a,b
-      #|__module__
+      #|__eq__,__hash__,__init__,__init_subclass__,__module__,__ne__,__new__,__str__
       #|
     ),
   )
@@ -930,15 +930,15 @@ test "e2e/raise_class" {
     #|try:
     #|  raise ValueError
     #|except ValueError as e:
-    #|  print("caught", type(e), len(str(e)), type(e.__traceback__))
+    #|  print("caught", type(e).__name__, len(str(e)), type(e.__traceback__).__name__)
   inspect(e2e_stdout([], source), content="caught ValueError 0 traceback\n")
   let source2 =
     #|try:
     #|  raise ValueError("x")
     #|except ValueError as e:
-    #|  print(type(e), str(e))
+    #|  print(type(e).__name__, str(e))
     #|  print(len(e.args), e.args[0])
-    #|  print(type(e.__traceback__), type(e.__traceback__.tb_frame))
+    #|  print(type(e.__traceback__).__name__, type(e.__traceback__.tb_frame).__name__)
   inspect(
     e2e_stdout([], source2),
     content="ValueError x\n1 x\ntraceback frame\n",
@@ -951,15 +951,15 @@ test "e2e/except_binds_instance" {
     #|try:
     #|  missing
     #|except NameError as e:
-    #|  print(type(e))
+    #|  print(type(e).__name__)
     #|  print(str(e))
     #|  print(len(e.args), e.args[0])
     #|try:
     #|  1 / 0
     #|except ZeroDivisionError as e:
-    #|  print(type(e))
+    #|  print(type(e).__name__)
     #|  print(str(e))
-    #|  print(type(e.__traceback__), type(e.__traceback__.tb_frame))
+    #|  print(type(e.__traceback__).__name__, type(e.__traceback__.tb_frame).__name__)
   inspect(
     e2e_stdout([], source),
     content=(
