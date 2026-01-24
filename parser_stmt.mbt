@@ -414,6 +414,25 @@ fn parse_pattern(
     true
   }
 
+  fn is_valid_qualified_ident(text : String) -> Bool {
+    if text.length() == 0 {
+      return false
+    }
+    let mut start = 0
+    let chars = text.to_array()
+    for i = 0; i <= chars.length(); i = i + 1 {
+      let end_reached = i == chars.length()
+      if end_reached || chars[i] == '.' {
+        let part = substring(text, start, i).to_string()
+        if !is_valid_ident(part) {
+          return false
+        }
+        start = i + 1
+      }
+    }
+    true
+  }
+
   // Minimal support for class patterns like `str(name)` used by the stdlib.
   // This is not a full PEP 634 implementation.
   match find_top_level_paren_span(trimmed) {
@@ -427,8 +446,14 @@ fn parse_pattern(
         let inner = substring(trimmed, open_pos + 1, close_pos)
           .trim(chars=" \t\n\r")
           .to_string()
-        if is_valid_ident(type_name) && is_valid_ident(inner) {
-          return Ok(Pattern::TypeCapture(type_name~, name=inner))
+        if is_valid_qualified_ident(type_name) {
+          // `TypeName()` is treated like `TypeName(_)` (match by type only).
+          if inner.length() == 0 {
+            return Ok(Pattern::TypeCapture(type_name~, name="_"))
+          }
+          if is_valid_ident(inner) {
+            return Ok(Pattern::TypeCapture(type_name~, name=inner))
+          }
         }
       }
     }

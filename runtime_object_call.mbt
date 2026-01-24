@@ -4013,8 +4013,13 @@ fn call_callable_with_env(
                   args.push(item)
                 }
                 let _ = match
-                  (eval_function_with_kwargs_ref.val)(
-                    func, args, keywords, globals, builtins, io,
+                  call_callable_with_env(
+                    Value::Function(func),
+                    args,
+                    keywords,
+                    globals,
+                    builtins,
+                    io,
                   ) {
                   Ok(v) => v
                   Err(err) => return Err(err)

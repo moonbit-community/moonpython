@@ -31,6 +31,124 @@ fn builtin_mpython_run(
 }
 
 ///|
+let enum_auto_counter : Ref[Int] = { val: 0 }
+
+///|
+fn builtin_enum_auto(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("enum.auto", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "auto() takes no arguments".to_string(),
+      ),
+    )
+  }
+  enum_auto_counter.val = enum_auto_counter.val + 1
+  let dict : Array[(String, Value)] = [
+    ("value", Value::Int(@bigint.BigInt::from_int(enum_auto_counter.val))),
+  ]
+  Ok(
+    Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "auto", bases: [], dict: [] },
+      dict,
+    }),
+  )
+}
+
+///|
+fn builtin_enum_simple_enum(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  // Accept any signature; return a decorator that is currently a no-op.
+  let _ = positional
+  let _ = keywords
+  Ok(
+    Value::Function(FunctionValue::{
+      name: "enum._simple_enum_decorator",
+      params: ["cls"],
+      defaults: [],
+      body: [],
+      is_generator: false,
+      is_async: false,
+      closure: [],
+    }),
+  )
+}
+
+///|
+fn builtin_enum_simple_enum_decorator(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("enum._simple_enum_decorator", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "enum decorator takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
+fn builtin_enum_simple_enum_decorator_call(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match
+    ensure_no_keywords("enum._simple_enum_decorator_call", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__call__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  Ok(positional[1])
+}
+
+///|
 fn builtin_mpython_asyncgenexp_next(
   positional : Array[Value],
   keywords : Array[(String, Value)],

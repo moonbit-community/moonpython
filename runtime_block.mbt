@@ -1698,8 +1698,15 @@ fn eval_block_flow(
           }
         }
         let class_kwargs : Array[(String, Value)] = []
+        let mut metaclass_value : Value? = None
         for keyword in keywords {
           if keyword.0 == "metaclass" {
+            let value = match
+              eval_expr_with_env(keyword.1, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            metaclass_value = Some(value)
             continue
           }
           let value = match
@@ -1773,11 +1780,79 @@ fn eval_block_flow(
               ),
             )
         }
-        let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+        // Best-effort metaclass support: select a metaclass and call it
+        // (via `type.__new__` or a custom `__new__`) to produce the class.
+        let mut selected_meta = Value::Class(
+          builtin_class_from_name("type", builtins),
+        )
+        match metaclass_value {
+          Some(v) => selected_meta = v
+          None =>
+            for base_value in base_values {
+              match base_value {
+                Value::Class(base_class) =>
+                  match
+                    get_named_value(base_class.dict, "__mpython_metaclass__") {
+                    Some(Value::Class(meta)) => {
+                      selected_meta = Value::Class(meta)
+                      break
+                    }
+                    _ => ()
+                  }
+                _ => ()
+              }
+            }
+        }
+        let namespace_pairs : Array[(Value, Value)] = []
+        for pair in class_dict {
+          namespace_pairs.push((Value::Str(pair.0), pair.1))
+        }
+        let metaclass_args : Array[Value] = [
+          Value::Str(name),
+          Value::Tuple(base_values),
+          Value::Dict(namespace_pairs),
+        ]
+        let created_value = match
+          call_callable_with_env(
+            // CPython forwards class definition kwargs to the metaclass.
+            // For now, we only forward them to `__init_subclass__` to avoid
+            // conflicts with metaclass `__new__` signatures.
+            selected_meta,
+            metaclass_args,
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let klass = match created_value {
+          Value::Class(k) => k
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "metaclass did not return a class".to_string(),
+              ),
+            )
+        }
         // Fill the __class__ cell so closures can resolve it (for super()).
-        match get_named_value(klass.dict, "__class__") {
+        match get_named_value(class_dict, "__class__") {
           Some(cell) => cell_set_value(cell, Value::Class(klass))
           None => ()
+        }
+        // Track the metaclass if the metaclass protocol didn't already.
+        if get_named_value(klass.dict, "__mpython_metaclass__") is None {
+          match selected_meta {
+            Value::Class(meta) =>
+              set_named_value(
+                klass.dict,
+                "__mpython_metaclass__",
+                Value::Class(meta),
+              )
+            _ => ()
+          }
         }
         let _ = match class_mro(klass) {
           Ok(_) => ()

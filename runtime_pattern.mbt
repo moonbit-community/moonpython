@@ -22,12 +22,52 @@ fn match_pattern(value : Value, pattern : Pattern) -> Array[(String, Value)]? {
       }
     }
     Pattern::Name(name) => Some([(name, value)])
-    Pattern::TypeCapture(type_name~, name~) =>
-      if type_name_from_value(value) == type_name {
-        Some([(name, value)])
+    Pattern::TypeCapture(type_name~, name~) => {
+      fn value_matches_type_name(value : Value, type_name : String) -> Bool {
+        fn last_qual_segment(text : String) -> String {
+          let mut start = 0
+          let chars = text.to_array()
+          for i = 0; i < chars.length(); i = i + 1 {
+            if chars[i] == '.' {
+              start = i + 1
+            }
+          }
+          substring(text, start, text.length()).to_string()
+        }
+
+        fn class_matches_name(cls : ClassValue, want : String) -> Bool {
+          if cls.name == want {
+            return true
+          }
+          for base in cls.bases {
+            match base {
+              Value::Class(base_cls) =>
+                if class_matches_name(base_cls, want) {
+                  return true
+                }
+              _ => ()
+            }
+          }
+          false
+        }
+
+        let want_simple = last_qual_segment(type_name)
+        match value {
+          Value::Instance(inst) => class_matches_name(inst.class, want_simple)
+          _ => type_name_from_value(value) == want_simple
+        }
+      }
+
+      if value_matches_type_name(value, type_name) {
+        if name == "_" {
+          Some([])
+        } else {
+          Some([(name, value)])
+        }
       } else {
         None
       }
+    }
     Pattern::Tuple(patterns) =>
       match value {
         Value::Tuple(values) | Value::List(values) =>

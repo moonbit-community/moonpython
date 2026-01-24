@@ -220,8 +220,8 @@ fn get_attr_raw_from_value(
       Some(Value::Function(get_fn)) => {
         let args : Array[Value] = [class_attr, obj, owner]
         match
-          (eval_function_with_kwargs_ref.val)(
-            get_fn,
+          call_callable_with_env(
+            Value::Function(get_fn),
             args,
             [],
             globals,
@@ -239,6 +239,11 @@ fn get_attr_raw_from_value(
   if attr == "__class__" {
     match target {
       Value::Instance(inst) => return Ok(Value::Class(inst.class))
+      Value::Class(klass) =>
+        match get_named_value(klass.dict, "__mpython_metaclass__") {
+          Some(Value::Class(meta)) => return Ok(Value::Class(meta))
+          _ => ()
+        }
       _ =>
         return Ok(
           Value::Class(

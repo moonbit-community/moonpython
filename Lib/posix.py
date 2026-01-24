@@ -193,7 +193,7 @@ def get_terminal_size(fd=0):
 
 
 def listdir(path=curdir):
-    return []
+    return __mpython_posix_listdir(path)
 
 
 def _raise_unavailable():

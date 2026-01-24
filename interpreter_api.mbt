@@ -340,8 +340,18 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let syntax_warning_class = ClassValue::{
+    name: "SyntaxWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
   let runtime_warning_class = ClassValue::{
     name: "RuntimeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let future_warning_class = ClassValue::{
+    name: "FutureWarning",
     bases: [Value::Class(warning_class)],
     dict: [],
   }
@@ -350,8 +360,23 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let unicode_warning_class = ClassValue::{
+    name: "UnicodeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let bytes_warning_class = ClassValue::{
+    name: "BytesWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
   let resource_warning_class = ClassValue::{
     name: "ResourceWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let encoding_warning_class = ClassValue::{
+    name: "EncodingWarning",
     bases: [Value::Class(warning_class)],
     dict: [],
   }
@@ -397,11 +422,11 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_posix_open",
     "__mpython_posix_write", "__mpython_posix_close", "__mpython_posix_unlink", "__mpython_posix_mkdir",
     "__mpython_posix_rmdir", "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir",
-    "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump", "print", "len",
-    "range", "str", "bytes", "bytearray", "memoryview", "int", "float", "complex",
-    "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter",
-    "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr", "super",
-    "eval", "exec", "ascii", "open", "__import__",
+    "__mpython_posix_listdir", "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump",
+    "print", "len", "range", "str", "bytes", "bytearray", "memoryview", "int", "float",
+    "complex", "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map",
+    "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
+    "super", "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -426,9 +451,14 @@ pub fn Interpreter::new_spec() -> Interpreter {
       Value::Class(pending_deprecation_warning_class),
     ),
   )
+  builtins.push(("SyntaxWarning", Value::Class(syntax_warning_class)))
   builtins.push(("RuntimeWarning", Value::Class(runtime_warning_class)))
+  builtins.push(("FutureWarning", Value::Class(future_warning_class)))
   builtins.push(("ImportWarning", Value::Class(import_warning_class)))
+  builtins.push(("UnicodeWarning", Value::Class(unicode_warning_class)))
+  builtins.push(("BytesWarning", Value::Class(bytes_warning_class)))
   builtins.push(("ResourceWarning", Value::Class(resource_warning_class)))
+  builtins.push(("EncodingWarning", Value::Class(encoding_warning_class)))
   builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
   builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
@@ -701,8 +731,18 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let syntax_warning_class = ClassValue::{
+    name: "SyntaxWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
   let runtime_warning_class = ClassValue::{
     name: "RuntimeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let future_warning_class = ClassValue::{
+    name: "FutureWarning",
     bases: [Value::Class(warning_class)],
     dict: [],
   }
@@ -711,8 +751,23 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(warning_class)],
     dict: [],
   }
+  let unicode_warning_class = ClassValue::{
+    name: "UnicodeWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let bytes_warning_class = ClassValue::{
+    name: "BytesWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
   let resource_warning_class = ClassValue::{
     name: "ResourceWarning",
+    bases: [Value::Class(warning_class)],
+    dict: [],
+  }
+  let encoding_warning_class = ClassValue::{
+    name: "EncodingWarning",
     bases: [Value::Class(warning_class)],
     dict: [],
   }
@@ -901,6 +956,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_posix_stat", function_stub("__mpython_posix_stat")),
     ("__mpython_posix_getcwd", function_stub("__mpython_posix_getcwd")),
     ("__mpython_posix_chdir", function_stub("__mpython_posix_chdir")),
+    ("__mpython_posix_listdir", function_stub("__mpython_posix_listdir")),
     ("__mpython_abc_cache_token", function_stub("__mpython_abc_cache_token")),
     (
       "__mpython_abc_cache_token_bump",
@@ -983,9 +1039,14 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       "PendingDeprecationWarning",
       Value::Class(pending_deprecation_warning_class),
     ),
+    ("SyntaxWarning", Value::Class(syntax_warning_class)),
     ("RuntimeWarning", Value::Class(runtime_warning_class)),
+    ("FutureWarning", Value::Class(future_warning_class)),
     ("ImportWarning", Value::Class(import_warning_class)),
+    ("UnicodeWarning", Value::Class(unicode_warning_class)),
+    ("BytesWarning", Value::Class(bytes_warning_class)),
     ("ResourceWarning", Value::Class(resource_warning_class)),
+    ("EncodingWarning", Value::Class(encoding_warning_class)),
     ("SystemError", Value::Class(system_error_class)),
     ("NameError", Value::Class(name_error_class)),
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),

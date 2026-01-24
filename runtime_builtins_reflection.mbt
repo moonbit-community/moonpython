@@ -195,25 +195,18 @@ fn escape_string_for_repr(text : String) -> String {
 
 ///|
 fn make_property_instance(
+  klass : ClassValue,
   fget : Value,
   fset : Value,
   fdel : Value,
   doc : Value,
 ) -> Value {
-  let class_dict : Array[(String, Value)] = [
-    ("getter", module_function_stub("property.getter")),
-    ("setter", module_function_stub("property.setter")),
-    ("deleter", module_function_stub("property.deleter")),
-  ]
   let dict : Array[(String, Value)] = []
   dict.push(("fget", fget))
   dict.push(("fset", fset))
   dict.push(("fdel", fdel))
   dict.push(("doc", doc))
-  Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "property", bases: [], dict: class_dict },
-    dict,
-  })
+  Value::Instance(InstanceValue::{ class: klass, dict })
 }
 
 ///|
@@ -299,7 +292,15 @@ fn builtin_property(
       _ => return Err(unexpected_keyword_argument_error("property", key))
     }
   }
-  Ok(make_property_instance(fget, fset, fdel, doc))
+  Ok(
+    make_property_instance(
+      builtin_class_from_name("property", builtins),
+      fget,
+      fset,
+      fdel,
+      doc,
+    ),
+  )
 }
 
 ///|
@@ -441,7 +442,7 @@ fn builtin_property_getter(
         Some(v) => v
         None => Value::None
       }
-      Ok(make_property_instance(fget, fset, fdel, doc))
+      Ok(make_property_instance(inst.class, fget, fset, fdel, doc))
     }
     _ =>
       Err(
@@ -491,7 +492,7 @@ fn builtin_property_setter(
         Some(v) => v
         None => Value::None
       }
-      Ok(make_property_instance(fget, fset, fdel, doc))
+      Ok(make_property_instance(inst.class, fget, fset, fdel, doc))
     }
     _ =>
       Err(
@@ -541,13 +542,75 @@ fn builtin_property_deleter(
         Some(v) => v
         None => Value::None
       }
-      Ok(make_property_instance(fget, fset, fdel, doc))
+      Ok(make_property_instance(inst.class, fget, fset, fdel, doc))
     }
     _ =>
       Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "deleter() expects a property".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_property_dunder_get(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("property.__get__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "property.__get__() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let prop = positional[0]
+  let obj = positional[1]
+  let _owner = if positional.length() == 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  // Match CPython: accessing a property through the class returns the
+  // descriptor itself.
+  match obj {
+    Value::None => return Ok(prop)
+    _ => ()
+  }
+  match prop {
+    Value::Instance(inst) => {
+      let fget = match get_named_value(inst.dict, "fget") {
+        Some(v) => v
+        None => Value::None
+      }
+      match fget {
+        Value::None =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Attribute,
+              "AttributeError: unreadable attribute".to_string(),
+            ),
+          )
+        _ => call_callable_with_env(fget, [obj], [], globals, builtins, io)
+      }
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "property.__get__() expects a property".to_string(),
         ),
       )
   }
@@ -1132,18 +1195,21 @@ fn builtin_isinstance(
               }
               Ok(false)
             }
-            Value::Class(_) =>
-              // Class objects are instances of their metaclass (usually `type`),
-              // not instances of themselves. In this runtime we don't track
-              // custom metaclasses yet, so treat all class objects as instances
-              // of `type` (and therefore also `object`).
+            Value::Class(obj_class) =>
+              // Class objects are instances of their metaclass. We track a
+              // best-effort `__mpython_metaclass__` link for common stdlib needs.
               if klass.name == "object" {
                 Ok(true)
               } else {
                 let type_class = builtin_class_from_name("type", builtins)
+                let meta_value = match
+                  get_named_value(obj_class.dict, "__mpython_metaclass__") {
+                  Some(Value::Class(meta)) => Value::Class(meta)
+                  _ => Value::Class(type_class)
+                }
                 let ok = match
                   issubclass_pair(
-                    Value::Class(type_class),
+                    meta_value,
                     Value::Class(klass),
                     globals,
                     builtins,
@@ -1547,6 +1613,13 @@ fn builtin_type_new(
     }
   }
   let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  // Track the metaclass used to construct this class (`type.__new__(mcls, ...)`)
+  // so `type(C)` and `isinstance(C, mcls)` behave like CPython.
+  match positional[0] {
+    Value::Class(meta) =>
+      set_named_value(klass.dict, "__mpython_metaclass__", Value::Class(meta))
+    _ => ()
+  }
   let _ = match class_mro(klass) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1569,8 +1642,11 @@ fn builtin_type(
     let value = positional[0]
     return match value {
       Value::Instance(inst) => Ok(Value::Class(inst.class))
-      Value::Class(_) =>
-        Ok(Value::Class(builtin_class_from_name("type", builtins)))
+      Value::Class(klass) =>
+        match get_named_value(klass.dict, "__mpython_metaclass__") {
+          Some(Value::Class(meta)) => Ok(Value::Class(meta))
+          _ => Ok(Value::Class(builtin_class_from_name("type", builtins)))
+        }
       _ =>
         Ok(
           Value::Class(
@@ -2388,6 +2464,10 @@ fn builtin_super(
       Ok(v) => v
       Err(err) => return Err(err)
     }
+    let mcls_opt = match read_local_name("mcls", locals) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
     let type_opt = match read_local_name("type", locals) {
       Ok(v) => v
       Err(err) => return Err(err)
@@ -2395,6 +2475,8 @@ fn builtin_super(
     if self_opt is Some(v) {
       self_value = v
     } else if cls_opt2 is Some(v) {
+      self_value = v
+    } else if mcls_opt is Some(v) {
       self_value = v
     } else if type_opt is Some(v) {
       self_value = v

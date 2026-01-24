@@ -67,6 +67,94 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "property" {
+    dict.push(
+      (
+        "__init__",
+        Value::Function(FunctionValue::{
+          name: "property.__init__",
+          params: ["self", "fget", "fset", "fdel", "doc"],
+          defaults: [Value::None, Value::None, Value::None, Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__get__",
+        Value::Function(FunctionValue::{
+          name: "property.__get__",
+          params: ["self", "obj", "owner"],
+          defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "getter",
+        Value::Function(FunctionValue::{
+          name: "property.getter",
+          params: ["self", "fget"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "setter",
+        Value::Function(FunctionValue::{
+          name: "property.setter",
+          params: ["self", "fset"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "deleter",
+        Value::Function(FunctionValue::{
+          name: "property.deleter",
+          params: ["self", "fdel"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
+  if name == "type" {
+    dict.push(
+      (
+        "__new__",
+        Value::Function(FunctionValue::{
+          name: "type.__new__",
+          params: ["mcls", "name", "bases", "dict"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "dict" {
     dict.push(
       (

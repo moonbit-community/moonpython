@@ -625,6 +625,10 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "__mpython_posix_chdir",
       run: builtin_mpython_posix_chdir,
     },
+    BuiltinDef::{
+      name: "__mpython_posix_listdir",
+      run: builtin_mpython_posix_listdir,
+    },
     BuiltinDef::{ name: "__mpython.internal_iter", run: builtin_internal_iter },
     BuiltinDef::{ name: "__mpython.internal_next", run: builtin_internal_next },
     BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
@@ -643,6 +647,16 @@ fn ensure_builtin_defs_ready() -> Unit {
     },
     BuiltinDef::{ name: "time.sleep", run: builtin_time_sleep },
     BuiltinDef::{ name: "time.strftime", run: builtin_time_strftime },
+    BuiltinDef::{ name: "enum.auto", run: builtin_enum_auto },
+    BuiltinDef::{ name: "enum._simple_enum", run: builtin_enum_simple_enum },
+    BuiltinDef::{
+      name: "enum._simple_enum_decorator",
+      run: builtin_enum_simple_enum_decorator,
+    },
+    BuiltinDef::{
+      name: "enum._simple_enum_decorator_call",
+      run: builtin_enum_simple_enum_decorator_call,
+    },
     BuiltinDef::{ name: "faulthandler.enable", run: builtin_faulthandler_noop },
     BuiltinDef::{ name: "faulthandler.disable", run: builtin_faulthandler_noop },
     BuiltinDef::{
@@ -855,6 +869,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "bool", run: builtin_bool },
     BuiltinDef::{ name: "property", run: builtin_property },
     BuiltinDef::{ name: "property.__init__", run: builtin_property_init },
+    BuiltinDef::{ name: "property.__get__", run: builtin_property_dunder_get },
     BuiltinDef::{ name: "property.getter", run: builtin_property_getter },
     BuiltinDef::{ name: "property.setter", run: builtin_property_setter },
     BuiltinDef::{ name: "property.deleter", run: builtin_property_deleter },

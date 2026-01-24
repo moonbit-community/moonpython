@@ -1401,3 +1401,58 @@ fn builtin_mpython_posix_chdir(
   set_current_workdir(resolved)
   Ok(Value::None)
 }
+
+///|
+fn builtin_mpython_posix_listdir(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_listdir() takes 0 or 1 arguments".to_string(),
+      ),
+    )
+  }
+  let mut return_bytes = false
+  let path = if positional.length() == 0 {
+    ".".to_string()
+  } else {
+    match positional[0] {
+      Value::Bytes(_) => return_bytes = true
+      _ => ()
+    }
+    match posix_path_from_value(positional[0], "__mpython_posix_listdir") {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  let path = resolve_path_from_cwd(path)
+  let entries = @fs.read_dir(path) catch {
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "FileNotFoundError: no such directory".to_string(),
+        ),
+      )
+  }
+  let out : Array[Value] = []
+  for name in entries {
+    if return_bytes {
+      out.push(
+        Value::Bytes(encode_string_utf8_with_errors(name, "surrogateescape")),
+      )
+    } else {
+      out.push(Value::Str(name))
+    }
+  }
+  Ok(Value::List(out))
+}

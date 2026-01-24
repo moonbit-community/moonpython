@@ -363,6 +363,51 @@ fn make_time_module() -> Value {
 }
 
 ///|
+fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
+  // Minimal enum shim: enough for stdlib imports (ast/inspect/dataclasses).
+  // This is *not* a full implementation of CPython's enum module.
+  let object_class = builtin_class_from_name("object", builtins)
+  let int_class = builtin_class_from_name("int", builtins)
+  let enum_class = ClassValue::{
+    name: "Enum",
+    bases: [Value::Class(object_class)],
+    dict: [],
+  }
+  let int_enum_class = ClassValue::{
+    name: "IntEnum",
+    bases: [Value::Class(int_class)],
+    dict: [],
+  }
+  let decorator_class = ClassValue::{
+    name: "_SimpleEnumDecorator",
+    bases: [],
+    dict: [
+      (
+        "__call__",
+        Value::Function(FunctionValue::{
+          name: "enum._simple_enum_decorator_call",
+          params: ["self", "cls"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  make_module_instance("enum", [
+    ("Enum", Value::Class(enum_class)),
+    ("IntEnum", Value::Class(int_enum_class)),
+    // For now, treat IntFlag as an int subclass marker (inspect.BufferFlags).
+    ("IntFlag", Value::Class(int_class)),
+    ("auto", module_function_stub("enum.auto")),
+    ("_simple_enum", module_function_stub("enum._simple_enum")),
+    ("_SimpleEnumDecorator", Value::Class(decorator_class)),
+  ])
+}
+
+///|
 fn make_faulthandler_module() -> Value {
   // CPython exposes faulthandler as a C extension; for moonpython we provide a
   // minimal no-op shim so the stdlib test harness can import and call it.
@@ -479,6 +524,10 @@ fn make_gc_module() -> Value {
   // CPython exposes `gc` as a C extension. For moonpython we provide a minimal
   // shim that is sufficient for importing/running parts of the stdlib tests.
   make_module_instance("gc", [
+    // Used by regrtest and some tests. We never populate it (no real GC), but
+    // it must exist and be mutable.
+    ("garbage", Value::List([])),
+    ("callbacks", Value::List([])),
     ("enable", module_function_stub("gc.enable")),
     ("disable", module_function_stub("gc.disable")),
     ("isenabled", module_function_stub("gc.isenabled")),
@@ -1472,6 +1521,8 @@ fn import_module(
     make_math_module()
   } else if module_name == "time" {
     make_time_module()
+  } else if module_name == "enum" {
+    make_enum_module(builtins)
   } else if module_name == "asyncio" && config.allow_filesystem_imports {
     make_asyncio_module()
   } else {

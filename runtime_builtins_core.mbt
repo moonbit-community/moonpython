@@ -493,6 +493,58 @@ fn builtin_max(
         }
       }
     }
+    Value::Bytes(best_bytes) => {
+      fn cmp_bytes_for_sorted(a : Array[Int], b : Array[Int]) -> Int {
+        let n = if a.length() < b.length() { a.length() } else { b.length() }
+        for i = 0; i < n; i = i + 1 {
+          let ai = a[i]
+          let bi = b[i]
+          if ai < bi {
+            return -1
+          }
+          if ai > bi {
+            return 1
+          }
+        }
+        if a.length() < b.length() {
+          -1
+        } else if a.length() > b.length() {
+          1
+        } else {
+          0
+        }
+      }
+
+      let mut current = best_bytes
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Bytes(bytes) =>
+            if cmp_bytes_for_sorted(bytes, current) > 0 {
+              best = item
+              current = bytes
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "max() expected bytes".to_string(),
+              ),
+            )
+        }
+      }
+    }
+    Value::List(_) | Value::Tuple(_) =>
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let cmp = match cmp_value_for_sorted_dynamic(item, best) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp > 0 {
+          best = item
+        }
+      }
     _ => {
       let (_, first_num) = match number_value(best) {
         Ok(v) => v
@@ -575,6 +627,58 @@ fn builtin_min(
         }
       }
     }
+    Value::Bytes(best_bytes) => {
+      fn cmp_bytes_for_sorted(a : Array[Int], b : Array[Int]) -> Int {
+        let n = if a.length() < b.length() { a.length() } else { b.length() }
+        for i = 0; i < n; i = i + 1 {
+          let ai = a[i]
+          let bi = b[i]
+          if ai < bi {
+            return -1
+          }
+          if ai > bi {
+            return 1
+          }
+        }
+        if a.length() < b.length() {
+          -1
+        } else if a.length() > b.length() {
+          1
+        } else {
+          0
+        }
+      }
+
+      let mut current = best_bytes
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        match item {
+          Value::Bytes(bytes) =>
+            if cmp_bytes_for_sorted(bytes, current) < 0 {
+              best = item
+              current = bytes
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "min() expected bytes".to_string(),
+              ),
+            )
+        }
+      }
+    }
+    Value::List(_) | Value::Tuple(_) =>
+      for i = 1; i < items.length(); i = i + 1 {
+        let item = items[i]
+        let cmp = match cmp_value_for_sorted_dynamic(item, best) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if cmp < 0 {
+          best = item
+        }
+      }
     _ => {
       let (_, first_num) = match number_value(best) {
         Ok(v) => v
