@@ -551,6 +551,160 @@ fn builtin_file_readlines(
 }
 
 ///|
+fn builtin_file_write(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("write", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "write() takes exactly 2 arguments".to_string(),
+      ),
+    )
+  }
+  let (inst, binary, content, pos) = match
+    file_unpack_state(positional[0], "write") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let writable = match get_named_value(inst.dict, "__writable__") {
+    Some(Value::Bool(v)) => v
+    _ => false
+  }
+  if !writable {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "UnsupportedOperation: not writable".to_string(),
+      ),
+    )
+  }
+  let mut write_len = 0
+  match (binary, content) {
+    (true, Value::Bytes(buf)) => {
+      let data = match positional[1] {
+        Value::Bytes(values)
+        | Value::ByteArray(values)
+        | Value::MemoryView(values) => values
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "write() argument must be bytes-like".to_string(),
+            ),
+          )
+      }
+      let mut p = pos
+      if p < 0 {
+        p = 0
+      }
+      if p > buf.length() {
+        p = buf.length()
+      }
+      for i = 0; i < data.length(); i = i + 1 {
+        let idx = p + i
+        if idx < buf.length() {
+          buf[idx] = data[i]
+        } else {
+          buf.push(data[i])
+        }
+      }
+      write_len = data.length()
+      set_named_value(inst.dict, "__content__", Value::Bytes(buf))
+      set_named_value(
+        inst.dict,
+        "__pos__",
+        Value::Int(@bigint.BigInt::from_int(p + write_len)),
+      )
+    }
+    (false, Value::Str(text)) => {
+      let data = match positional[1] {
+        Value::Str(s) => s
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "write() argument must be str".to_string(),
+            ),
+          )
+      }
+      let mut p = pos
+      if p < 0 {
+        p = 0
+      }
+      if p > text.length() {
+        p = text.length()
+      }
+      let data_len = data.length()
+      let prefix = substring(text, 0, p)
+      let suffix_start = p + data_len
+      let suffix = if suffix_start < text.length() {
+        substring(text, suffix_start, text.length())
+      } else {
+        "".to_string()
+      }
+      let next_text = prefix + data + suffix
+      write_len = data_len
+      set_named_value(inst.dict, "__content__", Value::Str(next_text))
+      set_named_value(
+        inst.dict,
+        "__pos__",
+        Value::Int(@bigint.BigInt::from_int(p + write_len)),
+      )
+    }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: invalid file content".to_string(),
+        ),
+      )
+  }
+  set_named_value(inst.dict, "__dirty__", Value::Bool(true))
+  Ok(Value::Int(@bigint.BigInt::from_int(write_len)))
+}
+
+///|
+fn builtin_file_flush(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("flush", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "flush() takes exactly 1 argument".to_string(),
+      ),
+    )
+  }
+  // For the in-memory file implementation, flush is a no-op. We persist on close().
+  let _ = match file_unpack_state(positional[0], "flush") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
 fn builtin_file_iter(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -629,8 +783,68 @@ fn builtin_file_close(
     )
   }
   match positional[0] {
-    Value::Instance(inst) =>
+    Value::Instance(inst) => {
+      match get_named_value(inst.dict, "__closed__") {
+        Some(Value::Bool(true)) => return Ok(Value::None)
+        _ => ()
+      }
+      let writable = match get_named_value(inst.dict, "__writable__") {
+        Some(Value::Bool(v)) => v
+        _ => false
+      }
+      let dirty = match get_named_value(inst.dict, "__dirty__") {
+        Some(Value::Bool(v)) => v
+        _ => false
+      }
+      let path_opt = match get_named_value(inst.dict, "__path__") {
+        Some(Value::Str(p)) => Some(p)
+        _ => None
+      }
+      if writable && dirty && path_opt is Some(path) {
+        let binary = match get_named_value(inst.dict, "__binary__") {
+          Some(Value::Bool(v)) => v
+          _ => false
+        }
+        let content = match get_named_value(inst.dict, "__content__") {
+          Some(v) => v
+          None => Value::None
+        }
+        match (binary, content) {
+          (true, Value::Bytes(values)) => {
+            let out : Array[Byte] = []
+            for b in values {
+              out.push((b & 0xFF).to_byte())
+            }
+            let bytes = Bytes::from_array(out)
+            let _ = @fs.write_bytes_to_file(path, bytes) catch {
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "OSError: cannot write file".to_string(),
+                  ),
+                )
+            }
+
+          }
+          (false, Value::Str(text)) => {
+            let _ = @fs.write_string_to_file(path, text) catch {
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "OSError: cannot write file".to_string(),
+                  ),
+                )
+            }
+
+          }
+          _ => ()
+        }
+        set_named_value(inst.dict, "__dirty__", Value::Bool(false))
+      }
       set_named_value(inst.dict, "__closed__", Value::Bool(true))
+    }
     _ =>
       return Err(
         make_runtime_error(
@@ -675,10 +889,6 @@ fn builtin_file_exit(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = keywords
-  let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   if positional.length() != 4 {
     return Err(
       make_runtime_error(
@@ -686,6 +896,12 @@ fn builtin_file_exit(
         "__exit__() takes 4 arguments".to_string(),
       ),
     )
+  }
+  // Close on scope exit (best-effort).
+  let _ = match
+    builtin_file_close([positional[0]], [], locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
   Ok(Value::None)
 }
@@ -889,32 +1105,82 @@ fn builtin_open(
         )
     }
   }
-  if mode.contains("w") ||
+  let binary = mode.contains("b")
+  let wants_write = mode.contains("w") ||
     mode.contains("a") ||
     mode.contains("+") ||
-    mode.contains("x") {
+    mode.contains("x")
+  let truncate = mode.contains("w")
+  let append = mode.contains("a")
+  let exclusive = mode.contains("x")
+  let resolved_path = resolve_path_from_cwd(path)
+  if exclusive && @fs.path_exists(resolved_path) {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
-        "UnsupportedOperation: open() write modes are not supported".to_string(),
+        "FileExistsError: cannot open file: " + path,
       ),
     )
   }
-  let binary = mode.contains("b")
-  let resolved_path = resolve_path_from_cwd(path)
-  let text_content = @fs.read_file_to_string(resolved_path) catch {
-    _ =>
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "FileNotFoundError: cannot open file: " + path,
-        ),
-      )
+  fn read_bytes_ints(path : String) -> Array[Int]? {
+    let bytes = @fs.read_file_to_bytes(path) catch { _ => return None }
+    let out : Array[Int] = []
+    for b in bytes {
+      out.push(b.to_int())
+    }
+    Some(out)
   }
-  let content = if binary {
-    Value::Bytes(encode_string_utf8(text_content))
+
+  let content = if wants_write {
+    if truncate && !append {
+      if binary {
+        Value::Bytes([])
+      } else {
+        Value::Str("")
+      }
+      // Append / update: try to load existing content, else start empty.
+    } else if binary {
+      match read_bytes_ints(resolved_path) {
+        Some(values) => Value::Bytes(values)
+        None => Value::Bytes([])
+      }
+    } else {
+      let text = @fs.read_file_to_string(resolved_path) catch {
+        _ => "".to_string()
+      }
+      Value::Str(text)
+    }
+  } else if binary {
+    match read_bytes_ints(resolved_path) {
+      Some(values) => Value::Bytes(values)
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "FileNotFoundError: cannot open file: " + path,
+          ),
+        )
+    }
   } else {
+    let text_content = @fs.read_file_to_string(resolved_path) catch {
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "FileNotFoundError: cannot open file: " + path,
+          ),
+        )
+    }
     Value::Str(text_content)
+  }
+  let pos0 = if wants_write && append {
+    match content {
+      Value::Str(text) => text.length()
+      Value::Bytes(values) => values.length()
+      _ => 0
+    }
+  } else {
+    0
   }
   let base_class = builtin_class_from_name("object", builtins)
   let file_class = ClassValue::{
@@ -961,6 +1227,30 @@ fn builtin_open(
         "close",
         Value::Function(FunctionValue::{
           name: "file.close",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "write",
+        Value::Function(FunctionValue::{
+          name: "file.write",
+          params: ["self", "s"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "flush",
+        Value::Function(FunctionValue::{
+          name: "file.flush",
           params: ["self"],
           defaults: [],
           body: [],
@@ -1047,9 +1337,12 @@ fn builtin_open(
     class: file_class,
     dict: [
       ("__content__", content),
-      ("__pos__", Value::Int(0N)),
+      ("__pos__", Value::Int(@bigint.BigInt::from_int(pos0))),
       ("__binary__", Value::Bool(binary)),
       ("__closed__", Value::Bool(false)),
+      ("__writable__", Value::Bool(wants_write)),
+      ("__dirty__", Value::Bool(false)),
+      ("__path__", Value::Str(resolved_path)),
     ],
   })
   Ok(inst)
@@ -1104,13 +1397,39 @@ fn posix_remove_fd(fd : Int) -> PosixFdEntry? {
 }
 
 ///|
-fn posix_path_from_value(
+fn posix_fspath_from_value(
   value : Value,
   name : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[String, RuntimeError] {
   match value {
     Value::Str(s) => Ok(s)
-    Value::Bytes(bytes) => decode_bytes_utf8(name, bytes, "surrogateescape") // best-effort
+    Value::Bytes(bytes) => decode_bytes_utf8(name, bytes, "surrogateescape")
+    Value::Instance(_) => {
+      let callable = match
+        get_attr_from_value(value, "__fspath__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let out = match
+        call_callable_with_env(callable, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match out {
+        Value::Str(s) => Ok(s)
+        Value::Bytes(bytes) => decode_bytes_utf8(name, bytes, "surrogateescape")
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              name + "() path must be str or bytes",
+            ),
+          )
+      }
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -1171,7 +1490,13 @@ fn builtin_mpython_posix_open(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_open") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_open",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1319,7 +1644,13 @@ fn builtin_mpython_posix_unlink(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_unlink") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_unlink",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1364,7 +1695,13 @@ fn builtin_mpython_posix_mkdir(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_mkdir") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_mkdir",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1417,7 +1754,13 @@ fn builtin_mpython_posix_rmdir(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_rmdir") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_rmdir",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1454,7 +1797,13 @@ fn builtin_mpython_posix_stat(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_stat") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_stat",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1533,7 +1882,13 @@ fn builtin_mpython_posix_chdir(
     )
   }
   let path = match
-    posix_path_from_value(positional[0], "__mpython_posix_chdir") {
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_chdir",
+      globals,
+      builtins,
+      io,
+    ) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -1578,7 +1933,14 @@ fn builtin_mpython_posix_listdir(
       Value::Bytes(_) => return_bytes = true
       _ => ()
     }
-    match posix_path_from_value(positional[0], "__mpython_posix_listdir") {
+    match
+      posix_fspath_from_value(
+        positional[0],
+        "__mpython_posix_listdir",
+        globals,
+        builtins,
+        io,
+      ) {
       Ok(v) => v
       Err(err) => return Err(err)
     }

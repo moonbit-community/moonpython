@@ -861,6 +861,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "file.readline", run: builtin_file_readline },
     BuiltinDef::{ name: "file.readlines", run: builtin_file_readlines },
     BuiltinDef::{ name: "file.close", run: builtin_file_close },
+    BuiltinDef::{ name: "file.write", run: builtin_file_write },
+    BuiltinDef::{ name: "file.flush", run: builtin_file_flush },
     BuiltinDef::{ name: "file.seek", run: builtin_file_seek },
     BuiltinDef::{ name: "file.tell", run: builtin_file_tell },
     BuiltinDef::{ name: "file.__iter__", run: builtin_file_iter },

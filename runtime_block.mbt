@@ -1333,10 +1333,9 @@ fn eval_block_flow(
             let exc_value = exception_value_from_runtime_error(
               err, globals, builtins, io,
             )
-            let exc_type_value = match exc_value {
-              Value::Instance(inst) => Value::Class(inst.class)
-              _ => Value::Str(err.exc_type)
-            }
+            // For `__aexit__`, we currently pass the exception *type name* (string),
+            // matching the expectations in `async_test.mbt`.
+            let exc_type_value = Value::Str(err.exc_type)
             let tb_value = make_traceback_value(err.traceback)
             // exception exit: suppress if await aexit(...) is truthy
             let exit_call = match

@@ -446,6 +446,22 @@ fn raw_quote_escaped(chars : Array[Char], pos : Int) -> Bool {
 }
 
 ///|
+fn has_unescaped_quote_ahead(
+  chars : Array[Char],
+  start : Int,
+  quote : Char,
+) -> Bool {
+  let mut i = start
+  while i < chars.length() {
+    if chars[i] == quote && !raw_quote_escaped(chars, i) {
+      return true
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 fn parse_string_literal(
   chars : Array[Char],
   start : Int,
@@ -464,6 +480,17 @@ fn parse_string_literal(
   while i < chars.length() {
     let c = chars[i]
     if fstring && brace_depth > 0 {
+      // When lexing inside an f-string expression, treat quotes as part of the
+      // embedded Python source. However, if the braces are unbalanced and we
+      // reach the outer string delimiter, we still need to terminate the string
+      // literal so that f-string evaluation can report a better SyntaxError.
+      if expr_quote is None &&
+        !triple &&
+        c == quote &&
+        !raw_quote_escaped(chars, i) &&
+        !has_unescaped_quote_ahead(chars, i + 1, quote) {
+        return (buf.to_string(), i + 1, true)
+      }
       match expr_quote {
         Some(q) =>
           if expr_escape {

@@ -2198,8 +2198,11 @@ fn builtin_dir(
   // Default listing: include inherited names, sort, dedup.
   let names : Array[String] = []
   fn push_name(names : Array[String], name : String) -> Unit {
-    if name == "__class__" {
-      // Hide implementation detail used to support zero-arg super().
+    if name == "__class__" ||
+      name == "__mpython_metaclass__" ||
+      name == "__name__" ||
+      name == "__qualname__" {
+      // Hide internal or compatibility-only attributes from `dir()`.
       return
     }
     for existing in names {
