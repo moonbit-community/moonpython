@@ -240,7 +240,7 @@ test "async/genexpr" {
 }
 
 ///|
-test "async/genexpr_outside_async_function_is_syntax_error" {
+test "async/genexpr_outside_async_function" {
   let source =
     #|class It:
     #|  def __aiter__(self):
@@ -248,7 +248,10 @@ test "async/genexpr_outside_async_function_is_syntax_error" {
     #|  async def __anext__(self):
     #|    raise StopAsyncIteration
     #|xs = (x async for x in It())
-  inspect(test_exec_error(source), content="line 6:1 invalid syntax")
+    #|async def f():
+    #|  return [x async for x in xs]
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[]\n")
 }
 
 ///|
@@ -261,6 +264,22 @@ test "async/async_generator_basic" {
     #|  out = []
     #|  async for x in gen():
     #|    out = out + [x]
+    #|  return out
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="[1, 2]\n")
+}
+
+///|
+test "async/genexpr_with_await_outside_async_function" {
+  let source =
+    #|async def wrap(x):
+    #|  return x
+    #|def make(n):
+    #|  return (i for i in range(n) if await wrap(i))
+    #|async def f():
+    #|  out = []
+    #|  async for i in make(3):
+    #|    out = out + [i]
     #|  return out
     #|print(__mpython_run(f()))
   inspect(run_stdout(source), content="[1, 2]\n")

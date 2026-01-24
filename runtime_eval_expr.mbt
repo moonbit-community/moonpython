@@ -272,11 +272,158 @@ fn eval_expr_with_env(
       Ok(Value::List(values))
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
+      fn expr_contains_await(expr : Expr) -> Bool {
+        match expr {
+          Expr::Await(_) => true
+          Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) =>
+            for item in items {
+              if expr_contains_await(item) {
+                return true
+              }
+            } else {
+              false
+            }
+          Expr::Dict(items) =>
+            for pair in items {
+              if expr_contains_await(pair.0) || expr_contains_await(pair.1) {
+                return true
+              }
+            } else {
+              false
+            }
+          Expr::ListComp(elt~, clauses~, filters~)
+          | Expr::GenExp(elt~, clauses~, filters~)
+          | Expr::SetComp(elt~, clauses~, filters~) => {
+            if expr_contains_await(elt) {
+              return true
+            }
+            for clause in clauses {
+              if expr_contains_await(clause.iter) {
+                return true
+              }
+            }
+            for filter in filters {
+              if expr_contains_await(filter) {
+                return true
+              }
+            }
+            false
+          }
+          Expr::DictComp(key~, value~, clauses~, filters~) => {
+            if expr_contains_await(key) || expr_contains_await(value) {
+              return true
+            }
+            for clause in clauses {
+              if expr_contains_await(clause.iter) {
+                return true
+              }
+            }
+            for filter in filters {
+              if expr_contains_await(filter) {
+                return true
+              }
+            }
+            false
+          }
+          Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+            expr_contains_await(condition) ||
+            expr_contains_await(then_expr) ||
+            expr_contains_await(else_expr)
+          Expr::NamedExpr(name~, value~) => {
+            let _ = name
+            expr_contains_await(value)
+          }
+          Expr::Yield(expr_opt) =>
+            match expr_opt {
+              Some(v) => expr_contains_await(v)
+              None => false
+            }
+          Expr::YieldFrom(value) => expr_contains_await(value)
+          Expr::Slice(start~, end~, step~) => {
+            match start {
+              Some(v) => if expr_contains_await(v) { return true }
+              None => ()
+            }
+            match end {
+              Some(v) => if expr_contains_await(v) { return true }
+              None => ()
+            }
+            match step {
+              Some(v) => if expr_contains_await(v) { return true }
+              None => ()
+            }
+            false
+          }
+          Expr::Attribute(value~, attr~) => {
+            let _ = attr
+            expr_contains_await(value)
+          }
+          Expr::Subscript(value~, index~) =>
+            expr_contains_await(value) || expr_contains_await(index)
+          Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+            expr_contains_await(value)
+          Expr::Unary(op~, expr~) => {
+            let _ = op
+            expr_contains_await(expr)
+          }
+          Expr::Binary(op~, left~, right~) => {
+            let _ = op
+            expr_contains_await(left) || expr_contains_await(right)
+          }
+          Expr::BoolOp(op~, values~) => {
+            let _ = op
+            for v in values {
+              if expr_contains_await(v) {
+                return true
+              }
+            }
+            false
+          }
+          Expr::Compare(left~, ops~, comparators~) => {
+            let _ = ops
+            if expr_contains_await(left) {
+              return true
+            }
+            for v in comparators {
+              if expr_contains_await(v) {
+                return true
+              }
+            }
+            false
+          }
+          Expr::Call(callee~, args~) =>
+            if expr_contains_await(callee) {
+              true
+            } else {
+              for arg in args {
+                if expr_contains_await(arg) {
+                  return true
+                }
+              }
+              false
+            }
+          Expr::Keyword(name~, value~) => {
+            let _ = name
+            expr_contains_await(value)
+          }
+          Expr::Lambda(params~, defaults~, body~) => {
+            let _ = params
+            for d in defaults {
+              if expr_contains_await(d) {
+                return true
+              }
+            }
+            expr_contains_await(body)
+          }
+          _ => false
+        }
+      }
+
       let gen_locals = clone_locals(locals)
-      let mut has_async = false
+      let mut has_async_clause = false
       for clause in clauses {
         if clause.is_async {
-          has_async = true
+          has_async_clause = true
         }
         for name in clause.targets {
           if name != "_" {
@@ -284,15 +431,25 @@ fn eval_expr_with_env(
           }
         }
       }
-      if has_async {
-        if !coroutine_is_active() {
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "SyntaxError: 'async for' outside async function".to_string(),
-            ),
-          )
+      let mut has_await = expr_contains_await(elt)
+      if !has_await {
+        for clause in clauses {
+          if expr_contains_await(clause.iter) {
+            has_await = true
+            break
+          }
         }
+      }
+      if !has_await {
+        for filter in filters {
+          if expr_contains_await(filter) {
+            has_await = true
+            break
+          }
+        }
+      }
+      let is_async_genexp = has_async_clause || has_await
+      if is_async_genexp {
         if clauses.length() == 0 {
           return Err(
             make_runtime_error(

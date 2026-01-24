@@ -233,25 +233,8 @@ fn LineParser::parse_block(
         ),
       )
     }
-    if self.async_depth == 0 &&
-      line_has_await_keyword(line_text) &&
-      !line_text.has_prefix("def ") &&
-      !line_text.has_prefix("async def ") {
-      let token = {
-        kind: Eof,
-        start: self.offsets[self.index] + current_indent,
-        end: self.offsets[self.index] + current_indent + 1,
-        line: self.index + 1,
-        column: 1,
-      }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
-      )
-    }
+    // `await` legality is checked after parsing the whole block, so we can
+    // allow `await` inside generator expressions in sync code.
     let handled = match
       parse_match_stmt(
         self, stmts, line_text, line_index, current_indent, next_index,
@@ -2364,6 +2347,23 @@ fn LineParser::parse_block(
         pending_decorator_token.unwrap(),
       ),
     )
+  }
+  if self.async_depth == 0 {
+    match stmts_first_illegal_await_line(stmts) {
+      Some(line) => {
+        let line_index = if line <= 0 { 0 } else { line - 1 }
+        let base = self.offsets[line_index]
+        let token = { kind: Eof, start: base, end: base + 1, line, column: 1 }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      None => ()
+    }
   }
   Ok(stmts)
 }

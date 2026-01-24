@@ -6,12 +6,26 @@
 fn expr_has_async_comprehension(expr : Expr) -> Bool {
   match expr {
     Expr::ListComp(elt~, clauses~, filters~)
-    | Expr::GenExp(elt~, clauses~, filters~)
     | Expr::SetComp(elt~, clauses~, filters~) => {
       for clause in clauses {
         if clause.is_async {
           return true
         }
+        if expr_has_async_comprehension(clause.iter) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_async_comprehension(filter) {
+          return true
+        }
+      }
+      expr_has_async_comprehension(elt)
+    }
+    Expr::GenExp(elt~, clauses~, filters~) => {
+      // Async generator expressions are allowed outside async functions; do not
+      // treat `async for` clauses here as an error trigger.
+      for clause in clauses {
         if expr_has_async_comprehension(clause.iter) {
           return true
         }
@@ -153,6 +167,367 @@ fn expr_has_async_comprehension(expr : Expr) -> Bool {
     }
     _ => false
   }
+}
+
+///|
+fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
+  match expr {
+    Expr::Await(_) => !in_genexp
+    Expr::GenExp(elt~, clauses~, filters~) => {
+      // `await` is permitted inside generator expressions (it makes the genexp
+      // an async generator expression).
+      if expr_has_illegal_await(elt, true) {
+        return true
+      }
+      for clause in clauses {
+        if expr_has_illegal_await(clause.iter, true) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_illegal_await(filter, true) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      if expr_has_illegal_await(elt, in_genexp) {
+        return true
+      }
+      for clause in clauses {
+        if expr_has_illegal_await(clause.iter, in_genexp) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_illegal_await(filter, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      if expr_has_illegal_await(key, in_genexp) ||
+        expr_has_illegal_await(value, in_genexp) {
+        return true
+      }
+      for clause in clauses {
+        if expr_has_illegal_await(clause.iter, in_genexp) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_illegal_await(filter, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_illegal_await(item, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for pair in items {
+        if expr_has_illegal_await(pair.0, in_genexp) ||
+          expr_has_illegal_await(pair.1, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params~, defaults~, body~) => {
+      let _ = params
+      for d in defaults {
+        if expr_has_illegal_await(d, in_genexp) {
+          return true
+        }
+      }
+      expr_has_illegal_await(body, in_genexp)
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_illegal_await(condition, in_genexp) ||
+      expr_has_illegal_await(then_expr, in_genexp) ||
+      expr_has_illegal_await(else_expr, in_genexp)
+    Expr::NamedExpr(name~, value~) => {
+      let _ = name
+      expr_has_illegal_await(value, in_genexp)
+    }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(v) => expr_has_illegal_await(v, in_genexp)
+        None => false
+      }
+    Expr::YieldFrom(value) => expr_has_illegal_await(value, in_genexp)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(v) => if expr_has_illegal_await(v, in_genexp) { return true }
+        None => ()
+      }
+      match end {
+        Some(v) => if expr_has_illegal_await(v, in_genexp) { return true }
+        None => ()
+      }
+      match step {
+        Some(v) => if expr_has_illegal_await(v, in_genexp) { return true }
+        None => ()
+      }
+      false
+    }
+    Expr::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_has_illegal_await(value, in_genexp)
+    }
+    Expr::Subscript(value~, index~) =>
+      expr_has_illegal_await(value, in_genexp) ||
+      expr_has_illegal_await(index, in_genexp)
+    Expr::Call(callee~, args~) => {
+      if expr_has_illegal_await(callee, in_genexp) {
+        return true
+      }
+      for arg in args {
+        if expr_has_illegal_await(arg, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name~, value~) => {
+      let _ = name
+      expr_has_illegal_await(value, in_genexp)
+    }
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_illegal_await(value, in_genexp)
+    Expr::Unary(op~, expr~) => {
+      let _ = op
+      expr_has_illegal_await(expr, in_genexp)
+    }
+    Expr::Binary(op~, left~, right~) => {
+      let _ = op
+      expr_has_illegal_await(left, in_genexp) ||
+      expr_has_illegal_await(right, in_genexp)
+    }
+    Expr::BoolOp(op~, values~) => {
+      let _ = op
+      for v in values {
+        if expr_has_illegal_await(v, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops~, comparators~) => {
+      let _ = ops
+      if expr_has_illegal_await(left, in_genexp) {
+        return true
+      }
+      for v in comparators {
+        if expr_has_illegal_await(v, in_genexp) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn target_has_illegal_await(target : Target) -> Bool {
+  match target {
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        if target_has_illegal_await(item) {
+          return true
+        }
+      }
+      false
+    }
+    Target::Starred(inner) => target_has_illegal_await(inner)
+    Target::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_has_illegal_await(value, false)
+    }
+    Target::Subscript(value~, index~) =>
+      expr_has_illegal_await(value, false) ||
+      expr_has_illegal_await(index, false)
+    _ => false
+  }
+}
+
+///|
+fn stmt_has_illegal_await(stmt : Stmt) -> Bool {
+  match stmt {
+    Stmt::WithSpan(span=_, stmt=inner) => stmt_has_illegal_await(inner)
+    Stmt::ExprStmt(expr) => expr_has_illegal_await(expr, false)
+    Stmt::Assign(target~, value~) =>
+      target_has_illegal_await(target) || expr_has_illegal_await(value, false)
+    Stmt::AnnAssign(target~, annotation~, value~) => {
+      if target_has_illegal_await(target) ||
+        expr_has_illegal_await(annotation, false) {
+        return true
+      }
+      match value {
+        Some(v) => expr_has_illegal_await(v, false)
+        None => false
+      }
+    }
+    Stmt::AugAssign(target~, op~, value~) => {
+      let _ = op
+      target_has_illegal_await(target) || expr_has_illegal_await(value, false)
+    }
+    Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) =>
+      match expr_opt {
+        Some(v) => expr_has_illegal_await(v, false)
+        None => false
+      }
+    Stmt::YieldFrom(expr) => expr_has_illegal_await(expr, false)
+    Stmt::Assert(condition~, message~) =>
+      if expr_has_illegal_await(condition, false) {
+        true
+      } else {
+        match message {
+          Some(v) => expr_has_illegal_await(v, false)
+          None => false
+        }
+      }
+    Stmt::Raise(exc~, cause~) => {
+      let exc_illegal = match exc {
+        Some(v) => expr_has_illegal_await(v, false)
+        None => false
+      }
+      if exc_illegal {
+        true
+      } else {
+        match cause {
+          Some(v) => expr_has_illegal_await(v, false)
+          None => false
+        }
+      }
+    }
+    Stmt::Del(targets) => {
+      for t in targets {
+        if target_has_illegal_await(t) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::With(context~, target~, body~)
+    | Stmt::AsyncWith(context~, target~, body~) => {
+      let _ = target
+      if expr_has_illegal_await(context, false) {
+        return true
+      }
+      for s in body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_illegal_await(condition, false) {
+        return true
+      }
+      for s in body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      for s in else_body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      if target_has_illegal_await(target) || expr_has_illegal_await(iter, false) {
+        return true
+      }
+      for s in body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      for s in else_body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      for s in body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(v) => if expr_has_illegal_await(v, false) { return true }
+          None => ()
+        }
+        for s in handler.body {
+          if stmt_has_illegal_await(s) {
+            return true
+          }
+        }
+      }
+      for s in else_body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      for s in finally_body {
+        if stmt_has_illegal_await(s) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_illegal_await(subject, false) {
+        return true
+      }
+      for case in cases {
+        match case.1 {
+          Some(v) => if expr_has_illegal_await(v, false) { return true }
+          None => ()
+        }
+        for s in case.2 {
+          if stmt_has_illegal_await(s) {
+            return true
+          }
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt {
+      Stmt::WithSpan(span~, stmt=inner) =>
+        if stmt_has_illegal_await(inner) {
+          return Some(span.line)
+        }
+      _ => if stmt_has_illegal_await(stmt) { return Some(1) }
+    }
+  }
+  None
 }
 
 ///|
