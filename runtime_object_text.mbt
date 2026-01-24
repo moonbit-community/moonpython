@@ -215,9 +215,33 @@ fn format_string_with_args(
           break
         }
       }
-      let field_name = match colon {
-        Some(pos) => substring(field, 0, pos).trim(chars=" \t").to_string()
-        None => field.trim(chars=" \t").to_string()
+      // Basic conversion support: `{name!r}` / `{0!s}` / `{name!a}`.
+      let head = match colon {
+        Some(pos) => substring(field, 0, pos)
+        None => field
+      }
+      let head_trimmed = head.trim(chars=" \t").to_string()
+      let head_chars = head_trimmed.to_array()
+      let mut bang : Int? = None
+      for j = 0; j < head_chars.length(); j = j + 1 {
+        if head_chars[j] == '!' {
+          bang = Some(j)
+          break
+        }
+      }
+      let (field_name, conv) = match bang {
+        Some(pos) => {
+          let name = substring(head_trimmed, 0, pos)
+            .trim(chars=" \t")
+            .to_string()
+          let conv_char = if pos + 1 < head_chars.length() {
+            Some(head_chars[pos + 1])
+          } else {
+            None
+          }
+          (name, conv_char)
+        }
+        None => (head_trimmed, None)
       }
       let spec = match colon {
         Some(pos) => substring(field, pos + 1, field.length())
@@ -275,7 +299,37 @@ fn format_string_with_args(
           }
         }
       }
-      let formatted = match format_value_with_spec(value, spec) {
+      fn repr_string(value : Value) -> String {
+        match value {
+          Value::Str(text) => {
+            let buf = StringBuilder::new()
+            for c in text.to_array() {
+              if c == '\\' {
+                buf.write_string("\\\\")
+              } else if c == '"' {
+                buf.write_string("\\\"")
+              } else if c == '\n' {
+                buf.write_string("\\n")
+              } else if c == '\r' {
+                buf.write_string("\\r")
+              } else if c == '\t' {
+                buf.write_string("\\t")
+              } else {
+                buf.write_char(c)
+              }
+            }
+            "\"" + buf.to_string() + "\""
+          }
+          _ => value_to_string(value)
+        }
+      }
+
+      let value_for_format = match conv {
+        Some('r') | Some('a') => Value::Str(repr_string(value))
+        Some('s') => Value::Str(value_to_string(value))
+        _ => value
+      }
+      let formatted = match format_value_with_spec(value_for_format, spec) {
         Ok(v) => v
         Err(err) => return Err(err)
       }

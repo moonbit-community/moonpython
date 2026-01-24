@@ -691,6 +691,131 @@ fn builtin_file_exit(
 }
 
 ///|
+fn builtin_file_seek(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("seek", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "seek() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let offset = match positional[1] {
+    Value::Int(v) =>
+      match bigint_to_int_checked(v) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+    Value::Bool(v) => if v { 1 } else { 0 }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "seek() offset must be int".to_string(),
+        ),
+      )
+  }
+  let whence = if positional.length() == 3 {
+    match positional[2] {
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+      Value::Bool(v) => if v { 1 } else { 0 }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "seek() whence must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    0
+  }
+  let (inst, binary, content, pos) = match
+    file_unpack_state(positional[0], "seek") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  let length = match file_content_length(binary, content) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let base = if whence == 0 {
+    0
+  } else if whence == 1 {
+    pos
+  } else if whence == 2 {
+    length
+  } else {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: invalid whence".to_string(),
+      ),
+    )
+  }
+  let next_pos = base + offset
+  if next_pos < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: negative seek position".to_string(),
+      ),
+    )
+  }
+  set_named_value(
+    inst.dict,
+    "__pos__",
+    Value::Int(@bigint.BigInt::from_int(next_pos)),
+  )
+  Ok(Value::Int(@bigint.BigInt::from_int(next_pos)))
+}
+
+///|
+fn builtin_file_tell(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("tell", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "tell() takes exactly 1 argument".to_string(),
+      ),
+    )
+  }
+  let (_, _, _, pos) = match file_unpack_state(positional[0], "tell") {
+    Ok(value) => value
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Int(@bigint.BigInt::from_int(pos)))
+}
+
+///|
 fn builtin_open(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -836,6 +961,30 @@ fn builtin_open(
         "close",
         Value::Function(FunctionValue::{
           name: "file.close",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "seek",
+        Value::Function(FunctionValue::{
+          name: "file.seek",
+          params: ["self", "offset", "whence"],
+          defaults: [Value::Int(0N)],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "tell",
+        Value::Function(FunctionValue::{
+          name: "file.tell",
           params: ["self"],
           defaults: [],
           body: [],

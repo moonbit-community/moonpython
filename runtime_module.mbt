@@ -539,6 +539,16 @@ fn make_gc_module() -> Value {
 }
 
 ///|
+fn make_binascii_module() -> Value {
+  // CPython exposes `binascii` as a C extension. The stdlib (e.g. zipfile)
+  // primarily needs crc32().
+  make_module_instance("binascii", [
+    ("crc32", module_function_stub("binascii.crc32")),
+    ("__doc__", Value::Str("Minimal binascii shim for moonpython")),
+  ])
+}
+
+///|
 fn make_asyncio_module() -> Value {
   make_module_instance("asyncio", [
     ("run", module_function_stub("asyncio.run")),
@@ -780,6 +790,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     Value::Str("posix"),
     Value::Str("_struct"),
     Value::Str("gc"),
+    Value::Str("binascii"),
     Value::Str("faulthandler"),
     Value::Str("select"),
     Value::Str("_thread"),
@@ -1503,6 +1514,8 @@ fn import_module(
     make_struct_module(builtins)
   } else if module_name == "gc" {
     make_gc_module()
+  } else if module_name == "binascii" {
+    make_binascii_module()
   } else if module_name == "faulthandler" {
     make_faulthandler_module()
   } else if module_name == "select" {

@@ -1682,11 +1682,20 @@ fn builtin_struct_calcsize(
   }
   let fmt = match positional[0] {
     Value::Str(s) => s
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => {
+      let buf = StringBuilder::new()
+      for b in values {
+        buf.write_char((b & 0xFF).to_char().unwrap())
+      }
+      buf.to_string()
+    }
     _ =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "_struct.calcsize() format must be str".to_string(),
+          "_struct.calcsize() format must be str or bytes".to_string(),
         ),
       )
   }
@@ -1716,11 +1725,20 @@ fn builtin_struct_pack(
   }
   let fmt = match positional[0] {
     Value::Str(s) => s
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => {
+      let buf = StringBuilder::new()
+      for b in values {
+        buf.write_char((b & 0xFF).to_char().unwrap())
+      }
+      buf.to_string()
+    }
     _ =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "_struct.pack() format must be str".to_string(),
+          "_struct.pack() format must be str or bytes".to_string(),
         ),
       )
   }
@@ -1769,11 +1787,20 @@ fn builtin_struct_unpack(
   }
   let fmt = match positional[0] {
     Value::Str(s) => s
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => {
+      let buf = StringBuilder::new()
+      for b in values {
+        buf.write_char((b & 0xFF).to_char().unwrap())
+      }
+      buf.to_string()
+    }
     _ =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "_struct.unpack() format must be str".to_string(),
+          "_struct.unpack() format must be str or bytes".to_string(),
         ),
       )
   }
@@ -2204,6 +2231,76 @@ fn builtin_gc_get_count(
     )
   }
   Ok(Value::Tuple([Value::Int(0N), Value::Int(0N), Value::Int(0N)]))
+}
+
+///|
+fn builtin_binascii_crc32(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("binascii.crc32", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.crc32() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  let bytes = match positional[0] {
+    Value::Bytes(values)
+    | Value::ByteArray(values)
+    | Value::MemoryView(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "binascii.crc32() argument must be bytes-like".to_string(),
+        ),
+      )
+  }
+  let init = if positional.length() == 2 {
+    match positional[1] {
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+      Value::Bool(v) => if v { 1 } else { 0 }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.crc32() value must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    0
+  }
+  let mask = 0xFFFFFFFF
+  let poly = 0xEDB88320
+  let mut crc = (init ^ mask) & mask
+  for b in bytes {
+    crc = (crc ^ (b & 0xFF)) & mask
+    for _i = 0; _i < 8; _i = _i + 1 {
+      if (crc & 1) != 0 {
+        crc = ((crc >> 1) ^ poly) & mask
+      } else {
+        crc = (crc >> 1) & mask
+      }
+    }
+  }
+  let out = (crc ^ mask) & mask
+  Ok(Value::Int(@bigint.BigInt::from_int(out)))
 }
 
 ///|

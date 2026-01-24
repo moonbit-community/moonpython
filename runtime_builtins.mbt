@@ -711,6 +711,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "gc.get_threshold", run: builtin_gc_get_threshold },
     BuiltinDef::{ name: "gc.set_threshold", run: builtin_gc_set_threshold },
     BuiltinDef::{ name: "gc.get_count", run: builtin_gc_get_count },
+    BuiltinDef::{ name: "binascii.crc32", run: builtin_binascii_crc32 },
     BuiltinDef::{
       name: "_string.formatter_parser",
       run: builtin_string_formatter_parser,
@@ -860,6 +861,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "file.readline", run: builtin_file_readline },
     BuiltinDef::{ name: "file.readlines", run: builtin_file_readlines },
     BuiltinDef::{ name: "file.close", run: builtin_file_close },
+    BuiltinDef::{ name: "file.seek", run: builtin_file_seek },
+    BuiltinDef::{ name: "file.tell", run: builtin_file_tell },
     BuiltinDef::{ name: "file.__iter__", run: builtin_file_iter },
     BuiltinDef::{ name: "file.__next__", run: builtin_file_next },
     BuiltinDef::{ name: "file.__enter__", run: builtin_file_enter },

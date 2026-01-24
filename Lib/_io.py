@@ -12,7 +12,20 @@ class BlockingIOError(OSError):
 
 
 class _IOBase:
-    pass
+    # Minimal context manager support used by linecache/tokenize.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        try:
+            close = getattr(self, "close")
+        except Exception:
+            return None
+        try:
+            close()
+        except Exception:
+            pass
+        return None
 
 
 class _RawIOBase(_IOBase):
@@ -70,7 +83,53 @@ class BufferedRandom(_BufferedIOBase):
 
 
 class TextIOWrapper(_TextIOBase):
-    pass
+    def __init__(
+        self,
+        buffer,
+        encoding=None,
+        errors=None,
+        newline=None,
+        line_buffering=False,
+        write_through=False,
+    ):
+        self.buffer = buffer
+        self.encoding = text_encoding(encoding)
+        self.errors = errors or "strict"
+        self.newline = newline
+        self.line_buffering = line_buffering
+        self.write_through = write_through
+
+    def close(self):
+        if hasattr(self.buffer, "close"):
+            return self.buffer.close()
+        return None
+
+    def read(self, size=-1):
+        data = self.buffer.read(size)
+        if isinstance(data, bytes):
+            return data.decode(self.encoding, self.errors)
+        return str(data)
+
+    def readline(self, size=-1):
+        data = self.buffer.readline(size)
+        if isinstance(data, bytes):
+            return data.decode(self.encoding, self.errors)
+        return str(data)
+
+    def readlines(self):
+        lines = []
+        for line in self:
+            lines.append(line)
+        return lines
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if line == "":
+            raise StopIteration
+        return line
 
 
 class IncrementalNewlineDecoder:
@@ -85,7 +144,8 @@ def text_encoding(encoding, stacklevel=2):
 
 
 def open(*args, **kwargs):
-    raise UnsupportedOperation("open() not supported")
+    import builtins
+    return builtins.open(*args, **kwargs)
 
 
 def open_code(*args, **kwargs):
