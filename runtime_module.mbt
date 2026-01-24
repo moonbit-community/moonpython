@@ -228,11 +228,96 @@ fn module_function_stub(name : String) -> Value {
 }
 
 ///|
+fn make_importlib_loader() -> Value {
+  // Loader used by the stdlib `importlib` machinery. Methods are intrinsics
+  // implemented in `call_callable_with_env`.
+  let loader_class = ClassValue::{
+    name: "_MpythonLoader",
+    bases: [],
+    dict: [
+      (
+        "create_module",
+        Value::Function(FunctionValue::{
+          name: "__mpython_create_module",
+          params: ["self", "spec"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "exec_module",
+        Value::Function(FunctionValue::{
+          name: "__mpython_exec_module",
+          params: ["self", "module"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  Value::Instance(InstanceValue::{ class: loader_class, dict: [] })
+}
+
+///|
+fn make_importlib_finder() -> Value {
+  // A minimal `sys.meta_path` finder to make CPython's pure-Python importlib
+  // usable. The actual search logic lives in the intrinsic implementation.
+  let finder_class = ClassValue::{
+    name: "_MpythonPathFinder",
+    bases: [],
+    dict: [
+      (
+        "find_spec",
+        Value::Function(FunctionValue::{
+          name: "__mpython_find_spec",
+          params: ["self", "fullname", "path", "target"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
+  Value::Instance(InstanceValue::{ class: finder_class, dict: [] })
+}
+
+///|
 fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let spec_value = Value::Instance(InstanceValue::{
+    class: spec_class,
+    dict: [
+      ("name", Value::Str(name)),
+      ("origin", Value::Str("<builtin>")),
+      ("loader", Value::None),
+      ("parent", Value::Str("")),
+      ("submodule_search_locations", Value::None),
+      ("cached", Value::None),
+      ("loader_state", Value::None),
+      ("_uninitialized_submodules", Value::List([])),
+      ("has_location", Value::Bool(false)),
+    ],
+  })
   Value::Instance(InstanceValue::{
     class: module_class,
-    dict: [("__name__", Value::Str(name))] + dict,
+    // Keep a minimum set of attributes expected by CPython's importlib and
+    // stdlib test harness. These are intentionally shallow shims.
+    dict: [
+      ("__name__", Value::Str(name)),
+      ("__package__", Value::Str("")),
+      ("__loader__", Value::None),
+      ("__spec__", spec_value),
+    ] +
+    dict,
   })
 }
 
@@ -836,8 +921,9 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   match config.main_path {
     Some(main_path) => {
       let base = @path.Path(main_path).dirname().to_string()
-      if base.length() > 0 && base != "." {
-        script_dir = base
+      let base_abs = resolve_path_from_initial_cwd(base)
+      if base_abs.length() > 0 && base_abs != "." {
+        script_dir = base_abs
       }
     }
     None => ()
@@ -847,7 +933,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     path_values.push(Value::Str(""))
   }
   for root in config.import_paths {
-    path_values.push(Value::Str(root))
+    path_values.push(Value::Str(resolve_path_from_initial_cwd(root)))
   }
   make_module_instance("sys", [
     ("maxsize", Value::Int(9223372036854775807N)),
@@ -873,7 +959,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     ("path", Value::List(path_values)),
     ("path_hooks", Value::List([])),
     ("path_importer_cache", Value::Dict([])),
-    ("meta_path", Value::List([])),
+    ("meta_path", Value::List([make_importlib_finder()])),
     ("argv", Value::List(argv_values)),
     ("warnoptions", Value::List([])),
     ("stdout", stdout_value),
@@ -1069,14 +1155,22 @@ fn make_python_module(
   config : Config,
   package_name? : String = "",
   filename? : String = "<module>",
+  is_package? : Bool = false,
+  package_path? : String = "",
 ) -> Result[Value, RuntimeError] {
+  let filename_abs = resolve_path_from_initial_cwd(filename)
+  let package_path_abs = if is_package {
+    resolve_path_from_initial_cwd(package_path)
+  } else {
+    package_path
+  }
   let program = match parse(source) {
     Ok(v) => v
     Err(err) => {
       // Include filename for stdlib/import syntax errors to make debugging and
       // conformance triage practical.
       let base = make_parse_runtime_error(err)
-      let message = filename + ": " + base.message
+      let message = filename_abs + ": " + base.message
       return Err(RuntimeError::{
         kind: base.kind,
         message,
@@ -1091,10 +1185,32 @@ fn make_python_module(
       })
     }
   }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let submodule_locations = if is_package {
+    Value::List([Value::Str(package_path_abs)])
+  } else {
+    Value::None
+  }
+  let spec_value = Value::Instance(InstanceValue::{
+    class: spec_class,
+    dict: [
+      ("name", Value::Str(name)),
+      ("origin", Value::Str(filename_abs)),
+      ("loader", Value::None),
+      ("parent", Value::Str(package_name)),
+      ("submodule_search_locations", submodule_locations),
+      ("cached", Value::None),
+      ("loader_state", Value::None),
+      ("_uninitialized_submodules", Value::List([])),
+      ("has_location", Value::Bool(true)),
+    ],
+  })
   let module_globals : Array[(String, Value)] = [
     ("__name__", Value::Str(name)),
     ("__package__", Value::Str(package_name)),
-    ("__file__", Value::Str(filename)),
+    ("__file__", Value::Str(filename_abs)),
+    ("__loader__", Value::None),
+    ("__spec__", spec_value),
   ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let module_value = Value::Instance(InstanceValue::{
@@ -1243,6 +1359,8 @@ fn load_module_from_filesystem(
         config,
         package_name=module_name,
         filename=init_path,
+        is_package=true,
+        package_path=path,
       )
       match module_value {
         Ok(Value::Instance(inst)) =>
@@ -1250,7 +1368,7 @@ fn load_module_from_filesystem(
           set_named_value(
             inst.dict,
             "__path__",
-            Value::List([Value::Str(path)]),
+            Value::List([Value::Str(resolve_path_from_initial_cwd(path))]),
           )
         _ => ()
       }
@@ -1263,7 +1381,7 @@ fn load_module_from_filesystem(
           set_named_value(
             inst.dict,
             "__path__",
-            Value::List([Value::Str(path)]),
+            Value::List([Value::Str(resolve_path_from_initial_cwd(path))]),
           )
         _ => ()
       }

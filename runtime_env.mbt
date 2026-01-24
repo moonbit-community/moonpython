@@ -874,13 +874,42 @@ fn current_config() -> Config {
 let current_workdir_ref : Ref[String] = { val: "." }
 
 ///|
+// The working directory at interpreter start. We keep this stable so that
+// sys.path entries like "Lib" continue to resolve even if user code calls
+// os.chdir() (we track chdir virtually via `current_workdir_ref`).
+let initial_workdir_ref : Ref[String] = { val: "." }
+
+///|
 fn current_workdir() -> String {
   current_workdir_ref.val
 }
 
 ///|
+fn initial_workdir() -> String {
+  initial_workdir_ref.val
+}
+
+///|
+fn set_initial_workdir(path : String) -> Unit {
+  initial_workdir_ref.val = path
+}
+
+///|
 fn set_current_workdir(path : String) -> Unit {
   current_workdir_ref.val = path
+}
+
+///|
+fn resolve_path_from_initial_cwd(path : String) -> String {
+  if path.has_prefix("/") {
+    return path
+  }
+  let cwd = initial_workdir()
+  if cwd.length() == 0 || cwd == "." {
+    path
+  } else {
+    @path.Path(cwd).join(@path.Path(path)).to_string()
+  }
 }
 
 ///|

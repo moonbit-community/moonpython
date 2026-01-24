@@ -370,9 +370,13 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int) {
   }
   let c = chars[pos]
   match c {
+    'a' => ("\u{07}", pos + 1) // bell
+    'b' => ("\u{08}", pos + 1) // backspace
+    'f' => ("\u{0c}", pos + 1) // form feed
     'n' => ("\n", pos + 1)
     't' => ("\t", pos + 1)
     'r' => ("\r", pos + 1)
+    'v' => ("\u{0b}", pos + 1) // vertical tab
     '\\' => ("\\", pos + 1)
     '\'' => ("'", pos + 1)
     '"' => ("\"", pos + 1)

@@ -460,6 +460,15 @@ pub fn Interpreter::with_builtins(
 
 ///|
 pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
+  // Capture the host working directory once so stdlib paths can be made stable
+  // even if Python code calls os.chdir() (which we model virtually).
+  match @env.current_dir() {
+    Some(dir) => {
+      set_initial_workdir(dir)
+      set_current_workdir(dir)
+    }
+    None => ()
+  }
   let object_dict : Array[(String, Value)] = []
   object_dict.push(
     (
@@ -867,6 +876,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let memory_error_class = ClassValue::{
+    name: "MemoryError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = [
     ("print", function_stub("print")),
     ("input", function_stub("input")),
@@ -1004,6 +1018,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("StopIteration", Value::Class(stop_iteration_class)),
     ("StopAsyncIteration", Value::Class(stop_async_iteration_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
+    ("MemoryError", Value::Class(memory_error_class)),
   ]
   let builtin_type_names : Array[String] = [
     "bool", "int", "float", "complex", "str", "bytes", "bytearray", "memoryview",

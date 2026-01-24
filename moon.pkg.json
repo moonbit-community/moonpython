@@ -1,5 +1,6 @@
 {
   "import": [
+    "moonbitlang/core/env",
     "moonbitlang/core/json",
     "moonbitlang/core/math",
     "moonbitlang/core/strconv",

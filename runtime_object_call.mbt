@@ -500,6 +500,334 @@ fn call_callable_with_env(
         // We don't track subclass relationships yet; return an empty list.
         return Ok(Value::List([]))
       }
+      // Intrinsic: importlib meta_path finder
+      if bound_method.function.name == "__mpython_find_spec" &&
+        bound_method.function.body.length() == 0 {
+        // Signature: find_spec(fullname, path=None, target=None)
+        // We accept a subset used by the stdlib `importlib` implementation.
+        let mut fullname_value : Value? = None
+        let mut path_value : Value = Value::None
+        if positional.length() >= 1 {
+          fullname_value = Some(positional[0])
+        }
+        if positional.length() >= 2 {
+          path_value = positional[1]
+        }
+        for pair in keywords {
+          if pair.0 == "path" {
+            path_value = pair.1
+          }
+        }
+        let fullname = match fullname_value {
+          Some(Value::Str(text)) => text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "find_spec() fullname must be str".to_string(),
+              ),
+            )
+        }
+        fn root_from_sys_path_entry(value : Value) -> String? {
+          match value {
+            Value::Str(text) =>
+              if text.length() == 0 {
+                Some(current_workdir())
+              } else if text.has_prefix("/") {
+                Some(text)
+              } else {
+                Some(resolve_path_from_initial_cwd(text))
+              }
+            _ => None
+          }
+        }
+
+        let roots : Array[String] = []
+        match path_value {
+          Value::None => {
+            // Use `sys.path` when `path` is not provided.
+            let sys_value_opt = module_cache_get("sys")
+            match sys_value_opt {
+              Some(Value::Instance(sys_inst)) =>
+                match get_named_value(sys_inst.dict, "path") {
+                  Some(Value::List(values)) =>
+                    for item in values {
+                      match root_from_sys_path_entry(item) {
+                        Some(root) => roots.push(root)
+                        None => ()
+                      }
+                    }
+                  _ => ()
+                }
+              _ => ()
+            }
+          }
+          Value::List(values) =>
+            for item in values {
+              match root_from_sys_path_entry(item) {
+                Some(root) => roots.push(root)
+                None => ()
+              }
+            }
+          Value::Str(text) =>
+            match root_from_sys_path_entry(Value::Str(text)) {
+              Some(root) => roots.push(root)
+              None => ()
+            }
+          _ => ()
+        }
+        let mut rel = module_rel_path(fullname)
+        // When `path` is provided (i.e. we're searching inside an already
+        // resolved package), only join the leaf module name onto each entry in
+        // that package's `__path__`.
+        match path_value {
+          Value::None => ()
+          _ => {
+            let parts = module_name_parts(fullname)
+            if parts.length() > 0 {
+              rel = parts[parts.length() - 1]
+            }
+          }
+        }
+        // Prefer packages over modules (matches CPython importlib behavior).
+        for root in roots {
+          let pkg_dir = @path.Path(root).join(@path.Path(rel)).to_string()
+          let init_path = @path.Path(pkg_dir)
+            .join(@path.Path("__init__.py"))
+            .to_string()
+          if @fs.path_exists(init_path) {
+            let loader = make_importlib_loader()
+            let parent = module_parent_name(fullname)
+            let spec_class = ClassValue::{
+              name: "ModuleSpec",
+              bases: [],
+              dict: [],
+            }
+            let spec = Value::Instance(InstanceValue::{
+              class: spec_class,
+              dict: [
+                ("name", Value::Str(fullname)),
+                ("origin", Value::Str(init_path)),
+                ("loader", loader),
+                ("parent", Value::Str(parent)),
+                (
+                  "submodule_search_locations",
+                  Value::List([Value::Str(pkg_dir)]),
+                ),
+                ("cached", Value::None),
+                ("loader_state", Value::None),
+                ("_uninitialized_submodules", Value::List([])),
+                ("has_location", Value::Bool(true)),
+              ],
+            })
+            return Ok(spec)
+          }
+        }
+        for root in roots {
+          let module_path = @path.Path(root)
+            .join(@path.Path(rel + ".py"))
+            .to_string()
+          if @fs.path_exists(module_path) {
+            let loader = make_importlib_loader()
+            let parent = module_parent_name(fullname)
+            let spec_class = ClassValue::{
+              name: "ModuleSpec",
+              bases: [],
+              dict: [],
+            }
+            let spec = Value::Instance(InstanceValue::{
+              class: spec_class,
+              dict: [
+                ("name", Value::Str(fullname)),
+                ("origin", Value::Str(module_path)),
+                ("loader", loader),
+                ("parent", Value::Str(parent)),
+                ("submodule_search_locations", Value::None),
+                ("cached", Value::None),
+                ("loader_state", Value::None),
+                ("_uninitialized_submodules", Value::List([])),
+                ("has_location", Value::Bool(true)),
+              ],
+            })
+            return Ok(spec)
+          }
+        }
+        return Ok(Value::None)
+      }
+      // Intrinsic: importlib loader create_module(spec)
+      if bound_method.function.name == "__mpython_create_module" &&
+        bound_method.function.body.length() == 0 {
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "create_module() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        let spec = positional[0]
+        let (name, origin, parent, locations, loader) = match spec {
+          Value::Instance(spec_inst) => {
+            let name = match get_named_value(spec_inst.dict, "name") {
+              Some(Value::Str(v)) => v
+              _ => "<module>".to_string()
+            }
+            let origin = match get_named_value(spec_inst.dict, "origin") {
+              Some(Value::Str(v)) => v
+              _ => "<module>".to_string()
+            }
+            let parent = match get_named_value(spec_inst.dict, "parent") {
+              Some(Value::Str(v)) => v
+              _ => "".to_string()
+            }
+            let locations = match
+              get_named_value(spec_inst.dict, "submodule_search_locations") {
+              Some(v) => v
+              None => Value::None
+            }
+            let loader = match get_named_value(spec_inst.dict, "loader") {
+              Some(v) => v
+              None => Value::None
+            }
+            (name, origin, parent, locations, loader)
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "create_module() expects a spec".to_string(),
+              ),
+            )
+        }
+        let is_package = match locations {
+          Value::List(_) => true
+          _ => false
+        }
+        let package_name = if is_package { name } else { parent }
+        let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+        let dict : Array[(String, Value)] = [
+          ("__name__", Value::Str(name)),
+          ("__package__", Value::Str(package_name)),
+          ("__file__", Value::Str(origin)),
+          ("__loader__", loader),
+          ("__spec__", spec),
+        ]
+        let module_dict = dict
+        match locations {
+          Value::List(_) => module_dict.push(("__path__", locations))
+          _ => ()
+        }
+        return Ok(
+          Value::Instance(InstanceValue::{
+            class: module_class,
+            dict: module_dict,
+          }),
+        )
+      }
+      // Intrinsic: importlib loader exec_module(module)
+      if bound_method.function.name == "__mpython_exec_module" &&
+        bound_method.function.body.length() == 0 {
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "exec_module() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        let module_value = positional[0]
+        let (name, filename, module_globals, is_pkg, pkg_path) = match
+          module_value {
+          Value::Instance(inst) => {
+            let name = match get_named_value(inst.dict, "__name__") {
+              Some(Value::Str(v)) => v
+              _ => "<module>".to_string()
+            }
+            let filename = match get_named_value(inst.dict, "__file__") {
+              Some(Value::Str(v)) => v
+              _ => "<module>".to_string()
+            }
+            let mut is_pkg = false
+            let mut pkg_path = ""
+            match get_named_value(inst.dict, "__path__") {
+              Some(Value::List(values)) =>
+                if values.length() > 0 {
+                  match values[0] {
+                    Value::Str(v) => {
+                      is_pkg = true
+                      pkg_path = v
+                    }
+                    _ => ()
+                  }
+                }
+              _ => ()
+            }
+            (name, filename, inst.dict, is_pkg, pkg_path)
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "exec_module() expects a module".to_string(),
+              ),
+            )
+        }
+        let source = @fs.read_file_to_string(filename) catch {
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ImportError: cannot read file: " + filename,
+              ),
+            )
+        }
+        let config = current_config()
+        let saved_closure_env_stack = closure_env_stack.val
+        let saved_scope_decls_stack = scope_decls_stack.val
+        closure_env_stack.val = []
+        scope_decls_stack.val = []
+        push_traceback_frame("<module>".to_string(), filename)
+        let program = match parse(source) {
+          Ok(v) => v
+          Err(err) => {
+            pop_traceback_frame()
+            closure_env_stack.val = saved_closure_env_stack
+            scope_decls_stack.val = saved_scope_decls_stack
+            return Err(make_parse_runtime_error(err))
+          }
+        }
+        // Ensure package modules have an importable `__path__`.
+        if is_pkg {
+          set_named_value(
+            module_globals,
+            "__path__",
+            Value::List([Value::Str(pkg_path)]),
+          )
+        }
+        let _ = match
+          eval_block(
+            program.body,
+            module_globals,
+            module_globals,
+            builtins,
+            io,
+            config,
+          ) {
+          Ok(v) => v
+          Err(err) => {
+            pop_traceback_frame()
+            closure_env_stack.val = saved_closure_env_stack
+            scope_decls_stack.val = saved_scope_decls_stack
+            return Err(err)
+          }
+        }
+        pop_traceback_frame()
+        closure_env_stack.val = saved_closure_env_stack
+        scope_decls_stack.val = saved_scope_decls_stack
+        // Importlib expects `exec_module` to return None.
+        let _ = name
+        return Ok(Value::None)
+      }
       match bound_method.self {
         Value::Instance(inst) =>
           if (
@@ -3609,7 +3937,34 @@ fn call_callable_with_env(
           }
           dict.push(("value", value))
         }
-        return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        // Respect custom exception __init__ implementations (e.g. regrtest's
+        // TestFailedWithDetails sets extra fields like `.errors`).
+        let init = match lookup_class_attr(klass, "__init__") {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match init {
+          Some(Value::Function(func)) =>
+            // Avoid running BaseException.__init__ bodies when we don't model
+            // them; custom subclasses still get their Python __init__ executed.
+            if func.body.length() > 0 {
+              let args : Array[Value] = [inst_value]
+              for item in positional {
+                args.push(item)
+              }
+              let _ = match
+                (eval_function_with_kwargs_ref.val)(
+                  func, args, keywords, globals, builtins, io,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+
+            }
+          _ => ()
+        }
+        return Ok(inst_value)
       }
       let new_value = match lookup_class_attr(klass, "__new__") {
         Ok(value) => value
@@ -3674,7 +4029,7 @@ fn call_callable_with_env(
       }
     }
     Value::Instance(inst) => {
-      if inst.class.name == "weakref" {
+      if inst.class.name == "weakref" || inst.class.name == "KeyedRef" {
         if positional.length() != 0 || keywords.length() != 0 {
           return Err(
             make_runtime_error(
