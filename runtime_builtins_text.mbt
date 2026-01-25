@@ -855,6 +855,141 @@ fn builtin_bytes(
 }
 
 ///|
+fn bytes_like_ints_for_translate(
+  name : String,
+  value : Value,
+) -> Result[Array[Int], RuntimeError] {
+  let _ = name
+  match value {
+    Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) =>
+      Ok(bytes)
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "a bytes-like object is required".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_bytes_maketrans(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytes.maketrans", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "maketrans() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let from_bytes = match
+    bytes_like_ints_for_translate("bytes.maketrans", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let to_bytes = match
+    bytes_like_ints_for_translate("bytes.maketrans", positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if from_bytes.length() != to_bytes.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: maketrans arguments must have equal length".to_string(),
+      ),
+    )
+  }
+  let table : Array[Int] = []
+  for i = 0; i < 256; i = i + 1 {
+    table.push(i)
+  }
+  for i = 0; i < from_bytes.length(); i = i + 1 {
+    let from_b = from_bytes[i] & 0xFF
+    let to_b = to_bytes[i] & 0xFF
+    if from_b >= 0 && from_b < 256 {
+      table[from_b] = to_b
+    }
+  }
+  Ok(Value::Bytes(table))
+}
+
+///|
+fn builtin_bytes_translate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytes.translate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "translate() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let src = match positional[0] {
+    Value::Bytes(bytes) | Value::MemoryView(bytes) => bytes
+    Value::ByteArray(bytes) => bytes
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "translate() expects a bytes-like object".to_string(),
+        ),
+      )
+  }
+  let table = match
+    bytes_like_ints_for_translate("bytes.translate", positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if table.length() != 256 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: translation table must be 256 bytes long".to_string(),
+      ),
+    )
+  }
+  let out : Array[Int] = []
+  for byte in src {
+    let b = byte & 0xFF
+    out.push(table[b])
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
 fn builtin_bytearray(
   positional : Array[Value],
   keywords : Array[(String, Value)],

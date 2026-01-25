@@ -63,6 +63,79 @@ fn find_triple_quote(line : String) -> (Char, Int)? {
 }
 
 ///|
+fn unclosed_triple_quote(text : String) -> Char? {
+  // Best-effort triple-quote balancing for the lexical pre-scan. This is not a
+  // full tokenizer, but it is good enough for common stdlib patterns like:
+  //   x = """...""" + name + """.suffix\n...\n"""
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escaped = false
+  let mut triple_open : Char? = None
+  while i < chars.length() {
+    let c = chars[i]
+    match triple_open {
+      Some(open_q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == open_q &&
+          chars[i + 1] == open_q &&
+          chars[i + 2] == open_q {
+          triple_open = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    match quote {
+      Some(q) => {
+        if escaped {
+          escaped = false
+          i += 1
+          continue
+        }
+        if c == '\\' {
+          escaped = true
+          i += 1
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if c == '#' {
+      // Comment: ignore the rest of the line.
+      while i < chars.length() && chars[i] != '\n' {
+        i += 1
+      }
+      continue
+    }
+    if i + 2 < chars.length() &&
+      (c == '"' || c == '\'') &&
+      chars[i + 1] == c &&
+      chars[i + 2] == c {
+      triple_open = Some(c)
+      i += 3
+      continue
+    }
+    if c == '"' || c == '\'' {
+      quote = Some(c)
+      escaped = false
+      i += 1
+      continue
+    }
+    i += 1
+  }
+  triple_open
+}
+
+///|
 fn split_top_level_commas(text : String) -> Array[String] {
   let parts : Array[String] = []
   let chars = text.to_array()
@@ -984,21 +1057,22 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     }
     let mut next_index = index + 1
     let mut line_text = raw_line
-    if find_triple_quote(line_text) is Some((quote, pos)) {
-      if !has_triple_quote_after(line_text, quote, pos + 3) {
+    match unclosed_triple_quote(line_text) {
+      None => ()
+      Some(quote) => {
         let mut combined = line_text
         let mut idx = next_index
         while idx < lines.length() {
           let next_line = substring(lines[idx], 0, lines[idx].length()).to_string()
           combined = combined + "\n" + next_line
-          if has_triple_quote_after(next_line, quote, 0) {
-            next_index = idx + 1
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
             line_text = combined
             break
           }
-          idx += 1
         }
-        if idx == lines.length() {
+        if idx == lines.length() && unclosed_triple_quote(combined) is Some(_) {
           line_text = combined
           next_index = idx
           open_quote = Some(quote)
@@ -1020,21 +1094,22 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       next_index += 1
       line_text = line_text.trim(chars=" \t").to_string()
     }
-    if find_triple_quote(line_text) is Some((quote, pos)) {
-      if !has_triple_quote_after(line_text, quote, pos + 3) {
+    match unclosed_triple_quote(line_text) {
+      None => ()
+      Some(quote) => {
         let mut combined = line_text
         let mut idx = next_index
         while idx < lines.length() {
           let next_line = substring(lines[idx], 0, lines[idx].length()).to_string()
           combined = combined + "\n" + next_line
-          if has_triple_quote_after(next_line, quote, 0) {
-            next_index = idx + 1
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
             line_text = combined
             break
           }
-          idx += 1
         }
-        if idx == lines.length() {
+        if idx == lines.length() && unclosed_triple_quote(combined) is Some(_) {
           line_text = combined
           next_index = idx
           open_quote = Some(quote)

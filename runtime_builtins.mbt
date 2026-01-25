@@ -659,6 +659,37 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_enum_simple_enum_decorator_call,
     },
     BuiltinDef::{ name: "atexit.register", run: builtin_atexit_register },
+    BuiltinDef::{
+      name: "socket.socket.__init__",
+      run: builtin_socket_socket_init,
+    },
+    BuiltinDef::{
+      name: "socket.socket.connect",
+      run: builtin_socket_socket_connect,
+    },
+    BuiltinDef::{
+      name: "socket.socket.close",
+      run: builtin_socket_socket_close,
+    },
+    BuiltinDef::{ name: "socket.socket.send", run: builtin_socket_socket_send },
+    BuiltinDef::{
+      name: "socket.socket.sendall",
+      run: builtin_socket_socket_sendall,
+    },
+    BuiltinDef::{
+      name: "socket.socket.sendto",
+      run: builtin_socket_socket_sendto,
+    },
+    BuiltinDef::{ name: "socket.socket.recv", run: builtin_socket_socket_recv },
+    BuiltinDef::{
+      name: "socket.socket.settimeout",
+      run: builtin_socket_socket_settimeout,
+    },
+    BuiltinDef::{
+      name: "socket.create_connection",
+      run: builtin_socket_create_connection,
+    },
+    BuiltinDef::{ name: "socket.getaddrinfo", run: builtin_socket_getaddrinfo },
     BuiltinDef::{ name: "faulthandler.enable", run: builtin_faulthandler_noop },
     BuiltinDef::{ name: "faulthandler.disable", run: builtin_faulthandler_noop },
     BuiltinDef::{
@@ -820,6 +851,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "str", run: builtin_str },
     BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },
+    BuiltinDef::{ name: "bytes.maketrans", run: builtin_bytes_maketrans },
+    BuiltinDef::{ name: "bytes.translate", run: builtin_bytes_translate },
     BuiltinDef::{ name: "bytearray", run: builtin_bytearray },
     BuiltinDef::{ name: "bytearray.copy", run: builtin_bytearray_copy },
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },

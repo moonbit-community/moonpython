@@ -53,6 +53,29 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
       continue
     }
     if c == '\'' || c == '"' {
+      // Skip over triple-quoted strings so bracket mismatch detection doesn't
+      // accidentally inspect parentheses/brackets inside docstrings.
+      if i + 2 < chars.length() && chars[i + 1] == c && chars[i + 2] == c {
+        let q = c
+        i += 3
+        while i < chars.length() {
+          if chars[i] == '\n' {
+            line += 1
+            i += 1
+            line_start = i
+            continue
+          }
+          if i + 2 < chars.length() &&
+            chars[i] == q &&
+            chars[i + 1] == q &&
+            chars[i + 2] == q {
+            i += 3
+            break
+          }
+          i += 1
+        }
+        continue
+      }
       quote = Some(c)
       escape = false
       i += 1

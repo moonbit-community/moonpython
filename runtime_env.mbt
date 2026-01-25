@@ -67,6 +67,22 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "bytes" {
+    dict.push(
+      (
+        "maketrans",
+        Value::Function(FunctionValue::{
+          name: "bytes.maketrans",
+          params: ["from", "to"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "property" {
     dict.push(
       (

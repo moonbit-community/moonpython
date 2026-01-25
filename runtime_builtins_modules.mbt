@@ -171,6 +171,335 @@ fn builtin_atexit_register(
 }
 
 ///|
+fn ensure_socket_buffer(dict : Array[(String, Value)]) -> Array[Int] {
+  match lookup_iterable_field(dict, "buffer") {
+    Some(Value::ByteArray(buf)) => buf
+    Some(Value::Bytes(buf)) => buf
+    Some(Value::MemoryView(buf)) => buf
+    _ => {
+      let buf : Array[Int] = []
+      set_iterable_field(dict, "buffer", Value::ByteArray(buf))
+      buf
+    }
+  }
+}
+
+///|
+fn socket_bytes_from_value(value : Value) -> Result[Array[Int], RuntimeError] {
+  match value {
+    Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) =>
+      Ok(bytes)
+    Value::Str(text) => Ok(encode_string_utf8(text))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "socket expects a bytes-like object".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_socket_init(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "socket.__init__ missing self".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) => {
+      let _ = ensure_socket_buffer(inst.dict)
+      set_iterable_field(inst.dict, "closed", Value::Bool(false))
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "socket.__init__ invalid self".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_socket_connect(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "connect() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) => {
+      set_iterable_field(inst.dict, "address", positional[1])
+      set_iterable_field(inst.dict, "connected", Value::Bool(true))
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "connect() invalid self".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_socket_close(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "close() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) => {
+      set_iterable_field(inst.dict, "closed", Value::Bool(true))
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "close() invalid self".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_socket_send(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "send() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let payload = match socket_bytes_from_value(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[0] {
+    Value::Instance(inst) => {
+      let buf = ensure_socket_buffer(inst.dict)
+      for byte in payload {
+        buf.push(byte)
+      }
+      Ok(Value::Int(@bigint.BigInt::from_int(payload.length())))
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "send() invalid self".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_socket_sendall(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  let _ = match
+    builtin_socket_socket_send(positional, [], locals, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_socket_socket_sendto(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "sendto() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  // ignore address; treat as send
+  builtin_socket_socket_send(
+    [positional[0], positional[1]],
+    [],
+    locals,
+    globals,
+    builtins,
+    io,
+  )
+}
+
+///|
+fn builtin_socket_socket_recv(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "recv() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Bytes([]))
+}
+
+///|
+fn builtin_socket_socket_settimeout(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() < 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "settimeout() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) => {
+      set_iterable_field(inst.dict, "timeout", positional[1])
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "settimeout() invalid self".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_socket_create_connection(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "create_connection() missing address".to_string(),
+      ),
+    )
+  }
+  let klass = socket_socket_class(builtins)
+  let dict : Array[(String, Value)] = [
+    ("buffer", Value::ByteArray([])),
+    ("closed", Value::Bool(false)),
+    ("connected", Value::Bool(true)),
+    ("address", positional[0]),
+  ]
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+}
+
+///|
+fn builtin_socket_getaddrinfo(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = builtins
+  let _ = io
+  let _ = globals
+  let _ = locals
+  let _ = positional
+  let _ = keywords
+  // Minimal stub: no real DNS/networking.
+  Ok(Value::List([]))
+}
+
+///|
 fn builtin_mpython_asyncgenexp_next(
   positional : Array[Value],
   keywords : Array[(String, Value)],

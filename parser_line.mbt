@@ -112,21 +112,23 @@ fn LineParser::parse_block(
       line_text = "while " + substring(line_text, 5, line_text.length())
     }
     let mut next_index = self.index + 1
-    if find_triple_quote(raw_line) is Some((quote, pos)) {
-      if !has_triple_quote_after(raw_line, quote, pos + 3) {
+    match unclosed_triple_quote(raw_line) {
+      None => ()
+      Some(_) => {
         let mut combined = raw_line
         let mut idx = self.index + 1
         while idx < self.lines.length() {
           let next_line = self.lines[idx]
           combined = combined + "\n" + next_line
-          if has_triple_quote_after(next_line, quote, 0) {
-            next_index = idx + 1
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
             line_text = combined
             break
           }
-          idx += 1
         }
-        if idx == self.lines.length() {
+        if idx == self.lines.length() &&
+          unclosed_triple_quote(combined) is Some(_) {
           line_text = combined
           next_index = idx
         }
@@ -147,21 +149,23 @@ fn LineParser::parse_block(
       next_index += 1
       line_text = line_text.trim(chars=" \t").to_string()
     }
-    if find_triple_quote(line_text) is Some((quote, pos)) {
-      if !has_triple_quote_after(line_text, quote, pos + 3) {
+    match unclosed_triple_quote(line_text) {
+      None => ()
+      Some(_) => {
         let mut combined = line_text
         let mut idx = next_index
         while idx < self.lines.length() {
           let next_line = self.lines[idx]
           combined = combined + "\n" + next_line
-          if has_triple_quote_after(next_line, quote, 0) {
-            next_index = idx + 1
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
             line_text = combined
             break
           }
-          idx += 1
         }
-        if idx == self.lines.length() {
+        if idx == self.lines.length() &&
+          unclosed_triple_quote(combined) is Some(_) {
           line_text = combined
           next_index = idx
         }

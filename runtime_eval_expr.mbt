@@ -1313,6 +1313,29 @@ fn eval_expr_with_env(
       }
       match op {
         UnaryOp::Neg => {
+          // User-defined unary operators: fall back to numeric handling only if
+          // the instance doesn't implement the corresponding dunder.
+          match value {
+            Value::Instance(_) =>
+              match
+                get_attr_from_value(value, "__neg__", globals, builtins, io) {
+                Ok(dunder) =>
+                  return call_callable_with_env(
+                    dunder,
+                    [],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute => ()
+                    _ => return Err(err)
+                  }
+              }
+            _ => ()
+          }
           match value {
             Value::Complex(real, imag) =>
               return Ok(Value::Complex(-real, -imag))
@@ -1332,9 +1355,44 @@ fn eval_expr_with_env(
             }
           }
         }
-        UnaryOp::Pos => Ok(value)
+        UnaryOp::Pos =>
+          match value {
+            Value::Instance(_) =>
+              match
+                get_attr_from_value(value, "__pos__", globals, builtins, io) {
+                Ok(dunder) =>
+                  call_callable_with_env(dunder, [], [], globals, builtins, io)
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute => Ok(value)
+                    _ => Err(err)
+                  }
+              }
+            _ => Ok(value)
+          }
         UnaryOp::Not => Ok(Value::Bool(!bool_from_value(value)))
-        UnaryOp::Invert =>
+        UnaryOp::Invert => {
+          match value {
+            Value::Instance(_) =>
+              match
+                get_attr_from_value(value, "__invert__", globals, builtins, io) {
+                Ok(dunder) =>
+                  return call_callable_with_env(
+                    dunder,
+                    [],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute => ()
+                    _ => return Err(err)
+                  }
+              }
+            _ => ()
+          }
           match value {
             Value::Int(v) => Ok(Value::Int(-(v + 1N)))
             Value::Bool(v) => Ok(Value::Int(-((if v { 1N } else { 0N }) + 1N)))
@@ -1371,6 +1429,7 @@ fn eval_expr_with_env(
                 ),
               )
           }
+        }
       }
     }
     Expr::Binary(op~, left~, right~) => {

@@ -6,3 +6,11 @@ target
 .moonagent/
 cpython-tests
 scripts/reference_cache/
+
+# Local scratch/debug scripts (not part of the repo)
+tmp_*.py
+examples/tmp_*.py
+examples/try_*.py
+examples/repro_*.py
+examples/mpy_repro_*.py
+examples/runtests.py

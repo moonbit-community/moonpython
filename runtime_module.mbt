@@ -440,6 +440,140 @@ fn make_atexit_module() -> Value {
 }
 
 ///|
+let socket_socket_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
+fn socket_socket_class(builtins : Array[(String, Value)]) -> ClassValue {
+  match socket_socket_class_ref.val {
+    Some(klass) => return klass
+    None => ()
+  }
+  let object_class = builtin_class_from_name("object", builtins)
+  let dict : Array[(String, Value)] = [
+    (
+      "__init__",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.__init__",
+        params: ["self", "*args", "**kwargs"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "connect",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.connect",
+        params: ["self", "address"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "close",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.close",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "send",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.send",
+        params: ["self", "data"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "sendall",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.sendall",
+        params: ["self", "data"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "sendto",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.sendto",
+        params: ["self", "data", "address"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "recv",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.recv",
+        params: ["self", "bufsize"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "settimeout",
+      Value::Function(FunctionValue::{
+        name: "socket.socket.settimeout",
+        params: ["self", "timeout"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  ]
+  let klass = ClassValue::{
+    name: "socket",
+    bases: [Value::Class(object_class)],
+    dict,
+  }
+  socket_socket_class_ref.val = Some(klass)
+  klass
+}
+
+///|
+fn make_socket_module(builtins : Array[(String, Value)]) -> Value {
+  // Minimal `socket` shim: enough for importing `logging.handlers` and running
+  // non-networking stdlib tests. This does not implement real networking.
+  make_module_instance("socket", [
+    ("AF_UNIX", Value::Int(1N)),
+    ("AF_INET", Value::Int(2N)),
+    ("AF_INET6", Value::Int(10N)),
+    ("SOCK_STREAM", Value::Int(1N)),
+    ("SOCK_DGRAM", Value::Int(2N)),
+    ("has_ipv6", Value::Bool(false)),
+    ("socket", Value::Class(socket_socket_class(builtins))),
+    ("create_connection", module_function_stub("socket.create_connection")),
+    ("getaddrinfo", module_function_stub("socket.getaddrinfo")),
+  ])
+}
+
+///|
 fn make_select_module() -> Value {
   make_module_instance("select", [
     ("select", module_function_stub("select.select")),
@@ -1255,6 +1389,24 @@ fn make_python_module(
       })
     }
   }
+  fn unwrap_stmt(node : Stmt) -> Stmt {
+    match node {
+      Stmt::WithSpan(span~, stmt~) => {
+        let _ = span
+        unwrap_stmt(stmt)
+      }
+      other => other
+    }
+  }
+
+  let doc_value = if program.body.length() > 0 {
+    match unwrap_stmt(program.body[0]) {
+      Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) => Value::Str(text)
+      _ => Value::None
+    }
+  } else {
+    Value::None
+  }
   let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
   let submodule_locations = if is_package {
     Value::List([Value::Str(package_path_abs)])
@@ -1281,6 +1433,7 @@ fn make_python_module(
     ("__file__", Value::Str(filename_abs)),
     ("__loader__", Value::None),
     ("__spec__", spec_value),
+    ("__doc__", doc_value),
   ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let module_value = Value::Instance(InstanceValue::{
@@ -1530,6 +1683,8 @@ fn import_module(
     make_faulthandler_module()
   } else if module_name == "atexit" {
     make_atexit_module()
+  } else if module_name == "socket" {
+    make_socket_module(builtins)
   } else if module_name == "select" {
     make_select_module()
   } else if module_name == "_thread" {
