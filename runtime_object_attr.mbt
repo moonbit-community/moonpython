@@ -266,11 +266,9 @@ fn get_attr_raw_from_value(
       }
     Value::Instance(inst) => {
       if inst.class.name == "module" && attr == "__dict__" {
-        let pairs : Array[(Value, Value)] = []
-        for item in inst.dict {
-          pairs.push((Value::Str(item.0), item.1))
-        }
-        return Ok(Value::Dict(pairs))
+        // `module.__dict__` must be a live mapping so stdlib helpers like
+        // `sys.modules[mod].__dict__.update(...)` can mutate module globals.
+        return Ok(make_module_globals_dict_instance(inst.dict))
       }
       if attr == "__dict__" {
         let pairs : Array[(Value, Value)] = []
