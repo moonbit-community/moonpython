@@ -592,6 +592,46 @@ fn builtin_dict_pop(
 }
 
 ///|
+fn builtin_dict_popitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("popitem", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "popitem() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let pairs = match dict_pairs_from_value("popitem", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if pairs.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Key,
+        "popitem(): dictionary is empty".to_string(),
+      ),
+    )
+  }
+  // Python 3.7+ specifies LIFO for popitem(); preserve our insertion order by
+  // popping the last pair.
+  let removed = pairs.remove(pairs.length() - 1)
+  Ok(Value::Tuple([removed.0, removed.1]))
+}
+
+///|
 fn builtin_dict_setdefault(
   positional : Array[Value],
   keywords : Array[(String, Value)],

@@ -31,6 +31,91 @@ fn builtin_mpython_run(
 }
 
 ///|
+fn builtin_asyncio_iscoroutinefunction(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("asyncio.iscoroutinefunction", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "iscoroutinefunction() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let mut ok = false
+  match target {
+    Value::Function(func) => ok = func.is_async && !func.is_generator
+    Value::BoundMethod(bm) =>
+      ok = bm.function.is_async && !bm.function.is_generator
+    _ => ()
+  }
+  Ok(Value::Bool(ok))
+}
+
+///|
+fn builtin_platform_system(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("platform.system", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "system() takes no arguments".to_string(),
+      ),
+    )
+  }
+  // Minimal platform tag. Keep it aligned with `sys.platform` ("wasi") so the
+  // stdlib can take appropriate feature-gating branches.
+  Ok(Value::Str("wasi"))
+}
+
+///|
+fn builtin_platform_machine(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("platform.machine", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "machine() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str("wasm32"))
+}
+
+///|
 let enum_auto_counter : Ref[Int] = { val: 0 }
 
 ///|

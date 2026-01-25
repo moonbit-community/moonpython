@@ -1856,7 +1856,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("del ") {
     let rest = substring(trimmed, 4, trimmed.length())
     let targets : Array[Target] = []
-    for part in rest.split(",") {
+    for part in split_top_level_commas(rest) {
       let text = part.trim(chars=" \t").to_string()
       if text.length() == 0 {
         continue

@@ -216,6 +216,20 @@ fn builtin_class_from_name(
     )
     dict.push(
       (
+        "popitem",
+        Value::Function(FunctionValue::{
+          name: "dict.popitem",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
         "setdefault",
         Value::Function(FunctionValue::{
           name: "dict.setdefault",

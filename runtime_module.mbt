@@ -364,11 +364,44 @@ fn make_time_module() -> Value {
 }
 
 ///|
+fn make_platform_module() -> Value {
+  // Minimal `platform` shim. The real CPython `platform` module relies on
+  // tuple subclassing (namedtuple) which moonpython does not fully support yet.
+  make_module_instance("platform", [
+    (
+      "system",
+      Value::Function(FunctionValue::{
+        name: "platform.system",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "machine",
+      Value::Function(FunctionValue::{
+        name: "platform.machine",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  ])
+}
+
+///|
 fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
   // Minimal enum shim: enough for stdlib imports (ast/inspect/dataclasses).
   // This is *not* a full implementation of CPython's enum module.
   let object_class = builtin_class_from_name("object", builtins)
   let int_class = builtin_class_from_name("int", builtins)
+  let str_class = builtin_class_from_name("str", builtins)
   let enum_class = ClassValue::{
     name: "Enum",
     bases: [Value::Class(object_class)],
@@ -377,6 +410,11 @@ fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
   let int_enum_class = ClassValue::{
     name: "IntEnum",
     bases: [Value::Class(int_class)],
+    dict: [],
+  }
+  let str_enum_class = ClassValue::{
+    name: "StrEnum",
+    bases: [Value::Class(str_class)],
     dict: [],
   }
   let decorator_class = ClassValue::{
@@ -400,6 +438,7 @@ fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
   make_module_instance("enum", [
     ("Enum", Value::Class(enum_class)),
     ("IntEnum", Value::Class(int_enum_class)),
+    ("StrEnum", Value::Class(str_enum_class)),
     // For now, treat IntFlag as an int subclass marker (inspect.BufferFlags).
     ("IntFlag", Value::Class(int_class)),
     ("auto", module_function_stub("enum.auto")),
@@ -697,6 +736,18 @@ fn make_asyncio_module() -> Value {
   make_module_instance("asyncio", [
     ("run", module_function_stub("asyncio.run")),
     ("gather", module_function_stub("asyncio.gather")),
+    (
+      "iscoroutinefunction",
+      Value::Function(FunctionValue::{
+        name: "asyncio.iscoroutinefunction",
+        params: ["func"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
   ])
 }
 
@@ -1627,6 +1678,18 @@ fn import_module(
   io : MockIO,
   config : Config,
 ) -> Result[Value, RuntimeError] {
+  // CPython's test suite imports a number of private C-extension-only helper
+  // modules (e.g. `_testcapi`). moonpython doesn't support C extensions, so
+  // treat these as "skipped" to avoid crashing test modules that assume the
+  // extension exists.
+  if module_name.has_prefix("_test") {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "SkipTest: test module requires CPython C extension " + module_name,
+      ),
+    )
+  }
   if module_name.length() == 0 {
     if !config.allow_filesystem_imports {
       return Err(
@@ -1671,6 +1734,8 @@ fn import_module(
     make_builtins_module(builtins)
   } else if module_name == "sys" {
     make_sys_module(builtins, config)
+  } else if module_name == "platform" {
+    make_platform_module()
   } else if module_name.has_prefix("_sysconfigdata_") {
     make_sysconfigdata_module(module_name)
   } else if module_name == "_struct" {

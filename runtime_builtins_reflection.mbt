@@ -2379,6 +2379,40 @@ fn builtin_module_globals_update(
 }
 
 ///|
+fn builtin_module_globals_copy(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.copy", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "copy() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.copy", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let pairs : Array[(Value, Value)] = []
+  for item in env {
+    pairs.push((Value::Str(item.0), item.1))
+  }
+  Ok(Value::Dict(pairs))
+}
+
+///|
 fn builtin_vars(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2685,7 +2719,7 @@ fn builtin_dir(
 
   // __dir__ hook
   match value {
-    Value::Instance(_) | Value::Class(_) => {
+    Value::Instance(_) => {
       let hook = match
         get_attr_from_value(value, "__dir__", globals, builtins, io) {
         Ok(v) => v
@@ -2712,6 +2746,8 @@ fn builtin_dir(
         }
       }
     }
+    // For type objects, CPython uses the metaclass' `__dir__` (type.__dir__),
+    // not the class' own `__dir__` attribute meant for instances.
     _ => ()
   }
 

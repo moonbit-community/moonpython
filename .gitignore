@@ -14,3 +14,6 @@ examples/try_*.py
 examples/repro_*.py
 examples/mpy_repro_*.py
 examples/runtests.py
+
+# Local scratch workspace
+tempcwd/

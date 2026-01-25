@@ -633,6 +633,12 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "__mpython.internal_next", run: builtin_internal_next },
     BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
     BuiltinDef::{ name: "asyncio.gather", run: builtin_asyncio_gather },
+    BuiltinDef::{
+      name: "asyncio.iscoroutinefunction",
+      run: builtin_asyncio_iscoroutinefunction,
+    },
+    BuiltinDef::{ name: "platform.system", run: builtin_platform_system },
+    BuiltinDef::{ name: "platform.machine", run: builtin_platform_machine },
     BuiltinDef::{ name: "time.time", run: builtin_time_time },
     BuiltinDef::{ name: "time.monotonic", run: builtin_time_monotonic },
     BuiltinDef::{ name: "time.perf_counter", run: builtin_time_perf_counter },
@@ -880,6 +886,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "dict.fromkeys", run: builtin_dict_fromkeys },
     BuiltinDef::{ name: "dict.get", run: builtin_dict_get },
     BuiltinDef::{ name: "dict.pop", run: builtin_dict_pop },
+    BuiltinDef::{ name: "dict.popitem", run: builtin_dict_popitem },
     BuiltinDef::{ name: "dict.setdefault", run: builtin_dict_setdefault },
     BuiltinDef::{ name: "dict.keys", run: builtin_dict_keys },
     BuiltinDef::{ name: "dict.values", run: builtin_dict_values },
@@ -1007,6 +1014,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{
       name: "module_globals.update",
       run: builtin_module_globals_update,
+    },
+    BuiltinDef::{
+      name: "module_globals.copy",
+      run: builtin_module_globals_copy,
     },
     BuiltinDef::{ name: "vars", run: builtin_vars },
     BuiltinDef::{ name: "locals", run: builtin_locals },

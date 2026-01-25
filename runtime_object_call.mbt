@@ -1563,6 +1563,62 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Bool(matched))
               }
+              "removeprefix" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "removeprefix() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let prefix = match positional[0] {
+                    Value::Str(value) => value
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "removeprefix() expects a str prefix".to_string(),
+                        ),
+                      )
+                  }
+                  if text.has_prefix(prefix) {
+                    return Ok(
+                      Value::Str(
+                        substring(text, prefix.length(), text.length()),
+                      ),
+                    )
+                  }
+                  return Ok(Value::Str(text))
+                }
+              "removesuffix" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "removesuffix() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let suffix = match positional[0] {
+                    Value::Str(value) => value
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "removesuffix() expects a str suffix".to_string(),
+                        ),
+                      )
+                  }
+                  if text.has_suffix(suffix) {
+                    return Ok(
+                      Value::Str(
+                        substring(text, 0, text.length() - suffix.length()),
+                      ),
+                    )
+                  }
+                  return Ok(Value::Str(text))
+                }
               "isascii" =>
                 if positional.length() != 0 {
                   return Err(
@@ -2906,6 +2962,26 @@ fn call_callable_with_env(
                     "key not found".to_string(),
                   ),
                 )
+              }
+              "popitem" => {
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "popitem() takes no arguments".to_string(),
+                    ),
+                  )
+                }
+                if pairs.length() == 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Key,
+                      "popitem(): dictionary is empty".to_string(),
+                    ),
+                  )
+                }
+                let removed = pairs.remove(pairs.length() - 1)
+                return Ok(Value::Tuple([removed.0, removed.1]))
               }
               "setdefault" => {
                 if positional.length() == 0 || positional.length() > 2 {

@@ -181,6 +181,18 @@ fn module_globals_dict_class() -> ClassValue {
         closure: [],
       }),
     ),
+    (
+      "copy",
+      Value::Function(FunctionValue::{
+        name: "module_globals.copy",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
   ]
   let klass = ClassValue::{ name: "module_globals_dict", bases: [], dict }
   module_globals_dict_class_ref.val = Some(klass)

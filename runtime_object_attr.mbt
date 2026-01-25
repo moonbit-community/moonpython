@@ -1170,6 +1170,38 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "removeprefix" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "removeprefix",
+              params: ["self", "prefix"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "removesuffix" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "removesuffix",
+              params: ["self", "suffix"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "encode" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1462,6 +1494,22 @@ fn get_attr_raw_from_value(
               name: "pop",
               params: ["self", "key", "default"],
               defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "popitem" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "popitem",
+              params: ["self"],
+              defaults: [],
               body: [],
               is_generator: false,
               is_async: false,
@@ -2060,7 +2108,25 @@ fn get_attr_raw_from_value(
           }
           Ok(Value::Str(module_name))
         } else if attr == "__doc__" {
-          Ok(Value::None)
+          fn unwrap_stmt(node : Stmt) -> Stmt {
+            match node {
+              Stmt::WithSpan(span~, stmt~) => {
+                let _ = span
+                unwrap_stmt(stmt)
+              }
+              other => other
+            }
+          }
+
+          if func.body.length() > 0 {
+            match unwrap_stmt(func.body[0]) {
+              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
+                Ok(Value::Str(text))
+              _ => Ok(Value::None)
+            }
+          } else {
+            Ok(Value::None)
+          }
         } else if attr == "__qualname__" {
           Ok(Value::Str(func.name))
         } else if attr == "__name__" {
@@ -2156,6 +2222,20 @@ fn get_attr_raw_from_value(
           pairs.push((Value::Str(item.0), item.1))
         }
         Ok(Value::Dict(pairs))
+      } else if klass.name == "code" && attr == "__init__" {
+        // Introspection-only stub so stdlib utilities (e.g. unittest.mock)
+        // can access `types.CodeType.__init__`.
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "code.__init__",
+            params: ["self", "*args", "**kwargs"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
       } else if attr == "__mro__" {
         let mro = match class_mro(klass) {
           Ok(value) => value

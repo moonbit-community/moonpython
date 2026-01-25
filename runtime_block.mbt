@@ -419,14 +419,20 @@ fn make_frame_value(frame : TracebackFrame) -> Value {
 ///|
 fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
   if frames.length() == 0 {
-    let frame_value = Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "frame", bases: [], dict: [] },
-      dict: [],
+    // Some stdlib helpers expect `tb_frame.f_code` etc to exist even when the
+    // interpreter doesn't have a real stack. Provide a minimal placeholder.
+    let frame_value = make_frame_value(TracebackFrame::{
+      name: "<module>",
+      filename: "<module>",
+      line: 1,
+      column: 1,
     })
     return Value::Instance(InstanceValue::{
       class: ClassValue::{ name: "traceback", bases: [], dict: [] },
       dict: [
         ("tb_frame", frame_value),
+        ("tb_lineno", Value::Int(1N)),
+        ("tb_colno", Value::Int(1N)),
         ("tb_next", Value::None),
         ("tb_lasti", Value::Int(-1N)),
       ],
@@ -459,6 +465,53 @@ fn exception_value_from_runtime_error(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Value {
+  fn maybe_populate_syntax_error(
+    dict : Array[(String, Value)],
+    err : RuntimeError,
+    globals : Array[(String, Value)],
+  ) -> Unit {
+    if err.exc_type != "SyntaxError" {
+      return
+    }
+    // CPython's traceback helpers expect these fields on SyntaxError instances.
+    let filename = match get_named_value(globals, "__file__") {
+      Some(Value::Str(name)) => name
+      _ => "<module>".to_string()
+    }
+    set_named_value(dict, "filename", Value::Str(filename))
+    set_named_value(dict, "msg", Value::Str(err.message))
+    // `traceback` and `unittest` expect this to exist even when we don't have
+    // access to the full source line.
+    if get_named_value(dict, "text") is None {
+      set_named_value(dict, "text", Value::None)
+    }
+    match err.span {
+      Some(span) => {
+        set_named_value(
+          dict,
+          "lineno",
+          Value::Int(@bigint.BigInt::from_int(span.line)),
+        )
+        set_named_value(
+          dict,
+          "offset",
+          Value::Int(@bigint.BigInt::from_int(span.column)),
+        )
+        set_named_value(
+          dict,
+          "end_lineno",
+          Value::Int(@bigint.BigInt::from_int(span.line)),
+        )
+        set_named_value(
+          dict,
+          "end_offset",
+          Value::Int(@bigint.BigInt::from_int(span.column)),
+        )
+      }
+      None => ()
+    }
+  }
+
   match err.exc_value {
     Some(Value::Instance(inst)) => {
       // Keep the existing exception object, but sync core metadata so
@@ -489,6 +542,7 @@ fn exception_value_from_runtime_error(
         "__suppress_context__",
         Value::Bool(err.exc_suppress_context),
       )
+      maybe_populate_syntax_error(inst.dict, err, globals)
       return Value::Instance(inst)
     }
     _ => ()
@@ -542,6 +596,7 @@ fn exception_value_from_runtime_error(
             "__suppress_context__",
             Value::Bool(err.exc_suppress_context),
           )
+          maybe_populate_syntax_error(inst.dict, err, globals)
           Value::Instance(inst)
         }
         _ => Value::Str(format_runtime_error(err))

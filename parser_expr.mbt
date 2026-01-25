@@ -139,9 +139,29 @@ fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
       _ => Ok(Expr::Yield(Some(first)))
     }
   }
-  let expr = match self.parse_conditional() {
-    Ok(value) => value
-    Err(err) => return Err(err)
+  let expr = if self.current().kind == Star {
+    let star = self.advance()
+    let value = match self.parse_conditional() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    // Starred expressions must participate in a tuple/list display (or call
+    // args). Without a comma, treat `*expr` as invalid syntax.
+    if self.current().kind != Comma {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          star,
+        ),
+      )
+    }
+    Expr::Starred(value~)
+  } else {
+    match self.parse_conditional() {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
   }
   match self.view() {
     [{ kind: Comma, .. }, ..] => {
@@ -152,9 +172,18 @@ fn ExprParser::parse_expr(self : ExprParser) -> Result[Expr, ParseError] {
         if self.view() is [{ kind: Eof, .. }, ..] {
           break
         }
-        let next = match self.parse_conditional() {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        let next = if self.current().kind == Star {
+          let _ = self.advance()
+          let value = match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          Expr::Starred(value~)
+        } else {
+          match self.parse_conditional() {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
         }
         items.push(next)
       }
@@ -701,7 +730,11 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        let cond = match self.parse_conditional() {
+        // In comprehensions, parse `if` filters as a non-conditional expression.
+        // This matches CPython's grammar (`if` filter expects an `or_test`) and
+        // allows multiple `if` clauses without the next `if` being consumed as a
+        // ternary operator.
+        let cond = match self.parse_or() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
