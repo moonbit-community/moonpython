@@ -252,11 +252,32 @@ fn make_dict_view_instance(view_name : String, dict_value : Value) -> Value {
 }
 
 ///|
-fn make_code_instance(flags : @bigint.BigInt) -> Value {
+fn make_code_instance_with_meta(
+  flags : @bigint.BigInt,
+  filename : String,
+  name : String,
+  firstlineno : @bigint.BigInt,
+) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "code", bases: [], dict: [] },
-    dict: [("co_flags", Value::Int(flags))],
+    dict: [
+      ("co_flags", Value::Int(flags)),
+      ("co_filename", Value::Str(filename)),
+      ("co_name", Value::Str(name)),
+      ("co_qualname", Value::Str(name)),
+      ("co_firstlineno", Value::Int(firstlineno)),
+    ],
   })
+}
+
+///|
+fn make_code_instance(flags : @bigint.BigInt) -> Value {
+  make_code_instance_with_meta(
+    flags,
+    "<code>".to_string(),
+    "<code>".to_string(),
+    1N,
+  )
 }
 
 ///|

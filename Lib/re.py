@@ -22,6 +22,13 @@ __all__ = [
     "VERBOSE",
     "ASCII",
     "UNICODE",
+    "A",
+    "I",
+    "L",
+    "M",
+    "S",
+    "U",
+    "X",
 ]
 
 # Flag values mirror CPython for compatibility (limited regex support).
@@ -32,6 +39,15 @@ DOTALL = 16
 UNICODE = 32
 VERBOSE = 64
 ASCII = 256
+
+# Common flag aliases (CPython-compatible).
+A = ASCII
+I = IGNORECASE
+L = LOCALE
+M = MULTILINE
+S = DOTALL
+U = UNICODE
+X = VERBOSE
 
 
 class error(Exception):

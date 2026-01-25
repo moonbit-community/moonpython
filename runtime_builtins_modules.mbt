@@ -149,6 +149,28 @@ fn builtin_enum_simple_enum_decorator_call(
 }
 
 ///|
+fn builtin_atexit_register(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "atexit.register() missing callable".to_string(),
+      ),
+    )
+  }
+  Ok(positional[0])
+}
+
+///|
 fn builtin_mpython_asyncgenexp_next(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -570,6 +592,45 @@ fn builtin_time_sleep(
     )
   }
   Ok(Value::None)
+}
+
+///|
+fn builtin_time_localtime(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("time.localtime", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 && positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "time.localtime() takes 0 or 1 argument".to_string(),
+      ),
+    )
+  }
+  // Minimal stub: return a 9-tuple shaped like time.struct_time.
+  // logging only needs this to be accepted by time.strftime() (also stubbed).
+  Ok(
+    Value::Tuple([
+      Value::Int(1970N),
+      Value::Int(1N),
+      Value::Int(1N),
+      Value::Int(0N),
+      Value::Int(0N),
+      Value::Int(0N),
+      Value::Int(0N),
+      Value::Int(1N),
+      Value::Int(0N),
+    ]),
+  )
 }
 
 ///|

@@ -645,6 +645,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "time.process_time_ns",
       run: builtin_time_process_time_ns,
     },
+    BuiltinDef::{ name: "time.localtime", run: builtin_time_localtime },
     BuiltinDef::{ name: "time.sleep", run: builtin_time_sleep },
     BuiltinDef::{ name: "time.strftime", run: builtin_time_strftime },
     BuiltinDef::{ name: "enum.auto", run: builtin_enum_auto },
@@ -657,6 +658,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "enum._simple_enum_decorator_call",
       run: builtin_enum_simple_enum_decorator_call,
     },
+    BuiltinDef::{ name: "atexit.register", run: builtin_atexit_register },
     BuiltinDef::{ name: "faulthandler.enable", run: builtin_faulthandler_noop },
     BuiltinDef::{ name: "faulthandler.disable", run: builtin_faulthandler_noop },
     BuiltinDef::{

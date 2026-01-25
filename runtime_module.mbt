@@ -357,6 +357,7 @@ fn make_time_module() -> Value {
     ("perf_counter_ns", module_function_stub("time.perf_counter_ns")),
     ("process_time", module_function_stub("time.process_time")),
     ("process_time_ns", module_function_stub("time.process_time_ns")),
+    ("localtime", module_function_stub("time.localtime")),
     ("sleep", module_function_stub("time.sleep")),
     ("strftime", module_function_stub("time.strftime")),
   ])
@@ -426,6 +427,15 @@ fn make_faulthandler_module() -> Value {
       module_function_stub("faulthandler.cancel_dump_traceback_later"),
     ),
     ("is_enabled", module_function_stub("faulthandler.is_enabled")),
+  ])
+}
+
+///|
+fn make_atexit_module() -> Value {
+  // Minimal `atexit` shim: used by stdlib modules like `logging` to register
+  // shutdown hooks. We don't execute hooks yet, but `register()` must exist.
+  make_module_instance("atexit", [
+    ("register", module_function_stub("atexit.register")),
   ])
 }
 
@@ -1518,6 +1528,8 @@ fn import_module(
     make_binascii_module()
   } else if module_name == "faulthandler" {
     make_faulthandler_module()
+  } else if module_name == "atexit" {
+    make_atexit_module()
   } else if module_name == "select" {
     make_select_module()
   } else if module_name == "_thread" {

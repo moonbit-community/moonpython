@@ -1966,7 +1966,36 @@ fn get_attr_raw_from_value(
           return Ok(pairs[i].1)
         }
         if attr == "__code__" {
-          Ok(make_code_instance(0N))
+          let mut co_filename = "<module>".to_string()
+          if func.body.length() == 0 {
+            co_filename = "<builtins>".to_string()
+          } else {
+            let mut env = globals
+            for pair in func.closure {
+              if pair.0 == globals_capture_name {
+                match pair.1 {
+                  Value::Instance(inst) => env = inst.dict
+                  _ => ()
+                }
+                break
+              }
+            }
+            match get_named_value(env, "__file__") {
+              Some(Value::Str(text)) => co_filename = text
+              _ => ()
+            }
+          }
+          let mut flags = 0N
+          if func.is_generator {
+            if func.is_async {
+              flags = flags + 512N // CO_ASYNC_GENERATOR
+            } else {
+              flags = flags + 32N // CO_GENERATOR
+            }
+          } else if func.is_async {
+            flags = flags + 128N // CO_COROUTINE
+          }
+          Ok(make_code_instance_with_meta(flags, co_filename, func.name, 1N))
         } else if attr == "__closure__" {
           let cells : Array[Value] = []
           for pair in func.closure {
