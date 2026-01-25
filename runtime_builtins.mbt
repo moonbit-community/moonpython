@@ -931,6 +931,48 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "id", run: builtin_id },
     BuiltinDef::{ name: "hash", run: builtin_hash },
     BuiltinDef::{ name: "globals", run: builtin_globals },
+    BuiltinDef::{
+      name: "module_globals.__getitem__",
+      run: builtin_module_globals_getitem,
+    },
+    BuiltinDef::{
+      name: "module_globals.__setitem__",
+      run: builtin_module_globals_setitem,
+    },
+    BuiltinDef::{
+      name: "module_globals.__delitem__",
+      run: builtin_module_globals_delitem,
+    },
+    BuiltinDef::{
+      name: "module_globals.__iter__",
+      run: builtin_module_globals_iter,
+    },
+    BuiltinDef::{
+      name: "module_globals.__len__",
+      run: builtin_module_globals_len,
+    },
+    BuiltinDef::{
+      name: "module_globals.__contains__",
+      run: builtin_module_globals_contains,
+    },
+    BuiltinDef::{ name: "module_globals.get", run: builtin_module_globals_get },
+    BuiltinDef::{
+      name: "module_globals.keys",
+      run: builtin_module_globals_keys,
+    },
+    BuiltinDef::{
+      name: "module_globals.values",
+      run: builtin_module_globals_values,
+    },
+    BuiltinDef::{
+      name: "module_globals.items",
+      run: builtin_module_globals_items,
+    },
+    BuiltinDef::{ name: "module_globals.pop", run: builtin_module_globals_pop },
+    BuiltinDef::{
+      name: "module_globals.update",
+      run: builtin_module_globals_update,
+    },
     BuiltinDef::{ name: "vars", run: builtin_vars },
     BuiltinDef::{ name: "locals", run: builtin_locals },
     BuiltinDef::{ name: "eval", run: builtin_eval },

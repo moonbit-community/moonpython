@@ -1851,11 +1851,531 @@ fn builtin_globals(
       ),
     )
   }
+  Ok(make_module_globals_dict_instance(globals))
+}
+
+///|
+fn module_globals_env_from_self(
+  name : String,
+  self_value : Value,
+) -> Result[Array[(String, Value)], RuntimeError] {
+  match self_value {
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, "$__env_id__") {
+        Some(Value::Int(id)) =>
+          match lookup_env_mapping(id) {
+            Some(env) => Ok(env)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  name + ": stale globals mapping".to_string(),
+                ),
+              )
+          }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              name + ": invalid globals mapping".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + ": invalid globals mapping".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_module_globals_getitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__getitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__getitem__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__getitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) =>
+      match get_global_value(env, name) {
+        Some(v) => Ok(v)
+        None =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Key,
+              "key not found".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
+      )
+  }
+}
+
+///|
+fn builtin_module_globals_setitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__setitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__setitem__() takes exactly three arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__setitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) => {
+      set_global_value(env, name, positional[2])
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "globals key must be str".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_module_globals_delitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__delitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__delitem__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__delitem__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) => {
+      delete_global_value(env, name)
+      Ok(Value::None)
+    }
+    _ =>
+      Err(
+        make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
+      )
+  }
+}
+
+///|
+fn builtin_module_globals_len(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__len__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__len__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__len__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Int(@bigint.BigInt::from_int(env.length())))
+}
+
+///|
+fn builtin_module_globals_iter(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__iter__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__iter__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__iter__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let keys : Array[Value] = []
+  for pair in env {
+    keys.push(Value::Str(pair.0))
+  }
+  Ok(make_iterator(keys))
+}
+
+///|
+fn builtin_module_globals_contains(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.__contains__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__contains__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.__contains__", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) => Ok(Value::Bool(get_global_value(env, name) is Some(_)))
+    _ => Ok(Value::Bool(false))
+  }
+}
+
+///|
+fn builtin_module_globals_get(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.get", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "get() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let default_value = if positional.length() == 3 {
+    positional[2]
+  } else {
+    Value::None
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.get", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) =>
+      match get_global_value(env, name) {
+        Some(v) => Ok(v)
+        None => Ok(default_value)
+      }
+    _ => Ok(default_value)
+  }
+}
+
+///|
+fn builtin_module_globals_keys(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.keys", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "keys() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.keys", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
   let pairs : Array[(Value, Value)] = []
-  for pair in globals {
+  for pair in env {
     pairs.push((Value::Str(pair.0), pair.1))
   }
-  Ok(Value::Dict(pairs))
+  Ok(make_dict_view_instance("dict_keys", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_module_globals_values(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.values", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "values() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.values", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let pairs : Array[(Value, Value)] = []
+  for pair in env {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+  Ok(make_dict_view_instance("dict_values", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_module_globals_items(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.items", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "items() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.items", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let pairs : Array[(Value, Value)] = []
+  for pair in env {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+  Ok(make_dict_view_instance("dict_items", Value::Dict(pairs)))
+}
+
+///|
+fn builtin_module_globals_pop(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.pop", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "pop() takes 2 or 3 arguments".to_string(),
+      ),
+    )
+  }
+  let default_value : Value? = if positional.length() == 3 {
+    Some(positional[2])
+  } else {
+    None
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.pop", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match positional[1] {
+    Value::Str(name) =>
+      match get_global_value(env, name) {
+        Some(v) => {
+          delete_global_value(env, name)
+          Ok(v)
+        }
+        None =>
+          match default_value {
+            Some(v) => Ok(v)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Key,
+                  "key not found".to_string(),
+                ),
+              )
+          }
+      }
+    _ =>
+      match default_value {
+        Some(v) => Ok(v)
+        None =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Key,
+              "key not found".to_string(),
+            ),
+          )
+      }
+  }
+}
+
+///|
+fn builtin_module_globals_update(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("module_globals.update", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "update() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  let env = match
+    module_globals_env_from_self("module_globals.update", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() == 1 {
+    return Ok(Value::None)
+  }
+  let other = positional[1]
+  match other {
+    Value::None => return Ok(Value::None)
+    _ => ()
+  }
+  let pairs = match dict_pairs_from_value("update", other) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  for pair in pairs {
+    match pair.0 {
+      Value::Str(name) => set_global_value(env, name, pair.1)
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "globals key must be str".to_string(),
+          ),
+        )
+    }
+  }
+  Ok(Value::None)
 }
 
 ///|
