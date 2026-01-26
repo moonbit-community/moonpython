@@ -778,8 +778,7 @@ fn eval_binary_op_values(
           Ok(Value::Int((if a { 1N } else { 0N }) & b))
         (Value::Int(a), Value::Bool(b)) =>
           Ok(Value::Int(a & (if b { 1N } else { 0N })))
-        (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1N } else { 0N }) & (if b { 1N } else { 0N })))
+        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b))
         _ =>
           Err(
             make_runtime_error(
@@ -795,8 +794,7 @@ fn eval_binary_op_values(
           Ok(Value::Int((if a { 1N } else { 0N }) ^ b))
         (Value::Int(a), Value::Bool(b)) =>
           Ok(Value::Int(a ^ (if b { 1N } else { 0N })))
-        (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1N } else { 0N }) ^ (if b { 1N } else { 0N })))
+        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a != b))
         _ =>
           Err(
             make_runtime_error(
@@ -812,8 +810,7 @@ fn eval_binary_op_values(
           Ok(Value::Int((if a { 1N } else { 0N }) | b))
         (Value::Int(a), Value::Bool(b)) =>
           Ok(Value::Int(a | (if b { 1N } else { 0N })))
-        (Value::Bool(a), Value::Bool(b)) =>
-          Ok(Value::Int((if a { 1N } else { 0N }) | (if b { 1N } else { 0N })))
+        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b))
         (Value::Set(left), Value::Set(right)) => {
           let values : Array[Value] = []
           for item in left {
