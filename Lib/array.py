@@ -70,3 +70,12 @@ class array:
     def __repr__(self):
         return "array(%r, %r)" % (self.typecode, self._data)
 
+
+# CPython exposes this helper for pickling support (see pickle.py and tests).
+# Our array is pure-Python, but providing the symbol avoids import failures.
+def _array_reconstructor(arraytype, typecode, mformat_code, items):
+    _ = mformat_code
+    return arraytype(typecode, items)
+
+
+ArrayType = array

@@ -26,3 +26,23 @@ test "stdlib/array_module_import_and_basic_api" {
     Err(err) => fail("unexpected error: " + format_runtime_error(err))
   }
 }
+
+///|
+test "stdlib/array_reconstructor_exists" {
+  let config = Config::for_cli(["Lib"], None, [""])
+  let interp = Interpreter::with_config(config)
+  let source =
+    #|import array
+    #|a = array._array_reconstructor(array.array, "i", 0, [4, 5])
+    #|out = a.tolist()
+  match interp.exec_source(source) {
+    Ok(run) => {
+      let out = match test_get_global(run.globals, "out") {
+        Some(v) => test_value_repr(v)
+        None => "<missing>"
+      }
+      inspect(out, content="[4, 5]")
+    }
+    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+  }
+}
