@@ -84,7 +84,7 @@ fn truthy_from_value_with_env(
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
-                  "__len__ should return int".to_string(),
+                  "__len__() should return an int".to_string(),
                 ),
               )
           }
