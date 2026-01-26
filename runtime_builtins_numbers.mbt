@@ -528,6 +528,57 @@ fn builtin_bool_from_bytes(
 }
 
 ///|
+fn builtin_bool_new(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bool.__new__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 1 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "bool.__new__() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Class(cls) =>
+      if cls.name != "bool" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "bool.__new__() expects bool as the first argument".to_string(),
+          ),
+        )
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "bool.__new__() expects bool as the first argument".to_string(),
+        ),
+      )
+  }
+  if positional.length() == 1 {
+    return Ok(Value::Bool(false))
+  }
+  let arg = positional[1]
+  let truthy = match truthy_from_value_with_env(arg, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(truthy))
+}
+
+///|
 fn builtin_int_to_bytes(
   positional : Array[Value],
   keywords : Array[(String, Value)],

@@ -59,6 +59,22 @@ fn builtin_class_from_name(
     ("__name__", Value::Str(name)),
     ("__qualname__", Value::Str(name)),
   ]
+  if name == "bool" {
+    dict.push(
+      (
+        "__new__",
+        Value::Function(FunctionValue::{
+          name: "bool.__new__",
+          params: ["cls", "x"],
+          defaults: [Value::Bool(false)],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "float" {
     dict.push(
       (
