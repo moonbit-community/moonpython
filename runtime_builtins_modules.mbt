@@ -3171,6 +3171,36 @@ fn builtin_itertools_repeat(
 }
 
 ///|
+fn builtin_itertools_cycle(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.cycle", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "cycle() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let iterator = match
+    iter_value_to_iterator(positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(make_cycle_iterator(iterator))
+}
+
+///|
 fn builtin_itertools_starmap(
   positional : Array[Value],
   keywords : Array[(String, Value)],

@@ -830,6 +830,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     },
     BuiltinDef::{ name: "itertools.groupby", run: builtin_itertools_groupby },
     BuiltinDef::{ name: "itertools.count", run: builtin_itertools_count },
+    BuiltinDef::{ name: "itertools.cycle", run: builtin_itertools_cycle },
     BuiltinDef::{ name: "itertools.repeat", run: builtin_itertools_repeat },
     BuiltinDef::{ name: "itertools.starmap", run: builtin_itertools_starmap },
     BuiltinDef::{ name: "itertools.islice", run: builtin_itertools_islice },

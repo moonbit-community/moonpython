@@ -17,6 +17,9 @@ let enumerate_class_ref : Ref[ClassValue?] = { val: None }
 let rangeiter_class_ref : Ref[ClassValue?] = { val: None }
 
 ///|
+let cycle_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
 fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
   match cache.val {
     Some(value) => return value
@@ -94,6 +97,18 @@ fn make_count_iterator(start : Value, step : Value) -> Value {
 }
 
 ///|
+fn make_cycle_iterator(iterator : Value) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("iterator", iterator))
+  dict.push(("saved", Value::List([])))
+  dict.push(("pos", Value::Int(0N)))
+  Value::Instance(InstanceValue::{
+    class: internal_iter_class("cycle", cycle_class_ref),
+    dict,
+  })
+}
+
+///|
 fn make_enumerate_iterator(iterator : Value, start : @bigint.BigInt) -> Value {
   let dict : Array[(String, Value)] = []
   dict.push(("iterator", iterator))
@@ -146,6 +161,7 @@ fn iter_value_to_iterator(
         inst.class.name == "generator" ||
         inst.class.name == "repeat" ||
         inst.class.name == "count" ||
+        inst.class.name == "cycle" ||
         inst.class.name == "enumerate" ||
         inst.class.name == "rangeiter" {
         Ok(Value::Instance(inst))
@@ -393,6 +409,68 @@ fn iterator_next(
                 "count() expects numeric values".to_string(),
               ),
             )
+        }
+      } else if inst.class.name == "cycle" {
+        let saved = match get_named_value(inst.dict, "saved") {
+          Some(Value::List(values)) => values
+          _ => []
+        }
+        let pos0 = match get_named_value(inst.dict, "pos") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let iter_value_opt = get_named_value(inst.dict, "iterator")
+        let mut iter_done = false
+        match iter_value_opt {
+          Some(Value::None) => iter_done = true
+          None => iter_done = true
+          Some(v) =>
+            match iterator_next(v, None, globals, builtins, io) {
+              Ok(item) => {
+                saved.push(item)
+                return Ok(item)
+              }
+              Err(err) =>
+                if err.exc_type == "StopIteration" {
+                  iter_done = true
+                } else {
+                  return Err(err)
+                }
+            }
+        }
+        if iter_done {
+          // Mark the source iterator as done so we keep cycling over the saved list.
+          set_named_value(inst.dict, "iterator", Value::None)
+          if saved.length() == 0 {
+            match default_value {
+              Some(v) => Ok(v)
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "StopIteration".to_string(),
+                  ),
+                )
+            }
+          } else {
+            let len_i = @bigint.BigInt::from_int(saved.length())
+            let idx_big = if len_i == 0N { 0N } else { pos0 % len_i }
+            let idx = match bigint_to_int_checked(idx_big) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            set_named_value(inst.dict, "pos", Value::Int(pos0 + 1N))
+            Ok(saved[idx])
+          }
+        } else {
+          // Should be unreachable due to early return in Ok(item) branch.
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "internal cycle iterator error".to_string(),
+            ),
+          )
         }
       } else if inst.class.name == "rangeiter" {
         let current = match get_named_value(inst.dict, "current") {

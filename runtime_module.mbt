@@ -948,6 +948,7 @@ fn make_itertools_module() -> Value {
     ("filterfalse", module_function_stub("itertools.filterfalse")),
     ("groupby", module_function_stub("itertools.groupby")),
     ("count", module_function_stub("itertools.count")),
+    ("cycle", module_function_stub("itertools.cycle")),
     ("repeat", module_function_stub("itertools.repeat")),
     ("starmap", module_function_stub("itertools.starmap")),
     ("islice", module_function_stub("itertools.islice")),
