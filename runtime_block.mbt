@@ -1898,6 +1898,24 @@ fn eval_block_flow(
             }
           }
         }
+        for base_value in base_values {
+          match base_value {
+            Value::Class(base_class) =>
+              match get_named_value(base_class.dict, "__module__") {
+                Some(Value::Str(module_name)) =>
+                  if module_name == "builtins" && base_class.name == "bool" {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "type 'bool' is not an acceptable base type".to_string(),
+                      ),
+                    )
+                  }
+                _ => ()
+              }
+            _ => ()
+          }
+        }
         let module_name_value = get_global_value(globals, "__name__")
         if module_name_value is None {
           return Err(
