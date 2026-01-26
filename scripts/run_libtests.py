@@ -45,6 +45,18 @@ class Result:
 
 _RE_RAN = re.compile(r"^Ran (\d+) tests? in ", re.MULTILINE)
 _RE_SKIPPED = re.compile(r"\bskipped=(\d+)\b")
+_RE_MISSING_MODULE = re.compile(
+    r"(?:ModuleNotFoundError|ImportError): No module named '([^']+)'"
+)
+
+# moonpython does not aim to support CPython C extension modules. Some CPython
+# tests import these modules unconditionally, which would otherwise show up as
+# failures in this smoke runner.
+_UNSUPPORTED_C_EXTENSIONS = {
+    "_ctypes",
+    "_locale",
+    "_socket",
+}
 
 
 def discover_test_modules(lib_dir: Path) -> List[str]:
@@ -62,6 +74,9 @@ def classify(exit_code: int, output: str) -> str:
     # Skip detection first: SkipTest can happen both as an uncaught exception
     # (non-zero exit) and as a unittest result (zero exit).
     if "SkipTest:" in output:
+        return "skip"
+    missing = _RE_MISSING_MODULE.search(output)
+    if missing and missing.group(1) in _UNSUPPORTED_C_EXTENSIONS:
         return "skip"
 
     # Unittest "all skipped" is still a success exit code, but we want to track
