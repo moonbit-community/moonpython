@@ -369,6 +369,28 @@ class Pattern:
         return Match(string, idx, idx + len(self.pattern))
 
     def findall(self, string, pos=0, endpos=None):
+        # textwrap.dedent() uses this pattern to collect line indents.
+        if self.pattern == "(^[ \t]*)(?:[^ \t\n])":
+            pos, endpos = _normalize_bounds(string, pos, endpos)
+            out = []
+            i = pos
+            while i <= endpos:
+                line_end = string.find("\n", i, endpos)
+                if line_end == -1:
+                    line_end = endpos
+                    has_newline = False
+                else:
+                    has_newline = True
+                line = string[i:line_end]
+                j = 0
+                while j < len(line) and line[j] in " \t":
+                    j += 1
+                if j < len(line):
+                    out.append(line[:j])
+                if not has_newline:
+                    break
+                i = line_end + 1
+            return out
         # argparse help formatter uses this exact regexp to split usage.
         if self.pattern == (
             r"\(.*?\)+(?=\s|$)|"
@@ -386,6 +408,12 @@ class Pattern:
         # A few stdlib modules (argparse, gettext) only rely on a tiny subset.
         if self.pattern == r"\s+":
             return _sub_whitespace(repl, string, count=count)
+        if self.pattern == "^[ \t]+$":
+            return _sub_whitespace_only_lines(repl, string, count=count)
+        if self.pattern.startswith("(?m)^") and repl == "":
+            prefix = self.pattern[len("(?m)^") :]
+            if prefix and all(ch in " \t" for ch in prefix):
+                return _sub_strip_line_prefix(prefix, string, count=count)
         if self.pattern == r"\n\n\n+":
             return _sub_long_breaks(repl, string, count=count)
         if self.pattern == r"([\[(]) " and repl == r"\1":
@@ -399,6 +427,12 @@ class Pattern:
     def subn(self, repl, string, count=0):
         if self.pattern == r"\s+":
             return _subn_whitespace(repl, string, count=count)
+        if self.pattern == "^[ \t]+$":
+            return _subn_whitespace_only_lines(repl, string, count=count)
+        if self.pattern.startswith("(?m)^") and repl == "":
+            prefix = self.pattern[len("(?m)^") :]
+            if prefix and all(ch in " \t" for ch in prefix):
+                return _subn_strip_line_prefix(prefix, string, count=count)
         if self.pattern == r"\n\n\n+":
             return _subn_long_breaks(repl, string, count=count)
         if self.pattern == r"([\[(]) " and repl == r"\1":
@@ -747,6 +781,66 @@ def _subn_whitespace(repl, string, count=0):
         else:
             out.append(string[i])
             i += 1
+    return "".join(out), n
+
+
+def _sub_whitespace_only_lines(repl, string, count=0):
+    out, _ = _subn_whitespace_only_lines(repl, string, count=count)
+    return out
+
+
+def _subn_whitespace_only_lines(repl, string, count=0):
+    if repl != "" and not isinstance(repl, str):
+        raise NotImplementedError("regex engine not available")
+    out = []
+    i = 0
+    n = 0
+    while i <= len(string):
+        line_end = string.find("\n", i)
+        if line_end == -1:
+            line_end = len(string)
+            has_newline = False
+        else:
+            has_newline = True
+        line = string[i:line_end]
+        if line and all(ch in " \t" for ch in line) and (count == 0 or n < count):
+            out.append(repl)
+            n += 1
+        else:
+            out.append(line)
+        if not has_newline:
+            break
+        out.append("\n")
+        i = line_end + 1
+    return "".join(out), n
+
+
+def _sub_strip_line_prefix(prefix, string, count=0):
+    out, _ = _subn_strip_line_prefix(prefix, string, count=count)
+    return out
+
+
+def _subn_strip_line_prefix(prefix, string, count=0):
+    out = []
+    i = 0
+    n = 0
+    while i <= len(string):
+        line_end = string.find("\n", i)
+        if line_end == -1:
+            line_end = len(string)
+            has_newline = False
+        else:
+            has_newline = True
+        line = string[i:line_end]
+        if line.startswith(prefix) and (count == 0 or n < count):
+            out.append(line[len(prefix) :])
+            n += 1
+        else:
+            out.append(line)
+        if not has_newline:
+            break
+        out.append("\n")
+        i = line_end + 1
     return "".join(out), n
 
 
