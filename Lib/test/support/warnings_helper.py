@@ -10,7 +10,11 @@ def import_deprecated(name):
     """Import *name* while suppressing DeprecationWarning."""
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
-        return importlib.import_module(name)
+        try:
+            return importlib.import_module(name)
+        except (ModuleNotFoundError, ImportError):
+            import unittest
+            raise unittest.SkipTest(f"{name!r} is not available") from None
 
 
 def check_syntax_warning(testcase, statement, errtext='',
