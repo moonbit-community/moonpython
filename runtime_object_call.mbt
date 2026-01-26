@@ -4105,6 +4105,14 @@ fn call_callable_with_env(
       )
     }
     Value::Class(klass) => {
+      if klass.name == "rangeiter" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "cannot create 'range_iterator' instances".to_string(),
+          ),
+        )
+      }
       let is_builtin = match get_named_value(klass.dict, "__module__") {
         Some(Value::Str(module_name)) =>
           module_name == "builtins" && is_builtin_class_name(klass.name)
