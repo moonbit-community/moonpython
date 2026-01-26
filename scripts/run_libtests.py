@@ -55,10 +55,13 @@ def run_one(
     timeout_s: float,
     extra_args: List[str],
     target_dir: Optional[str],
+    target: str,
 ) -> Result:
     cmd = [
         "moon",
         "run",
+        "--target",
+        target,
         *(["--target-dir", target_dir] if target_dir else []),
         "cmd/main",
         "--",
@@ -128,6 +131,11 @@ def main() -> int:
         help="Per-module timeout seconds (default: 20)",
     )
     parser.add_argument(
+        "--target",
+        default="wasm",
+        help="moon --target value (default: wasm; wasm-gc may hit compiler issues on some toolchains)",
+    )
+    parser.add_argument(
         "--target-dir",
         default=None,
         help="moon --target-dir value (useful to avoid workspace build locks)",
@@ -163,6 +171,7 @@ def main() -> int:
             timeout_s=args.timeout,
             extra_args=args.extra_args or [],
             target_dir=args.target_dir,
+            target=args.target,
         )
         results.append(res)
         counts[res.status] += 1
