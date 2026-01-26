@@ -381,6 +381,7 @@ fn make_time_module() -> Value {
     ("perf_counter_ns", module_function_stub("time.perf_counter_ns")),
     ("process_time", module_function_stub("time.process_time")),
     ("process_time_ns", module_function_stub("time.process_time_ns")),
+    ("get_clock_info", module_function_stub("time.get_clock_info")),
     ("localtime", module_function_stub("time.localtime")),
     ("sleep", module_function_stub("time.sleep")),
     ("strftime", module_function_stub("time.strftime")),

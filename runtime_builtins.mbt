@@ -654,6 +654,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "time.localtime", run: builtin_time_localtime },
     BuiltinDef::{ name: "time.sleep", run: builtin_time_sleep },
     BuiltinDef::{ name: "time.strftime", run: builtin_time_strftime },
+    BuiltinDef::{
+      name: "time.get_clock_info",
+      run: builtin_time_get_clock_info,
+    },
     BuiltinDef::{ name: "enum.auto", run: builtin_enum_auto },
     BuiltinDef::{ name: "enum._simple_enum", run: builtin_enum_simple_enum },
     BuiltinDef::{

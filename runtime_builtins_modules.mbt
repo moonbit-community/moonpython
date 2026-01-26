@@ -1084,6 +1084,65 @@ fn builtin_time_strftime(
 }
 
 ///|
+fn builtin_time_get_clock_info(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("time.get_clock_info", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "get_clock_info() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let name = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "get_clock_info() argument must be str".to_string(),
+        ),
+      )
+  }
+  let (monotonic, resolution) : (Bool, Double) = match name {
+    "time" => (false, 0.000001)
+    "monotonic" => (true, 0.000001)
+    "perf_counter" => (true, 0.000000001)
+    "process_time" => (true, 0.000001)
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: unknown clock".to_string(),
+        ),
+      )
+  }
+  let info_class = ClassValue::{ name: "clock_info", bases: [], dict: [] }
+  Ok(
+    Value::Instance(InstanceValue::{
+      class: info_class,
+      dict: [
+        ("implementation", Value::Str("moonpython")),
+        ("monotonic", Value::Bool(monotonic)),
+        ("adjustable", Value::Bool(false)),
+        ("resolution", Value::Float(resolution)),
+      ],
+    }),
+  )
+}
+
+///|
 fn builtin_string_formatter_parser(
   positional : Array[Value],
   keywords : Array[(String, Value)],
