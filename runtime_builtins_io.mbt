@@ -1341,7 +1341,10 @@ fn builtin_open(
       ("__binary__", Value::Bool(binary)),
       ("__closed__", Value::Bool(false)),
       ("__writable__", Value::Bool(wants_write)),
-      ("__dirty__", Value::Bool(false)),
+      (
+        "__dirty__",
+        Value::Bool(wants_write && (truncate || append || exclusive)),
+      ),
       ("__path__", Value::Str(resolved_path)),
     ],
   })

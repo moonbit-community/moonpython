@@ -293,6 +293,12 @@ fn get_attr_raw_from_value(
         // `sys.modules[mod].__dict__.update(...)` can mutate module globals.
         return Ok(make_module_globals_dict_instance(inst.dict))
       }
+      if inst.class.name == "file" && attr == "closed" {
+        match get_named_value(inst.dict, "__closed__") {
+          Some(Value::Bool(v)) => return Ok(Value::Bool(v))
+          _ => return Ok(Value::Bool(false))
+        }
+      }
       if attr == "__dict__" {
         let pairs : Array[(Value, Value)] = []
         for item in inst.dict {
