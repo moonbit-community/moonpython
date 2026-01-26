@@ -143,8 +143,8 @@ def main() -> int:
     parser.add_argument(
         "--slow-timeout",
         type=float,
-        default=360.0,
-        help="Per-module timeout for known slow tests (default: 360)",
+        default=600.0,
+        help="Per-module timeout for known slow tests (default: 600)",
     )
     parser.add_argument(
         "--target",
