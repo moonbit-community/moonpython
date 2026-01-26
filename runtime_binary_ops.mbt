@@ -23,6 +23,20 @@ fn eval_binary_op_values(
           Ok(Value::Complex(ar + br, ai + bi))
         }
         (other, Value::Complex(br, bi)) => {
+          if other is Value::Instance(_) {
+            match get_attr_from_value(other, "__add__", globals, builtins, io) {
+              Ok(add_method) =>
+                return call_callable_with_env(
+                  add_method,
+                  [Value::Complex(br, bi)],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                )
+              Err(_) => ()
+            }
+          }
           let (ar, ai) = match to_complex(other) {
             Ok(value) => value
             Err(err) => return Err(err)
@@ -125,7 +139,36 @@ fn eval_binary_op_values(
           )
         }
       }
-    BinaryOp::Sub =>
+    BinaryOp::Sub => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__sub__", globals, builtins, io) {
+          Ok(sub_method) =>
+            return call_callable_with_env(
+              sub_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rsub__", globals, builtins, io) {
+          Ok(rsub_method) =>
+            return call_callable_with_env(
+              rsub_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
           Ok(Value::Complex(ar - br, ai - bi))
@@ -190,6 +233,7 @@ fn eval_binary_op_values(
             ),
           )
       }
+    }
     BinaryOp::Mul =>
       match (left_val, right_val) {
         (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
@@ -396,7 +440,37 @@ fn eval_binary_op_values(
           Ok(Value::Float(left_num / right_num))
         }
       }
-    BinaryOp::FloorDiv =>
+    BinaryOp::FloorDiv => {
+      if left_val is Value::Instance(_) {
+        match
+          get_attr_from_value(left_val, "__floordiv__", globals, builtins, io) {
+          Ok(floordiv_method) =>
+            return call_callable_with_env(
+              floordiv_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rfloordiv__", globals, builtins, io) {
+          Ok(rfloordiv_method) =>
+            return call_callable_with_env(
+              rfloordiv_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => {
           if b == 0N {
@@ -459,7 +533,38 @@ fn eval_binary_op_values(
           Ok(Value::Float((left_num / right_num).floor()))
         }
       }
-    BinaryOp::Mod =>
+    }
+    BinaryOp::Mod => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__mod__", globals, builtins, io) {
+          Ok(mod_method) =>
+            return call_callable_with_env(
+              mod_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      // Don't bypass the '%' string-formatting protocol.
+      if !(left_val is Value::Str(_)) && right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rmod__", globals, builtins, io) {
+          Ok(rmod_method) =>
+            return call_callable_with_env(
+              rmod_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Str(format), value) => {
           let formatted = match format_percent_string(format, value) {
@@ -529,6 +634,7 @@ fn eval_binary_op_values(
           Ok(Value::Float(left_num % right_num))
         }
       }
+    }
     BinaryOp::Pow =>
       match (left_val, right_val) {
         (Value::Int(left), Value::Int(right)) =>

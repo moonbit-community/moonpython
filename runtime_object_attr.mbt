@@ -781,7 +781,56 @@ fn get_attr_raw_from_value(
         io,
       )
     }
+    Value::Bool(v) => {
+      // bool is a subclass of int in CPython; expose the handful of numeric
+      // attributes/methods relied upon by the stdlib `numbers` ABCs.
+      let as_int = Value::Int(if v { 1N } else { 0N })
+      match attr {
+        "real" | "numerator" => return Ok(as_int)
+        "imag" => return Ok(Value::Int(0N))
+        "denominator" => return Ok(Value::Int(1N))
+        "conjugate" =>
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "int.conjugate",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        _ => ()
+      }
+      // Delegate to int attribute handling for methods like `bit_length`.
+      get_attr_raw_from_value(as_int, attr, globals, builtins, io)
+    }
     Value::Int(_) => {
+      match attr {
+        "real" | "numerator" => return Ok(target)
+        "imag" => return Ok(Value::Int(0N))
+        "denominator" => return Ok(Value::Int(1N))
+        "conjugate" =>
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "int.conjugate",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        _ => ()
+      }
       if attr == "bit_length" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -854,6 +903,69 @@ fn get_attr_raw_from_value(
         ),
       )
     }
+    Value::Float(value) =>
+      match attr {
+        "real" => Ok(Value::Float(value))
+        // CPython returns `0.0`; equality with `0` still holds in stdlib tests.
+        "imag" => Ok(Value::Float(0.0))
+        "conjugate" =>
+          Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "float.conjugate",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Attribute,
+              "'" +
+              type_name_from_value(target) +
+              "' object has no attribute '" +
+              attr +
+              "'",
+            ),
+          )
+      }
+    Value::Complex(real, imag) =>
+      match attr {
+        "real" => Ok(Value::Float(real))
+        "imag" => Ok(Value::Float(imag))
+        "conjugate" =>
+          Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "complex.conjugate",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Attribute,
+              "'" +
+              type_name_from_value(target) +
+              "' object has no attribute '" +
+              attr +
+              "'",
+            ),
+          )
+      }
     Value::Tuple(_) => {
       if attr == "index" {
         return Ok(
@@ -2618,17 +2730,6 @@ fn get_attr_raw_from_value(
           Err(err) => Err(err)
         }
       }
-    _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Attribute,
-          "'" +
-          type_name_from_value(target) +
-          "' object has no attribute '" +
-          attr +
-          "'",
-        ),
-      )
   }
 }
 

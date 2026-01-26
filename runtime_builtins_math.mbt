@@ -220,6 +220,65 @@ fn builtin_math_floor(
 }
 
 ///|
+fn builtin_math_trunc(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("math.trunc", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.trunc() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
+    Value::Instance(_) => {
+      let trunc_fn = match
+        get_attr_from_value(positional[0], "__trunc__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let value = match
+        call_callable_with_env(trunc_fn, [], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      match value {
+        Value::Int(v) => Ok(Value::Int(v))
+        Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__trunc__ returned non-int".to_string(),
+            ),
+          )
+      }
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "math.trunc() expects a real number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_math_ceil(
   positional : Array[Value],
   keywords : Array[(String, Value)],

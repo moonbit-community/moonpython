@@ -1517,10 +1517,10 @@ fn builtin_type_new(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("type.__new__", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
+  // `type.__new__` accepts arbitrary class keywords (`**kwds`) and ignores
+  // unknown entries. These keywords are forwarded by metaclasses like
+  // `abc.ABCMeta.__new__` and are later consumed by `__init_subclass__`.
+  let _ = keywords
   if positional.length() != 4 {
     return Err(
       make_runtime_error(

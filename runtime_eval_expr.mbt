@@ -1584,6 +1584,75 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
+      fn is_intrinsic_default_compare(
+        method_value : Value,
+        name : String,
+      ) -> Bool {
+        match method_value {
+          Value::BoundMethod(bound) =>
+            bound.function.name == name && bound.function.body.length() == 0
+          Value::Function(func) => func.name == name && func.body.length() == 0
+          _ => false
+        }
+      }
+
+      fn call_compare_method(
+        target : Value,
+        method_name : String,
+        other : Value,
+      ) -> Result[Value?, RuntimeError] {
+        if !(target is Value::Instance(_)) {
+          return Ok(None)
+        }
+        let candidate = match
+          get_attr_from_value(target, method_name, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => return Ok(None)
+              _ => return Err(err)
+            }
+        }
+        if is_intrinsic_default_compare(candidate, method_name) {
+          return Ok(None)
+        }
+        match
+          call_callable_with_env(candidate, [other], [], globals, builtins, io) {
+          Ok(v) => Ok(Some(v))
+          Err(err) => Err(err)
+        }
+      }
+
+      fn eq_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
+        match call_compare_method(left, "__eq__", right) {
+          Ok(Some(value)) => Ok(bool_from_value(value))
+          Ok(None) =>
+            match call_compare_method(right, "__eq__", left) {
+              Ok(Some(value)) => Ok(bool_from_value(value))
+              Ok(None) => Ok(eq_value(left, right))
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      }
+
+      fn ne_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
+        match call_compare_method(left, "__ne__", right) {
+          Ok(Some(value)) => Ok(bool_from_value(value))
+          Ok(None) =>
+            match call_compare_method(right, "__ne__", left) {
+              Ok(Some(value)) => Ok(bool_from_value(value))
+              Ok(None) =>
+                match eq_bool(left, right) {
+                  Ok(v) => Ok(!v)
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      }
+
       for i = 0; i < ops.length(); i = i + 1 {
         let current = match
           eval_expr_with_env(comparators[i], locals, globals, builtins, io) {
@@ -1591,8 +1660,16 @@ fn eval_expr_with_env(
           Err(err) => return Err(err)
         }
         let ok = match ops[i] {
-          CompareOp::Eq => eq_value(previous, current)
-          CompareOp::NotEq => !eq_value(previous, current)
+          CompareOp::Eq =>
+            match eq_bool(previous, current) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          CompareOp::NotEq =>
+            match ne_bool(previous, current) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
           CompareOp::Lt =>
             match (previous, current) {
               (Value::Tuple(left), Value::Tuple(right)) =>

@@ -347,16 +347,37 @@ fn exception_group_from_runtime_error(
 
 ///|
 fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
+  fn kind_from_exception_name(name : String) -> RuntimeErrorKind {
+    match name {
+      "ZeroDivisionError" => RuntimeErrorKind::ZeroDivision
+      "NameError" | "UnboundLocalError" => RuntimeErrorKind::Name
+      "TypeError" => RuntimeErrorKind::Type
+      "AttributeError" => RuntimeErrorKind::Attribute
+      "IndexError" => RuntimeErrorKind::Index
+      "KeyError" => RuntimeErrorKind::Key
+      "NotImplementedError" => RuntimeErrorKind::NotImplemented
+      _ => RuntimeErrorKind::Runtime
+    }
+  }
+
   let mut message = "".to_string()
   match get_named_value(inst.dict, "message") {
     Some(Value::Str(text)) => message = text
     Some(value) => message = value_to_string(value)
     None => ()
   }
-  let printed = if message.length() > 0 {
-    inst.class.name + ": " + message
-  } else {
-    inst.class.name
+  let kind = kind_from_exception_name(inst.class.name)
+  // `RuntimeErrorKind` controls how we format errors. For "structured" kinds
+  // (TypeError/AttributeError/...), keep `message` as the payload only; for
+  // generic runtime errors, keep the fully-qualified "ExcType: msg" form.
+  let printed = match kind {
+    RuntimeErrorKind::Runtime =>
+      if message.length() > 0 {
+        inst.class.name + ": " + message
+      } else {
+        inst.class.name
+      }
+    _ => message
   }
   let args : Array[String] = if message.length() > 0 { [message] } else { [] }
   let exc_value : Value? = Some(Value::Instance(inst))
@@ -376,7 +397,7 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     _ => false
   }
   RuntimeError::{
-    kind: RuntimeErrorKind::Runtime,
+    kind,
     message: printed,
     span: current_span(),
     traceback: snapshot_traceback(),

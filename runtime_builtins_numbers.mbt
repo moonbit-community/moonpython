@@ -684,6 +684,109 @@ fn builtin_int_bit_length(
 }
 
 ///|
+fn builtin_int_conjugate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.conjugate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.conjugate() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Int(v) => Ok(Value::Int(v))
+    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int.conjugate() expects an int".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_float_conjugate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("float.conjugate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "float.conjugate() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Float(v) => Ok(Value::Float(v))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float.conjugate() expects a float".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_complex_conjugate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("complex.conjugate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "complex.conjugate() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Complex(real, imag) => Ok(Value::Complex(real, -imag))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "complex.conjugate() expects a complex".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_float(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -710,6 +813,14 @@ fn builtin_float(
         Ok(Value::Float(d))
       }
       Value::Bool(v) => Ok(Value::Float(if v { 1.0 } else { 0.0 }))
+      Value::Instance(_) => {
+        let converted = match
+          real_to_double(positional[0], "__float__", globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Float(converted))
+      }
       Value::Str(text) => {
         let parsed = @strconv.parse_double(text) catch {
           _ =>
@@ -730,6 +841,149 @@ fn builtin_float(
           ),
         )
     }
+  }
+}
+
+///|
+fn call_method0_on_instance(
+  target : Value,
+  method_name : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value?, RuntimeError] {
+  let callable_value = match
+    get_attr_from_value(target, method_name, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) =>
+      match err.kind {
+        RuntimeErrorKind::Attribute => return Ok(None)
+        _ => return Err(err)
+      }
+  }
+  let v = match callable_value {
+    Value::BoundMethod(bound) =>
+      (eval_function_with_kwargs_ref.val)(
+        bound.function,
+        [bound.self],
+        [],
+        globals,
+        builtins,
+        io,
+      )
+    Value::Function(func) =>
+      (eval_function_with_kwargs_ref.val)(
+        func,
+        [target],
+        [],
+        globals,
+        builtins,
+        io,
+      )
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          method_name + " must be a function",
+        ),
+      )
+  }
+  match v {
+    Ok(value) => Ok(Some(value))
+    Err(err) => Err(err)
+  }
+}
+
+///|
+fn real_to_double(
+  value : Value,
+  primary_dunder : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Double, RuntimeError] {
+  match value {
+    Value::Float(v) => Ok(v)
+    Value::Int(v) => bigint_to_double_checked(v)
+    Value::Bool(v) => Ok(if v { 1.0 } else { 0.0 })
+    Value::Instance(_) => {
+      let primary = match
+        call_method0_on_instance(value, primary_dunder, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if primary is Some(ret) {
+        match ret {
+          Value::Float(v) => return Ok(v)
+          Value::Int(v) => return bigint_to_double_checked(v)
+          Value::Bool(v) => return Ok(if v { 1.0 } else { 0.0 })
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                primary_dunder + " returned non-float",
+              ),
+            )
+        }
+      }
+      let index = match
+        call_method0_on_instance(value, "__index__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if index is Some(ret) {
+        match ret {
+          Value::Int(v) => return bigint_to_double_checked(v)
+          Value::Bool(v) => return Ok(if v { 1.0 } else { 0.0 })
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "__index__ returned non-int".to_string(),
+              ),
+            )
+        }
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float() argument must be a string or a number".to_string(),
+        ),
+      )
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float() argument must be a string or a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn complex_to_double(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Double, RuntimeError] {
+  match value {
+    Value::Str(_) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "complex() argument must be a number".to_string(),
+        ),
+      )
+    Value::Complex(_, _) =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "complex() argument must be a real number".to_string(),
+        ),
+      )
+    _ => real_to_double(value, "__float__", globals, builtins, io)
   }
 }
 
@@ -823,10 +1077,6 @@ fn builtin_complex(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   let _ = match ensure_no_keywords("complex", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -852,6 +1102,50 @@ fn builtin_complex(
           Err(err) => Err(err)
         }
       Value::Bool(v) => Ok(Value::Complex(if v { 1.0 } else { 0.0 }, 0.0))
+      Value::Instance(_) => {
+        let complex_value = match
+          call_method0_on_instance(
+            positional[0],
+            "__complex__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if complex_value is Some(ret) {
+          match ret {
+            Value::Complex(r, i) => return Ok(Value::Complex(r, i))
+            Value::Float(r) => return Ok(Value::Complex(r, 0.0))
+            Value::Int(i) =>
+              return Ok(
+                Value::Complex(
+                  match bigint_to_double_checked(i) {
+                    Ok(d) => d
+                    Err(err) => return Err(err)
+                  },
+                  0.0,
+                ),
+              )
+            Value::Bool(b) =>
+              return Ok(Value::Complex(if b { 1.0 } else { 0.0 }, 0.0))
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__complex__ returned non-complex".to_string(),
+                ),
+              )
+          }
+        }
+        let real = match
+          complex_to_double(positional[0], globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        Ok(Value::Complex(real, 0.0))
+      }
       _ =>
         Err(
           make_runtime_error(
@@ -870,8 +1164,8 @@ fn builtin_complex(
           ),
         )
       _ =>
-        match number_value(positional[0]) {
-          Ok((_, value)) => value
+        match complex_to_double(positional[0], globals, builtins, io) {
+          Ok(value) => value
           Err(err) => return Err(err)
         }
     }
@@ -884,8 +1178,8 @@ fn builtin_complex(
           ),
         )
       _ =>
-        match number_value(positional[1]) {
-          Ok((_, value)) => value
+        match complex_to_double(positional[1], globals, builtins, io) {
+          Ok(value) => value
           Err(err) => return Err(err)
         }
     }
@@ -1098,6 +1392,36 @@ fn builtin_divmod(
         "divmod() takes exactly two arguments".to_string(),
       ),
     )
+  }
+  if positional[0] is Value::Instance(_) {
+    match
+      get_attr_from_value(positional[0], "__divmod__", globals, builtins, io) {
+      Ok(callable_value) =>
+        return call_callable_with_env(
+          callable_value,
+          [positional[1]],
+          [],
+          globals,
+          builtins,
+          io,
+        )
+      Err(_) => ()
+    }
+  }
+  if positional[1] is Value::Instance(_) {
+    match
+      get_attr_from_value(positional[1], "__rdivmod__", globals, builtins, io) {
+      Ok(callable_value) =>
+        return call_callable_with_env(
+          callable_value,
+          [positional[0]],
+          [],
+          globals,
+          builtins,
+          io,
+        )
+      Err(_) => ()
+    }
   }
   match (positional[0], positional[1]) {
     (Value::Int(a), Value::Int(b)) =>

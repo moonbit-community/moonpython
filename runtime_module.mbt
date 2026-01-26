@@ -358,6 +358,7 @@ fn make_math_module() -> Value {
     ("exp", module_function_stub("math.exp")),
     ("ceil", module_function_stub("math.ceil")),
     ("floor", module_function_stub("math.floor")),
+    ("trunc", module_function_stub("math.trunc")),
     ("acos", module_function_stub("math.acos")),
     ("cos", module_function_stub("math.cos")),
     ("sin", module_function_stub("math.sin")),

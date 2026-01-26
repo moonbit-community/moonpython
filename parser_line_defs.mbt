@@ -399,6 +399,7 @@ fn parse_def_stmt(
   let seen : Array[String] = []
   let mut default_seen = false
   let mut kw_only = false
+  let mut seen_posonly_marker = false
   let params_chars = params_text.to_array()
   let mut param_start = 0
   let mut idx = 0
@@ -424,7 +425,32 @@ fn parse_def_stmt(
       name = substring(trimmed_param, 0, eq_idx).trim(chars=" \t").to_string()
     }
     if name == "/" {
-      name = ""
+      if has_default || kw_only || seen_posonly_marker {
+        let token = {
+          kind: Eof,
+          start: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading,
+          end: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading +
+          1,
+          line: parser.index + 1,
+          column: param_base + param_start + leading + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      seen_posonly_marker = true
+      params.push("/")
+      return Ok(())
     }
     if name == "*" {
       kw_only = true
