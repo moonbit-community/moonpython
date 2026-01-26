@@ -1486,6 +1486,18 @@ fn make_python_module(
     Value::None
   }
   let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  // A tiny placeholder loader object so CPython's importlib bootstrap doesn't
+  // treat file-backed modules as namespace packages (loader=None), which would
+  // currently raise NotImplementedError during `_init_module_attrs`.
+  let loader_class = ClassValue::{
+    name: "SourceFileLoader",
+    bases: [],
+    dict: [],
+  }
+  let loader_value = Value::Instance(InstanceValue::{
+    class: loader_class,
+    dict: [("name", Value::Str(name)), ("path", Value::Str(filename_abs))],
+  })
   let submodule_locations = if is_package {
     Value::List([Value::Str(package_path_abs)])
   } else {
@@ -1496,7 +1508,7 @@ fn make_python_module(
     dict: [
       ("name", Value::Str(name)),
       ("origin", Value::Str(filename_abs)),
-      ("loader", Value::None),
+      ("loader", loader_value),
       ("parent", Value::Str(package_name)),
       ("submodule_search_locations", submodule_locations),
       ("cached", Value::None),
@@ -1509,7 +1521,7 @@ fn make_python_module(
     ("__name__", Value::Str(name)),
     ("__package__", Value::Str(package_name)),
     ("__file__", Value::Str(filename_abs)),
-    ("__loader__", Value::None),
+    ("__loader__", loader_value),
     ("__spec__", spec_value),
     ("__doc__", doc_value),
   ]
@@ -1800,8 +1812,24 @@ fn import_module(
     make_time_module()
   } else if module_name == "enum" {
     make_enum_module(builtins)
-  } else if module_name == "asyncio" && config.allow_filesystem_imports {
-    make_asyncio_module()
+  } else if module_name == "asyncio" {
+    // Prefer the CPython stdlib `asyncio` package when filesystem imports are
+    // enabled. Fall back to a tiny builtin shim when the stdlib isn't present
+    // (or filesystem imports are disabled).
+    if config.allow_filesystem_imports {
+      match
+        load_module_from_filesystem(module_name, globals, builtins, io, config) {
+        Ok(v) => v
+        Err(err) =>
+          if err.exc_type == "ModuleNotFoundError" {
+            make_asyncio_module()
+          } else {
+            return Err(err)
+          }
+      }
+    } else {
+      make_asyncio_module()
+    }
   } else {
     if !config.allow_filesystem_imports {
       return Err(
