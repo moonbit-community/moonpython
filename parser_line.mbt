@@ -796,8 +796,9 @@ fn LineParser::parse_block(
         )
         .trim(chars=" \t")
         .to_string()
+      self.index = next_index
+      let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
-        let body : Array[Stmt] = []
         let segments = split_statements(body_text)
         for segment_pair in segments {
           let segment = segment_pair.0
@@ -805,7 +806,7 @@ fn LineParser::parse_block(
           if segment.length() == 0 {
             continue
           }
-          let base_offset = self.offsets[self.index] +
+          let base_offset = self.offsets[self.index - 1] +
             current_indent +
             colon_pos.unwrap() +
             1 +
@@ -813,8 +814,8 @@ fn LineParser::parse_block(
           let parsed = match
             parse_simple_statement(
               segment,
-              self.index,
-              self.offsets[self.index],
+              self.index - 1,
+              self.offsets[self.index - 1],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -825,41 +826,31 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(
-          wrap_stmt_for_line(
-            self.offsets,
-            line_index,
-            current_indent,
-            Stmt::If(condition~, body~, else_body=[]),
-          ),
-        )
-        self.index = next_index
-        continue
-      }
-      self.index = next_index
-      let next_indent = self.peek_next_indent()
-      if next_indent <= current_indent {
-        let missing_line = self.clamp_line_index(
-          self.peek_next_significant_index().unwrap_or(self.index),
-        )
-        let token = {
-          kind: Eof,
-          start: self.offsets[missing_line],
-          end: self.offsets[missing_line] + 1,
-          line: missing_line + 1,
-          column: 1,
+      } else {
+        let next_indent = self.peek_next_indent()
+        if next_indent <= current_indent {
+          let missing_line = self.clamp_line_index(
+            self.peek_next_significant_index().unwrap_or(self.index),
+          )
+          let token = {
+            kind: Eof,
+            start: self.offsets[missing_line],
+            end: self.offsets[missing_line] + 1,
+            line: missing_line + 1,
+            column: 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Indentation,
+              "expected indented block".to_string(),
+              token,
+            ),
+          )
         }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Indentation,
-            "expected indented block".to_string(),
-            token,
-          ),
-        )
-      }
-      let body = match self.parse_block(next_indent) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+        body = match self.parse_block(next_indent) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
       }
       let clauses : Array[(Expr, Array[Stmt])] = [(condition, body)]
       let mut else_body : Array[Stmt] = []
@@ -954,7 +945,46 @@ fn LineParser::parse_block(
             Ok(value) => value
             Err(err) => return Err(err)
           }
+          let body_text = substring(
+              elif_text,
+              colon_pos.unwrap() + 1,
+              elif_text.length(),
+            )
+            .trim(chars=" \t")
+            .to_string()
           self.index = elif_next_index
+          if body_text.length() > 0 {
+            let elif_body : Array[Stmt] = []
+            let segments = split_statements(body_text)
+            for segment_pair in segments {
+              let segment = segment_pair.0
+              let offset = segment_pair.1
+              if segment.length() == 0 {
+                continue
+              }
+              let base_offset = self.offsets[self.index - 1] +
+                next_indent +
+                colon_pos.unwrap() +
+                1 +
+                offset
+              let parsed = match
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  self.offsets[self.index - 1],
+                  base_offset,
+                  self.async_depth > 0,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              for stmt in parsed {
+                elif_body.push(stmt)
+              }
+            }
+            clauses.push((cond, elif_body))
+            continue
+          }
           let elif_indent = self.peek_next_indent()
           if elif_indent <= next_indent {
             let missing_line = self.clamp_line_index(
@@ -1000,30 +1030,68 @@ fn LineParser::parse_block(
               ),
             )
           }
+          let body_text = substring(
+              next_text,
+              colon_pos.unwrap() + 1,
+              next_text.length(),
+            )
+            .trim(chars=" \t")
+            .to_string()
           self.index += 1
-          let else_indent = self.peek_next_indent()
-          if else_indent <= next_indent {
-            let missing_line = self.clamp_line_index(
-              self.peek_next_significant_index().unwrap_or(self.index),
-            )
-            let token = {
-              kind: Eof,
-              start: self.offsets[missing_line],
-              end: self.offsets[missing_line] + 1,
-              line: missing_line + 1,
-              column: 1,
+          if body_text.length() > 0 {
+            else_body = []
+            let segments = split_statements(body_text)
+            for segment_pair in segments {
+              let segment = segment_pair.0
+              let offset = segment_pair.1
+              if segment.length() == 0 {
+                continue
+              }
+              let base_offset = self.offsets[self.index - 1] +
+                next_indent +
+                colon_pos.unwrap() +
+                1 +
+                offset
+              let parsed = match
+                parse_simple_statement(
+                  segment,
+                  self.index - 1,
+                  self.offsets[self.index - 1],
+                  base_offset,
+                  self.async_depth > 0,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              for stmt in parsed {
+                else_body.push(stmt)
+              }
             }
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Indentation,
-                "expected indented block".to_string(),
-                token,
-              ),
-            )
-          }
-          else_body = match self.parse_block(else_indent) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          } else {
+            let else_indent = self.peek_next_indent()
+            if else_indent <= next_indent {
+              let missing_line = self.clamp_line_index(
+                self.peek_next_significant_index().unwrap_or(self.index),
+              )
+              let token = {
+                kind: Eof,
+                start: self.offsets[missing_line],
+                end: self.offsets[missing_line] + 1,
+                line: missing_line + 1,
+                column: 1,
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Indentation,
+                  "expected indented block".to_string(),
+                  token,
+                ),
+              )
+            }
+            else_body = match self.parse_block(else_indent) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
           }
           break
         }
