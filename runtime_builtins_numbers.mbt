@@ -299,6 +299,18 @@ fn builtin_int_new(
       ),
     )
   }
+  match positional[0] {
+    Value::Class(klass) =>
+      if klass.name == "bool" {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "int.__new__(bool) is not safe, use bool.__new__()".to_string(),
+          ),
+        )
+      }
+    _ => ()
+  }
   if positional.length() == 1 {
     return Ok(Value::Int(0N))
   }
