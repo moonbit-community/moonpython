@@ -1052,7 +1052,12 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        if !bool_from_value(value) {
+        let ok = match
+          truthy_from_value_with_env(value, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if !ok {
           let text = match message {
             Some(expr) => {
               let msg_value = match
@@ -1370,7 +1375,12 @@ fn eval_block_flow(
               Ok(value) => value
               Err(e) => return Err(e)
             }
-            if bool_from_value(exit_result) {
+            let suppress = match
+              truthy_from_value_with_env(exit_result, globals, builtins, io) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if suppress {
               last = Value::None
               ()
             } else {
@@ -1469,7 +1479,12 @@ fn eval_block_flow(
               Ok(v) => v
               Err(e) => return Err(e)
             }
-            if bool_from_value(exit_value) {
+            let suppress = match
+              truthy_from_value_with_env(exit_value, globals, builtins, io) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if suppress {
               last = Value::None
               ()
             } else {
@@ -2275,7 +2290,12 @@ fn eval_block_flow(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          if !bool_from_value(cond_value) {
+          let ok = match
+            truthy_from_value_with_env(cond_value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if !ok {
             break
           }
           match
@@ -2503,7 +2523,11 @@ fn eval_block_flow(
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                guard_ok = bool_from_value(guard_value)
+                guard_ok = match
+                  truthy_from_value_with_env(guard_value, globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
               }
               if guard_ok {
                 match
@@ -2539,7 +2563,12 @@ fn eval_block_flow(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        if bool_from_value(cond_value) {
+        let ok = match
+          truthy_from_value_with_env(cond_value, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if ok {
           match
             eval_block_flow(
               body, locals, globals, builtins, io, config, loop_depth,

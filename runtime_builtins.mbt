@@ -851,6 +851,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "range.__bool__", run: builtin_range_bool },
     BuiltinDef::{ name: "range.__contains__", run: builtin_range_contains },
     BuiltinDef::{ name: "range.__getitem__", run: builtin_range_getitem },
+    BuiltinDef::{ name: "range.count", run: builtin_range_count },
+    BuiltinDef::{ name: "range.index", run: builtin_range_index },
     BuiltinDef::{ name: "sum", run: builtin_sum },
     BuiltinDef::{ name: "max", run: builtin_max },
     BuiltinDef::{ name: "min", run: builtin_min },

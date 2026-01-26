@@ -154,7 +154,11 @@ fn eval_comp_filters(
       Ok(value) => value
       Err(err) => return Err(err)
     }
-    if !bool_from_value(cond) {
+    let ok = match truthy_from_value_with_env(cond, globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    if !ok {
       return Ok(false)
     }
   }

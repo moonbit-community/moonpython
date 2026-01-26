@@ -56,6 +56,53 @@ fn range_fields_from_self(
 }
 
 ///|
+fn range_member_value_to_bigint(
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[@bigint.BigInt?, RuntimeError] {
+  match value {
+    Value::Int(v) => Ok(Some(v))
+    Value::Bool(v) => Ok(Some(if v { 1N } else { 0N }))
+    Value::Float(v) =>
+      if v.is_nan() || v.is_inf() || v != v.floor() {
+        Ok(None)
+      } else {
+        let abs_v = if v < 0.0 { -v } else { v }
+        if abs_v > 9.223372036854776e18 {
+          Ok(None)
+        } else {
+          Ok(Some(@bigint.BigInt::from_int64(v.to_int64())))
+        }
+      }
+    Value::Instance(_) =>
+      match get_attr_from_value(value, "__index__", globals, builtins, io) {
+        Ok(index_method) =>
+          match
+            call_callable_with_env(index_method, [], [], globals, builtins, io) {
+            Ok(Value::Int(v)) => Ok(Some(v))
+            Ok(Value::Bool(v)) => Ok(Some(if v { 1N } else { 0N }))
+            Ok(_) =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__index__ returned non-int".to_string(),
+                ),
+              )
+            Err(err) => Err(err)
+          }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute => Ok(None)
+            _ => Err(err)
+          }
+      }
+    _ => Ok(None)
+  }
+}
+
+///|
 fn range_is_empty(
   start : @bigint.BigInt,
   stop : @bigint.BigInt,
@@ -358,10 +405,10 @@ fn builtin_range_contains(
   if range_is_empty(start, stop, step) {
     return Ok(Value::Bool(false))
   }
-  let needle = match positional[1] {
-    Value::Int(v) => Some(v)
-    Value::Bool(v) => Some(if v { 1N } else { 0N })
-    _ => None
+  let needle = match
+    range_member_value_to_bigint(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
   match needle {
     None => Ok(Value::Bool(false))
@@ -381,6 +428,174 @@ fn builtin_range_contains(
         }
       }
   }
+}
+
+///|
+fn range_index_of_value(
+  start : @bigint.BigInt,
+  stop : @bigint.BigInt,
+  step : @bigint.BigInt,
+  needle : @bigint.BigInt,
+) -> @bigint.BigInt? {
+  if range_is_empty(start, stop, step) {
+    return None
+  }
+  if step > 0N {
+    if needle < start || needle >= stop {
+      None
+    } else if (needle - start) % step != 0N {
+      None
+    } else {
+      Some((needle - start) / step)
+    }
+  } else {
+    let step_abs = -step
+    if needle > start || needle <= stop {
+      None
+    } else if (start - needle) % step_abs != 0N {
+      None
+    } else {
+      Some((start - needle) / step_abs)
+    }
+  }
+}
+
+///|
+fn builtin_range_count(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("range.count", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range.count() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let (start, stop, step) = match range_fields_from_self(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let needle = match
+    range_member_value_to_bigint(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match needle {
+    Some(n) =>
+      match range_index_of_value(start, stop, step, n) {
+        Some(_) => Ok(Value::Int(1N))
+        None => Ok(Value::Int(0N))
+      }
+    None => Ok(Value::Int(0N))
+  }
+}
+
+///|
+fn builtin_range_index(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("range.index", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 2 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range.index() takes from 1 to 3 arguments".to_string(),
+      ),
+    )
+  }
+  let (start, stop, step) = match range_fields_from_self(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let len = range_length_bigint(start, stop, step)
+  let needle = match
+    range_member_value_to_bigint(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let needle = match needle {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: sequence.index(x): x not in sequence".to_string(),
+        ),
+      )
+  }
+  let idx = match range_index_of_value(start, stop, step, needle) {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: sequence.index(x): x not in sequence".to_string(),
+        ),
+      )
+  }
+  let mut start_idx = if positional.length() >= 3 {
+    match intlike_to_bigint("range.index", positional[2]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    0N
+  }
+  let mut stop_idx = if positional.length() == 4 {
+    match intlike_to_bigint("range.index", positional[3]) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  } else {
+    len
+  }
+  if start_idx < 0N {
+    start_idx = start_idx + len
+  }
+  if stop_idx < 0N {
+    stop_idx = stop_idx + len
+  }
+  if start_idx < 0N {
+    start_idx = 0N
+  }
+  if start_idx > len {
+    start_idx = len
+  }
+  if stop_idx < 0N {
+    stop_idx = 0N
+  }
+  if stop_idx > len {
+    stop_idx = len
+  }
+  if idx < start_idx || idx >= stop_idx {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: sequence.index(x): x not in sequence".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Int(idx))
 }
 
 ///|

@@ -777,7 +777,17 @@ fn generator_step_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      if bool_from_value(cond_value) {
+      let ok = match
+        truthy_from_value_with_env(
+          cond_value,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if ok {
         state.val.frames.push(GenFrame::Block(body~, index=0, loop_depth~))
       } else if else_body.length() > 0 {
         state.val.frames.push(
@@ -1051,7 +1061,17 @@ fn generator_step_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      if !bool_from_value(value) {
+      let ok = match
+        truthy_from_value_with_env(
+          value,
+          state.val.globals,
+          state.val.builtins,
+          state.val.io,
+        ) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if !ok {
         let text = match message {
           Some(expr) => {
             let msg_value = match
@@ -1237,7 +1257,16 @@ fn generator_step_statement(
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
-              guard_ok = bool_from_value(guard_value)
+              guard_ok = match
+                truthy_from_value_with_env(
+                  guard_value,
+                  state.val.globals,
+                  state.val.builtins,
+                  state.val.io,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
             }
             if guard_ok {
               state.val.frames.push(
@@ -1412,7 +1441,17 @@ fn generator_dispatch_error(
               Ok(v) => v
               Err(e) => return Err(e)
             }
-            if bool_from_value(exit_result) {
+            let suppress = match
+              truthy_from_value_with_env(
+                exit_result,
+                state.val.globals,
+                state.val.builtins,
+                state.val.io,
+              ) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            if suppress {
               // Exception suppressed.
               return Ok(true)
             } else {
@@ -1778,7 +1817,17 @@ fn generator_resume_inner(
             return Err(err)
           }
         }
-        if bool_from_value(cond_value) {
+        let ok = match
+          truthy_from_value_with_env(
+            cond_value,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if ok {
           state.val.frames.push(
             GenFrame::Block(body~, index=0, loop_depth=loop_depth + 1),
           )

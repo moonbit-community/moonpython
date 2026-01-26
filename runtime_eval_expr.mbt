@@ -1359,7 +1359,12 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      if bool_from_value(cond_value) {
+      let ok = match
+        truthy_from_value_with_env(cond_value, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if ok {
         eval_expr_with_env(then_expr, locals, globals, builtins, io)
       } else {
         eval_expr_with_env(else_expr, locals, globals, builtins, io)
@@ -1430,7 +1435,14 @@ fn eval_expr_with_env(
               }
             _ => Ok(value)
           }
-        UnaryOp::Not => Ok(Value::Bool(!bool_from_value(value)))
+        UnaryOp::Not => {
+          let ok = match
+            truthy_from_value_with_env(value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Bool(!ok))
+        }
         UnaryOp::Invert => {
           match value {
             Value::Instance(_) =>
@@ -1515,9 +1527,14 @@ fn eval_expr_with_env(
           Err(err) => return Err(err)
         }
         for i = 1; i < values.length(); i = i + 1 {
+          let ok = match
+            truthy_from_value_with_env(result, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
           match op {
-            BoolOp::And => if !bool_from_value(result) { return Ok(result) }
-            BoolOp::Or => if bool_from_value(result) { return Ok(result) }
+            BoolOp::And => if !ok { return Ok(result) }
+            BoolOp::Or => if ok { return Ok(result) }
           }
           result = match
             eval_expr_with_env(values[i], locals, globals, builtins, io) {
