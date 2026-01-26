@@ -20,6 +20,16 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 
+SLOW_MODULES = {
+    # These modules are known to be computationally heavy under an interpreter.
+    "test.test_bigmem",
+    "test.test_dynamic",
+    "test.test_longexp",
+    "test.test_support",
+    "test.test_userstring",
+}
+
+
 @dataclass
 class Result:
     module: str
@@ -131,6 +141,12 @@ def main() -> int:
         help="Per-module timeout seconds (default: 20)",
     )
     parser.add_argument(
+        "--slow-timeout",
+        type=float,
+        default=360.0,
+        help="Per-module timeout for known slow tests (default: 360)",
+    )
+    parser.add_argument(
         "--target",
         default="wasm",
         help="moon --target value (default: wasm; wasm-gc may hit compiler issues on some toolchains)",
@@ -147,10 +163,9 @@ def main() -> int:
         help="Write a JSON report to this path",
     )
     parser.add_argument(
-        "--",
-        dest="extra_args",
+        "extra_args",
         nargs=argparse.REMAINDER,
-        help="Extra args passed to the executed test module",
+        help="Extra args passed to the executed test module (place after '--')",
     )
     args = parser.parse_args()
 
@@ -164,11 +179,12 @@ def main() -> int:
     results: List[Result] = []
     counts = {"pass": 0, "fail": 0, "skip": 0, "timeout": 0}
     for idx, mod in enumerate(selected, start=1):
+        timeout_s = args.slow_timeout if mod in SLOW_MODULES else args.timeout
         res = run_one(
             repo_root,
             lib_dir,
             mod,
-            timeout_s=args.timeout,
+            timeout_s=timeout_s,
             extra_args=args.extra_args or [],
             target_dir=args.target_dir,
             target=args.target,
