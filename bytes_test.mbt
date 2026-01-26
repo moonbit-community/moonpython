@@ -46,3 +46,21 @@ test "bytes/sequence_ops" {
     content="66\nb'BC'\n99\nbytearray(b'bc')\n120\nmemoryview(b'yz')\n4\nb'AB'\nb'CCC'\nTrue\n",
   )
 }
+
+///|
+test "bytes/fromhex" {
+  let source =
+    #|print(bytes.fromhex("00ff"))
+    #|print(bytes.fromhex("00 ff 0a"))
+  inspect(run_stdout_bytes(source), content="b'\\x00\\xff'\nb'\\x00\\xff\\n'\n")
+}
+
+///|
+test "bytearray/extend" {
+  let source =
+    #|ba = bytearray()
+    #|ba.extend(bytes.fromhex("6162"))
+    #|ba.extend([67, 68])
+    #|print(ba)
+  inspect(run_stdout_bytes(source), content="bytearray(b'abCD')\n")
+}

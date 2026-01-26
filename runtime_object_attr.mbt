@@ -1983,6 +1983,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "extend" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "extend",
+              params: ["self", "iterable"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "copy" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{

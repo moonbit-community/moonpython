@@ -3957,6 +3957,51 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Str(text))
               }
+              "extend" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "extend() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let other = positional[0]
+                  match other {
+                    Value::Bytes(bytes)
+                    | Value::ByteArray(bytes)
+                    | Value::MemoryView(bytes) =>
+                      for b in bytes {
+                        values.push(b & 0xFF)
+                      }
+                    _ => {
+                      let iterator = match
+                        iter_value_to_iterator(other, globals, builtins, io) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      while true {
+                        match
+                          iterator_next(iterator, None, globals, builtins, io) {
+                          Ok(item) => {
+                            let b = match byte_from_value("extend", item) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            values.push(b)
+                          }
+                          Err(err) =>
+                            if err.exc_type == "StopIteration" {
+                              break
+                            } else {
+                              return Err(err)
+                            }
+                        }
+                      }
+                    }
+                  }
+                  return Ok(Value::None)
+                }
               "copy" =>
                 if positional.length() != 0 {
                   return Err(

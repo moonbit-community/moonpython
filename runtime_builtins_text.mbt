@@ -774,6 +774,62 @@ fn bytes_from_count(
 }
 
 ///|
+fn hex_digit_value(ch : Char) -> Int? {
+  let code = ch.to_int()
+  if code >= '0'.to_int() && code <= '9'.to_int() {
+    Some(code - '0'.to_int())
+  } else if code >= 'a'.to_int() && code <= 'f'.to_int() {
+    Some(10 + (code - 'a'.to_int()))
+  } else if code >= 'A'.to_int() && code <= 'F'.to_int() {
+    Some(10 + (code - 'A'.to_int()))
+  } else {
+    None
+  }
+}
+
+///|
+fn bytes_fromhex_parse(text : String) -> Result[Array[Int], RuntimeError] {
+  let out : Array[Int] = []
+  let chars = text.to_array()
+  let mut have_hi = false
+  let mut hi = 0
+  for i = 0; i < chars.length(); i = i + 1 {
+    let ch = chars[i]
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      continue
+    }
+    match hex_digit_value(ch) {
+      Some(n) =>
+        if have_hi {
+          out.push((hi << 4) | n)
+          have_hi = false
+        } else {
+          hi = n
+          have_hi = true
+        }
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: non-hexadecimal number found in fromhex() arg at position " +
+            i.to_string(),
+          ),
+        )
+    }
+  }
+  if have_hi {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: non-hexadecimal number found in fromhex() arg at position " +
+        chars.length().to_string(),
+      ),
+    )
+  }
+  Ok(out)
+}
+
+///|
 fn builtin_bytes(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -852,6 +908,54 @@ fn builtin_bytes(
         ),
       )
   }
+}
+
+///|
+fn builtin_bytes_fromhex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytes.fromhex", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "fromhex() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let text = match positional[1] {
+    Value::Str(s) => s
+    other =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "fromhex() argument must be str, not '" +
+          type_name_from_value(other) +
+          "'",
+        ),
+      )
+  }
+  Ok(
+    Value::Bytes(
+      match bytes_fromhex_parse(text) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      },
+    ),
+  )
 }
 
 ///|
@@ -1069,6 +1173,54 @@ fn builtin_bytearray(
         ),
       )
   }
+}
+
+///|
+fn builtin_bytearray_fromhex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytearray.fromhex", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "fromhex() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let text = match positional[1] {
+    Value::Str(s) => s
+    other =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "fromhex() argument must be str, not '" +
+          type_name_from_value(other) +
+          "'",
+        ),
+      )
+  }
+  Ok(
+    Value::ByteArray(
+      match bytes_fromhex_parse(text) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      },
+    ),
+  )
 }
 
 ///|
