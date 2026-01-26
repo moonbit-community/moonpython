@@ -2359,20 +2359,143 @@ fn builtin_module_globals_update(
     Value::None => return Ok(Value::None)
     _ => ()
   }
-  let pairs = match dict_pairs_from_value("update", other) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  for pair in pairs {
-    match pair.0 {
-      Value::Str(name) => set_global_value(env, name, pair.1)
-      _ =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "globals key must be str".to_string(),
-          ),
-        )
+  match other {
+    Value::Dict(pairs) =>
+      for pair in pairs {
+        match pair.0 {
+          Value::Str(name) => set_global_value(env, name, pair.1)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "globals key must be str".to_string(),
+              ),
+            )
+        }
+      }
+    Value::Instance(inst) =>
+      if class_includes_dict(inst.class) {
+        let pairs = match get_named_value(inst.dict, dict_storage_name) {
+          Some(Value::Dict(pairs)) => pairs
+          Some(_) =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "update() expects a dict".to_string(),
+              ),
+            )
+          None => {
+            let pairs : Array[(Value, Value)] = []
+            set_named_value(inst.dict, dict_storage_name, Value::Dict(pairs))
+            pairs
+          }
+        }
+        for pair in pairs {
+          match pair.0 {
+            Value::Str(name) => set_global_value(env, name, pair.1)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "globals key must be str".to_string(),
+                ),
+              )
+          }
+        }
+      } else {
+        let iterator = match
+          iter_value_to_iterator(other, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        while true {
+          let item = match
+            iterator_next(iterator, None, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) =>
+              if err.exc_type == "StopIteration" {
+                break
+              } else {
+                return Err(err)
+              }
+          }
+          match item {
+            Value::Tuple(values) | Value::List(values) =>
+              if values.length() != 2 {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "update() sequence element has wrong length".to_string(),
+                  ),
+                )
+              } else {
+                match values[0] {
+                  Value::Str(name) => set_global_value(env, name, values[1])
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "globals key must be str".to_string(),
+                      ),
+                    )
+                }
+              }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "update() expects (key, value) pairs".to_string(),
+                ),
+              )
+          }
+        }
+      }
+    _ => {
+      let iterator = match
+        iter_value_to_iterator(other, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      while true {
+        let item = match iterator_next(iterator, None, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              break
+            } else {
+              return Err(err)
+            }
+        }
+        match item {
+          Value::Tuple(values) | Value::List(values) =>
+            if values.length() != 2 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "update() sequence element has wrong length".to_string(),
+                ),
+              )
+            } else {
+              match values[0] {
+                Value::Str(name) => set_global_value(env, name, values[1])
+                _ =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "globals key must be str".to_string(),
+                    ),
+                  )
+              }
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "update() expects (key, value) pairs".to_string(),
+              ),
+            )
+        }
+      }
     }
   }
   Ok(Value::None)
