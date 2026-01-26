@@ -30,6 +30,14 @@ Example:
 moon run cmd/main -- examples/tasks.py
 ```
 
+## Run a module (`-m`)
+
+`cmd/main` supports `-m` (package `__main__.py` preferred when present):
+
+```bash
+moon run cmd/main -- --stdlib Lib -m test.test_range
+```
+
 ## Using the CPython `Lib/` snapshot
 
 This repo vendors CPython's `Lib/` under `moonpython/Lib/`. You can point the
@@ -42,6 +50,21 @@ moon run cmd/main -- --stdlib Lib examples/stdlib_imports.py
 Notes:
 - `--stdlib` accepts any directory; `Lib/` is the current CPython snapshot.
 - We do **not** support C extensions; only pure-Python modules are expected to run.
+
+## Smoke-run `Lib/test`
+
+There's a pragmatic runner in `scripts/run_libtests.py` that executes
+`Lib/test/test_*.py` modules via `-m` and reports pass/fail/timeout status:
+
+```bash
+python3 scripts/run_libtests.py --target-dir _build2
+```
+
+Useful flags:
+- `--pattern REGEX`: only run matching modules
+- `--timeout SECONDS`: per-module timeout (default: 20)
+- `--slow-timeout SECONDS`: timeout for known slow modules (default: 600)
+- `--target-dir DIR`: pass through to `moon --target-dir` to avoid build locks
 
 ## REPL / stdin runner
 
