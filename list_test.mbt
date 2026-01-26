@@ -100,3 +100,26 @@ test "list/clear" {
   inspect(test_exec_global(source, "xs"), content="[]")
   inspect(test_exec_global(source, "r"), content="None")
 }
+
+///|
+test "list/reverse" {
+  let source =
+    #|xs = [1, 2, 3]
+    #|r = xs.reverse()
+  inspect(test_exec_global(source, "xs"), content="[3, 2, 1]")
+  inspect(test_exec_global(source, "r"), content="None")
+}
+
+///|
+test "list-subclass/reverse" {
+  let source =
+    #|class L(list):
+    #|  pass
+    #|x = L()
+    #|x.append(1)
+    #|x.append(2)
+    #|x.append(3)
+    #|x.reverse()
+    #|out = list(x)
+  inspect(test_exec_global(source, "out"), content="[3, 2, 1]")
+}

@@ -1002,6 +1002,29 @@ fn call_callable_with_env(
                         ),
                       )
                     }
+                  "reverse" =>
+                    if positional.length() != 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "reverse() takes no arguments".to_string(),
+                        ),
+                      )
+                    } else {
+                      if values.length() == 0 {
+                        return Ok(Value::None)
+                      }
+                      let mut i = 0
+                      let mut j = values.length() - 1
+                      while i < j {
+                        let tmp = values[i]
+                        values[i] = values[j]
+                        values[j] = tmp
+                        i += 1
+                        j -= 1
+                      }
+                      return Ok(Value::None)
+                    }
                   _ => ()
                 }
               }

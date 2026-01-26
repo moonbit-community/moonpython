@@ -696,6 +696,21 @@ fn get_attr_raw_from_value(
                 self: Value::Instance(inst),
               }),
             )
+          } else if attr == "reverse" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "reverse",
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
           }
         _ => ()
       }
