@@ -2246,11 +2246,40 @@ fn get_attr_raw_from_value(
           values.push(Value::Class(item))
         }
         Ok(Value::Tuple(values))
+      } else if klass.name == "list" && attr == "append" {
+        // Expose `list.append` as a best-effort descriptor-like stub so pure
+        // Python stdlib modules (e.g. multiprocessing.reduction) can introspect
+        // it via `type(list.append)`.
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "list.append",
+            params: ["self", "object"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
       } else if klass.name == "list" && attr == "copy" {
         Ok(
           Value::Function(FunctionValue::{
             name: "list.copy",
             params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      } else if klass.name == "int" && attr == "__add__" {
+        // Similar to `list.append`, provide an introspection stub for
+        // `int.__add__` used by the stdlib pickling machinery.
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "int.__add__",
+            params: ["self", "other"],
             defaults: [],
             body: [],
             is_generator: false,
