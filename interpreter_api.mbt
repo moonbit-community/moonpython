@@ -415,6 +415,11 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(os_error_class)],
     dict: [],
   }
+  let timeout_error_class = ClassValue::{
+    name: "TimeoutError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let builtins : Array[(String, Value)] = []
   builtins.push(("__debug__", Value::Bool(true)))
   let builtin_fn_names : Array[String] = [
@@ -461,6 +466,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("EncodingWarning", Value::Class(encoding_warning_class)))
   builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
+  builtins.push(("TimeoutError", Value::Class(timeout_error_class)))
   builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
   builtins.push(("FileExistsError", Value::Class(file_exists_error_class)))
   builtins.push(("PermissionError", Value::Class(permission_error_class)))
@@ -886,6 +892,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(os_error_class)],
     dict: [],
   }
+  let timeout_error_class = ClassValue::{
+    name: "TimeoutError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let import_error_class = ClassValue::{
     name: "ImportError",
     bases: [Value::Class(exception_class)],
@@ -1065,6 +1076,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("UnicodeEncodeError", Value::Class(unicode_encode_error_class)),
     ("UnicodeTranslateError", Value::Class(unicode_translate_error_class)),
     ("OSError", Value::Class(os_error_class)),
+    ("TimeoutError", Value::Class(timeout_error_class)),
     ("FileNotFoundError", Value::Class(file_not_found_error_class)),
     ("FileExistsError", Value::Class(file_exists_error_class)),
     ("PermissionError", Value::Class(permission_error_class)),
