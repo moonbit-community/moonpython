@@ -82,6 +82,58 @@ fn parse_class_stmt(
         if expr_text.length() == 0 {
           continue
         }
+        if expr_text.has_prefix("**") {
+          let inner = substring(expr_text, 2, expr_text.length())
+            .trim(chars=" \t\n\r")
+            .to_string()
+          if inner.length() == 0 {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                name_token,
+              ),
+            )
+          }
+          match parse_expr(inner) {
+            Ok(expr) => keywords.push(("**", expr))
+            Err(_) =>
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  name_token,
+                ),
+              )
+          }
+          continue
+        }
+        if expr_text.has_prefix("*") {
+          let inner = substring(expr_text, 1, expr_text.length())
+            .trim(chars=" \t\n\r")
+            .to_string()
+          if inner.length() == 0 {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                name_token,
+              ),
+            )
+          }
+          match parse_expr(inner) {
+            Ok(expr) => bases.push(Expr::Starred(value=expr))
+            Err(_) =>
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  name_token,
+                ),
+              )
+          }
+          continue
+        }
         if has_bare_assign(expr_text) {
           let eq_pos = find_char(expr_text, '=')
           if eq_pos is Some(eq_idx) {

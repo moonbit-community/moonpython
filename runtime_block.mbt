@@ -1671,12 +1671,30 @@ fn eval_block_flow(
         }
         let raw_base_values : Array[Value] = []
         for base in bases {
-          let value = match
-            eval_expr_with_env(base, locals, globals, builtins, io) {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          match base {
+            Expr::Starred(value~) => {
+              let iter_value = match
+                eval_expr_with_env(value, locals, globals, builtins, io) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let items = match iterable_values(iter_value) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              for item in items {
+                raw_base_values.push(item)
+              }
+            }
+            _ => {
+              let value = match
+                eval_expr_with_env(base, locals, globals, builtins, io) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              raw_base_values.push(value)
+            }
           }
-          raw_base_values.push(value)
         }
         let base_values : Array[Value] = []
         for base_value in raw_base_values {
@@ -1741,19 +1759,42 @@ fn eval_block_flow(
                     ),
                   )
                 }
-              _ =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    "base class must be a class".to_string(),
-                  ),
-                )
+              other => base_values.push(other)
             }
           }
         }
         let class_kwargs : Array[(String, Value)] = []
         let mut metaclass_value : Value? = None
         for keyword in keywords {
+          if keyword.0 == "**" {
+            let mapping = match
+              eval_expr_with_env(keyword.1, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let pairs = match dict_pairs_from_value("class", mapping) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for pair in pairs {
+              match pair.0 {
+                Value::Str(key) =>
+                  if key == "metaclass" {
+                    metaclass_value = Some(pair.1)
+                  } else {
+                    set_global_value(class_kwargs, key, pair.1)
+                  }
+                _ =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "keywords must be strings".to_string(),
+                    ),
+                  )
+              }
+            }
+            continue
+          }
           if keyword.0 == "metaclass" {
             let value = match
               eval_expr_with_env(keyword.1, locals, globals, builtins, io) {
@@ -1768,7 +1809,7 @@ fn eval_block_flow(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          class_kwargs.push((keyword.0, value))
+          set_global_value(class_kwargs, keyword.0, value)
         }
         if base_values.length() == 0 {
           for pair in builtins {
@@ -1868,199 +1909,206 @@ fn eval_block_flow(
         ]
         let created_value = match
           call_callable_with_env(
-            // CPython forwards class definition kwargs to the metaclass.
-            // For now, we only forward them to `__init_subclass__` to avoid
-            // conflicts with metaclass `__new__` signatures.
-            selected_meta,
-            metaclass_args,
-            [],
-            globals,
-            builtins,
-            io,
+            selected_meta, metaclass_args, class_kwargs, globals, builtins, io,
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        let klass = match created_value {
-          Value::Class(k) => k
-          _ =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Type,
-                "metaclass did not return a class".to_string(),
-              ),
-            )
-        }
-        // Fill the __class__ cell so closures can resolve it (for super()).
-        match get_named_value(class_dict, "__class__") {
-          Some(cell) => cell_set_value(cell, Value::Class(klass))
-          None => ()
-        }
-        // Track the metaclass if the metaclass protocol didn't already.
-        if get_named_value(klass.dict, "__mpython_metaclass__") is None {
-          match selected_meta {
-            Value::Class(meta) =>
-              set_named_value(
-                klass.dict,
-                "__mpython_metaclass__",
-                Value::Class(meta),
-              )
-            _ => ()
-          }
-        }
-        let _ = match class_mro(klass) {
-          Ok(_) => ()
-          Err(err) => return Err(err)
-        }
-        fn value_is_abstract(
-          value : Value,
-          globals : Array[(String, Value)],
-          builtins : Array[(String, Value)],
-          io : MockIO,
-        ) -> Result[Bool, RuntimeError] {
-          match
-            get_attr_from_value(
-              value, "__isabstractmethod__", globals, builtins, io,
-            ) {
-            Ok(flag) => truthy_from_value_with_env(flag, globals, builtins, io)
-            Err(err) =>
-              match err.kind {
-                RuntimeErrorKind::Attribute => Ok(false)
-                _ =>
-                  if err.exc_type == "AttributeError" {
-                    Ok(false)
-                  } else {
-                    Err(err)
-                  }
-              }
-          }
-        }
-
-        let abstract_names : Array[Value] = []
-        for pair in class_dict {
-          let is_abstract = match
-            value_is_abstract(pair.1, globals, builtins, io) {
-            Ok(v) => v
-            Err(err) => return Err(err)
-          }
-          if is_abstract {
-            match set_add_unique(abstract_names, Value::Str(pair.0)) {
-              Ok(_) => ()
-              Err(_) => ()
+        // CPython allows metaclasses to return non-type objects; in that case
+        // the class statement binds the returned value.
+        match created_value {
+          Value::Class(klass) => {
+            // Fill the __class__ cell so closures can resolve it (for super()).
+            match get_named_value(class_dict, "__class__") {
+              Some(cell) => cell_set_value(cell, Value::Class(klass))
+              None => ()
             }
-          }
-        }
-        let mut has_abstractmethods_attr = false
-        for base_value in base_values {
-          match base_value {
-            Value::Class(base_class) => {
-              let base_abs = get_named_value(
-                base_class.dict,
-                "__abstractmethods__",
-              )
-              if base_abs is Some(_) {
-                has_abstractmethods_attr = true
-              }
-              match base_abs {
-                Some(Value::Set(items)) | Some(Value::Tuple(items)) =>
-                  for item in items {
-                    match item {
-                      Value::Str(name) =>
-                        match lookup_class_attr(klass, name) {
-                          Ok(Some(value)) => {
-                            let is_abstract = match
-                              value_is_abstract(value, globals, builtins, io) {
-                              Ok(v) => v
-                              Err(err) => return Err(err)
-                            }
-                            if is_abstract {
-                              match
-                                set_add_unique(abstract_names, Value::Str(name)) {
-                                Ok(_) => ()
-                                Err(_) => ()
-                              }
-                            }
-                          }
-                          _ => ()
-                        }
-                      _ => ()
-                    }
-                  }
+            // Track the metaclass if the metaclass protocol didn't already.
+            if get_named_value(klass.dict, "__mpython_metaclass__") is None {
+              match selected_meta {
+                Value::Class(meta) =>
+                  set_named_value(
+                    klass.dict,
+                    "__mpython_metaclass__",
+                    Value::Class(meta),
+                  )
                 _ => ()
               }
             }
-            _ => ()
-          }
-        }
-        if abstract_names.length() > 0 || has_abstractmethods_attr {
-          // Override inherited __abstractmethods__ (even when empty) so concrete
-          // subclasses of ABCs don't appear abstract.
-          set_named_value(
-            klass.dict,
-            "__abstractmethods__",
-            Value::Set(abstract_names),
-          )
-        }
-        // Call `__init_subclass__` on the *base* (PEP 487). When defining a class
-        // that itself defines `__init_subclass__`, CPython does not call the new
-        // class' own hook for its creation; it calls the inherited hook via `super()`.
-        let inherited_init_subclass : Value? = match class_mro(klass) {
-          Ok(mro) => {
-            let mut found : Value? = None
-            for i = 1; i < mro.length(); i = i + 1 {
-              match get_named_value(mro[i].dict, "__init_subclass__") {
-                Some(Value::Function(func)) => {
-                  found = Some(
-                    Value::BoundMethod(BoundMethodValue::{
-                      function: func,
-                      self: Value::Class(klass),
-                    }),
+            let _ = match class_mro(klass) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            fn value_is_abstract(
+              value : Value,
+              globals : Array[(String, Value)],
+              builtins : Array[(String, Value)],
+              io : MockIO,
+            ) -> Result[Bool, RuntimeError] {
+              match
+                get_attr_from_value(
+                  value, "__isabstractmethod__", globals, builtins, io,
+                ) {
+                Ok(flag) =>
+                  truthy_from_value_with_env(flag, globals, builtins, io)
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute => Ok(false)
+                    _ =>
+                      if err.exc_type == "AttributeError" {
+                        Ok(false)
+                      } else {
+                        Err(err)
+                      }
+                  }
+              }
+            }
+
+            let abstract_names : Array[Value] = []
+            for pair in class_dict {
+              let is_abstract = match
+                value_is_abstract(pair.1, globals, builtins, io) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              if is_abstract {
+                match set_add_unique(abstract_names, Value::Str(pair.0)) {
+                  Ok(_) => ()
+                  Err(_) => ()
+                }
+              }
+            }
+            let mut has_abstractmethods_attr = false
+            for base_value in base_values {
+              match base_value {
+                Value::Class(base_class) => {
+                  let base_abs = get_named_value(
+                    base_class.dict,
+                    "__abstractmethods__",
                   )
-                  break
+                  if base_abs is Some(_) {
+                    has_abstractmethods_attr = true
+                  }
+                  match base_abs {
+                    Some(Value::Set(items)) | Some(Value::Tuple(items)) =>
+                      for item in items {
+                        match item {
+                          Value::Str(name) =>
+                            match lookup_class_attr(klass, name) {
+                              Ok(Some(value)) => {
+                                let is_abstract = match
+                                  value_is_abstract(
+                                    value, globals, builtins, io,
+                                  ) {
+                                  Ok(v) => v
+                                  Err(err) => return Err(err)
+                                }
+                                if is_abstract {
+                                  match
+                                    set_add_unique(
+                                      abstract_names,
+                                      Value::Str(name),
+                                    ) {
+                                    Ok(_) => ()
+                                    Err(_) => ()
+                                  }
+                                }
+                              }
+                              _ => ()
+                            }
+                          _ => ()
+                        }
+                      }
+                    _ => ()
+                  }
                 }
                 _ => ()
               }
             }
-            found
-          }
-          Err(_) => None
-        }
-        match inherited_init_subclass {
-          Some(hook) => {
-            let _ = match
-              call_callable_with_env(
-                hook,
-                [],
-                class_kwargs,
-                globals,
-                builtins,
-                io,
-              ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+            if abstract_names.length() > 0 || has_abstractmethods_attr {
+              // Override inherited __abstractmethods__ (even when empty) so concrete
+              // subclasses of ABCs don't appear abstract.
+              set_named_value(
+                klass.dict,
+                "__abstractmethods__",
+                Value::Set(abstract_names),
+              )
             }
-
-          }
-          None => ()
-        }
-        let mut defined : Value = Value::Class(klass)
-        for i = decorator_values.length(); i > 0; i = i - 1 {
-          let decorator_value = decorator_values[i - 1]
-          defined = match decorator_value {
-            Value::Function(dec_func) =>
-              if dec_func.body.length() == 0 {
-                match
-                  eval_builtin_call(
-                    dec_func.name,
-                    [defined],
+            // Call `__init_subclass__` on the *base* (PEP 487). When defining a class
+            // that itself defines `__init_subclass__`, CPython does not call the new
+            // class' own hook for its creation; it calls the inherited hook via `super()`.
+            let inherited_init_subclass : Value? = match class_mro(klass) {
+              Ok(mro) => {
+                let mut found : Value? = None
+                for i = 1; i < mro.length(); i = i + 1 {
+                  match get_named_value(mro[i].dict, "__init_subclass__") {
+                    Some(Value::Function(func)) => {
+                      found = Some(
+                        Value::BoundMethod(BoundMethodValue::{
+                          function: func,
+                          self: Value::Class(klass),
+                        }),
+                      )
+                      break
+                    }
+                    _ => ()
+                  }
+                }
+                found
+              }
+              Err(_) => None
+            }
+            match inherited_init_subclass {
+              Some(hook) => {
+                let _ = match
+                  call_callable_with_env(
+                    hook,
                     [],
-                    locals,
+                    class_kwargs,
                     globals,
                     builtins,
                     io,
                   ) {
-                  Ok(Some(value)) => value
-                  Ok(None) =>
+                  Ok(value) => value
+                  Err(err) => return Err(err)
+                }
+
+              }
+              None => ()
+            }
+            let mut defined : Value = Value::Class(klass)
+            for i = decorator_values.length(); i > 0; i = i - 1 {
+              let decorator_value = decorator_values[i - 1]
+              defined = match decorator_value {
+                Value::Function(dec_func) =>
+                  if dec_func.body.length() == 0 {
+                    match
+                      eval_builtin_call(
+                        dec_func.name,
+                        [defined],
+                        [],
+                        locals,
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(Some(value)) => value
+                      Ok(None) =>
+                        match
+                          call_callable_with_env(
+                            decorator_value,
+                            [defined],
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) => return Err(err)
+                    }
+                  } else {
                     match
                       call_callable_with_env(
                         decorator_value,
@@ -2073,39 +2121,91 @@ fn eval_block_flow(
                       Ok(value) => value
                       Err(err) => return Err(err)
                     }
-                  Err(err) => return Err(err)
-                }
-              } else {
-                match
-                  call_callable_with_env(
-                    decorator_value,
-                    [defined],
-                    [],
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
+                  }
+                _ =>
+                  match
+                    call_callable_with_env(
+                      decorator_value,
+                      [defined],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
               }
-            _ =>
-              match
-                call_callable_with_env(
-                  decorator_value,
-                  [defined],
-                  [],
-                  globals,
-                  builtins,
-                  io,
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
+            }
+            set_scoped_value(locals, globals, name, defined)
+            last = Value::None
+          }
+          other => {
+            let mut defined : Value = other
+            for i = decorator_values.length(); i > 0; i = i - 1 {
+              let decorator_value = decorator_values[i - 1]
+              defined = match decorator_value {
+                Value::Function(dec_func) =>
+                  if dec_func.body.length() == 0 {
+                    match
+                      eval_builtin_call(
+                        dec_func.name,
+                        [defined],
+                        [],
+                        locals,
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(Some(value)) => value
+                      Ok(None) =>
+                        match
+                          call_callable_with_env(
+                            decorator_value,
+                            [defined],
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) => return Err(err)
+                    }
+                  } else {
+                    match
+                      call_callable_with_env(
+                        decorator_value,
+                        [defined],
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                  }
+                _ =>
+                  match
+                    call_callable_with_env(
+                      decorator_value,
+                      [defined],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(value) => value
+                    Err(err) => return Err(err)
+                  }
               }
+            }
+            set_scoped_value(locals, globals, name, defined)
+            last = Value::None
           }
         }
-        set_scoped_value(locals, globals, name, defined)
-        last = Value::None
       }
       Stmt::While(condition~, body~, else_body~) => {
         let mut broke = false
