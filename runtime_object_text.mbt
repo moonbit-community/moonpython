@@ -9,6 +9,18 @@ fn is_ascii_alpha(c : Char) -> Bool {
 }
 
 ///|
+fn is_ascii_lower(c : Char) -> Bool {
+  let code = c.to_int()
+  code >= 'a'.to_int() && code <= 'z'.to_int()
+}
+
+///|
+fn is_ascii_upper(c : Char) -> Bool {
+  let code = c.to_int()
+  code >= 'A'.to_int() && code <= 'Z'.to_int()
+}
+
+///|
 fn is_ascii_digit(c : Char) -> Bool {
   let code = c.to_int()
   code >= '0'.to_int() && code <= '9'.to_int()
@@ -28,6 +40,23 @@ fn is_ascii_whitespace(c : Char) -> Bool {
   code == '\r'.to_int() ||
   code == 0x0b ||
   code == 0x0c
+}
+
+///|
+fn is_python_whitespace(c : Char) -> Bool {
+  if is_ascii_whitespace(c) {
+    return true
+  }
+  let code = c.to_int()
+  code == 0x0085 ||
+  code == 0x00a0 ||
+  code == 0x1680 ||
+  (code >= 0x2000 && code <= 0x200a) ||
+  code == 0x2028 ||
+  code == 0x2029 ||
+  code == 0x202f ||
+  code == 0x205f ||
+  code == 0x3000
 }
 
 ///|
@@ -59,7 +88,7 @@ fn parse_strip_chars(
 ///|
 fn strip_has_char(c : Char, chars_opt : Array[Char]?) -> Bool {
   match chars_opt {
-    None => is_ascii_whitespace(c)
+    None => is_python_whitespace(c)
     Some(chars) => {
       for item in chars {
         if item == c {

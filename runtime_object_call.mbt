@@ -1732,7 +1732,127 @@ fn call_callable_with_env(
                     return Ok(Value::Bool(false))
                   }
                   for c in chars {
-                    if !is_ascii_whitespace(c) {
+                    if !is_python_whitespace(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "islower" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "islower() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  let mut has_cased = false
+                  for c in chars {
+                    if is_ascii_alpha(c) {
+                      has_cased = true
+                      if is_ascii_upper(c) {
+                        return Ok(Value::Bool(false))
+                      }
+                    }
+                  }
+                  return Ok(Value::Bool(has_cased))
+                }
+              "isupper" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isupper() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  let mut has_cased = false
+                  for c in chars {
+                    if is_ascii_alpha(c) {
+                      has_cased = true
+                      if is_ascii_lower(c) {
+                        return Ok(Value::Bool(false))
+                      }
+                    }
+                  }
+                  return Ok(Value::Bool(has_cased))
+                }
+              "istitle" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "istitle() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  let mut has_cased = false
+                  let mut word_start = true
+                  for c in chars {
+                    if is_ascii_alpha(c) {
+                      has_cased = true
+                      if word_start {
+                        if !is_ascii_upper(c) {
+                          return Ok(Value::Bool(false))
+                        }
+                        word_start = false
+                      } else if !is_ascii_lower(c) {
+                        return Ok(Value::Bool(false))
+                      }
+                    } else {
+                      word_start = true
+                    }
+                  }
+                  return Ok(Value::Bool(has_cased))
+                }
+              "isdecimal" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isdecimal() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_digit(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "isnumeric" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isnumeric() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_digit(c) {
                       return Ok(Value::Bool(false))
                     }
                   }
