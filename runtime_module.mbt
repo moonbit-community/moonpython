@@ -57,6 +57,30 @@ fn module_cache_set(name : String, module_value : Value) -> Unit {
 }
 
 ///|
+fn module_cache_delete(name : String) -> Unit {
+  let mut i = module_cache.val.length()
+  while i > 0 {
+    i = i - 1
+    if module_cache.val[i].0 == name {
+      let _ = module_cache.val.remove(i)
+
+    }
+  }
+  let mut j = sys_modules_ref.val.length()
+  while j > 0 {
+    j = j - 1
+    match sys_modules_ref.val[j].0 {
+      Value::Str(text) =>
+        if text == name {
+          let _ = sys_modules_ref.val.remove(j)
+
+        }
+      _ => ()
+    }
+  }
+}
+
+///|
 fn module_name_parts(name : String) -> Array[String] {
   let out : Array[String] = []
   for part in name.split(".") {
@@ -600,9 +624,11 @@ fn make_socket_module(builtins : Array[(String, Value)]) -> Value {
   // Minimal `socket` shim: enough for importing `logging.handlers` and running
   // non-networking stdlib tests. This does not implement real networking.
   make_module_instance("socket", [
+    ("AF_UNSPEC", Value::Int(0N)),
     ("AF_UNIX", Value::Int(1N)),
     ("AF_INET", Value::Int(2N)),
     ("AF_INET6", Value::Int(10N)),
+    ("AI_PASSIVE", Value::Int(1N)),
     ("SOCK_STREAM", Value::Int(1N)),
     ("SOCK_DGRAM", Value::Int(2N)),
     ("has_ipv6", Value::Bool(false)),
@@ -1514,6 +1540,11 @@ fn make_python_module(
       pop_traceback_frame()
       closure_env_stack.val = saved_closure_env_stack
       scope_decls_stack.val = saved_scope_decls_stack
+      // Imports that raise during module execution should not leave a partially
+      // initialized module in the cache. This prevents follow-up imports from
+      // silently "succeeding" with missing attributes (e.g. `ssl` when `_ssl`
+      // is absent).
+      module_cache_delete(name)
       return Err(err)
     }
   }
