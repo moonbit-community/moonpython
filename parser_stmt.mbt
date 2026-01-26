@@ -1853,15 +1853,17 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  if trimmed.has_prefix("del ") {
-    let rest = substring(trimmed, 4, trimmed.length())
+  if trimmed.has_prefix("del ") || trimmed.has_prefix("del(") {
+    let prefix_len = if trimmed.has_prefix("del(") { 3 } else { 4 }
+    let rest = substring(trimmed, prefix_len, trimmed.length())
     let targets : Array[Target] = []
     for part in split_top_level_commas(rest) {
       let text = part.trim(chars=" \t").to_string()
       if text.length() == 0 {
         continue
       }
-      let tokens = match tokenize_expr(text, line_index + 1, base_offset + 4) {
+      let tokens = match
+        tokenize_expr(text, line_index + 1, base_offset + prefix_len) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
