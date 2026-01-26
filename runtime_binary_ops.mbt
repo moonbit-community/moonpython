@@ -45,6 +45,26 @@ fn eval_binary_op_values(
         }
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1N } else { 0N }) + (if b { 1N } else { 0N })))
+        (Value::Bool(a), other) =>
+          eval_binary_op_values(
+            BinaryOp::Add,
+            Value::Int(if a { 1N } else { 0N }),
+            other,
+            globals,
+            builtins,
+            io,
+          )
+        (other, Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::Add,
+            other,
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
         (Value::Int(a), Value::Float(b)) => {
           let aa = match bigint_to_double_checked(a) {
             Ok(v) => v
@@ -254,6 +274,26 @@ fn eval_binary_op_values(
         }
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b))
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b))
+        (Value::Bool(a), Value::Bool(b)) =>
+          Ok(Value::Int((if a { 1N } else { 0N }) * (if b { 1N } else { 0N })))
+        (Value::Bool(a), other) =>
+          eval_binary_op_values(
+            BinaryOp::Mul,
+            Value::Int(if a { 1N } else { 0N }),
+            other,
+            globals,
+            builtins,
+            io,
+          )
+        (other, Value::Bool(b)) =>
+          eval_binary_op_values(
+            BinaryOp::Mul,
+            other,
+            Value::Int(if b { 1N } else { 0N }),
+            globals,
+            builtins,
+            io,
+          )
         (Value::Int(a), Value::Float(b)) => {
           let aa = match bigint_to_double_checked(a) {
             Ok(v) => v

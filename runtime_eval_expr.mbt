@@ -1433,6 +1433,7 @@ fn eval_expr_with_env(
                     _ => Err(err)
                   }
               }
+            Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
             _ => Ok(value)
           }
         UnaryOp::Not => {
