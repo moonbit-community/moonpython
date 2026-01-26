@@ -1843,16 +1843,8 @@ fn eval_expr_with_env(
                 left_num >= right_num
               }
             }
-          CompareOp::Is =>
-            match (previous, current) {
-              (Value::Function(a), Value::Function(b)) => a.name == b.name
-              _ => eq_value(previous, current)
-            }
-          CompareOp::IsNot =>
-            match (previous, current) {
-              (Value::Function(a), Value::Function(b)) => a.name != b.name
-              _ => !eq_value(previous, current)
-            }
+          CompareOp::Is => is_value_identity(previous, current)
+          CompareOp::IsNot => !is_value_identity(previous, current)
           CompareOp::In =>
             match current {
               Value::List(values) | Value::Tuple(values) => {

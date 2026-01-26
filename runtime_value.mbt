@@ -760,6 +760,45 @@ fn eq_value(a : Value, b : Value) -> Bool {
 }
 
 ///|
+fn is_value_identity(a : Value, b : Value) -> Bool {
+  match (a, b) {
+    (Value::None, Value::None) => true
+    (Value::Bool(a), Value::Bool(b)) => a == b
+    (Value::Int(a), Value::Int(b)) => a == b
+    (Value::Float(a), Value::Float(b)) => a == b
+    (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi
+    (Value::Str(a), Value::Str(b)) => a == b
+    (Value::Bytes(a), Value::Bytes(b))
+    | (Value::ByteArray(a), Value::ByteArray(b))
+    | (Value::MemoryView(a), Value::MemoryView(b)) =>
+      if a.length() != b.length() {
+        false
+      } else {
+        let mut ok = true
+        for i = 0; i < a.length(); i = i + 1 {
+          if a[i] != b[i] {
+            ok = false
+            break
+          }
+        }
+        ok
+      }
+    (Value::Tuple(a), Value::Tuple(b)) =>
+      eq_value(Value::Tuple(a), Value::Tuple(b))
+    (Value::List(a), Value::List(b)) => eq_value(Value::List(a), Value::List(b))
+    (Value::Set(a), Value::Set(b)) => eq_value(Value::Set(a), Value::Set(b))
+    (Value::Dict(a), Value::Dict(b)) => eq_value(Value::Dict(a), Value::Dict(b))
+    (Value::Function(a), Value::Function(b)) => a.name == b.name
+    (Value::Class(a), Value::Class(b)) => a.name == b.name
+    (Value::BoundMethod(a), Value::BoundMethod(b)) =>
+      a.function.name == b.function.name && is_value_identity(a.self, b.self)
+    (Value::Instance(a), Value::Instance(b)) =>
+      eq_value(Value::Instance(a), Value::Instance(b))
+    _ => false
+  }
+}
+
+///|
 fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
   match value {
     Value::None => Ok(0N)
