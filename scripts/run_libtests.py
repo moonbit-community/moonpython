@@ -2,9 +2,13 @@
 """
 Run CPython's Lib/test modules using moonpython.
 
-This is a pragmatic smoke runner (not a full regrtest port). It executes each
-test module via `moon run cmd/main -- --stdlib Lib -m test.test_x` and records
-pass/fail/skip-style outcomes based on exit status and output.
+This is a pragmatic smoke runner (not a full regrtest port).
+
+Notes about exit codes:
+- `moon run` does NOT reliably propagate the executed program's exit status.
+  That makes pass/fail classification based on `returncode` misleading.
+- For accurate exit codes, prefer `--target native` which builds `cmd/main`
+  once and executes the resulting `main.exe` directly.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence
 
 
 SLOW_MODULES = {
@@ -39,6 +43,10 @@ class Result:
     output: str
 
 
+_RE_RAN = re.compile(r"^Ran (\d+) tests? in ", re.MULTILINE)
+_RE_SKIPPED = re.compile(r"\bskipped=(\d+)\b")
+
+
 def discover_test_modules(lib_dir: Path) -> List[str]:
     test_dir = lib_dir / "test"
     modules: List[str] = []
@@ -51,23 +59,92 @@ def discover_test_modules(lib_dir: Path) -> List[str]:
 
 
 def classify(exit_code: int, output: str) -> str:
-    if exit_code == 0:
-        return "pass"
+    # Skip detection first: SkipTest can happen both as an uncaught exception
+    # (non-zero exit) and as a unittest result (zero exit).
     if "SkipTest:" in output:
         return "skip"
-    return "fail"
+
+    # Unittest "all skipped" is still a success exit code, but we want to track
+    # it separately from a real pass.
+    ran_m = _RE_RAN.search(output)
+    skipped_m = _RE_SKIPPED.search(output)
+    if ran_m and skipped_m:
+        ran = int(ran_m.group(1))
+        skipped = int(skipped_m.group(1))
+        if ran == 0 or (skipped > 0 and ran == skipped):
+            return "skip"
+
+    # If moonpython printed a traceback, treat it as a failure even if the
+    # wrapper returned exit code 0 (which can happen when using `moon run`).
+    if "Traceback (most recent call last):" in output:
+        return "fail"
+    if "FAILED (" in output or "\nFAILED\n" in output:
+        return "fail"
+
+    return "pass" if exit_code == 0 else "fail"
 
 
-def run_one(
+def target_dir_path(repo_root: Path, target_dir: Optional[str]) -> Path:
+    return (Path(target_dir) if target_dir else (repo_root / "target")).resolve()
+
+
+def native_exe_candidates(repo_root: Path, target_dir: Optional[str]) -> List[Path]:
+    tdir = target_dir_path(repo_root, target_dir)
+    return [
+        tdir / "native" / "release" / "build" / "cmd" / "main" / "main.exe",
+        tdir / "native" / "debug" / "build" / "cmd" / "main" / "main.exe",
+    ]
+
+
+def resolve_native_exe(repo_root: Path, target_dir: Optional[str]) -> Path:
+    for path in native_exe_candidates(repo_root, target_dir):
+        if path.exists():
+            return path
+    # Default to the release layout for error messages.
+    return native_exe_candidates(repo_root, target_dir)[0]
+
+
+def ensure_native_runner(repo_root: Path, target_dir: Optional[str], release: bool) -> Path:
+    exe = resolve_native_exe(repo_root, target_dir)
+    if exe.exists():
+        return exe
+    cmd: List[str] = [
+        "moon",
+        "build",
+        "--target",
+        "native",
+        *(["--target-dir", str(target_dir_path(repo_root, target_dir))] if target_dir else []),
+        *(["--release"] if release else []),
+        "cmd/main",
+    ]
+    subprocess.run(cmd, cwd=str(repo_root), check=True)
+    exe = resolve_native_exe(repo_root, target_dir)
+    if not exe.exists():
+        raise RuntimeError(f"native runner not found after build: {exe}")
+    return exe
+
+
+def build_run_command(
     repo_root: Path,
     lib_dir: Path,
     module: str,
-    timeout_s: float,
     extra_args: List[str],
     target_dir: Optional[str],
     target: str,
-) -> Result:
-    cmd = [
+    native_release: bool,
+) -> Sequence[str]:
+    if target == "native":
+        exe = ensure_native_runner(repo_root, target_dir, native_release)
+        return [
+            str(exe),
+            "--stdlib",
+            str(lib_dir),
+            "-m",
+            module,
+            *extra_args,
+        ]
+    # Fallback: keep using moon run for other targets (exit codes may be unreliable).
+    return [
         "moon",
         "run",
         "--target",
@@ -81,6 +158,29 @@ def run_one(
         module,
         *extra_args,
     ]
+
+
+def run_one(
+    repo_root: Path,
+    lib_dir: Path,
+    module: str,
+    timeout_s: float,
+    extra_args: List[str],
+    target_dir: Optional[str],
+    target: str,
+    native_release: bool,
+) -> Result:
+    cmd = list(
+        build_run_command(
+            repo_root,
+            lib_dir,
+            module,
+            extra_args=extra_args,
+            target_dir=target_dir,
+            target=target,
+            native_release=native_release,
+        )
+    )
     start = time.time()
     try:
         proc = subprocess.run(
@@ -143,18 +243,23 @@ def main() -> int:
     parser.add_argument(
         "--slow-timeout",
         type=float,
-        default=600.0,
-        help="Per-module timeout for known slow tests (default: 600)",
+        default=1200.0,
+        help="Per-module timeout for known slow tests (default: 1200)",
     )
     parser.add_argument(
         "--target",
-        default="wasm",
-        help="moon --target value (default: wasm; wasm-gc may hit compiler issues on some toolchains)",
+        default="native",
+        help="Execution target (default: native). Non-native targets fall back to `moon run` (exit codes may be unreliable).",
     )
     parser.add_argument(
         "--target-dir",
         default=None,
         help="moon --target-dir value (useful to avoid workspace build locks)",
+    )
+    parser.add_argument(
+        "--native-release",
+        action="store_true",
+        help="Build native runner in release mode (default: debug)",
     )
     parser.add_argument(
         "--json",
@@ -188,6 +293,7 @@ def main() -> int:
             extra_args=args.extra_args or [],
             target_dir=args.target_dir,
             target=args.target,
+            native_release=args.native_release,
         )
         results.append(res)
         counts[res.status] += 1
