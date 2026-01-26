@@ -133,11 +133,34 @@ fn get_attr_raw_from_value(
                 Value::None => return Ok(Some(class_attr))
                 _ => {
                   if fget is Value::None {
+                    let owner_name = match owner {
+                      Value::Class(klass) =>
+                        match get_named_value(klass.dict, "__qualname__") {
+                          Some(Value::Str(text)) => text
+                          _ => klass.name
+                        }
+                      _ => type_name_from_value(owner)
+                    }
+                    let property_name = match class_attr {
+                      Value::Instance(prop_inst) =>
+                        match get_named_value(prop_inst.dict, "__name__") {
+                          Some(Value::Str(text)) => Some(text)
+                          _ => None
+                        }
+                      _ => None
+                    }
+                    let msg = match property_name {
+                      Some(prop) =>
+                        "property '" +
+                        prop +
+                        "' of '" +
+                        owner_name +
+                        "' object has no getter"
+                      None =>
+                        "property of '" + owner_name + "' object has no getter"
+                    }
                     return Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Attribute,
-                        "property has no getter".to_string(),
-                      ),
+                      make_runtime_error(RuntimeErrorKind::Attribute, msg),
                     )
                   }
                   return match
@@ -330,6 +353,25 @@ fn get_attr_raw_from_value(
         }
       }
 
+      if class_has_base_name(inst.class, "property") && attr == "__doc__" {
+        match get_named_value(inst.dict, "doc") {
+          Some(Value::None) | None =>
+            match get_named_value(inst.dict, "fget") {
+              Some(fget) =>
+                match
+                  get_attr_from_value(fget, "__doc__", globals, builtins, io) {
+                  Ok(v) => return Ok(v)
+                  Err(err) =>
+                    match err.kind {
+                      RuntimeErrorKind::Attribute => return Ok(Value::None)
+                      _ => return Err(err)
+                    }
+                }
+              None => return Ok(Value::None)
+            }
+          Some(value) => return Ok(value)
+        }
+      }
       if attr == "__isabstractmethod__" {
         if class_has_base_name(inst.class, "property") {
           let mut is_abstract = false

@@ -1912,7 +1912,13 @@ fn eval_block_flow(
           other => value_to_string(other)
         }
         let class_dict : Array[(String, Value)] = []
+        let mut qualname = name
+        match get_global_value(locals, "__qualname__") {
+          Some(Value::Str(parent)) => qualname = parent + "." + name
+          _ => ()
+        }
         class_dict.push(("__module__", Value::Str(module_name)))
+        class_dict.push(("__qualname__", Value::Str(qualname)))
 
         // Best-effort support for zero-arg super(): functions created in this
         // class body can close over a __class__ cell.
@@ -2013,6 +2019,23 @@ fn eval_block_flow(
             let _ = match class_mro(klass) {
               Ok(_) => ()
               Err(err) => return Err(err)
+            }
+            // Descriptor hook: record the attribute name on built-in property
+            // instances so AttributeError messages can include it.
+            for pair in klass.dict {
+              match pair.1 {
+                Value::Instance(desc_inst) =>
+                  if class_has_base_name(desc_inst.class, "property") {
+                    if get_named_value(desc_inst.dict, "__name__") is None {
+                      set_named_value(
+                        desc_inst.dict,
+                        "__name__",
+                        Value::Str(pair.0),
+                      )
+                    }
+                  }
+                _ => ()
+              }
             }
             fn value_is_abstract(
               value : Value,

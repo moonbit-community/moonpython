@@ -222,9 +222,6 @@ fn builtin_property(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   if positional.length() > 4 {
     return Err(
       make_runtime_error(
@@ -290,6 +287,16 @@ fn builtin_property(
           has_doc = true
         }
       _ => return Err(unexpected_keyword_argument_error("property", key))
+    }
+  }
+  if doc is Value::None && !(fget is Value::None) {
+    match get_attr_from_value(fget, "__doc__", globals, builtins, io) {
+      Ok(value) => doc = value
+      Err(err) =>
+        match err.kind {
+          RuntimeErrorKind::Attribute => ()
+          _ => return Err(err)
+        }
     }
   }
   Ok(
