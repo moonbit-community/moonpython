@@ -1213,17 +1213,28 @@ fn eval_block_flow(
                   match
                     import_module(submodule, globals, builtins, io, config) {
                     Ok(value) => value
-                    Err(_) =>
-                      return Err(
-                        make_runtime_error(
-                          RuntimeErrorKind::Runtime,
-                          "ImportError: cannot import name '" +
-                          name +
-                          "' from '" +
-                          resolved_name +
-                          "'",
-                        ),
-                      )
+                    Err(err) => {
+                      // CPython shows the *original* import failure (not a generic
+                      // "cannot import name") when the submodule exists but raises
+                      // during import (common with circular imports).
+                      let missing_submodule_message = "ModuleNotFoundError: No module named '" +
+                        submodule +
+                        "'"
+                      if err.exc_type == "ModuleNotFoundError" &&
+                        err.message == missing_submodule_message {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "ImportError: cannot import name '" +
+                            name +
+                            "' from '" +
+                            resolved_name +
+                            "'",
+                          ),
+                        )
+                      }
+                      return Err(err)
+                    }
                   }
                 }
                 _ => return Err(err)
