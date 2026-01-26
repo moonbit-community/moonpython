@@ -42,9 +42,17 @@ fn builtin_class_from_name(
     _ => ()
   }
   let bases : Array[Value] = []
-  match get_named_value(builtins, "object") {
-    Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
-    _ => ()
+  if name == "bool" {
+    match get_named_value(builtins, "int") {
+      Some(Value::Class(int_class)) => bases.push(Value::Class(int_class))
+      _ => ()
+    }
+  }
+  if bases.length() == 0 {
+    match get_named_value(builtins, "object") {
+      Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
+      _ => ()
+    }
   }
   let dict : Array[(String, Value)] = [
     ("__module__", Value::Str("builtins")),

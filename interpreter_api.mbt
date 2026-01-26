@@ -475,7 +475,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     ("NotADirectoryError", Value::Class(not_a_directory_error_class)),
   )
   let builtin_type_names : Array[String] = [
-    "bool", "int", "float", "complex", "str", "bytes", "bytearray", "memoryview",
+    "int", "bool", "float", "complex", "str", "bytes", "bytearray", "memoryview",
     "list", "tuple", "dict", "set", "frozenset", "range", "type", "property", "staticmethod",
     "classmethod",
   ]
@@ -1100,7 +1100,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("MemoryError", Value::Class(memory_error_class)),
   ]
   let builtin_type_names : Array[String] = [
-    "bool", "int", "float", "complex", "str", "bytes", "bytearray", "memoryview",
+    "int", "bool", "float", "complex", "str", "bytes", "bytearray", "memoryview",
     "list", "tuple", "slice", "dict", "set", "frozenset", "range", "type", "property",
     "staticmethod", "classmethod",
   ]
