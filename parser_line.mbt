@@ -19,15 +19,6 @@ fn LineParser::parse_block(
     let line = self.lines[self.index]
     let trimmed = line.trim(chars=" \t").to_string()
     if trimmed.length() == 0 || trimmed.has_prefix("#") {
-      if pending_decorators.length() > 0 {
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            pending_decorator_token.unwrap(),
-          ),
-        )
-      }
       self.index += 1
       continue
     }
@@ -250,7 +241,8 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("@") {
-      let expr_text = substring(line_text, 1, line_text.length())
+      let decorator_line_index = self.index
+      let mut expr_text = substring(line_text, 1, line_text.length())
         .trim(chars=" \t")
         .to_string()
       if expr_text.length() == 0 {
@@ -269,11 +261,44 @@ fn LineParser::parse_block(
           ),
         )
       }
+      let mut decorator_next_index = next_index
+      while has_trailing_line_continuation(expr_text) &&
+            decorator_next_index < self.lines.length() {
+        expr_text = substring(expr_text, 0, expr_text.length() - 1)
+          .trim(chars=" \t")
+          .to_string()
+        let next_line = self.lines[decorator_next_index]
+        let appended = if find_triple_quote(next_line) is Some(_) {
+          next_line
+        } else {
+          strip_inline_comment(next_line)
+        }
+        expr_text = expr_text + "\n" + appended
+        decorator_next_index += 1
+        expr_text = expr_text.trim(chars=" \t").to_string()
+      }
+      let mut balance = bracket_balance(expr_text)
+      while balance > 0 && decorator_next_index < self.lines.length() {
+        let next_line = self.lines[decorator_next_index]
+        let appended = if find_triple_quote(next_line) is Some(_) {
+          next_line
+        } else {
+          strip_inline_comment(next_line)
+        }
+        expr_text = expr_text + "\n" + appended
+        decorator_next_index += 1
+        balance = bracket_balance(expr_text)
+      }
+      if find_triple_quote(expr_text) is None {
+        expr_text = replace_newlines_with_spaces(expr_text)
+          .trim(chars=" \t")
+          .to_string()
+      }
       let tokens = match
         tokenize_expr(
           expr_text,
-          self.index + 1,
-          self.offsets[self.index] + current_indent + 1,
+          decorator_line_index + 1,
+          self.offsets[decorator_line_index] + current_indent + 1,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -286,13 +311,13 @@ fn LineParser::parse_block(
       if pending_decorator_token is None {
         pending_decorator_token = Some({
           kind: Eof,
-          start: self.offsets[self.index] + current_indent,
-          end: self.offsets[self.index] + current_indent + 1,
-          line: self.index + 1,
+          start: self.offsets[decorator_line_index] + current_indent,
+          end: self.offsets[decorator_line_index] + current_indent + 1,
+          line: decorator_line_index + 1,
           column: 1,
         })
       }
-      self.index = next_index
+      self.index = decorator_next_index
       continue
     }
     let (handled, next_pending, next_token) = match
