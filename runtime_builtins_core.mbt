@@ -295,11 +295,20 @@ fn builtin_range(
     }
   }
 
-  if positional.length() == 0 || positional.length() > 3 {
+  if positional.length() == 0 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "range() takes 1 to 3 arguments".to_string(),
+        "range expected at least 1 argument, got 0".to_string(),
+      ),
+    )
+  }
+  if positional.length() > 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "range expected at most 3 arguments, got " +
+        positional.length().to_string(),
       ),
     )
   }
@@ -337,47 +346,12 @@ fn builtin_range(
   if step == 0N {
     return Err(
       make_runtime_error(
-        RuntimeErrorKind::Type,
-        "range() arg 3 must not be zero".to_string(),
+        RuntimeErrorKind::Runtime,
+        "ValueError: range() arg 3 must not be zero".to_string(),
       ),
     )
   }
-  let items : Array[Value] = []
-  // NOTE: still returns a realized list (moonpython simplification).
-  // Convert to Int for looping; raise if it doesn't fit.
-  let start_i = match bigint_to_int_checked(start) {
-    Ok(v) => v
-    Err(_) => return Ok(Value::List([]))
-  }
-  let stop_i = match bigint_to_int_checked(stop) {
-    Ok(v) => v
-    Err(_) => return Ok(Value::List([]))
-  }
-  let step_i = match bigint_to_int_checked(step) {
-    Ok(v) => v
-    Err(_) => return Ok(Value::List([]))
-  }
-  if step_i == 0 {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Type,
-        "range() arg 3 must not be zero".to_string(),
-      ),
-    )
-  }
-  let mut i = start_i
-  if step_i > 0 {
-    while i < stop_i {
-      items.push(Value::Int(@bigint.BigInt::from_int(i)))
-      i = i + step_i
-    }
-  } else {
-    while i > stop_i {
-      items.push(Value::Int(@bigint.BigInt::from_int(i)))
-      i = i + step_i
-    }
-  }
-  Ok(Value::List(items))
+  Ok(make_range_instance(start, stop, step, builtins))
 }
 
 ///|

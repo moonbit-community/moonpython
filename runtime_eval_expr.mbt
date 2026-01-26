@@ -902,13 +902,48 @@ fn eval_expr_with_env(
             Value::Instance(inst) =>
               match get_named_value(inst.dict, list_storage_name) {
                 Some(Value::List(values)) => slice_list(values)
-                _ =>
-                  Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Type,
-                      "subscript requires sequence".to_string(),
-                    ),
-                  )
+                _ => {
+                  // General Python protocol: obj.__getitem__(slice(...))
+                  let slice_dict : Array[(String, Value)] = []
+                  slice_dict.push(("start", start_value))
+                  slice_dict.push(("stop", end_value))
+                  slice_dict.push(("step", step_value))
+                  let slice_obj = Value::Instance(InstanceValue::{
+                    class: builtin_class_from_name("slice", builtins),
+                    dict: slice_dict,
+                  })
+                  match
+                    get_attr_from_value(
+                      Value::Instance(inst),
+                      "__getitem__",
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(getitem) =>
+                      call_callable_with_env(
+                        getitem,
+                        [slice_obj],
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      )
+                    Err(err) =>
+                      match err.kind {
+                        RuntimeErrorKind::Attribute =>
+                          Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "'" +
+                              inst.class.name +
+                              "' object is not subscriptable",
+                            ),
+                          )
+                        _ => Err(err)
+                      }
+                  }
+                }
               }
             Value::Tuple(values) => {
               let indices = match
@@ -1078,12 +1113,37 @@ fn eval_expr_with_env(
                     match get_named_value(list_inst.dict, list_storage_name) {
                       Some(Value::List(values)) => slice_list(values)
                       _ =>
-                        Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Type,
-                            "subscript requires sequence".to_string(),
-                          ),
-                        )
+                        match
+                          get_attr_from_value(
+                            Value::Instance(list_inst),
+                            "__getitem__",
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(getitem) =>
+                            call_callable_with_env(
+                              getitem,
+                              [idx_value],
+                              [],
+                              globals,
+                              builtins,
+                              io,
+                            )
+                          Err(err) =>
+                            match err.kind {
+                              RuntimeErrorKind::Attribute =>
+                                Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "'" +
+                                    list_inst.class.name +
+                                    "' object is not subscriptable",
+                                  ),
+                                )
+                              _ => Err(err)
+                            }
+                        }
                     }
                   Value::Tuple(values) => {
                     let indices = match

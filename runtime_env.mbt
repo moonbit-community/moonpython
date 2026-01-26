@@ -83,6 +83,78 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "range" {
+    dict.push(
+      (
+        "__iter__",
+        Value::Function(FunctionValue::{
+          name: "range.__iter__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__len__",
+        Value::Function(FunctionValue::{
+          name: "range.__len__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__bool__",
+        Value::Function(FunctionValue::{
+          name: "range.__bool__",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__contains__",
+        Value::Function(FunctionValue::{
+          name: "range.__contains__",
+          params: ["self", "value"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__getitem__",
+        Value::Function(FunctionValue::{
+          name: "range.__getitem__",
+          params: ["self", "index"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "property" {
     dict.push(
       (

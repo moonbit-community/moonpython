@@ -14,6 +14,9 @@ let count_class_ref : Ref[ClassValue?] = { val: None }
 let enumerate_class_ref : Ref[ClassValue?] = { val: None }
 
 ///|
+let rangeiter_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
 fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
   match cache.val {
     Some(value) => return value
@@ -102,6 +105,22 @@ fn make_enumerate_iterator(iterator : Value, start : @bigint.BigInt) -> Value {
 }
 
 ///|
+fn make_range_iterator(
+  start : @bigint.BigInt,
+  stop : @bigint.BigInt,
+  step : @bigint.BigInt,
+) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("current", Value::Int(start)))
+  dict.push(("stop", Value::Int(stop)))
+  dict.push(("step", Value::Int(step)))
+  Value::Instance(InstanceValue::{
+    class: internal_iter_class("rangeiter", rangeiter_class_ref),
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -127,7 +146,8 @@ fn iter_value_to_iterator(
         inst.class.name == "generator" ||
         inst.class.name == "repeat" ||
         inst.class.name == "count" ||
-        inst.class.name == "enumerate" {
+        inst.class.name == "enumerate" ||
+        inst.class.name == "rangeiter" {
         Ok(Value::Instance(inst))
       } else {
         // Try the Python protocol first: obj.__iter__() -> iterator
@@ -373,6 +393,38 @@ fn iterator_next(
                 "count() expects numeric values".to_string(),
               ),
             )
+        }
+      } else if inst.class.name == "rangeiter" {
+        let current = match get_named_value(inst.dict, "current") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 1N
+        }
+        let done = if step > 0N { current >= stop } else { current <= stop }
+        if done {
+          match default_value {
+            Some(v) => Ok(v)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "StopIteration".to_string(),
+                ),
+              )
+          }
+        } else {
+          set_named_value(inst.dict, "current", Value::Int(current + step))
+          Ok(Value::Int(current))
         }
       } else if inst.class.name == "generator" {
         generator_next(Value::Instance(inst), default_value)

@@ -957,7 +957,14 @@ fn builtin_bool(
       ),
     )
   }
-  Ok(Value::Bool(bool_from_value(positional[0])))
+  match positional[0] {
+    Value::Instance(_) =>
+      match truthy_from_value_with_env(positional[0], globals, builtins, io) {
+        Ok(v) => Ok(Value::Bool(v))
+        Err(err) => Err(err)
+      }
+    other => Ok(Value::Bool(bool_from_value(other)))
+  }
 }
 
 ///|

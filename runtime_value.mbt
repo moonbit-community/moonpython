@@ -267,6 +267,33 @@ fn value_to_string(value : Value) -> String {
               None => "".to_string()
             }
         }
+      } else if inst.class.name == "range" {
+        let start = match get_named_value(inst.dict, "start") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 1N
+        }
+        if step == 1N {
+          "range(" + start.to_string() + ", " + stop.to_string() + ")"
+        } else {
+          "range(" +
+          start.to_string() +
+          ", " +
+          stop.to_string() +
+          ", " +
+          step.to_string() +
+          ")"
+        }
       } else {
         "<" + inst.class.name + " object>"
       }

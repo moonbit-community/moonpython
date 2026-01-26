@@ -18,3 +18,6 @@ examples/runtests.py
 
 # Local scratch workspace
 tempcwd/
+
+# Artifacts created by vendored CPython Lib/test runs.
+@test_*
