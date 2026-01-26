@@ -1678,6 +1678,66 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::Bool(true))
                 }
+              "isalnum" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isalnum() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_alnum(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "isalpha" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isalpha() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_alpha(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
+              "isspace" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "isspace() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let chars = text.to_array()
+                  if chars.length() == 0 {
+                    return Ok(Value::Bool(false))
+                  }
+                  for c in chars {
+                    if !is_ascii_whitespace(c) {
+                      return Ok(Value::Bool(false))
+                    }
+                  }
+                  return Ok(Value::Bool(true))
+                }
               "partition" =>
                 if positional.length() != 1 {
                   return Err(

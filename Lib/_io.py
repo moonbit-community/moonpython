@@ -67,6 +67,11 @@ class BytesIO(_BufferedIOBase):
             raise ValueError("getvalue on closed file")
         return self._buffer
 
+    def getbuffer(self):
+        if self.closed:
+            raise ValueError("getbuffer on closed file")
+        return memoryview(self._buffer)
+
     def read(self, size=-1):
         if self.closed:
             raise ValueError("read from closed file")
