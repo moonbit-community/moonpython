@@ -2193,6 +2193,157 @@ fn struct_parse_format(fmt : String) -> Result[(Int, Int), RuntimeError] {
 }
 
 ///|
+priv enum StructEndian {
+  Little
+  Big
+} derive(Eq)
+
+///|
+fn struct_parse_format_detail(
+  fmt : String,
+) -> Result[(StructEndian, Int, Int, Array[(Char, Int)]), RuntimeError] {
+  let chars = fmt.to_array()
+  let mut i = 0
+  let mut endian = StructEndian::Little
+  if chars.length() > 0 {
+    let c0 = chars[0]
+    if c0 == '>' || c0 == '!' {
+      endian = StructEndian::Big
+      i = 1
+    } else if c0 == '<' {
+      endian = StructEndian::Little
+      i = 1
+    } else if c0 == '@' || c0 == '=' {
+      endian = StructEndian::Little
+      i = 1
+    }
+  }
+  let mut size = 0
+  let mut fields = 0
+  let mut repeat = 0
+  let tokens : Array[(Char, Int)] = []
+  while i < chars.length() {
+    let c = chars[i]
+    if is_digit(c) {
+      repeat = repeat * 10 + (c.to_int() - '0'.to_int())
+      i += 1
+      continue
+    }
+    let n = if repeat == 0 { 1 } else { repeat }
+    repeat = 0
+    match struct_field_size(c, n) {
+      Some(pair) => {
+        size += pair.0
+        fields += pair.1
+      }
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "struct.error: bad char in struct format".to_string(),
+          ),
+        )
+    }
+    tokens.push((c, n))
+    i += 1
+  }
+  Ok((endian, size, fields, tokens))
+}
+
+///|
+fn struct_pack_int_bytes(
+  value : @bigint.BigInt,
+  length : Int,
+  signed : Bool,
+  endian : StructEndian,
+) -> Result[Array[Int], RuntimeError] {
+  let mut modulus = 1N
+  for _i = 0; _i < length; _i = _i + 1 {
+    modulus = modulus * 256
+  }
+  let mut unsigned_value = value
+  if signed {
+    let limit = modulus / 2
+    if value < -limit || value >= limit {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "struct.error: argument out of range".to_string(),
+        ),
+      )
+    }
+    if value < 0N {
+      unsigned_value = value + modulus
+    }
+  } else if value < 0N || value >= modulus {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "struct.error: argument out of range".to_string(),
+      ),
+    )
+  }
+  let out : Array[Int] = []
+  let mut v = unsigned_value
+  for _i = 0; _i < length; _i = _i + 1 {
+    let byte_val = v % 256N
+    let byte_int = match bigint_to_int_checked(byte_val) {
+      Ok(value) => value
+      Err(err) => return Err(err)
+    }
+    out.push(byte_int)
+    v = v / 256N
+  }
+  if endian == StructEndian::Big {
+    let ordered : Array[Int] = []
+    let mut j = out.length() - 1
+    while j >= 0 {
+      ordered.push(out[j])
+      j -= 1
+    }
+    return Ok(ordered)
+  }
+  Ok(out)
+}
+
+///|
+fn struct_unpack_int_bytes(
+  buf : Array[Int],
+  offset : Int,
+  length : Int,
+  signed : Bool,
+  endian : StructEndian,
+) -> @bigint.BigInt {
+  let mut value = 0N
+  if endian == StructEndian::Big {
+    for i = 0; i < length; i = i + 1 {
+      value = value * 256 + @bigint.BigInt::from_int(buf[offset + i])
+    }
+  } else {
+    let mut factor = 1N
+    for i = 0; i < length; i = i + 1 {
+      value = value + @bigint.BigInt::from_int(buf[offset + i]) * factor
+      factor = factor * 256
+    }
+  }
+  if signed && length > 0 {
+    let sign_byte = if endian == StructEndian::Big {
+      buf[offset]
+    } else {
+      buf[offset + length - 1]
+    }
+    if (sign_byte & 0x80) != 0 {
+      let mut modulus = 1N
+      for _i = 0; _i < length; _i = _i + 1 {
+        modulus = modulus * 256
+      }
+      value = value - modulus
+    }
+  }
+  value
+}
+
+///|
 fn builtin_struct_calcsize(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -2276,7 +2427,7 @@ fn builtin_struct_pack(
         ),
       )
   }
-  let (size, fields) = match struct_parse_format(fmt) {
+  let (endian, _, fields, tokens) = match struct_parse_format_detail(fmt) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
@@ -2290,9 +2441,152 @@ fn builtin_struct_pack(
       ),
     )
   }
+  let mut arg_i = 1
   let out : Array[Int] = []
-  for _i = 0; _i < size; _i = _i + 1 {
-    out.push(0)
+  for token in tokens {
+    let code = token.0
+    let n = token.1
+    match code {
+      'x' =>
+        for _i = 0; _i < n; _i = _i + 1 {
+          out.push(0)
+        }
+      's' => {
+        let bytes = if arg_i >= positional.length() {
+          []
+        } else {
+          let v = positional[arg_i]
+          arg_i += 1
+          match v {
+            Value::Bytes(items)
+            | Value::ByteArray(items)
+            | Value::MemoryView(items) => items
+            other =>
+              match bytes_from_iterable("_struct.pack", other) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+          }
+        }
+        for i = 0; i < n; i = i + 1 {
+          if i < bytes.length() {
+            out.push(bytes[i])
+          } else {
+            out.push(0)
+          }
+        }
+      }
+      'p' => {
+        let bytes = if arg_i >= positional.length() {
+          []
+        } else {
+          let v = positional[arg_i]
+          arg_i += 1
+          match v {
+            Value::Bytes(items)
+            | Value::ByteArray(items)
+            | Value::MemoryView(items) => items
+            other =>
+              match bytes_from_iterable("_struct.pack", other) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+          }
+        }
+        let max_payload = if n > 0 { n - 1 } else { 0 }
+        let payload_len = if bytes.length() > max_payload {
+          max_payload
+        } else {
+          bytes.length()
+        }
+        out.push(payload_len)
+        let mut i = 0
+        while i < max_payload {
+          if i < payload_len {
+            out.push(bytes[i])
+          } else {
+            out.push(0)
+          }
+          i += 1
+        }
+      }
+      '?' =>
+        for _i = 0; _i < n; _i = _i + 1 {
+          let v = positional[arg_i]
+          arg_i += 1
+          out.push(if bool_from_value(v) { 1 } else { 0 })
+        }
+      'c' =>
+        for _i = 0; _i < n; _i = _i + 1 {
+          let v = positional[arg_i]
+          arg_i += 1
+          let b = match v {
+            Value::Bytes(items)
+            | Value::ByteArray(items)
+            | Value::MemoryView(items) =>
+              if items.length() == 1 {
+                items[0]
+              } else {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "struct.error: char format requires a bytes object of length 1".to_string(),
+                  ),
+                )
+              }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "struct.error: char format requires a bytes object of length 1".to_string(),
+                ),
+              )
+          }
+          out.push(b)
+        }
+      _ => {
+        let (unit, is_signed) = match code {
+          'b' => (1, true)
+          'B' => (1, false)
+          'h' => (2, true)
+          'H' => (2, false)
+          'i' | 'l' => (4, true)
+          'I' | 'L' => (4, false)
+          'q' => (8, true)
+          'Q' | 'P' => (8, false)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "struct.error: bad char in struct format".to_string(),
+              ),
+            )
+        }
+        for _i = 0; _i < n; _i = _i + 1 {
+          let v = positional[arg_i]
+          arg_i += 1
+          let int_value = match v {
+            Value::Int(bi) => bi
+            Value::Bool(b) => if b { 1N } else { 0N }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "struct.error: required argument is not an integer".to_string(),
+                ),
+              )
+          }
+          let bytes = match
+            struct_pack_int_bytes(int_value, unit, is_signed, endian) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          for b in bytes {
+            out.push(b)
+          }
+        }
+      }
+    }
   }
   Ok(Value::Bytes(out))
 }
@@ -2338,17 +2632,22 @@ fn builtin_struct_unpack(
         ),
       )
   }
-  let (size, fields) = match struct_parse_format(fmt) {
+  let (endian, size, fields, tokens) = match struct_parse_format_detail(fmt) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let buf_len = match positional[1] {
-    Value::Bytes(items) => items.length()
-    Value::ByteArray(items) => items.length()
-    Value::Str(text) => text.length()
-    _ => 0
+  let buf = match positional[1] {
+    Value::Bytes(items) | Value::ByteArray(items) | Value::MemoryView(items) =>
+      items
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "_struct.unpack() argument 2 must be a bytes-like object".to_string(),
+        ),
+      )
   }
-  if buf_len < size {
+  if buf.length() < size {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
@@ -2359,8 +2658,80 @@ fn builtin_struct_unpack(
     )
   }
   let items : Array[Value] = []
-  for _i = 0; _i < fields; _i = _i + 1 {
-    items.push(Value::Int(0N))
+  let mut offset = 0
+  for token in tokens {
+    let code = token.0
+    let n = token.1
+    match code {
+      'x' => offset += n
+      's' => {
+        let part : Array[Int] = []
+        for i = 0; i < n; i = i + 1 {
+          part.push(buf[offset + i])
+        }
+        offset += n
+        items.push(Value::Bytes(part))
+      }
+      'p' => {
+        let part : Array[Int] = []
+        if n == 0 {
+          items.push(Value::Bytes(part))
+        } else {
+          let declared_len = buf[offset]
+          let max_payload = n - 1
+          let payload_len = if declared_len > max_payload {
+            max_payload
+          } else {
+            declared_len
+          }
+          for i = 0; i < payload_len; i = i + 1 {
+            part.push(buf[offset + 1 + i])
+          }
+          items.push(Value::Bytes(part))
+        }
+        offset += n
+      }
+      '?' =>
+        for _i = 0; _i < n; _i = _i + 1 {
+          items.push(Value::Bool(buf[offset] != 0))
+          offset += 1
+        }
+      'c' =>
+        for _i = 0; _i < n; _i = _i + 1 {
+          items.push(Value::Bytes([buf[offset]]))
+          offset += 1
+        }
+      _ => {
+        let (unit, is_signed) = match code {
+          'b' => (1, true)
+          'B' => (1, false)
+          'h' => (2, true)
+          'H' => (2, false)
+          'i' | 'l' => (4, true)
+          'I' | 'L' => (4, false)
+          'q' => (8, true)
+          'Q' | 'P' => (8, false)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "struct.error: bad char in struct format".to_string(),
+              ),
+            )
+        }
+        for _i = 0; _i < n; _i = _i + 1 {
+          let v = struct_unpack_int_bytes(buf, offset, unit, is_signed, endian)
+          items.push(Value::Int(v))
+          offset += unit
+        }
+      }
+    }
+  }
+  if items.length() != fields {
+    // Best-effort safety for our parser, should not happen if struct_field_size matches.
+    while items.length() < fields {
+      items.push(Value::None)
+    }
   }
   Ok(Value::Tuple(items))
 }
