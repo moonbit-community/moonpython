@@ -763,6 +763,15 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "_string.formatter_field_name_split",
       run: builtin_string_formatter_field_name_split,
     },
+    BuiltinDef::{
+      name: "_warnings._filters_mutated",
+      run: builtin_warnings_filters_mutated,
+    },
+    BuiltinDef::{ name: "_warnings.warn", run: builtin_warnings_warn },
+    BuiltinDef::{
+      name: "_warnings.warn_explicit",
+      run: builtin_warnings_warn_explicit,
+    },
     BuiltinDef::{ name: "_thread.get_ident", run: builtin_thread_get_ident },
     BuiltinDef::{
       name: "_thread.allocate_lock",

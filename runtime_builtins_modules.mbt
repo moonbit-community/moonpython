@@ -4040,3 +4040,284 @@ fn builtin_itertools_product(
   }
   Ok(Value::List(results))
 }
+
+///|
+fn builtin_warnings_filters_mutated(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if positional.length() > 0 {
+    let _ = positional[0]
+  }
+  if keywords.length() > 0 {
+    let _ = keywords[0]
+  }
+  Ok(Value::None)
+}
+
+///|
+fn warnings_default_category(builtins : Array[(String, Value)]) -> Value {
+  match get_named_value(builtins, "UserWarning") {
+    Some(Value::Class(k)) => Value::Class(k)
+    _ => Value::None
+  }
+}
+
+///|
+fn builtin_warnings_warn(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if positional.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_warnings.warn() expects at least 1 argument".to_string(),
+      ),
+    )
+  }
+  let message = positional[0]
+
+  let mut category : Value = Value::None
+  let mut stacklevel : Int = 1
+
+  if positional.length() > 1 {
+    category = positional[1]
+  }
+  if positional.length() > 2 {
+    match index_from_value(positional[2], 0) {
+      Ok(v) => stacklevel = v
+      Err(err) => return Err(err)
+    }
+  }
+  if positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_warnings.warn() takes at most 4 arguments".to_string(),
+      ),
+    )
+  }
+  for item in keywords {
+    let key = item.0
+    let value = item.1
+    if key == "category" {
+      category = value
+    } else if key == "stacklevel" {
+      match index_from_value(value, 0) {
+        Ok(v) => stacklevel = v
+        Err(err) => return Err(err)
+      }
+    } else if key == "source" || key == "skip_file_prefixes" {
+      // ignored
+      let _ = value
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "_warnings.warn() got an unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  if category is Value::None {
+    category = warnings_default_category(builtins)
+  }
+
+  let message_obj = match message {
+    Value::Instance(inst) =>
+      if class_has_base_name(inst.class, "Warning") {
+        category = Value::Class(inst.class)
+        message
+      } else {
+        message
+      }
+    _ =>
+      match category {
+        Value::Class(_) =>
+          match
+            call_callable_with_env(category, [message], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        _ => message
+      }
+  }
+
+  let frames = snapshot_traceback()
+  let (filename, lineno) = if frames.length() == 0 {
+    ("sys".to_string(), 1)
+  } else {
+    let mut idx = frames.length() - 1
+    if stacklevel > 1 && stacklevel <= frames.length() {
+      idx = frames.length() - stacklevel
+    }
+    (frames[idx].filename, frames[idx].line)
+  }
+
+  let import_value = match get_named_value(builtins, "__import__") {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "missing builtins.__import__".to_string(),
+        ),
+      )
+  }
+  let warnings_module = match
+    call_callable_with_env(
+      import_value,
+      [Value::Str("warnings")],
+      [],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let showwarning = match
+    get_attr_from_value(warnings_module, "showwarning", globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = match
+    call_callable_with_env(
+      showwarning,
+      [
+        message_obj,
+        category,
+        Value::Str(filename),
+        Value::Int(@bigint.BigInt::from_int(lineno)),
+        Value::None,
+        Value::None,
+      ],
+      [],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_warnings_warn_explicit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("_warnings.warn_explicit", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_warnings.warn_explicit() expects at least 4 arguments".to_string(),
+      ),
+    )
+  }
+  let message = positional[0]
+  let mut category = positional[1]
+  let filename = match positional[2] {
+    Value::Str(s) => s
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "_warnings.warn_explicit() filename must be str".to_string(),
+        ),
+      )
+  }
+  let lineno = match index_from_value(positional[3], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+
+  let message_obj = match message {
+    Value::Instance(inst) =>
+      if class_has_base_name(inst.class, "Warning") {
+        category = Value::Class(inst.class)
+        message
+      } else {
+        message
+      }
+    _ =>
+      match category {
+        Value::Class(_) =>
+          match
+            call_callable_with_env(category, [message], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        _ => message
+      }
+  }
+
+  let import_value = match get_named_value(builtins, "__import__") {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "missing builtins.__import__".to_string(),
+        ),
+      )
+  }
+  let warnings_module = match
+    call_callable_with_env(
+      import_value,
+      [Value::Str("warnings")],
+      [],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let showwarning = match
+    get_attr_from_value(warnings_module, "showwarning", globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let _ = match
+    call_callable_with_env(
+      showwarning,
+      [
+        message_obj,
+        category,
+        Value::Str(filename),
+        Value::Int(@bigint.BigInt::from_int(lineno)),
+        Value::None,
+        Value::None,
+      ],
+      [],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::None)
+}

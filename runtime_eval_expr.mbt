@@ -1468,7 +1468,59 @@ fn eval_expr_with_env(
           }
           match value {
             Value::Int(v) => Ok(Value::Int(-(v + 1N)))
-            Value::Bool(v) => Ok(Value::Int(-((if v { 1N } else { 0N }) + 1N)))
+            Value::Bool(v) => {
+              // CPython 3.13+: `~bool` is deprecated.
+              let import_value = match get_named_value(builtins, "__import__") {
+                Some(v) => v
+                None =>
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "missing builtins.__import__".to_string(),
+                    ),
+                  )
+              }
+              let warnings_module = match
+                call_callable_with_env(
+                  import_value,
+                  [Value::Str("warnings")],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let warn_fn = match
+                get_attr_from_value(warnings_module, "warn", globals, builtins, io) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let category = match get_named_value(builtins, "DeprecationWarning") {
+                Some(Value::Class(k)) => Value::Class(k)
+                _ => Value::None
+              }
+              let _ = match
+                call_callable_with_env(
+                  warn_fn,
+                  [
+                    Value::Str(
+                      "Bitwise inversion on bool is deprecated".to_string(),
+                    ),
+                    category,
+                    Value::Int(2N),
+                  ],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              Ok(Value::Int(-((if v { 1N } else { 0N }) + 1N)))
+            }
             Value::Float(_) =>
               Err(
                 make_runtime_error(
