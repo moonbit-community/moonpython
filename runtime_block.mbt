@@ -1193,12 +1193,40 @@ fn eval_block_flow(
           let alias_opt = item.1
           if name == "*" {
             match module_value {
-              Value::Instance(inst) =>
-                for pair in inst.dict {
-                  if pair.0 != "__name__" && !pair.0.has_prefix("_") {
-                    set_scoped_value(locals, globals, pair.0, pair.1)
+              Value::Instance(inst) => {
+                // Honor `module.__all__` when present (CPython behavior), to avoid
+                // importing unrelated public globals and clobbering package module
+                // references (e.g. asyncio/__init__.py relies on `base_events`,
+                // `coroutines`, ... referring to submodules).
+                let mut imported_any = false
+                match get_named_value(inst.dict, "__all__") {
+                  Some(Value::List(items)) | Some(Value::Tuple(items)) =>
+                    for item in items {
+                      match item {
+                        Value::Str(sym) => {
+                          let value = match
+                            get_attr_from_value(
+                              module_value, sym, globals, builtins, io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          set_scoped_value(locals, globals, sym, value)
+                          imported_any = true
+                        }
+                        _ => ()
+                      }
+                    }
+                  _ => ()
+                }
+                if !imported_any {
+                  for pair in inst.dict {
+                    if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                      set_scoped_value(locals, globals, pair.0, pair.1)
+                    }
                   }
                 }
+              }
               _ => ()
             }
             continue
