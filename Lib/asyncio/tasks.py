@@ -403,7 +403,10 @@ _PyTask = Task
 try:
     import _asyncio
 except ImportError:
-    pass
+    # CPython defines C-accelerated tasks in the optional `_asyncio` module.
+    # moonpython doesn't ship it; provide a compatible name so tests that
+    # reference `tasks._CTask` can still run using the pure-Python Task.
+    _CTask = Task
 else:
     # _CTask is needed for tests.
     Task = _CTask = _asyncio.Task

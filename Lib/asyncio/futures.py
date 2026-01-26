@@ -424,7 +424,10 @@ def wrap_future(future, *, loop=None):
 try:
     import _asyncio
 except ImportError:
-    pass
+    # CPython defines C-accelerated futures in the optional `_asyncio` module.
+    # moonpython doesn't ship it; provide a compatible name so tests that
+    # reference `futures._CFuture` can still run using the pure-Python Future.
+    _CFuture = Future
 else:
     # _CFuture is needed for tests.
     Future = _CFuture = _asyncio.Future
