@@ -931,6 +931,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "iter", run: builtin_iter },
     BuiltinDef::{ name: "next", run: builtin_next },
     BuiltinDef::{ name: "bool", run: builtin_bool },
+    BuiltinDef::{ name: "bool.from_bytes", run: builtin_bool_from_bytes },
     BuiltinDef::{ name: "property", run: builtin_property },
     BuiltinDef::{ name: "property.__init__", run: builtin_property_init },
     BuiltinDef::{ name: "property.__get__", run: builtin_property_dunder_get },

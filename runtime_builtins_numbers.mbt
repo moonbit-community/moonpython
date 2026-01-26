@@ -491,6 +491,31 @@ fn builtin_int_from_bytes(
 }
 
 ///|
+fn builtin_bool_from_bytes(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  let value = match
+    builtin_int_from_bytes(positional, keywords, locals, globals, builtins, io) {
+    Ok(Value::Int(v)) => v
+    Ok(Value::Bool(v)) => if v { 1N } else { 0N }
+    Ok(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "bool.from_bytes() internal error".to_string(),
+        ),
+      )
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(value != 0N))
+}
+
+///|
 fn builtin_int_to_bytes(
   positional : Array[Value],
   keywords : Array[(String, Value)],

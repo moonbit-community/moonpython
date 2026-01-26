@@ -2734,6 +2734,21 @@ fn get_attr_raw_from_value(
             self: Value::Class(klass),
           }),
         )
+      } else if klass.name == "bool" && attr == "from_bytes" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bool.from_bytes",
+              params: ["cls", "bytes", "byteorder", "signed"],
+              defaults: [Value::Bool(false)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
+          }),
+        )
       } else if klass.name == "int" && attr == "bit_length" {
         Ok(
           Value::Function(FunctionValue::{
