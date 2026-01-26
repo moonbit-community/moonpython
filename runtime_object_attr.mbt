@@ -281,6 +281,26 @@ fn get_attr_raw_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
+      if inst.class.name == "module" {
+        // PEP 562: if a module defines `__getattr__`, use it to resolve missing
+        // attributes (e.g. unittest's lazy IsolatedAsyncioTestCase import).
+        match get_named_value(inst.dict, "__getattr__") {
+          Some(getter) =>
+            match
+              call_callable_with_env(
+                getter,
+                [Value::Str(attr)],
+                [],
+                inst.dict,
+                builtins,
+                io,
+              ) {
+              Ok(v) => return Ok(v)
+              Err(err) => return Err(err)
+            }
+          None => ()
+        }
+      }
       fn abstract_flag_from_value(value : Value) -> Result[Bool, RuntimeError] {
         match value {
           Value::Function(func) => {
