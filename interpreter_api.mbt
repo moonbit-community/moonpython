@@ -942,6 +942,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let recursion_error_class = ClassValue::{
+    name: "RecursionError",
+    bases: [Value::Class(runtime_error_class)],
+    dict: [],
+  }
   let memory_error_class = ClassValue::{
     name: "MemoryError",
     bases: [Value::Class(exception_class)],
@@ -1091,6 +1096,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("StopIteration", Value::Class(stop_iteration_class)),
     ("StopAsyncIteration", Value::Class(stop_async_iteration_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
+    ("RecursionError", Value::Class(recursion_error_class)),
     ("MemoryError", Value::Class(memory_error_class)),
   ]
   let builtin_type_names : Array[String] = [
