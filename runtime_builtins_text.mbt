@@ -11,14 +11,127 @@ fn builtin_str(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("str", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+  // CPython-like overloads:
+  // - str() -> ""
+  // - str(obj) -> obj.__str__() if defined (instances), else fallback
+  // - str(bytes, encoding[, errors]) -> decode
+  let mut encoding_value : Value? = None
+  let mut errors_value : Value? = None
+  for pair in keywords {
+    if pair.0 == "encoding" {
+      encoding_value = Some(pair.1)
+    } else if pair.0 == "errors" {
+      errors_value = Some(pair.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "str() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
   }
   if positional.length() == 0 {
-    Ok(Value::Str(""))
-  } else {
-    Ok(Value::Str(value_to_string(positional[0])))
+    return Ok(Value::Str(""))
+  }
+  if positional.length() >= 2 || encoding_value is Some(_) {
+    let bytes = match positional[0] {
+      Value::Bytes(items)
+      | Value::ByteArray(items)
+      | Value::MemoryView(items) => items
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "str() bytes argument must be a bytes-like object".to_string(),
+          ),
+        )
+    }
+    let encoding = if positional.length() >= 2 {
+      positional[1]
+    } else {
+      match encoding_value {
+        Some(v) => v
+        None => Value::Str("utf-8".to_string())
+      }
+    }
+    let errors = if positional.length() >= 3 {
+      Some(positional[2])
+    } else {
+      errors_value
+    }
+    let text = match
+      decode_bytes_with_encoding("str", bytes, encoding, errors) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    return Ok(Value::Str(text))
+  }
+  let value = positional[0]
+  match value {
+    Value::Str(text) => Ok(Value::Str(text))
+    Value::Instance(_) =>
+      match get_attr_from_value(value, "__str__", globals, builtins, io) {
+        Ok(callable) =>
+          match callable {
+            Value::BoundMethod(bound) =>
+              if bound.function.body.length() > 0 {
+                match
+                  (eval_function_with_kwargs_ref.val)(
+                    bound.function,
+                    [bound.self],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Value::Str(text)) => Ok(Value::Str(text))
+                  Ok(_) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__str__ returned non-string".to_string(),
+                      ),
+                    )
+                  Err(err) => Err(err)
+                }
+              } else {
+                Ok(Value::Str(value_to_string(value)))
+              }
+            Value::Function(func) =>
+              if func.body.length() > 0 {
+                match
+                  (eval_function_with_kwargs_ref.val)(
+                    func,
+                    [value],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Value::Str(text)) => Ok(Value::Str(text))
+                  Ok(_) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__str__ returned non-string".to_string(),
+                      ),
+                    )
+                  Err(err) => Err(err)
+                }
+              } else {
+                Ok(Value::Str(value_to_string(value)))
+              }
+            _ => Ok(Value::Str(value_to_string(value)))
+          }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Ok(Value::Str(value_to_string(value)))
+            _ => Err(err)
+          }
+      }
+    _ => Ok(Value::Str(value_to_string(value)))
   }
 }
 

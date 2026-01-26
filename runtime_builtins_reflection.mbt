@@ -996,10 +996,72 @@ fn builtin_repr(
       ),
     )
   }
-  match positional[0] {
+  let value = positional[0]
+  match value {
     Value::Str(text) =>
       Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
-    other => Ok(Value::Str(value_to_string(other)))
+    Value::Instance(_) =>
+      match get_attr_from_value(value, "__repr__", globals, builtins, io) {
+        Ok(callable) =>
+          match callable {
+            Value::BoundMethod(bound) =>
+              if bound.function.body.length() > 0 {
+                match
+                  (eval_function_with_kwargs_ref.val)(
+                    bound.function,
+                    [bound.self],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Value::Str(text)) => Ok(Value::Str(text))
+                  Ok(_) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__repr__ returned non-string".to_string(),
+                      ),
+                    )
+                  Err(err) => Err(err)
+                }
+              } else {
+                Ok(Value::Str(value_to_string(value)))
+              }
+            Value::Function(func) =>
+              if func.body.length() > 0 {
+                match
+                  (eval_function_with_kwargs_ref.val)(
+                    func,
+                    [value],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Value::Str(text)) => Ok(Value::Str(text))
+                  Ok(_) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__repr__ returned non-string".to_string(),
+                      ),
+                    )
+                  Err(err) => Err(err)
+                }
+              } else {
+                Ok(Value::Str(value_to_string(value)))
+              }
+            _ => Ok(Value::Str(value_to_string(value)))
+          }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Ok(Value::Str(value_to_string(value)))
+            _ => Err(err)
+          }
+      }
+    _ => Ok(Value::Str(value_to_string(value)))
   }
 }
 
