@@ -2314,6 +2314,36 @@ fn get_attr_raw_from_value(
             self: Value::Class(klass),
           }),
         )
+      } else if klass.name == "bytes" && attr == "fromhex" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytes.fromhex",
+              params: ["cls", "string"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
+          }),
+        )
+      } else if klass.name == "bytearray" && attr == "fromhex" {
+        Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytearray.fromhex",
+              params: ["cls", "string"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: Value::Class(klass),
+          }),
+        )
       } else if klass.name == "set" && attr == "copy" {
         Ok(
           Value::Function(FunctionValue::{

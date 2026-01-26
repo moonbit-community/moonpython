@@ -54,10 +54,12 @@ def run_one(
     module: str,
     timeout_s: float,
     extra_args: List[str],
+    target_dir: Optional[str],
 ) -> Result:
     cmd = [
         "moon",
         "run",
+        *(["--target-dir", target_dir] if target_dir else []),
         "cmd/main",
         "--",
         "--stdlib",
@@ -126,6 +128,11 @@ def main() -> int:
         help="Per-module timeout seconds (default: 20)",
     )
     parser.add_argument(
+        "--target-dir",
+        default=None,
+        help="moon --target-dir value (useful to avoid workspace build locks)",
+    )
+    parser.add_argument(
         "--json",
         dest="json_path",
         default=None,
@@ -150,7 +157,12 @@ def main() -> int:
     counts = {"pass": 0, "fail": 0, "skip": 0, "timeout": 0}
     for idx, mod in enumerate(selected, start=1):
         res = run_one(
-            repo_root, lib_dir, mod, timeout_s=args.timeout, extra_args=args.extra_args or []
+            repo_root,
+            lib_dir,
+            mod,
+            timeout_s=args.timeout,
+            extra_args=args.extra_args or [],
+            target_dir=args.target_dir,
         )
         results.append(res)
         counts[res.status] += 1
@@ -173,4 +185,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
