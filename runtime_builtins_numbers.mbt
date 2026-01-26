@@ -299,45 +299,65 @@ fn builtin_int_new(
       ),
     )
   }
-  match positional[0] {
-    Value::Class(klass) =>
-      if klass.name == "bool" {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "int.__new__(bool) is not safe, use bool.__new__()".to_string(),
-          ),
-        )
-      }
-    _ => ()
-  }
-  if positional.length() == 1 {
-    return Ok(Value::Int(0N))
-  }
-  match positional[1] {
-    Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    Value::Float(v) => Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
-    Value::Str(text) => {
-      let parsed = @strconv.parse_int(text) catch {
-        _ =>
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Runtime,
-              "ValueError: invalid literal for int()".to_string(),
-            ),
-          )
-      }
-      Ok(Value::Int(@bigint.BigInt::from_int(parsed)))
-    }
+  let cls = match positional[0] {
+    Value::Class(klass) => klass
     _ =>
-      Err(
+      return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "int.__new__() argument must be a string or a number".to_string(),
+          "int.__new__() expects a type as the first argument".to_string(),
         ),
       )
   }
+  if cls.name == "bool" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__new__(bool) is not safe, use bool.__new__()".to_string(),
+      ),
+    )
+  }
+  if !class_has_base_name(cls, "int") {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__new__() expects an int subtype as the first argument".to_string(),
+      ),
+    )
+  }
+  let value = if positional.length() == 1 {
+    0N
+  } else {
+    match positional[1] {
+      Value::Int(v) => v
+      Value::Bool(v) => if v { 1N } else { 0N }
+      Value::Float(v) => @bigint.BigInt::from_int64(v.to_int64())
+      Value::Str(text) => {
+        let parsed = @strconv.parse_int(text) catch {
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ValueError: invalid literal for int()".to_string(),
+              ),
+            )
+        }
+        @bigint.BigInt::from_int(parsed)
+      }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "int.__new__() argument must be a string or a number".to_string(),
+          ),
+        )
+    }
+  }
+  if cls.name == "int" {
+    return Ok(Value::Int(value))
+  }
+  let dict : Array[(String, Value)] = [("$__int_value__", Value::Int(value))]
+  Ok(Value::Instance(InstanceValue::{ class: cls, dict }))
 }
 
 ///|
