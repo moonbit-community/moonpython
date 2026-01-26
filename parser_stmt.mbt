@@ -834,46 +834,47 @@ fn parse_pattern(
     }
     None => ()
   }
-  let is_tuple = trimmed.contains(",") ||
-    (chars.length() >= 2 && chars[0] == '(' && chars[chars.length() - 1] == ')')
-  if is_tuple {
-    let mut inner = trimmed
-    let inner_chars = inner.to_array()
-    if inner_chars.length() >= 2 &&
-      inner_chars[0] == '(' &&
-      inner_chars[inner_chars.length() - 1] == ')' {
-      inner = substring(inner, 1, inner.length() - 1).to_string()
-    }
-    let mut start = 0
-    let mut depth = 0
-    let mut idx = 0
-    let parts : Array[String] = []
-    let inner_arr = inner.to_array()
-    while idx <= inner_arr.length() {
-      let end_reached = idx == inner_arr.length()
-      let c = if end_reached { ',' } else { inner_arr[idx] }
-      if !end_reached {
-        if c == '(' || c == '[' || c == '{' {
-          depth += 1
-        } else if c == ')' || c == ']' || c == '}' {
-          if depth > 0 {
-            depth -= 1
+  // Tuple patterns require a top-level comma. Parentheses alone are grouping.
+  if chars.length() >= 2 && chars[0] == '(' && chars[chars.length() - 1] == ')' {
+    match find_top_level_paren_span(trimmed) {
+      Some(span) =>
+        if span.0 == 0 && span.1 == trimmed.length() - 1 {
+          let inner = substring(trimmed, 1, trimmed.length() - 1)
+            .trim(chars=" \t\n\r")
+            .to_string()
+          if inner.length() == 0 {
+            return Ok(Pattern::Tuple([]))
           }
+          let inner_parts = split_top_level_commas(inner)
+          if inner_parts.length() == 1 {
+            return parse_pattern(inner, line_index, base_offset)
+          }
+          let patterns : Array[Pattern] = []
+          for raw_part in inner_parts {
+            let part = raw_part.trim(chars=" \t\n\r").to_string()
+            if part.length() == 0 {
+              continue
+            }
+            let pat = match parse_pattern(part, line_index, base_offset) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            patterns.push(pat)
+          }
+          return Ok(Pattern::Tuple(patterns))
         }
-      }
-      if (end_reached || c == ',') && depth == 0 {
-        let part = substring(inner, start, idx)
-          .trim(chars=" \t\n\r")
-          .to_string()
-        if part.length() > 0 {
-          parts.push(part)
-        }
-        start = idx + 1
-      }
-      idx += 1
+      None => ()
     }
+  }
+
+  let raw_parts = split_top_level_commas(trimmed)
+  if raw_parts.length() > 1 {
     let patterns : Array[Pattern] = []
-    for part in parts {
+    for raw_part in raw_parts {
+      let part = raw_part.trim(chars=" \t\n\r").to_string()
+      if part.length() == 0 {
+        continue
+      }
       let pat = match parse_pattern(part, line_index, base_offset) {
         Ok(value) => value
         Err(err) => return Err(err)
