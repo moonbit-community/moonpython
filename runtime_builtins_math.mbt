@@ -279,6 +279,105 @@ fn builtin_math_trunc(
 }
 
 ///|
+fn builtin_math_frexp(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("math.frexp", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.frexp() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let (_, x) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if x == 0.0 {
+    return Ok(Value::Tuple([Value::Float(0.0), Value::Int(0N)]))
+  }
+  if x.is_nan() || x.is_inf() {
+    return Ok(Value::Tuple([Value::Float(x), Value::Int(0N)]))
+  }
+  let ax = if x < 0.0 { -x } else { x }
+  let mut exp : Int64 = @math.floor(@math.log2(ax)).to_int64() + 1L
+  let mut mant = x / @math.pow(2.0, exp.to_double())
+  let mut abs_mant = if mant < 0.0 { -mant } else { mant }
+  if abs_mant < 0.5 {
+    mant = mant * 2.0
+    exp = exp - 1L
+  } else if abs_mant >= 1.0 {
+    mant = mant / 2.0
+    exp = exp + 1L
+  }
+  abs_mant = if mant < 0.0 { -mant } else { mant }
+  if abs_mant < 0.5 {
+    mant = mant * 2.0
+    exp = exp - 1L
+  } else if abs_mant >= 1.0 {
+    mant = mant / 2.0
+    exp = exp + 1L
+  }
+  Ok(
+    Value::Tuple([
+      Value::Float(mant),
+      Value::Int(@bigint.BigInt::from_int64(exp)),
+    ]),
+  )
+}
+
+///|
+fn builtin_math_ldexp(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("math.ldexp", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.ldexp() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let (_, x) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let exp_i64 = match positional[1] {
+    Value::Int(v) => v.to_int64(),
+    Value::Bool(v) => if v { 1L } else { 0L },
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "math.ldexp() expects an integer exponent".to_string(),
+        ),
+      ),
+  }
+  Ok(Value::Float(x * @math.pow(2.0, exp_i64.to_double())))
+}
+
+///|
 fn builtin_math_ceil(
   positional : Array[Value],
   keywords : Array[(String, Value)],

@@ -977,6 +977,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "math.floor", run: builtin_math_floor },
     BuiltinDef::{ name: "math.ceil", run: builtin_math_ceil },
     BuiltinDef::{ name: "math.trunc", run: builtin_math_trunc },
+    BuiltinDef::{ name: "math.frexp", run: builtin_math_frexp },
+    BuiltinDef::{ name: "math.ldexp", run: builtin_math_ldexp },
     BuiltinDef::{ name: "math.acos", run: builtin_math_acos },
     BuiltinDef::{ name: "math.cos", run: builtin_math_cos },
     BuiltinDef::{ name: "math.sin", run: builtin_math_sin },

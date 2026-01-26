@@ -1651,6 +1651,17 @@ fn builtin_ord(
       }
       Ok(Value::Int(@bigint.BigInt::from_int(chars[0].to_int())))
     }
+    Value::Bytes(values) | Value::ByteArray(values) => {
+      if values.length() != 1 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "ord() expected a character".to_string(),
+          ),
+        )
+      }
+      Ok(Value::Int(@bigint.BigInt::from_int(values[0])))
+    }
     _ =>
       Err(
         make_runtime_error(
