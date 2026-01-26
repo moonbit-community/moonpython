@@ -1,8 +1,8 @@
-"""Minimal _sha2 shim for moonpython.
+"""Minimal _md5 shim for moonpython.
 
-CPython exposes SHA-2 algorithms via the `_sha2` C extension. moonpython doesn't
-support C extensions, so we provide a tiny pure-Python substitute that is
-compatible enough for stdlib imports.
+CPython exposes MD5 via the `_md5` C extension. moonpython doesn't support C
+extensions, so we provide a tiny pure-Python substitute that is compatible
+enough for stdlib imports.
 
 This is NOT cryptographically secure and must not be used for security.
 """
@@ -48,17 +48,6 @@ class _FakeHash:
         return _FakeHash(self.name, self.digest_size, self.block_size, self._data)
 
 
-def sha512(data=b""):
-    return _FakeHash("sha512", 64, 128, data)
+def md5(data=b""):
+    return _FakeHash("md5", 16, 64, data)
 
-
-def sha384(data=b""):
-    return _FakeHash("sha384", 48, 128, data)
-
-
-def sha256(data=b""):
-    return _FakeHash("sha256", 32, 64, data)
-
-
-def sha224(data=b""):
-    return _FakeHash("sha224", 28, 64, data)
