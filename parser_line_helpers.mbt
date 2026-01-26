@@ -639,6 +639,70 @@ fn find_top_level_colon(text : String) -> Int? {
 }
 
 ///|
+fn find_top_level_as_pos(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut depth = 0
+  let mut quote : Char? = None
+  let mut triple : Char? = None
+  let mut escaped = false
+  let mut i = 0
+  while i + 2 < chars.length() {
+    let c = chars[i]
+    match triple {
+      Some(q) => {
+        if i + 2 < chars.length() &&
+          chars[i] == q &&
+          chars[i + 1] == q &&
+          chars[i + 2] == q {
+          triple = None
+          i += 3
+          continue
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    match quote {
+      Some(q) =>
+        if escaped {
+          escaped = false
+        } else if c == '\\' {
+          escaped = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if i + 2 < chars.length() &&
+          (c == '\'' || c == '"') &&
+          chars[i + 1] == c &&
+          chars[i + 2] == c {
+          triple = Some(c)
+          i += 3
+          continue
+        } else if c == '\'' || c == '"' {
+          quote = Some(c)
+        } else if c == '(' || c == '[' || c == '{' {
+          depth += 1
+        } else if c == ')' || c == ']' || c == '}' {
+          if depth > 0 {
+            depth -= 1
+          }
+        } else if depth == 0 &&
+          c == 'a' &&
+          chars[i + 1] == 's' &&
+          i > 0 &&
+          (chars[i - 1] == ' ' || chars[i - 1] == '\t') &&
+          (chars[i + 2] == ' ' || chars[i + 2] == '\t') {
+          return Some(i)
+        }
+    }
+    i += 1
+  }
+  None
+}
+
+///|
 fn strip_wrapping_parens(text : String) -> String {
   let trimmed = text.trim(chars=" \t").to_string()
   if !trimmed.has_prefix("(") || !trimmed.has_suffix(")") {
