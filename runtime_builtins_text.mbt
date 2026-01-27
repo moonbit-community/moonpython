@@ -1548,6 +1548,63 @@ fn builtin_bytearray_rstrip(
 }
 
 ///|
+fn builtin_bytearray_translate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("bytearray.translate", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "translate() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let src = match positional[0] {
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "translate() expects a bytearray".to_string(),
+        ),
+      )
+  }
+  let table = match
+    bytes_like_ints_for_translate("bytearray.translate", positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if table.length() != 256 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: translation table must be 256 bytes long".to_string(),
+      ),
+    )
+  }
+  let out : Array[Int] = []
+  for byte in src {
+    let b = byte & 0xFF
+    out.push(table[b] & 0xFF)
+  }
+  Ok(Value::ByteArray(out))
+}
+
+///|
 fn builtin_bytearray(
   positional : Array[Value],
   keywords : Array[(String, Value)],

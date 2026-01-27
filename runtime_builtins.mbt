@@ -902,6 +902,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "bytearray.upper", run: builtin_bytearray_upper },
     BuiltinDef::{ name: "bytearray.rstrip", run: builtin_bytearray_rstrip },
     BuiltinDef::{
+      name: "bytearray.translate",
+      run: builtin_bytearray_translate,
+    },
+    BuiltinDef::{
       name: "bytearray.__setitem__",
       run: builtin_bytearray_setitem,
     },
