@@ -842,6 +842,84 @@ fn builtin_math_isfinite(
 }
 
 ///|
+fn builtin_math_isnan(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.isnan", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.isnan() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Float(v) => Ok(Value::Bool(v.is_nan()))
+    Value::Int(_) | Value::Bool(_) => Ok(Value::Bool(false))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "math.isnan() expects a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_math_copysign(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.copysign", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.copysign() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let (_, x) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let (_, y) = match number_value(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let ax = if x == 0.0 { 0.0 } else if x < 0.0 { -x } else { x }
+  let neg = if y == 0.0 { 1.0 / y < 0.0 } else { y < 0.0 }
+  Ok(Value::Float(if neg { -ax } else { ax }))
+}
+
+///|
 fn bigint_isqrt(value : @bigint.BigInt) -> @bigint.BigInt {
   if value < 2N {
     return value

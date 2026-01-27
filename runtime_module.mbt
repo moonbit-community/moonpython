@@ -351,6 +351,7 @@ fn make_math_module() -> Value {
     ("pi", Value::Float(3.141592653589793)),
     ("e", Value::Float(2.718281828459045)),
     ("tau", Value::Float(6.283185307179586)),
+    ("copysign", module_function_stub("math.copysign")),
     ("sqrt", module_function_stub("math.sqrt")),
     ("pow", module_function_stub("math.pow")),
     ("log", module_function_stub("math.log")),
@@ -371,6 +372,7 @@ fn make_math_module() -> Value {
     ("fsum", module_function_stub("math.fsum")),
     ("sumprod", module_function_stub("math.sumprod")),
     ("isfinite", module_function_stub("math.isfinite")),
+    ("isnan", module_function_stub("math.isnan")),
     ("isqrt", module_function_stub("math.isqrt")),
   ])
 }
