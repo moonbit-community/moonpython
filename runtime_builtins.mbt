@@ -82,8 +82,68 @@ fn dict_env_from_value(
   name : String,
   kind : String,
   value : Value,
-) -> Result[(Array[(String, Value)], Array[(Value, Value)]), RuntimeError] {
+) -> Result[(Array[(String, Value)], Array[(Value, Value)]?), RuntimeError] {
   match value {
+    Value::Instance(inst) =>
+      if inst.class.name == "module_globals_dict" {
+        match get_named_value(inst.dict, "$__env_id__") {
+          Some(Value::Int(id)) =>
+            match lookup_env_mapping(id) {
+              Some(env) => Ok((env, None))
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    name + "() " + kind + ": stale globals mapping".to_string(),
+                  ),
+                )
+            }
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                name + "() " + kind + ": invalid globals mapping".to_string(),
+              ),
+            )
+        }
+      } else if class_includes_dict(inst.class) {
+        let pairs = match get_named_value(inst.dict, dict_storage_name) {
+          Some(Value::Dict(pairs)) => pairs
+          Some(_) =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                name + "() " + kind + " must be a dict".to_string(),
+              ),
+            )
+          None => {
+            let pairs : Array[(Value, Value)] = []
+            set_named_value(inst.dict, dict_storage_name, Value::Dict(pairs))
+            pairs
+          }
+        }
+        let env : Array[(String, Value)] = []
+        for pair in pairs {
+          match pair.0 {
+            Value::Str(key) => set_global_value(env, key, pair.1)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  name + "() " + kind + " keys must be str".to_string(),
+                ),
+              )
+          }
+        }
+        Ok((env, Some(pairs)))
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            name + "() " + kind + " must be a dict".to_string(),
+          ),
+        )
+      }
     Value::Dict(pairs) => {
       let env : Array[(String, Value)] = []
       for pair in pairs {
@@ -98,7 +158,7 @@ fn dict_env_from_value(
             )
         }
       }
-      Ok((env, pairs))
+      Ok((env, Some(pairs)))
     }
     _ =>
       Err(
@@ -203,7 +263,7 @@ fn resolve_exec_eval_env(
         Err(err) => return Err(err)
       }
       globals_env = env
-      globals_pairs = Some(pairs)
+      globals_pairs = pairs
     }
     None => ()
   }
@@ -214,7 +274,7 @@ fn resolve_exec_eval_env(
         Err(err) => return Err(err)
       }
       locals_env = env
-      locals_pairs = Some(pairs)
+      locals_pairs = pairs
     }
     None => ()
   }
