@@ -743,7 +743,10 @@ fn eval_binary_op_values(
             }
             return Err(make_runtime_error(RuntimeErrorKind::ZeroDivision, msg))
           }
-          Ok(Value::Float(left_num % right_num))
+          let r0 = left_num % right_num
+          let needs_adjust = r0 != 0.0 && (r0 < 0.0) != (right_num < 0.0)
+          let r = if needs_adjust { r0 + right_num } else { r0 }
+          Ok(Value::Float(r))
         }
       }
     }
