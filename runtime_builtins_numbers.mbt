@@ -353,11 +353,7 @@ fn builtin_int_new(
         )
     }
   }
-  if cls.name == "int" {
-    return Ok(Value::Int(value))
-  }
-  let dict : Array[(String, Value)] = [("$__int_value__", Value::Int(value))]
-  Ok(Value::Instance(InstanceValue::{ class: cls, dict }))
+  Ok(Value::Int(value))
 }
 
 ///|

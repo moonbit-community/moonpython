@@ -376,7 +376,8 @@ fn make_math_module() -> Value {
 }
 
 ///|
-fn make_time_module() -> Value {
+fn make_time_module(builtins : Array[(String, Value)]) -> Value {
+  let tuple_class = builtin_class_from_name("tuple", builtins)
   make_module_instance("time", [
     ("time", module_function_stub("time.time")),
     ("monotonic", module_function_stub("time.monotonic")),
@@ -386,8 +387,12 @@ fn make_time_module() -> Value {
     ("process_time_ns", module_function_stub("time.process_time_ns")),
     ("get_clock_info", module_function_stub("time.get_clock_info")),
     ("localtime", module_function_stub("time.localtime")),
+    ("gmtime", module_function_stub("time.gmtime")),
     ("sleep", module_function_stub("time.sleep")),
     ("strftime", module_function_stub("time.strftime")),
+    // Minimal compatibility: our `time.localtime()` returns a plain tuple.
+    // Expose `struct_time` as an alias to `tuple` so stdlib code can reference it.
+    ("struct_time", Value::Class(tuple_class)),
   ])
 }
 
@@ -425,8 +430,9 @@ fn make_platform_module() -> Value {
 
 ///|
 fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
-  // Minimal enum shim: enough for stdlib imports (ast/inspect/dataclasses).
-  // This is *not* a full implementation of CPython's enum module.
+  // Minimal enum shim: enough for stdlib modules like `calendar` and basic
+  // `IntEnum`/`IntFlag` usage. This is *not* a full implementation of
+  // CPython's enum module.
   let object_class = builtin_class_from_name("object", builtins)
   let int_class = builtin_class_from_name("int", builtins)
   let str_class = builtin_class_from_name("str", builtins)
@@ -437,12 +443,17 @@ fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
   }
   let int_enum_class = ClassValue::{
     name: "IntEnum",
-    bases: [Value::Class(int_class)],
+    bases: [Value::Class(int_class), Value::Class(enum_class)],
     dict: [],
   }
   let str_enum_class = ClassValue::{
     name: "StrEnum",
-    bases: [Value::Class(str_class)],
+    bases: [Value::Class(str_class), Value::Class(enum_class)],
+    dict: [],
+  }
+  let int_flag_class = ClassValue::{
+    name: "IntFlag",
+    bases: [Value::Class(int_class), Value::Class(enum_class)],
     dict: [],
   }
   let decorator_class = ClassValue::{
@@ -467,9 +478,9 @@ fn make_enum_module(builtins : Array[(String, Value)]) -> Value {
     ("Enum", Value::Class(enum_class)),
     ("IntEnum", Value::Class(int_enum_class)),
     ("StrEnum", Value::Class(str_enum_class)),
-    // For now, treat IntFlag as an int subclass marker (inspect.BufferFlags).
-    ("IntFlag", Value::Class(int_class)),
+    ("IntFlag", Value::Class(int_flag_class)),
     ("auto", module_function_stub("enum.auto")),
+    ("global_enum", module_function_stub("enum.global_enum")),
     ("_simple_enum", module_function_stub("enum._simple_enum")),
     ("_SimpleEnumDecorator", Value::Class(decorator_class)),
   ])
@@ -1352,6 +1363,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       }),
     ),
     (
+      "getdefaultencoding",
+      Value::Function(FunctionValue::{
+        name: "sys.getdefaultencoding",
+        params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
       "getfilesystemencoding",
       Value::Function(FunctionValue::{
         name: "sys.getfilesystemencoding",
@@ -1838,7 +1861,7 @@ fn import_module(
   } else if module_name == "math" {
     make_math_module()
   } else if module_name == "time" {
-    make_time_module()
+    make_time_module(builtins)
   } else if module_name == "enum" {
     make_enum_module(builtins)
   } else if module_name == "asyncio" {

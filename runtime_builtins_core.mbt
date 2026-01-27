@@ -121,6 +121,20 @@ fn builtin_print(
   }
   buf.write_string(end)
   let text = buf.to_string()
+  if file_value is Value::None {
+    match module_cache_get("sys") {
+      Some(sys_module) =>
+        match get_attr_from_value(sys_module, "stdout", globals, builtins, io) {
+          Ok(v) => file_value = v
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => ()
+              _ => return Err(err)
+            }
+        }
+      None => ()
+    }
+  }
   match file_value {
     Value::None => io.write_stdout(text)
     _ => {

@@ -2432,41 +2432,41 @@ fn eval_expr_with_env(
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                let parts : Array[String] = []
-                match iter_value {
-                  Value::List(values) =>
-                    for v in values {
-                      parts.push(value_to_string(v))
-                    }
-                  Value::Tuple(values) =>
-                    for v in values {
-                      parts.push(value_to_string(v))
-                    }
-                  Value::Set(values) =>
-                    for v in values {
-                      parts.push(value_to_string(v))
-                    }
-                  _ =>
-                    match iterable_values(iter_value) {
-                      Ok(values) =>
-                        for v in values {
-                          parts.push(value_to_string(v))
-                        }
-                      Err(_) =>
-                        return Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Type,
-                            "can only join an iterable".to_string(),
-                          ),
-                        )
-                    }
+                let iterator_value = match
+                  iter_value_to_iterator(iter_value, globals, builtins, io) {
+                  Ok(v) => v
+                  Err(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "can only join an iterable".to_string(),
+                      ),
+                    )
                 }
                 let buf = StringBuilder::new()
-                for i = 0; i < parts.length(); i = i + 1 {
-                  if i > 0 {
-                    buf.write_string(sep)
+                let mut first = true
+                while true {
+                  match
+                    iterator_next(iterator_value, None, globals, builtins, io) {
+                    Ok(item) => {
+                      let part = match item {
+                        Value::Str(text) => text
+                        other => value_to_string(other)
+                      }
+                      if first {
+                        first = false
+                      } else {
+                        buf.write_string(sep)
+                      }
+                      buf.write_string(part)
+                    }
+                    Err(err) =>
+                      if err.exc_type == "StopIteration" {
+                        break
+                      } else {
+                        return Err(err)
+                      }
                   }
-                  buf.write_string(parts[i])
                 }
                 Ok(Value::Str(buf.to_string()))
               }

@@ -2920,7 +2920,12 @@ fn call_callable_with_env(
                   return Ok(Value::Str(text))
                 }
                 let padding = width - text.length()
-                let left = padding / 2
+                let mut left = padding / 2
+                // Match CPython: when padding is odd, even-length strings get the
+                // extra fill on the left, odd-length strings get it on the right.
+                if padding % 2 == 1 && text.length() % 2 == 0 {
+                  left = left + 1
+                }
                 let right = padding - left
                 let builder = StringBuilder::new()
                 for _i = 0; _i < left; _i = _i + 1 {

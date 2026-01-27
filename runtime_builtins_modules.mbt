@@ -450,6 +450,94 @@ fn builtin_socket_socket_sendall(
 }
 
 ///|
+fn builtin_enum_global_enum(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut update_str = false
+  for pair in keywords {
+    if pair.0 == "update_str" {
+      match pair.1 {
+        Value::Bool(v) => update_str = v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "global_enum() update_str must be bool".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "global_enum() got unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  let _ = update_str
+  if positional.length() < 1 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "global_enum() expects a class".to_string(),
+      ),
+    )
+  }
+  let cls = positional[0]
+  let module_name = match cls {
+    Value::Class(klass) =>
+      match get_named_value(klass.dict, "__module__") {
+        Some(Value::Str(name)) => name
+        _ => "<unknown>".to_string()
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "global_enum() expects a class".to_string(),
+        ),
+      )
+  }
+  let module_value = match module_cache_get(module_name) {
+    Some(v) => v
+    None => return Ok(cls)
+  }
+  fn is_global_member_name(name : String) -> Bool {
+    if name.length() == 0 {
+      return false
+    }
+    for ch in name {
+      let code = ch.to_int()
+      let ok = (code >= 0x41 && code <= 0x5A) || // A-Z
+        (code >= 0x30 && code <= 0x39) || // 0-9
+        code == 0x5F // _
+      if !ok {
+        return false
+      }
+    }
+    true
+  }
+
+  match (cls, module_value) {
+    (Value::Class(klass), Value::Instance(mod_inst)) =>
+      for pair in klass.dict {
+        if is_global_member_name(pair.0) {
+          set_named_value(mod_inst.dict, pair.0, pair.1)
+        }
+      }
+    _ => ()
+  }
+  Ok(cls)
+}
+
+///|
 fn builtin_socket_socket_sendto(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1048,6 +1136,101 @@ fn builtin_time_localtime(
 }
 
 ///|
+fn builtin_time_gmtime(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("time.gmtime", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 && positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "time.gmtime() takes 0 or 1 argument".to_string(),
+      ),
+    )
+  }
+  let seconds = if positional.length() == 1 {
+    match positional[0] {
+      Value::Int(v) => v
+      Value::Bool(v) => if v { 1N } else { 0N }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "time.gmtime() argument must be int".to_string(),
+          ),
+        )
+    }
+  } else {
+    0N
+  }
+  // Convert seconds since the Unix epoch to a UTC struct_time tuple.
+  let day_seconds = 86400N
+  let mut days = seconds / day_seconds
+  let mut rem = seconds % day_seconds
+  if rem < 0N {
+    rem = rem + day_seconds
+    days = days - 1N
+  }
+  let rem_i = match bigint_to_int_checked(rem) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let days_i = match bigint_to_int_checked(days) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let hour = rem_i / 3600
+  let minute = rem_i % 3600 / 60
+  let second = rem_i % 60
+  fn is_leap_year(year : Int) -> Bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+  }
+  // Howard Hinnant's civil_from_days algorithm (proleptic Gregorian).
+  let z = days_i + 719468
+  let era = (if z >= 0 { z } else { z - 146096 }) / 146097
+  let doe = z - era * 146097 // [0, 146096]
+  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365 // [0, 399]
+  let mut year = yoe + era * 400
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100) // [0, 365]
+  let mp = (5 * doy + 2) / 153 // [0, 11]
+  let day = doy - (153 * mp + 2) / 5 + 1 // [1, 31]
+  let month = mp + (if mp < 10 { 3 } else { -9 }) // [1, 12]
+  year = year + (if month <= 2 { 1 } else { 0 })
+  let mut yday = day
+  let month_lengths : Array[Int] = if is_leap_year(year) {
+    [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  } else {
+    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  }
+  for i = 0; i < month - 1; i = i + 1 {
+    yday = yday + month_lengths[i]
+  }
+  let wday = (days_i + 3) % 7
+  Ok(
+    Value::Tuple([
+      Value::Int(@bigint.BigInt::from_int(year)),
+      Value::Int(@bigint.BigInt::from_int(month)),
+      Value::Int(@bigint.BigInt::from_int(day)),
+      Value::Int(@bigint.BigInt::from_int(hour)),
+      Value::Int(@bigint.BigInt::from_int(minute)),
+      Value::Int(@bigint.BigInt::from_int(second)),
+      Value::Int(@bigint.BigInt::from_int(wday)),
+      Value::Int(@bigint.BigInt::from_int(yday)),
+      Value::Int(0N),
+    ]),
+  )
+}
+
+///|
 fn builtin_time_strftime(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1079,8 +1262,130 @@ fn builtin_time_strftime(
         ),
       )
   }
-  // Minimal stub: return the format string unchanged.
-  Ok(Value::Str(format))
+  let time_tuple : Array[Value] = if positional.length() == 2 {
+    match positional[1] {
+      Value::Tuple(values) | Value::List(values) => values
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "strftime() argument 2 must be a tuple".to_string(),
+          ),
+        )
+    }
+  } else {
+    []
+  }
+  let tm_year = if time_tuple.length() >= 1 {
+    match index_from_value(time_tuple[0], 0) {
+      Ok(v) => v
+      Err(_) => 1970
+    }
+  } else {
+    1970
+  }
+  let tm_mon = if time_tuple.length() >= 2 {
+    match index_from_value(time_tuple[1], 0) {
+      Ok(v) => v
+      Err(_) => 1
+    }
+  } else {
+    1
+  }
+  let tm_mday = if time_tuple.length() >= 3 {
+    match index_from_value(time_tuple[2], 0) {
+      Ok(v) => v
+      Err(_) => 1
+    }
+  } else {
+    1
+  }
+  let tm_wday = if time_tuple.length() >= 7 {
+    match index_from_value(time_tuple[6], 0) {
+      Ok(v) => v
+      Err(_) => 0
+    }
+  } else {
+    0
+  }
+  let weekday_abbr : Array[String] = [
+    "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+  ]
+  let weekday_full : Array[String] = [
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+  ]
+  let month_abbr : Array[String] = [
+    "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+    "Dec",
+  ]
+  let month_full : Array[String] = [
+    "", "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December",
+  ]
+  fn two_digits(n : Int) -> String {
+    if n < 0 {
+      n.to_string()
+    } else if n < 10 {
+      "0" + n.to_string()
+    } else {
+      n.to_string()
+    }
+  }
+
+  let chars = format.to_array()
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < chars.length() {
+    let c = chars[i]
+    if c == '%' && i + 1 < chars.length() {
+      let code = chars[i + 1]
+      match code {
+        '%' => buf.write_char('%')
+        'a' =>
+          if tm_wday >= 0 && tm_wday < weekday_abbr.length() {
+            buf.write_string(weekday_abbr[tm_wday])
+          } else {
+            buf.write_string("%a")
+          }
+        'A' =>
+          if tm_wday >= 0 && tm_wday < weekday_full.length() {
+            buf.write_string(weekday_full[tm_wday])
+          } else {
+            buf.write_string("%A")
+          }
+        'b' =>
+          if tm_mon >= 0 && tm_mon < month_abbr.length() {
+            buf.write_string(month_abbr[tm_mon])
+          } else {
+            buf.write_string("%b")
+          }
+        'B' =>
+          if tm_mon >= 0 && tm_mon < month_full.length() {
+            buf.write_string(month_full[tm_mon])
+          } else {
+            buf.write_string("%B")
+          }
+        'd' => buf.write_string(two_digits(tm_mday))
+        'm' => buf.write_string(two_digits(tm_mon))
+        'Y' => buf.write_string(tm_year.to_string())
+        'y' =>
+          if tm_year >= 0 {
+            buf.write_string(two_digits(tm_year % 100))
+          } else {
+            buf.write_string(two_digits(tm_year))
+          }
+        _ => {
+          buf.write_char('%')
+          buf.write_char(code)
+        }
+      }
+      i += 2
+      continue
+    }
+    buf.write_char(c)
+    i += 1
+  }
+  Ok(Value::Str(buf.to_string()))
 }
 
 ///|

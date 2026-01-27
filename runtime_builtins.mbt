@@ -650,6 +650,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_asyncio_iscoroutinefunction,
     },
     BuiltinDef::{ name: "platform.system", run: builtin_platform_system },
+    BuiltinDef::{ name: "enum.global_enum", run: builtin_enum_global_enum },
     BuiltinDef::{ name: "platform.machine", run: builtin_platform_machine },
     BuiltinDef::{ name: "time.time", run: builtin_time_time },
     BuiltinDef::{ name: "time.monotonic", run: builtin_time_monotonic },
@@ -664,6 +665,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_time_process_time_ns,
     },
     BuiltinDef::{ name: "time.localtime", run: builtin_time_localtime },
+    BuiltinDef::{ name: "time.gmtime", run: builtin_time_gmtime },
     BuiltinDef::{ name: "time.sleep", run: builtin_time_sleep },
     BuiltinDef::{ name: "time.strftime", run: builtin_time_strftime },
     BuiltinDef::{
@@ -1104,6 +1106,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "sys.exc_info", run: builtin_sys_exc_info },
     BuiltinDef::{ name: "sys.exception", run: builtin_sys_exception },
     BuiltinDef::{ name: "sys.excepthook", run: builtin_sys_excepthook },
+    BuiltinDef::{
+      name: "sys.getdefaultencoding",
+      run: builtin_sys_getdefaultencoding,
+    },
     BuiltinDef::{
       name: "sys.getfilesystemencoding",
       run: builtin_sys_getfilesystemencoding,

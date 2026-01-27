@@ -57,7 +57,34 @@ fn iterable_values(value : Value) -> Result[Array[Value], RuntimeError] {
       Ok(items)
     }
     Value::Instance(inst) =>
-      if inst.class.name == "dict_keys" ||
+      if inst.class.name == "range" {
+        let start = match get_named_value(inst.dict, "start") {
+          Some(Value::Int(v)) => v
+          _ => 0N
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(Value::Int(v)) => v
+          _ => 0N
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(Value::Int(v)) => v
+          _ => 1N
+        }
+        let len_big = range_length_bigint(start, stop, step)
+        let len = match bigint_to_int_checked(len_big) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let out : Array[Value] = []
+        for i = 0; i < len; i = i + 1 {
+          out.push(
+            Value::Int(
+              range_element_at(start, step, @bigint.BigInt::from_int(i)),
+            ),
+          )
+        }
+        Ok(out)
+      } else if inst.class.name == "dict_keys" ||
         inst.class.name == "dict_values" ||
         inst.class.name == "dict_items" {
         let dict_value = lookup_iterable_field(inst.dict, "dict")

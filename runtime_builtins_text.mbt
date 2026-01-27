@@ -380,6 +380,31 @@ fn builtin_sys_getfilesystemencoding(
 }
 
 ///|
+fn builtin_sys_getdefaultencoding(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.getdefaultencoding", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getdefaultencoding() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Str("utf-8"))
+}
+
+///|
 fn builtin_sys_getfilesystemencodeerrors(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -609,8 +634,16 @@ fn encode_string_ascii_with_errors(
   errors : String,
 ) -> Result[Array[Int], RuntimeError] {
   let _ = name
-  if errors != "surrogateescape" {
+  if errors == "strict" {
     return encode_string_ascii(text)
+  }
+  if errors != "surrogateescape" && errors != "xmlcharrefreplace" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "LookupError: unknown error handler".to_string(),
+      ),
+    )
   }
   let out : Array[Int] = []
   for ch in text.to_array() {
@@ -619,6 +652,18 @@ fn encode_string_ascii_with_errors(
       None => {
         let code = ch.to_int()
         if code > 0x7F {
+          if errors == "xmlcharrefreplace" {
+            // Replace with a decimal character reference, e.g. "&#9731;".
+            for b in "&#".to_array() {
+              out.push(b.to_int())
+            }
+            let digits = code.to_string()
+            for digit in digits.to_array() {
+              out.push(digit.to_int())
+            }
+            out.push(0x3B) // ';'
+            continue
+          }
           return Err(
             make_runtime_error(
               RuntimeErrorKind::Runtime,
@@ -651,17 +696,7 @@ fn encode_string_with_encoding(
       )
   }
   let errors = match errors_value {
-    Some(Value::Str(errs)) =>
-      if errs != "strict" && errs != "surrogateescape" {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "LookupError: unknown error handler".to_string(),
-          ),
-        )
-      } else {
-        errs
-      }
+    Some(Value::Str(errs)) => errs
     Some(_) =>
       return Err(
         make_runtime_error(
@@ -672,9 +707,46 @@ fn encode_string_with_encoding(
     None => "strict"
   }
   if encoding == "utf-8" || encoding == "utf8" {
+    if errors != "strict" &&
+      errors != "surrogateescape" &&
+      errors != "xmlcharrefreplace" {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "LookupError: unknown error handler".to_string(),
+        ),
+      )
+    }
     Ok(encode_string_utf8_with_errors(text, errors))
   } else if encoding == "ascii" {
     encode_string_ascii_with_errors(name, text, errors)
+  } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
+    fn push_hex(out : Array[Int], value : Int, width : Int) -> Unit {
+      let mut shift = (width - 1) * 4
+      while shift >= 0 {
+        let digit = (value >> shift) & 0xF
+        let ch = if digit < 10 { 0x30 + digit } else { 0x61 + (digit - 10) }
+        out.push(ch)
+        shift = shift - 4
+      }
+    }
+
+    let out : Array[Int] = []
+    for ch in text {
+      let code = ch.to_int()
+      if code <= 0xFF {
+        out.push(code)
+      } else if code <= 0xFFFF {
+        out.push(0x5C) // '\'
+        out.push(0x75) // 'u'
+        push_hex(out, code, 4)
+      } else {
+        out.push(0x5C) // '\'
+        out.push(0x55) // 'U'
+        push_hex(out, code, 8)
+      }
+    }
+    Ok(out)
   } else {
     Err(
       make_runtime_error(
@@ -815,17 +887,7 @@ fn decode_bytes_with_encoding(
       )
   }
   let errors = match errors_value {
-    Some(Value::Str(errs)) =>
-      if errs != "strict" && errs != "surrogateescape" {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "LookupError: unknown error handler".to_string(),
-          ),
-        )
-      } else {
-        errs
-      }
+    Some(Value::Str(errs)) => errs
     Some(_) =>
       return Err(
         make_runtime_error(
@@ -836,9 +898,104 @@ fn decode_bytes_with_encoding(
     None => "strict"
   }
   if encoding == "utf-8" || encoding == "utf8" {
+    if errors != "strict" && errors != "surrogateescape" {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "LookupError: unknown error handler".to_string(),
+        ),
+      )
+    }
     decode_bytes_utf8(name, bytes, errors)
   } else if encoding == "ascii" {
+    if errors != "strict" && errors != "surrogateescape" {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "LookupError: unknown error handler".to_string(),
+        ),
+      )
+    }
     decode_bytes_ascii(name, bytes, errors)
+  } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
+    let _ = errors
+    fn hex_value(b : Int) -> Int? {
+      if b >= 0x30 && b <= 0x39 {
+        Some(b - 0x30)
+      } else if b >= 0x41 && b <= 0x46 {
+        Some(b - 0x41 + 10)
+      } else if b >= 0x61 && b <= 0x66 {
+        Some(b - 0x61 + 10)
+      } else {
+        None
+      }
+    }
+
+    fn parse_hex(bytes : Array[Int], start : Int, count : Int) -> Int? {
+      if start + count > bytes.length() {
+        return None
+      }
+      let mut acc = 0
+      for i = 0; i < count; i = i + 1 {
+        let b = bytes[start + i] & 0xFF
+        match hex_value(b) {
+          Some(v) => acc = (acc << 4) | v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+
+    let buf = StringBuilder::new()
+    let mut i = 0
+    while i < bytes.length() {
+      let b0 = bytes[i] & 0xFF
+      if b0 == 0x5C && i + 1 < bytes.length() { // '\'
+        let b1 = bytes[i + 1] & 0xFF
+        if b1 == 0x75 { // 'u'
+          match parse_hex(bytes, i + 2, 4) {
+            Some(code) => {
+              buf.write_char(code.to_char().unwrap())
+              i += 6
+              continue
+            }
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "UnicodeDecodeError: invalid \\u escape".to_string(),
+                ),
+              )
+          }
+        } else if b1 == 0x55 { // 'U'
+          match parse_hex(bytes, i + 2, 8) {
+            Some(code) =>
+              if code > 0x10FFFF {
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "UnicodeDecodeError: invalid \\U escape".to_string(),
+                  ),
+                )
+              } else {
+                buf.write_char(code.to_char().unwrap())
+                i += 10
+                continue
+              }
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "UnicodeDecodeError: invalid \\U escape".to_string(),
+                ),
+              )
+          }
+        }
+      }
+      buf.write_char(b0.to_char().unwrap())
+      i += 1
+    }
+    Ok(buf.to_string())
   } else {
     Err(
       make_runtime_error(
