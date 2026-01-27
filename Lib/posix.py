@@ -67,14 +67,20 @@ devnull = "/dev/null"
 environ = {}
 
 def putenv(key, value):
-    # Minimal compatibility shim: keep an in-process environment mapping.
-    # CPython's os._Environ expects the underlying `posix.environ` mapping to
-    # store bytes keys/values on POSIX platforms.
-    environ[key] = value
+    # Minimal compatibility shim.
+    #
+    # CPython's `os._Environ` calls `putenv()` and then updates the underlying
+    # `posix.environ` mapping itself. In moonpython, that mapping is this
+    # module-level `environ` dict, so mutating it here would result in double
+    # updates and break deletions (see `os._Environ.__delitem__`).
+    #
+    # Keep this as a no-op: `os.environ[...] = ...` is the supported API.
+    return None
 
 
 def unsetenv(key):
-    environ.pop(key, None)
+    # See `putenv()` above: `os._Environ` mutates the underlying mapping.
+    return None
 
 F_OK = 0
 X_OK = 1

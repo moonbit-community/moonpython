@@ -470,7 +470,12 @@ class _BaseExitStack:
 
     @staticmethod
     def _create_exit_wrapper(cm, cm_exit):
-        return MethodType(cm_exit, cm)
+        # Avoid relying on `types.MethodType(func, obj)` constructor semantics
+        # (which may not be implemented by all runtimes). Bind the exit method
+        # explicitly by calling the unbound method with `cm` as its first arg.
+        def _exit_wrapper(exc_type, exc, tb):
+            return cm_exit(cm, exc_type, exc, tb)
+        return _exit_wrapper
 
     @staticmethod
     def _create_cb_wrapper(callback, /, *args, **kwds):
@@ -634,7 +639,9 @@ class AsyncExitStack(_BaseExitStack, AbstractAsyncContextManager):
 
     @staticmethod
     def _create_async_exit_wrapper(cm, cm_exit):
-        return MethodType(cm_exit, cm)
+        async def _exit_wrapper(exc_type, exc, tb):
+            return await cm_exit(cm, exc_type, exc, tb)
+        return _exit_wrapper
 
     @staticmethod
     def _create_async_cb_wrapper(callback, /, *args, **kwds):

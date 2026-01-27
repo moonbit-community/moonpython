@@ -1150,6 +1150,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let builtins : Array[(String, Value)] = [
     ("print", function_stub("print")),
     ("input", function_stub("input")),
+    ("breakpoint", function_stub("breakpoint")),
     ("open", function_stub("open")),
     ("__debug__", Value::Bool(true)),
     ("__mpython_run", function_stub("__mpython_run")),
@@ -1331,6 +1332,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     dict: globals,
   })
   module_cache_set("__main__", main_module)
+  // Seed a tiny `pdb` module in `sys.modules` so stdlib helpers like
+  // `unittest.mock.patch("pdb.set_trace")` don't import CPython's full pdb
+  // implementation (which requires many unsupported modules).
+  module_cache_set("pdb", make_pdb_module())
   Interpreter::{ config, globals, builtins, io }
 }
 

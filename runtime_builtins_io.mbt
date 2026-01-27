@@ -15,20 +15,149 @@ fn builtin_input(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if positional.length() > 0 {
-    io.write_stdout(value_to_string(positional[0]))
-  }
-  let line = io.read_line()
-  if line is Some(line) {
-    Ok(Value::Str(line))
-  } else {
-    Err(
+  if positional.length() > 1 {
+    return Err(
       make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "EOF when reading a line".to_string(),
+        RuntimeErrorKind::Type,
+        "input() takes at most 1 argument".to_string(),
       ),
     )
   }
+  let prompt = if positional.length() == 1 {
+    value_to_string(positional[0])
+  } else {
+    ""
+  }
+  // CPython's input() uses sys.stdin/sys.stdout. Fall back to host IO only if
+  // sys isn't available.
+  let sys_value_opt = module_cache_get("sys")
+  if sys_value_opt is None {
+    if prompt.length() > 0 {
+      io.write_stdout(prompt)
+    }
+    let line_opt = io.read_line()
+    match line_opt {
+      Some(line) => return Ok(Value::Str(line))
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "EOFError: EOF when reading a line".to_string(),
+          ),
+        )
+    }
+  }
+  let sys_value = sys_value_opt.unwrap()
+  let sys_inst = match sys_value {
+    Value::Instance(inst) => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: input(): sys is not a module".to_string(),
+        ),
+      )
+  }
+  let stdout_value = match get_named_value(sys_inst.dict, "stdout") {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: input(): lost sys.stdout".to_string(),
+        ),
+      )
+  }
+  let stdin_value = match get_named_value(sys_inst.dict, "stdin") {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: input(): lost sys.stdin".to_string(),
+        ),
+      )
+  }
+  if prompt.length() > 0 {
+    let write_method = match
+      get_attr_from_value(stdout_value, "write", globals, builtins, io) {
+      Ok(v) => v
+      Err(_) =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "RuntimeError: input(): sys.stdout has no write".to_string(),
+          ),
+        )
+    }
+    let _ = match
+      call_callable_with_env(
+        write_method,
+        [Value::Str(prompt)],
+        [],
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    match get_attr_from_value(stdout_value, "flush", globals, builtins, io) {
+      Ok(flush_method) => {
+        let _ = call_callable_with_env(
+          flush_method,
+          [],
+          [],
+          globals,
+          builtins,
+          io,
+        )
+
+      }
+      Err(_) => ()
+    }
+  }
+  let readline_method = match
+    get_attr_from_value(stdin_value, "readline", globals, builtins, io) {
+    Ok(v) => v
+    Err(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: input(): sys.stdin has no readline".to_string(),
+        ),
+      )
+  }
+  let line_value = match
+    call_callable_with_env(readline_method, [], [], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut line = match line_value {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "TypeError: input(): sys.stdin.readline() must return str".to_string(),
+        ),
+      )
+  }
+  if line.length() == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "EOFError: EOF when reading a line".to_string(),
+      ),
+    )
+  }
+  if line.has_suffix("\n") {
+    line = substring(line, 0, line.length() - 1)
+    if line.has_suffix("\r") {
+      line = substring(line, 0, line.length() - 1)
+    }
+  }
+  Ok(Value::Str(line))
 }
 
 ///|
@@ -81,6 +210,31 @@ fn builtin_sys_stdout_flush(
     )
   }
   Ok(Value::None)
+}
+
+///|
+fn builtin_sys_stdout_isatty(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("isatty", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "isatty() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Bool(false))
 }
 
 ///|
@@ -158,6 +312,31 @@ fn builtin_sys_stderr_write(
 }
 
 ///|
+fn builtin_sys_stderr_isatty(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("isatty", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "isatty() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Bool(false))
+}
+
+///|
 fn builtin_sys_stderr_flush(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -222,6 +401,325 @@ fn builtin_sys_excepthook(
   // Minimal stub: do nothing. CPython prints the exception; for now we just
   // provide the hook so stdlib (e.g. threading) can import and run.
   Ok(Value::None)
+}
+
+///|
+fn builtin_sys_stdin_isatty(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("isatty", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "isatty() takes no arguments".to_string(),
+      ),
+    )
+  }
+  Ok(Value::Bool(false))
+}
+
+///|
+fn builtin_sys_stdin_readline(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("readline", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "readline() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let line_opt = io.read_line()
+  match line_opt {
+    Some(line) => Ok(Value::Str(line + "\n"))
+    None => Ok(Value::Str(""))
+  }
+}
+
+///|
+fn builtin_sys_breakpointhook(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  // CPython default hook: `import pdb; pdb.set_trace(*args, **kwargs)`.
+  let pdb_value = match
+    import_module("pdb", globals, builtins, io, current_config()) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let set_trace_value = match
+    get_attr_from_value(pdb_value, "set_trace", globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  call_callable_with_env(
+    set_trace_value, positional, keywords, globals, builtins, io,
+  )
+}
+
+///|
+fn builtin_pdb_set_trace(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = positional
+  let _ = keywords
+  Ok(Value::None)
+}
+
+///|
+fn builtin_breakpoint(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let sys_value_opt = module_cache_get("sys")
+  if sys_value_opt is None {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "RuntimeError: breakpoint(): sys is not a module".to_string(),
+      ),
+    )
+  }
+  let sys_inst = match sys_value_opt.unwrap() {
+    Value::Instance(inst) => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: breakpoint(): sys is not a module".to_string(),
+        ),
+      )
+  }
+  let hook_value = match get_named_value(sys_inst.dict, "breakpointhook") {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: breakpoint(): lost sys.breakpointhook".to_string(),
+        ),
+      )
+  }
+
+  // `-E` / `sys.flags.ignore_environment` disables PYTHONBREAKPOINT.
+  let mut ignore_environment = false
+  match get_named_value(sys_inst.dict, "flags") {
+    Some(flags_value) =>
+      match
+        get_attr_from_value(
+          flags_value, "ignore_environment", globals, builtins, io,
+        ) {
+        Ok(Value::Int(v)) => if v != 0N { ignore_environment = true }
+        Ok(_) => ()
+        Err(_) => ()
+      }
+    None => ()
+  }
+  fn hook_is_default(value : Value) -> Bool {
+    match value {
+      Value::Function(f) => f.name == "sys.__breakpointhook__"
+      _ => false
+    }
+  }
+
+  fn parse_breakpoint_path(path : String) -> (String, String)? {
+    if path.length() == 0 {
+      return None
+    }
+    if path.contains("/") || path.contains("\\") {
+      return None
+    }
+    let parts : Array[String] = []
+    for part in path.split(".") {
+      parts.push(part.to_string())
+    }
+    if parts.length() == 0 {
+      return None
+    }
+    for part in parts {
+      if part.length() == 0 {
+        return None
+      }
+    }
+    if parts.length() == 1 {
+      return Some(("builtins", parts[0]))
+    }
+    let mut module_name = ""
+    let mut i = 0
+    while i < parts.length() - 1 {
+      if i > 0 {
+        module_name = module_name + "."
+      }
+      module_name = module_name + parts[i]
+      i += 1
+    }
+    Some((module_name, parts[parts.length() - 1]))
+  }
+
+  fn warn_unimportable(
+    envar : String,
+    globals : Array[(String, Value)],
+    builtins : Array[(String, Value)],
+    io : MockIO,
+  ) -> Result[Unit, RuntimeError] {
+    let warnings_value = match
+      import_module("warnings", globals, builtins, io, current_config()) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    let warn_value = match
+      get_attr_from_value(warnings_value, "warn", globals, builtins, io) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    let runtime_warning = match get_named_value(builtins, "RuntimeWarning") {
+      Some(v) => v
+      None =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "RuntimeError: breakpoint(): missing RuntimeWarning".to_string(),
+          ),
+        )
+    }
+    let message = "Ignoring unimportable $PYTHONBREAKPOINT: \"" + envar + "\""
+    let _ = match
+      call_callable_with_env(
+        warn_value,
+        [Value::Str(message)],
+        [("category", runtime_warning)],
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    Ok(())
+  }
+
+  // If the hook is customized, ignore PYTHONBREAKPOINT.
+  let default_hook_active = hook_is_default(hook_value)
+  if !default_hook_active || ignore_environment {
+    return call_callable_with_env(
+      hook_value, positional, keywords, globals, builtins, io,
+    )
+  }
+
+  // Read PYTHONBREAKPOINT from os.environ (EnvironmentVarGuard mutates it).
+  let mut envar_value : String? = None
+  match import_module("os", globals, builtins, io, current_config()) {
+    Ok(os_value) =>
+      match get_attr_from_value(os_value, "environ", globals, builtins, io) {
+        Ok(environ_value) =>
+          match
+            get_attr_from_value(environ_value, "get", globals, builtins, io) {
+            Ok(get_value) =>
+              match
+                call_callable_with_env(
+                  get_value,
+                  [Value::Str("PYTHONBREAKPOINT")],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(Value::Str(text)) =>
+                  if text.length() > 0 {
+                    envar_value = Some(text)
+                  }
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+            Err(_) => ()
+          }
+        Err(_) => ()
+      }
+    Err(_) => ()
+  }
+  match envar_value {
+    Some(value) => {
+      if value == "0" {
+        return Ok(Value::None)
+      }
+      let (module_name, attr_name) = match parse_breakpoint_path(value) {
+        Some(v) => v
+        None => {
+          let _ = match warn_unimportable(value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(Value::None)
+        }
+      }
+      let module_value = match
+        import_module(module_name, globals, builtins, io, current_config()) {
+        Ok(v) => v
+        Err(_) => {
+          let _ = match warn_unimportable(value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(Value::None)
+        }
+      }
+      let callable_value = match
+        get_attr_from_value(module_value, attr_name, globals, builtins, io) {
+        Ok(v) => v
+        Err(_) => {
+          let _ = match warn_unimportable(value, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(Value::None)
+        }
+      }
+      return call_callable_with_env(
+        callable_value, positional, keywords, globals, builtins, io,
+      )
+    }
+    None => ()
+  }
+  call_callable_with_env(
+    hook_value, positional, keywords, globals, builtins, io,
+  )
 }
 
 ///|

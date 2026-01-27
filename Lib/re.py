@@ -302,8 +302,71 @@ def _match_format_spec(string, pos=0, endpos=None):
         return None
     return Match(string, pos, endpos, groups)
 
+def _match_pkgutil_resolve_name(string, pos=0, endpos=None):
+    # Support pkgutil.resolve_name() validation regex (Lib/pkgutil.py).
+    # Expected formats:
+    #   W(.W)*
+    #   W(.W)*:(W(.W)*)?
+    pos, endpos = _normalize_bounds(string, pos, endpos)
+    s = string[pos:endpos]
+    if not s:
+        return None
+    if s.count(":") > 1:
+        return None
+    if ":" in s:
+        pkg, obj = s.split(":", 1)
+        cln = ":" + obj if obj else ":"
+        obj_val = obj if obj else None
+    else:
+        pkg = s
+        cln = None
+        obj_val = None
+
+    def valid_dotted_words(text):
+        if not text:
+            return False
+        parts = text.split(".")
+        for part in parts:
+            if not part:
+                return False
+            if part[0].isdigit():
+                return False
+            for ch in part:
+                # \w with UNICODE in CPython includes many codepoints; for now we
+                # accept ASCII word characters which is sufficient for stdlib.
+                if not (ch.isalnum() or ch == "_"):
+                    return False
+        return True
+
+    if not valid_dotted_words(pkg):
+        return None
+    if obj_val is not None and not valid_dotted_words(obj_val):
+        return None
+
+    return Match(string, pos, endpos, {"pkg": pkg, "cln": cln, "obj": obj_val})
+
+def _match_tokenize_blank_re(string, pos=0, endpos=None):
+    # Match bytes regexp used by Lib/tokenize.py:
+    #   br'^[ \\t\\f]*(?:[#\\r\\n]|$)'
+    pos, endpos = _normalize_bounds(string, pos, endpos)
+    s = string[pos:endpos]
+    if not isinstance(s, (bytes, bytearray)):
+        return None
+    i = 0
+    while i < len(s) and s[i] in (9, 12, 32):  # \t, \f, space
+        i += 1
+    if i >= len(s):
+        return Match(string, pos, endpos)
+    if s[i] in (35, 10, 13):  # '#', '\n', '\r'
+        return Match(string, pos, pos + i + 1)
+    return None
+
 
 def _select_matcher(pattern, flags):
+    if isinstance(pattern, (bytes, bytearray)):
+        if pattern == br'^[ \t\f]*(?:[#\r\n]|$)':
+            return _match_tokenize_blank_re
+        return None
     if pattern == "0*$":
         return _match_all_zeros
     if pattern == "50*$":
@@ -317,6 +380,12 @@ def _select_matcher(pattern, flags):
         )
     if "(?P<fill>.)?" in pattern and "(?P<align>" in pattern:
         return _match_format_spec
+    if (
+        pattern.startswith("^(?P<pkg>")
+        and "(?P<cln>:(?P<obj>" in pattern
+        and pattern.endswith(")?$")
+    ):
+        return _match_pkgutil_resolve_name
     return None
 
 

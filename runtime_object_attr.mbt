@@ -300,11 +300,9 @@ fn get_attr_raw_from_value(
         }
       }
       if attr == "__dict__" {
-        let pairs : Array[(Value, Value)] = []
-        for item in inst.dict {
-          pairs.push((Value::Str(item.0), item.1))
-        }
-        return Ok(Value::Dict(pairs))
+        // `instance.__dict__` must be a live mapping so writes like
+        // `obj.__dict__["x"] = 1` reflect as instance attributes.
+        return Ok(make_module_globals_dict_instance(inst.dict))
       }
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
@@ -1654,6 +1652,22 @@ fn get_attr_raw_from_value(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
               name: "split",
+              params: ["self", "sep", "maxsplit"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rsplit" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rsplit",
               params: ["self", "sep", "maxsplit"],
               defaults: [Value::None, Value::None],
               body: [],

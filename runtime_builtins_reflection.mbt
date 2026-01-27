@@ -129,6 +129,72 @@ fn builtin_sys_exception(
 }
 
 ///|
+fn builtin_sys_getframe(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys._getframe", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "_getframe() takes 0 or 1 arguments".to_string(),
+      ),
+    )
+  }
+  let mut depth = 0
+  if positional.length() == 1 {
+    depth = match index_from_value(positional[0], 0) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+  }
+  if depth < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: call stack is not deep enough".to_string(),
+      ),
+    )
+  }
+  let frames = snapshot_traceback()
+  if depth >= frames.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: call stack is not deep enough".to_string(),
+      ),
+    )
+  }
+  let idx = frames.length() - 1 - depth
+  let mut frame_value = make_frame_value(frames[idx])
+  match frame_value {
+    Value::Instance(inst) => {
+      set_named_value(
+        inst.dict,
+        "f_globals",
+        make_module_globals_dict_instance(globals),
+      )
+      // Best-effort f_back chain.
+      if idx > 0 {
+        set_named_value(inst.dict, "f_back", make_frame_value(frames[idx - 1]))
+      }
+      frame_value = Value::Instance(inst)
+    }
+    _ => ()
+  }
+  Ok(frame_value)
+}
+
+///|
 fn bigint_to_base_string(
   value_in : @bigint.BigInt,
   base : Int,

@@ -1000,6 +1000,17 @@ fn make_itertools_module() -> Value {
 }
 
 ///|
+fn make_pdb_module() -> Value {
+  // Minimal debugger shim. CPython's `pdb` pulls in a large dependency chain
+  // (inspect/tokenize/io) that isn't available yet in moonpython. For the
+  // standard library tests we only need `pdb.set_trace` to exist and be
+  // patchable by unittest.mock.
+  make_module_instance("pdb", [
+    ("set_trace", module_function_stub("pdb.set_trace")),
+  ])
+}
+
+///|
 fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
   let bases : Array[Value] = []
   match get_named_value(builtins, "object") {
@@ -1132,6 +1143,36 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       ("warn_default_encoding", Value::Int(0N)),
     ],
   })
+  let stdin_class = ClassValue::{
+    name: "stdin",
+    bases: [],
+    dict: [
+      (
+        "readline",
+        Value::Function(FunctionValue::{
+          name: "sys.stdin.readline",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "isatty",
+        Value::Function(FunctionValue::{
+          name: "sys.stdin.isatty",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
+  }
   let stdout_class = ClassValue::{
     name: "stdout",
     bases: [],
@@ -1164,6 +1205,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
         "reconfigure",
         Value::Function(FunctionValue::{
           name: "sys.stdout.reconfigure",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+      (
+        "isatty",
+        Value::Function(FunctionValue::{
+          name: "sys.stdout.isatty",
           params: ["self"],
           defaults: [],
           body: [],
@@ -1214,8 +1267,28 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
           closure: [],
         }),
       ),
+      (
+        "isatty",
+        Value::Function(FunctionValue::{
+          name: "sys.stderr.isatty",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
+  let stdin_value = Value::Instance(InstanceValue::{
+    class: stdin_class,
+    dict: [
+      ("encoding", Value::Str("utf-8")),
+      ("errors", Value::Str("strict")),
+      ("newline", Value::None),
+    ],
+  })
   let stdout_value = Value::Instance(InstanceValue::{
     class: stdout_class,
     dict: [
@@ -1232,6 +1305,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       ("newline", Value::None),
     ],
   })
+  let breakpointhook_value = module_function_stub("sys.__breakpointhook__")
   let prefix_value = Value::Str("")
 
   // `sys.argv` and `sys.path` are heavily relied upon by the CPython stdlib
@@ -1288,10 +1362,12 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     ("warnoptions", Value::List([])),
     ("stdout", stdout_value),
     ("stderr", stderr_value),
-    ("stdin", Value::None),
+    ("stdin", stdin_value),
     ("__stdout__", stdout_value),
     ("__stderr__", stderr_value),
-    ("__stdin__", Value::None),
+    ("__stdin__", stdin_value),
+    ("__breakpointhook__", breakpointhook_value),
+    ("breakpointhook", breakpointhook_value),
     (
       "unraisablehook",
       Value::Function(FunctionValue::{
@@ -1334,6 +1410,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
         name: "sys.exc_info",
         params: [],
         defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "_getframe",
+      Value::Function(FunctionValue::{
+        name: "sys._getframe",
+        params: ["depth"],
+        defaults: [Value::Int(0N)],
         body: [],
         is_generator: false,
         is_async: false,
@@ -1860,6 +1948,8 @@ fn import_module(
     make_weakref_module(builtins)
   } else if module_name == "itertools" {
     make_itertools_module()
+  } else if module_name == "pdb" {
+    make_pdb_module()
   } else if module_name == "math" {
     make_math_module()
   } else if module_name == "time" {

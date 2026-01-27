@@ -792,6 +792,7 @@ fn call_callable_with_env(
           ("__file__", Value::Str(origin)),
           ("__loader__", loader),
           ("__spec__", spec),
+          ("__doc__", Value::None),
         ]
         let module_dict = dict
         match locations {
@@ -3280,6 +3281,175 @@ fn call_callable_with_env(
                       make_runtime_error(
                         RuntimeErrorKind::Type,
                         "split() separator must be str or None".to_string(),
+                      ),
+                    )
+                }
+              }
+              "rsplit" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rsplit() takes at most 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let mut sep_kw : Value? = None
+                let mut maxsplit_kw : Value? = None
+                for item in keywords {
+                  if item.0 == "sep" {
+                    sep_kw = Some(item.1)
+                  } else if item.0 == "maxsplit" {
+                    maxsplit_kw = Some(item.1)
+                  } else {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "rsplit() got unexpected keyword arguments".to_string(),
+                      ),
+                    )
+                  }
+                }
+                if positional.length() >= 1 && sep_kw is Some(_) {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rsplit() got multiple values for argument 'sep'".to_string(),
+                    ),
+                  )
+                }
+                if positional.length() == 2 && maxsplit_kw is Some(_) {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rsplit() got multiple values for argument 'maxsplit'".to_string(),
+                    ),
+                  )
+                }
+                let sep_value = if positional.length() >= 1 {
+                  positional[0]
+                } else {
+                  match sep_kw {
+                    Some(v) => v
+                    None => Value::None
+                  }
+                }
+                let maxsplit_value = if positional.length() == 2 {
+                  positional[1]
+                } else {
+                  match maxsplit_kw {
+                    Some(v) => v
+                    None => Value::Int(@bigint.BigInt::from_int(-1))
+                  }
+                }
+                let maxsplit = match index_from_value(maxsplit_value, -1) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                match sep_value {
+                  Value::Str(sep) => {
+                    if sep.length() == 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "ValueError: empty separator".to_string(),
+                        ),
+                      )
+                    }
+                    if maxsplit == 0 {
+                      return Ok(Value::List([Value::Str(text)]))
+                    }
+                    let raw_parts : Array[String] = []
+                    for part in text.split(sep) {
+                      raw_parts.push(part.to_string())
+                    }
+                    if maxsplit < 0 || raw_parts.length() <= maxsplit + 1 {
+                      let parts : Array[Value] = []
+                      for part in raw_parts {
+                        parts.push(Value::Str(part))
+                      }
+                      return Ok(Value::List(parts))
+                    }
+                    let left_end = raw_parts.length() - (maxsplit + 1)
+                    let builder = StringBuilder::new()
+                    let mut first_left = true
+                    for i = 0; i <= left_end; i = i + 1 {
+                      if !first_left {
+                        builder.write_string(sep)
+                      }
+                      builder.write_string(raw_parts[i])
+                      first_left = false
+                    }
+                    let parts : Array[Value] = [Value::Str(builder.to_string())]
+                    for i = left_end + 1; i < raw_parts.length(); i = i + 1 {
+                      parts.push(Value::Str(raw_parts[i]))
+                    }
+                    return Ok(Value::List(parts))
+                  }
+                  Value::None => {
+                    let chars = text.to_array()
+                    let len = chars.length()
+                    let mut end = len
+                    while end > 0 && is_ascii_whitespace(chars[end - 1]) {
+                      end -= 1
+                    }
+                    if end == 0 {
+                      return Ok(Value::List([]))
+                    }
+                    if maxsplit == 0 {
+                      let mut start0 = 0
+                      while start0 < end && is_ascii_whitespace(chars[start0]) {
+                        start0 += 1
+                      }
+                      return Ok(
+                        Value::List([Value::Str(substring(text, start0, end))]),
+                      )
+                    }
+                    let raw_parts : Array[String] = []
+                    let mut splits = 0
+                    let mut i = end - 1
+                    while i >= 0 {
+                      while i >= 0 && is_ascii_whitespace(chars[i]) {
+                        i -= 1
+                      }
+                      if i < 0 {
+                        break
+                      }
+                      let word_end = i + 1
+                      while i >= 0 && !is_ascii_whitespace(chars[i]) {
+                        i -= 1
+                      }
+                      let word_start = i + 1
+                      raw_parts.push(substring(text, word_start, word_end))
+                      splits += 1
+                      if maxsplit >= 0 && splits >= maxsplit {
+                        while i >= 0 && is_ascii_whitespace(chars[i]) {
+                          i -= 1
+                        }
+                        if i >= 0 {
+                          let mut start0 = 0
+                          while start0 <= i &&
+                                is_ascii_whitespace(chars[start0]) {
+                            start0 += 1
+                          }
+                          if start0 <= i {
+                            raw_parts.push(substring(text, start0, i + 1))
+                          }
+                        }
+                        break
+                      }
+                    }
+                    let parts : Array[Value] = []
+                    for j = raw_parts.length() - 1; j >= 0; j = j - 1 {
+                      parts.push(Value::Str(raw_parts[j]))
+                    }
+                    return Ok(Value::List(parts))
+                  }
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "rsplit() separator must be str or None".to_string(),
                       ),
                     )
                 }
