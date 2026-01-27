@@ -3477,11 +3477,10 @@ fn builtin_binascii_crc32(
       ),
     )
   }
-  let bytes = match positional[0] {
-    Value::Bytes(values)
-    | Value::ByteArray(values)
-    | Value::MemoryView(values) => values
-    _ =>
+  let bytes = match
+    binascii_bytes_like("binascii.crc32", positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(_) =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
@@ -3491,12 +3490,8 @@ fn builtin_binascii_crc32(
   }
   let init = if positional.length() == 2 {
     match positional[1] {
-      Value::Int(v) =>
-        match bigint_to_int_checked(v) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-      Value::Bool(v) => if v { 1 } else { 0 }
+      Value::Int(v) => v
+      Value::Bool(v) => if v { 1N } else { 0N }
       _ =>
         return Err(
           make_runtime_error(
@@ -3506,13 +3501,15 @@ fn builtin_binascii_crc32(
         )
     }
   } else {
-    0
+    0N
   }
-  let mask = 0xFFFFFFFF
-  let poly = 0xEDB88320
-  let mut crc = (init ^ mask) & mask
+  let mask_big = 0xFFFFFFFFN
+  let init_u32 : Int64 = (init & mask_big).to_int64()
+  let mask : Int64 = 0xFFFFFFFFL
+  let poly : Int64 = 0xEDB88320L
+  let mut crc : Int64 = (init_u32 ^ mask) & mask
   for b in bytes {
-    crc = (crc ^ (b & 0xFF)) & mask
+    crc = (crc ^ (b & 0xFF).to_int64()) & mask
     for _i = 0; _i < 8; _i = _i + 1 {
       if (crc & 1) != 0 {
         crc = ((crc >> 1) ^ poly) & mask
@@ -3522,7 +3519,7 @@ fn builtin_binascii_crc32(
     }
   }
   let out = (crc ^ mask) & mask
-  Ok(Value::Int(@bigint.BigInt::from_int(out)))
+  Ok(Value::Int(@bigint.BigInt::from_int64(out)))
 }
 
 ///|
@@ -3581,6 +3578,16 @@ fn binascii_bytes_like(
         }
         Ok(out)
       } else if inst.class.name == "memoryview" {
+        match get_named_value(inst.dict, "__mpython_contiguous__") {
+          Some(Value::Bool(false)) =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "BufferError: memoryview: underlying buffer is not C-contiguous".to_string(),
+              ),
+            )
+          _ => ()
+        }
         match get_named_value(inst.dict, "__mpython_bytes__") {
           Some(Value::MemoryView(values))
           | Some(Value::Bytes(values))
@@ -3614,6 +3621,35 @@ fn binascii_bytes_like(
           "'".to_string(),
         ),
       )
+  }
+}
+
+///|
+fn binascii_a2b_input_bytes(
+  name : String,
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Array[Int], RuntimeError] {
+  match value {
+    Value::Str(text) => {
+      let out : Array[Int] = []
+      for ch in text.to_array() {
+        let code = ch.to_int()
+        if code > 127 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ValueError: string argument should contain only ASCII characters".to_string(),
+            ),
+          )
+        }
+        out.push(code)
+      }
+      Ok(out)
+    }
+    _ => binascii_bytes_like(name, value, globals, builtins, io)
   }
 }
 
@@ -3807,7 +3843,7 @@ fn builtin_binascii_a2b_base64(
     }
   }
   let raw = match
-    binascii_bytes_like(
+    binascii_a2b_input_bytes(
       "binascii.a2b_base64",
       positional[0],
       globals,
@@ -3959,18 +3995,6 @@ fn builtin_binascii_a2b_base64(
 }
 
 ///|
-fn binascii_hexlify_bytes(bytes : Array[Int]) -> Array[Int] {
-  let out : Array[Int] = []
-  let hex = "0123456789abcdef".to_array()
-  for b in bytes {
-    let v = b & 0xFF
-    out.push(hex[(v >> 4) & 0xF].to_int())
-    out.push(hex[v & 0xF].to_int())
-  }
-  out
-}
-
-///|
 fn binascii_unhexlify_bytes(
   bytes : Array[Int],
   globals : Array[(String, Value)],
@@ -4053,17 +4077,54 @@ fn builtin_binascii_hexlify(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("binascii.hexlify", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  if positional.length() != 1 {
+  if positional.length() == 0 || positional.length() > 3 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "binascii.hexlify() takes exactly one argument".to_string(),
+        "binascii.hexlify() takes from 1 to 3 arguments".to_string(),
       ),
     )
+  }
+  let mut sep_value : Value? = None
+  let mut bytes_per_sep_value : Value? = None
+  if positional.length() >= 2 {
+    sep_value = Some(positional[1])
+  }
+  if positional.length() == 3 {
+    bytes_per_sep_value = Some(positional[2])
+  }
+  for pair in keywords {
+    match pair.0 {
+      "sep" =>
+        if sep_value is Some(_) {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "hexlify() got multiple values for argument 'sep'".to_string(),
+            ),
+          )
+        } else {
+          sep_value = Some(pair.1)
+        }
+      "bytes_per_sep" =>
+        if bytes_per_sep_value is Some(_) {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "hexlify() got multiple values for argument 'bytes_per_sep'".to_string(),
+            ),
+          )
+        } else {
+          bytes_per_sep_value = Some(pair.1)
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "hexlify() got an unexpected keyword argument '" + pair.0 + "'",
+          ),
+        )
+    }
   }
   let bytes = match
     binascii_bytes_like(
@@ -4076,7 +4137,102 @@ fn builtin_binascii_hexlify(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  Ok(Value::Bytes(binascii_hexlify_bytes(bytes)))
+  let sep_bytes : Array[Int] = match sep_value {
+    None | Some(Value::None) => []
+    Some(Value::Str(text)) => {
+      let out : Array[Int] = []
+      for ch in text.to_array() {
+        let code = ch.to_int()
+        if code > 127 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "hexlify() sep must be ASCII str".to_string(),
+            ),
+          )
+        }
+        out.push(code)
+      }
+      out
+    }
+    Some(Value::Bytes(v))
+    | Some(Value::ByteArray(v))
+    | Some(Value::MemoryView(v)) => copy_ints(v)
+    Some(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "hexlify() sep must be str or bytes-like".to_string(),
+        ),
+      )
+  }
+  if sep_bytes.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: sep must be at most one byte".to_string(),
+      ),
+    )
+  }
+  let bytes_per_sep = match bytes_per_sep_value {
+    None => 1
+    Some(Value::Int(v)) =>
+      match bigint_to_int_checked(v) {
+        Ok(iv) => iv
+        Err(err) => return Err(err)
+      }
+    Some(Value::Bool(v)) => if v { 1 } else { 0 }
+    Some(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "hexlify() bytes_per_sep must be int".to_string(),
+        ),
+      )
+  }
+  if bytes_per_sep == 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: bytes_per_sep must not be zero".to_string(),
+      ),
+    )
+  }
+  let hex = "0123456789abcdef".to_array()
+  let out : Array[Int] = []
+  if sep_bytes.length() == 0 {
+    for b in bytes {
+      let v = b & 0xFF
+      out.push(hex[(v >> 4) & 0xF].to_int())
+      out.push(hex[v & 0xF].to_int())
+    }
+    return Ok(Value::Bytes(out))
+  }
+  let sep_b = sep_bytes[0] & 0xFF
+  let bps = bytes_per_sep
+  let mut first_group = 0
+  let mut group_len = bps
+  if bps < 0 {
+    group_len = -bps
+    let rem = bytes.length() % group_len
+    first_group = if rem == 0 { group_len } else { rem }
+  }
+  for idx = 0; idx < bytes.length(); idx = idx + 1 {
+    if idx > 0 {
+      if bps > 0 {
+        if idx % bps == 0 {
+          out.push(sep_b)
+        }
+      } else if idx == first_group ||
+        (idx > first_group && (idx - first_group) % group_len == 0) {
+        out.push(sep_b)
+      }
+    }
+    let v = bytes[idx] & 0xFF
+    out.push(hex[(v >> 4) & 0xF].to_int())
+    out.push(hex[v & 0xF].to_int())
+  }
+  Ok(Value::Bytes(out))
 }
 
 ///|
@@ -4102,7 +4258,7 @@ fn builtin_binascii_unhexlify(
     )
   }
   let bytes = match
-    binascii_bytes_like(
+    binascii_a2b_input_bytes(
       "binascii.unhexlify",
       positional[0],
       globals,
@@ -4143,6 +4299,665 @@ fn builtin_binascii_a2b_hex(
   builtin_binascii_unhexlify(
     positional, keywords, locals, globals, builtins, io,
   )
+}
+
+///|
+fn builtin_binascii_a2b_qp(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut data_value : Value? = None
+  let mut header = false
+  if positional.length() >= 1 {
+    data_value = Some(positional[0])
+  }
+  if positional.length() >= 2 {
+    header = match positional[1] {
+      Value::Bool(v) => v
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.a2b_qp() header must be bool".to_string(),
+          ),
+        )
+    }
+  }
+  if positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.a2b_qp() takes at most 2 arguments".to_string(),
+      ),
+    )
+  }
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "data" =>
+        if positional.length() >= 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "a2b_qp() got multiple values for argument 'data'".to_string(),
+            ),
+          )
+        } else {
+          data_value = Some(value)
+        }
+      "header" =>
+        if positional.length() >= 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "a2b_qp() got multiple values for argument 'header'".to_string(),
+            ),
+          )
+        } else {
+          header = match value {
+            Value::Bool(v) => v
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "binascii.a2b_qp() header must be bool".to_string(),
+                ),
+              )
+          }
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "a2b_qp() got an unexpected keyword argument '" + key + "'",
+          ),
+        )
+    }
+  }
+  let data_value = match data_value {
+    Some(v) => v
+    None => return Err(missing_required_argument_error("a2b_qp", "data"))
+  }
+  let bytes = match
+    binascii_a2b_input_bytes(
+      "binascii.a2b_qp", data_value, globals, builtins, io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  fn hex_value(v : Int) -> Int? {
+    if v >= '0'.to_int() && v <= '9'.to_int() {
+      Some(v - '0'.to_int())
+    } else if v >= 'a'.to_int() && v <= 'f'.to_int() {
+      Some(10 + (v - 'a'.to_int()))
+    } else if v >= 'A'.to_int() && v <= 'F'.to_int() {
+      Some(10 + (v - 'A'.to_int()))
+    } else {
+      None
+    }
+  }
+
+  let out : Array[Int] = []
+  let mut i = 0
+  while i < bytes.length() {
+    let b = bytes[i] & 0xFF
+    if header && b == '_'.to_int() {
+      out.push(' '.to_int())
+      i = i + 1
+      continue
+    }
+    if b != '='.to_int() {
+      out.push(b)
+      i = i + 1
+      continue
+    }
+    if i + 1 >= bytes.length() {
+      // Trailing '=' is ignored.
+      break
+    }
+    let b1 = bytes[i + 1] & 0xFF
+    if b1 == '\n'.to_int() {
+      // Soft line break: "=\n"
+      i = i + 2
+      continue
+    }
+    if b1 == '\r'.to_int() {
+      if i + 2 < bytes.length() && (bytes[i + 2] & 0xFF) == '\n'.to_int() {
+        // Soft line break: "=\r\n"
+        i = i + 3
+        continue
+      }
+      // "=\r" eats everything up to (and including) the next '\n' if present.
+      i = i + 2
+      while i < bytes.length() && (bytes[i] & 0xFF) != '\n'.to_int() {
+        i = i + 1
+      }
+      if i < bytes.length() && (bytes[i] & 0xFF) == '\n'.to_int() {
+        i = i + 1
+      }
+      continue
+    }
+    if i + 2 < bytes.length() {
+      let b2 = bytes[i + 2] & 0xFF
+      match (hex_value(b1), hex_value(b2)) {
+        (Some(hi), Some(lo)) => {
+          out.push((hi << 4) | lo)
+          i = i + 3
+          continue
+        }
+        _ => ()
+      }
+    }
+    // Invalid escape: keep '=' literally.
+    out.push('='.to_int())
+    i = i + 1
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_binascii_b2a_qp(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut quotetabs = false
+  let mut istext = true
+  let mut header = false
+  if positional.length() == 0 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.b2a_qp() takes from 1 to 4 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() >= 2 {
+    quotetabs = match positional[1] {
+      Value::Bool(v) => v
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.b2a_qp() quotetabs must be bool".to_string(),
+          ),
+        )
+    }
+  }
+  if positional.length() >= 3 {
+    istext = match positional[2] {
+      Value::Bool(v) => v
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.b2a_qp() istext must be bool".to_string(),
+          ),
+        )
+    }
+  }
+  if positional.length() == 4 {
+    header = match positional[3] {
+      Value::Bool(v) => v
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.b2a_qp() header must be bool".to_string(),
+          ),
+        )
+    }
+  }
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "quotetabs" =>
+        if positional.length() >= 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "b2a_qp() got multiple values for argument 'quotetabs'".to_string(),
+            ),
+          )
+        } else {
+          quotetabs = match value {
+            Value::Bool(v) => v
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "binascii.b2a_qp() quotetabs must be bool".to_string(),
+                ),
+              )
+          }
+        }
+      "istext" =>
+        if positional.length() >= 3 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "b2a_qp() got multiple values for argument 'istext'".to_string(),
+            ),
+          )
+        } else {
+          istext = match value {
+            Value::Bool(v) => v
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "binascii.b2a_qp() istext must be bool".to_string(),
+                ),
+              )
+          }
+        }
+      "header" =>
+        if positional.length() >= 4 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "b2a_qp() got multiple values for argument 'header'".to_string(),
+            ),
+          )
+        } else {
+          header = match value {
+            Value::Bool(v) => v
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "binascii.b2a_qp() header must be bool".to_string(),
+                ),
+              )
+          }
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "b2a_qp() got an unexpected keyword argument '" + key + "'",
+          ),
+        )
+    }
+  }
+  let bytes = match
+    binascii_bytes_like("binascii.b2a_qp", positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  fn hex_upper(n : Int) -> Int {
+    if n < 10 {
+      '0'.to_int() + n
+    } else {
+      'A'.to_int() + (n - 10)
+    }
+  }
+
+  fn emit_hex_escape(out : Array[Int], b : Int) -> Unit {
+    let v = b & 0xFF
+    out.push('='.to_int())
+    out.push(hex_upper((v >> 4) & 0xF))
+    out.push(hex_upper(v & 0xF))
+  }
+
+  fn uu_newline_bytes(bytes : Array[Int]) -> Array[Int] {
+    let mut has_crlf = false
+    for i = 0; i + 1 < bytes.length(); i = i + 1 {
+      if (bytes[i] & 0xFF) == '\r'.to_int() &&
+        (bytes[i + 1] & 0xFF) == '\n'.to_int() {
+        has_crlf = true
+        break
+      }
+    }
+    if has_crlf {
+      ['\r'.to_int(), '\n'.to_int()]
+    } else {
+      ['\n'.to_int()]
+    }
+  }
+
+  let newline = uu_newline_bytes(bytes)
+  let out : Array[Int] = []
+  fn soft_break(
+    out : Array[Int],
+    newline : Array[Int],
+    col_ref : Ref[Int],
+  ) -> Unit {
+    out.push('='.to_int())
+    for b in newline {
+      out.push(b)
+    }
+    col_ref.val = 0
+  }
+
+  let col_ref : Ref[Int] = { val: 0 }
+  let mut i = 0
+  while i < bytes.length() {
+    let b = bytes[i] & 0xFF
+    if istext {
+      if b == '\r'.to_int() &&
+        i + 1 < bytes.length() &&
+        (bytes[i + 1] & 0xFF) == '\n'.to_int() {
+        for nb in newline {
+          out.push(nb)
+        }
+        col_ref.val = 0
+        i = i + 2
+        continue
+      }
+      if b == '\n'.to_int() {
+        for nb in newline {
+          out.push(nb)
+        }
+        col_ref.val = 0
+        i = i + 1
+        continue
+      }
+    }
+    let chunk : Array[Int] = []
+
+    // Special cases for spaces and tabs.
+    if b == ' '.to_int() || b == '\t'.to_int() {
+      let at_end = i + 1 >= bytes.length()
+      let next_is_break = if istext && !at_end {
+        let n1 = bytes[i + 1] & 0xFF
+        n1 == '\n'.to_int() ||
+        (
+          n1 == '\r'.to_int() &&
+          i + 2 < bytes.length() &&
+          (bytes[i + 2] & 0xFF) == '\n'.to_int()
+        )
+      } else {
+        false
+      }
+      let trailing = at_end || next_is_break
+      if trailing || quotetabs {
+        emit_hex_escape(chunk, b)
+      } else if header && b == ' '.to_int() {
+        chunk.push('_'.to_int())
+      } else {
+        chunk.push(b)
+      }
+    } else if header && b == '_'.to_int() {
+      emit_hex_escape(chunk, b)
+    } else if b == '.'.to_int() && col_ref.val == 0 {
+      emit_hex_escape(chunk, b)
+    } else if b == '='.to_int() {
+      emit_hex_escape(chunk, b)
+    } else if istext && b == '\r'.to_int() {
+      // Bare CR is treated as literal in text mode.
+      chunk.push(b)
+    } else if b >= 33 && b <= 126 {
+      chunk.push(b)
+    } else if istext && b == '\t'.to_int() {
+      chunk.push(b)
+    } else {
+      emit_hex_escape(chunk, b)
+    }
+
+    // Line wrapping (RFC 2045: 76 chars max).
+    if col_ref.val + chunk.length() > 76 {
+      soft_break(out, newline, col_ref)
+    }
+    for v in chunk {
+      out.push(v)
+    }
+    col_ref.val = col_ref.val + chunk.length()
+    i = i + 1
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_binascii_b2a_uu(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut backtick = false
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.b2a_uu() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  for pair in keywords {
+    if pair.0 == "backtick" {
+      backtick = match pair.1 {
+        Value::Bool(v) => v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "binascii.b2a_uu() backtick must be bool".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "b2a_uu() got an unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  let bytes = match
+    binascii_bytes_like("binascii.b2a_uu", positional[0], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if bytes.length() > 45 {
+    let err = match
+      binascii_error_from_message(
+        "At most 45 bytes at once".to_string(),
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(e) => e
+      Err(e) => return Err(e)
+    }
+    return Err(err)
+  }
+  fn uu_char(v : Int, backtick : Bool) -> Int {
+    let vv = v & 0x3F
+    if vv == 0 && backtick {
+      '`'.to_int()
+    } else {
+      vv + 32
+    }
+  }
+
+  let out : Array[Int] = []
+  out.push(uu_char(bytes.length(), backtick))
+  let mut i = 0
+  while i < bytes.length() {
+    let b0 = bytes[i] & 0xFF
+    let b1 = if i + 1 < bytes.length() { bytes[i + 1] & 0xFF } else { 0 }
+    let b2 = if i + 2 < bytes.length() { bytes[i + 2] & 0xFF } else { 0 }
+    let v0 = (b0 >> 2) & 0x3F
+    let v1 = ((b0 << 4) | (b1 >> 4)) & 0x3F
+    let v2 = ((b1 << 2) | (b2 >> 6)) & 0x3F
+    let v3 = b2 & 0x3F
+    out.push(uu_char(v0, backtick))
+    out.push(uu_char(v1, backtick))
+    out.push(uu_char(v2, backtick))
+    out.push(uu_char(v3, backtick))
+    i = i + 3
+  }
+  out.push('\n'.to_int())
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_binascii_a2b_uu(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("binascii.a2b_uu", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.a2b_uu() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let bytes = match
+    binascii_a2b_input_bytes(
+      "binascii.a2b_uu",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if bytes.length() == 0 {
+    return Ok(Value::Bytes([]))
+  }
+  let len_char = bytes[0] & 0xFF
+  let n = (len_char - 32) & 0x3F
+  fn uu_val(c : Int) -> Int {
+    (c - 32) & 0x3F
+  }
+
+  let encoded : Array[Int] = []
+  for i = 1; i < bytes.length(); i = i + 1 {
+    let c = bytes[i] & 0xFF
+    if c == '\n'.to_int() || c == '\r'.to_int() {
+      break
+    }
+    encoded.push(c)
+  }
+  let groups = (n + 2) / 3
+  let out : Array[Int] = []
+  let mut idx = 0
+  for _g = 0; _g < groups; _g = _g + 1 {
+    let c0 = if idx < encoded.length() { uu_val(encoded[idx]) } else { 0 }
+    let c1 = if idx + 1 < encoded.length() {
+      uu_val(encoded[idx + 1])
+    } else {
+      0
+    }
+    let c2 = if idx + 2 < encoded.length() {
+      uu_val(encoded[idx + 2])
+    } else {
+      0
+    }
+    let c3 = if idx + 3 < encoded.length() {
+      uu_val(encoded[idx + 3])
+    } else {
+      0
+    }
+    let b0 = ((c0 << 2) | (c1 >> 4)) & 0xFF
+    let b1 = (((c1 & 0xF) << 4) | (c2 >> 2)) & 0xFF
+    let b2 = (((c2 & 0x3) << 6) | c3) & 0xFF
+    out.push(b0)
+    out.push(b1)
+    out.push(b2)
+    idx = idx + 4
+  }
+  // Truncate to declared length.
+  let truncated : Array[Int] = []
+  for i2 = 0; i2 < out.length() && i2 < n; i2 = i2 + 1 {
+    truncated.push(out[i2])
+  }
+  Ok(Value::Bytes(truncated))
+}
+
+///|
+fn builtin_binascii_crc_hqx(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("binascii.crc_hqx", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.crc_hqx() takes exactly 2 arguments".to_string(),
+      ),
+    )
+  }
+  let bytes = match
+    binascii_bytes_like(
+      "binascii.crc_hqx",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut crc = match positional[1] {
+    Value::Int(v) =>
+      match bigint_to_int_checked(v) {
+        Ok(iv) => iv
+        Err(err) => return Err(err)
+      }
+    Value::Bool(v) => if v { 1 } else { 0 }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "binascii.crc_hqx() crc must be int".to_string(),
+        ),
+      )
+  }
+  crc = crc & 0xFFFF
+  fn crc_step(crc : Int, b : Int) -> Int {
+    let mut c = (crc ^ ((b & 0xFF) << 8)) & 0xFFFF
+    for _i = 0; _i < 8; _i = _i + 1 {
+      if (c & 0x8000) != 0 {
+        c = ((c << 1) ^ 0x1021) & 0xFFFF
+      } else {
+        c = (c << 1) & 0xFFFF
+      }
+    }
+    c
+  }
+
+  for b in bytes {
+    crc = crc_step(crc, b)
+  }
+  Ok(Value::Int(@bigint.BigInt::from_int(crc)))
 }
 
 ///|

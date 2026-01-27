@@ -1009,7 +1009,32 @@ fn eval_expr_with_env(
                 Ok(v) => v
                 Err(err) => return Err(err)
               }
-              Ok(Value::MemoryView(slice_ints_by_indices(bytes, indices)))
+              // In CPython, memoryview slices with a non-unit step are typically
+              // non-contiguous. Some stdlib consumers (e.g. `binascii`) require
+              // a C-contiguous buffer and raise BufferError for such views.
+              let step_bigint = match step_value {
+                Value::None => 1N
+                Value::Int(v) => v
+                Value::Bool(v) => if v { 1N } else { 0N }
+                _ => 1N
+              }
+              let sliced = Value::MemoryView(
+                slice_ints_by_indices(bytes, indices),
+              )
+              if step_bigint != 1N {
+                let dict : Array[(String, Value)] = [
+                  ("__mpython_bytes__", sliced),
+                  ("__mpython_contiguous__", Value::Bool(false)),
+                ]
+                Ok(
+                  Value::Instance(InstanceValue::{
+                    class: builtin_class_from_name("memoryview", builtins),
+                    dict,
+                  }),
+                )
+              } else {
+                Ok(sliced)
+              }
             }
             _ =>
               Err(
@@ -1209,7 +1234,29 @@ fn eval_expr_with_env(
                       Ok(v) => v
                       Err(err) => return Err(err)
                     }
-                    Ok(Value::MemoryView(slice_ints_by_indices(bytes, indices)))
+                    let step_bigint = match step_value {
+                      Value::None => 1N
+                      Value::Int(v) => v
+                      Value::Bool(v) => if v { 1N } else { 0N }
+                      _ => 1N
+                    }
+                    let sliced = Value::MemoryView(
+                      slice_ints_by_indices(bytes, indices),
+                    )
+                    if step_bigint != 1N {
+                      let dict : Array[(String, Value)] = [
+                        ("__mpython_bytes__", sliced),
+                        ("__mpython_contiguous__", Value::Bool(false)),
+                      ]
+                      Ok(
+                        Value::Instance(InstanceValue::{
+                          class: builtin_class_from_name("memoryview", builtins),
+                          dict,
+                        }),
+                      )
+                    } else {
+                      Ok(sliced)
+                    }
                   }
                   _ =>
                     Err(

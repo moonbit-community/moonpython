@@ -785,6 +785,11 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "binascii.unhexlify", run: builtin_binascii_unhexlify },
     BuiltinDef::{ name: "binascii.b2a_hex", run: builtin_binascii_b2a_hex },
     BuiltinDef::{ name: "binascii.a2b_hex", run: builtin_binascii_a2b_hex },
+    BuiltinDef::{ name: "binascii.a2b_qp", run: builtin_binascii_a2b_qp },
+    BuiltinDef::{ name: "binascii.b2a_qp", run: builtin_binascii_b2a_qp },
+    BuiltinDef::{ name: "binascii.a2b_uu", run: builtin_binascii_a2b_uu },
+    BuiltinDef::{ name: "binascii.b2a_uu", run: builtin_binascii_b2a_uu },
+    BuiltinDef::{ name: "binascii.crc_hqx", run: builtin_binascii_crc_hqx },
     BuiltinDef::{
       name: "_string.formatter_parser",
       run: builtin_string_formatter_parser,

@@ -1977,6 +1977,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "hex" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "hex",
+              params: ["self", "sep", "bytes_per_sep"],
+              defaults: [Value::None, Value::Int(1N)],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -2708,6 +2724,22 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "bytearray.translate",
               params: ["self", "table"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "append" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "append",
+              params: ["self", "value"],
               defaults: [],
               body: [],
               is_generator: false,

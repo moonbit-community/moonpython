@@ -4862,6 +4862,95 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Str(text))
               }
+              "hex" => {
+                if positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "hex() takes 0 to 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let sep = if positional.length() >= 1 {
+                  match positional[0] {
+                    Value::None => "".to_string()
+                    Value::Str(text) => text
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "hex() sep must be str".to_string(),
+                        ),
+                      )
+                  }
+                } else {
+                  "".to_string()
+                }
+                let bytes_per_sep = if positional.length() == 2 {
+                  match positional[1] {
+                    Value::Int(v) =>
+                      match bigint_to_int_checked(v) {
+                        Ok(iv) => iv
+                        Err(err) => return Err(err)
+                      }
+                    Value::Bool(v) => if v { 1 } else { 0 }
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "hex() bytes_per_sep must be int".to_string(),
+                        ),
+                      )
+                  }
+                } else {
+                  1
+                }
+                if bytes_per_sep == 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "ValueError: bytes_per_sep must not be zero".to_string(),
+                    ),
+                  )
+                }
+                let hex = "0123456789abcdef".to_array()
+                let buf = StringBuilder::new()
+                if sep.length() == 0 {
+                  for b in values {
+                    let v = b & 0xFF
+                    buf.write_char(hex[(v >> 4) & 0xF])
+                    buf.write_char(hex[v & 0xF])
+                  }
+                  return Ok(Value::Str(buf.to_string()))
+                }
+                let bps = bytes_per_sep
+                let mut first_group = 0
+                let mut group_len = bps
+                if bps < 0 {
+                  group_len = -bps
+                  let rem = values.length() % group_len
+                  first_group = if rem == 0 { group_len } else { rem }
+                }
+                for idx = 0; idx < values.length(); idx = idx + 1 {
+                  if idx > 0 {
+                    if bps > 0 {
+                      if idx % bps == 0 {
+                        buf.write_string(sep)
+                      }
+                    } else if idx == first_group ||
+                      (
+                        idx > first_group &&
+                        (idx - first_group) % group_len == 0
+                      ) {
+                      buf.write_string(sep)
+                    }
+                  }
+                  let v = values[idx] & 0xFF
+                  buf.write_char(hex[(v >> 4) & 0xF])
+                  buf.write_char(hex[v & 0xF])
+                }
+                return Ok(Value::Str(buf.to_string()))
+              }
               "startswith" => {
                 if positional.length() == 0 || positional.length() > 3 {
                   return Err(
@@ -5261,6 +5350,22 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Str(text))
               }
+              "append" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "append() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let b = match byte_from_value("append", positional[0]) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  values.push(b & 0xFF)
+                  return Ok(Value::None)
+                }
               "extend" =>
                 if positional.length() != 1 {
                   return Err(

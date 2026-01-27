@@ -362,6 +362,30 @@ def _match_tokenize_blank_re(string, pos=0, endpos=None):
     return None
 
 
+def _subn_remove_non_base64_bytes(repl, string, count=0):
+    # Used by Lib/test/test_binascii.py to count valid base64 characters:
+    #   re.sub(br'[^A-Za-z0-9/+]', br'', data)
+    if not isinstance(string, (bytes, bytearray)):
+        raise NotImplementedError("regex engine not available")
+    if not isinstance(repl, (bytes, bytearray)):
+        raise TypeError("replacement must be a bytes-like object")
+    if repl not in (b"", bytearray(b"")):
+        raise NotImplementedError("regex engine not available")
+    allowed = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+    out = bytearray()
+    n = 0
+    for b in bytes(string):
+        if b in allowed:
+            out.append(b)
+        else:
+            if count == 0 or n < count:
+                n += 1
+                # skip (remove)
+            else:
+                out.append(b)
+    return (bytes(out), n)
+
+
 def _select_matcher(pattern, flags):
     if isinstance(pattern, (bytes, bytearray)):
         if pattern == br'^[ \t\f]*(?:[#\r\n]|$)':
@@ -475,12 +499,18 @@ class Pattern:
 
     def sub(self, repl, string, count=0):
         # A few stdlib modules (argparse, gettext) only rely on a tiny subset.
+        if self.pattern == br'[^A-Za-z0-9/+]':
+            return _subn_remove_non_base64_bytes(repl, string, count=count)[0]
         if self.pattern == r"\s+":
             return _sub_whitespace(repl, string, count=count)
         if self.pattern == "^[ \t]+$":
             return _sub_whitespace_only_lines(repl, string, count=count)
         if self.pattern.startswith("(?m)^") and repl == "":
             prefix = self.pattern[len("(?m)^") :]
+            if prefix and all(ch in " \t" for ch in prefix):
+                return _sub_strip_line_prefix(prefix, string, count=count)
+        if (self.flags & MULTILINE) and self.pattern.startswith("^") and repl == "":
+            prefix = self.pattern[1:]
             if prefix and all(ch in " \t" for ch in prefix):
                 return _sub_strip_line_prefix(prefix, string, count=count)
         if self.pattern == r"\n\n\n+":
@@ -494,12 +524,18 @@ class Pattern:
         raise NotImplementedError("regex engine not available")
 
     def subn(self, repl, string, count=0):
+        if self.pattern == br'[^A-Za-z0-9/+]':
+            return _subn_remove_non_base64_bytes(repl, string, count=count)
         if self.pattern == r"\s+":
             return _subn_whitespace(repl, string, count=count)
         if self.pattern == "^[ \t]+$":
             return _subn_whitespace_only_lines(repl, string, count=count)
         if self.pattern.startswith("(?m)^") and repl == "":
             prefix = self.pattern[len("(?m)^") :]
+            if prefix and all(ch in " \t" for ch in prefix):
+                return _subn_strip_line_prefix(prefix, string, count=count)
+        if (self.flags & MULTILINE) and self.pattern.startswith("^") and repl == "":
+            prefix = self.pattern[1:]
             if prefix and all(ch in " \t" for ch in prefix):
                 return _subn_strip_line_prefix(prefix, string, count=count)
         if self.pattern == r"\n\n\n+":
@@ -539,6 +575,39 @@ class Pattern:
 def compile(pattern, flags=0):
     if isinstance(pattern, Pattern):
         return pattern
+    if isinstance(pattern, str) and pattern.startswith("(?"):
+        # Support leading inline flags like `(?i)pattern` used throughout the
+        # CPython stdlib (e.g. assertRaisesRegex patterns).
+        #
+        # This shim only supports a restricted subset of the re syntax, so we
+        # only parse the simple `(?flags)` prefix (no `:(...)` scoped groups).
+        j = 2
+        while j < len(pattern) and pattern[j].isalpha():
+            j += 1
+        if j < len(pattern) and pattern[j] == ")" and j > 2:
+            flag_text = pattern[2:j]
+            valid = True
+            for ch in flag_text:
+                if ch not in "aiLmsux":
+                    valid = False
+                    break
+            if valid:
+                for ch in flag_text:
+                    if ch == "i":
+                        flags |= IGNORECASE
+                    elif ch == "m":
+                        flags |= MULTILINE
+                    elif ch == "s":
+                        flags |= DOTALL
+                    elif ch == "x":
+                        flags |= VERBOSE
+                    elif ch == "a":
+                        flags |= ASCII
+                    elif ch == "u":
+                        flags |= UNICODE
+                    elif ch == "L":
+                        flags |= LOCALE
+                pattern = pattern[j + 1 :]
     matcher = _select_matcher(pattern, flags)
     compiled = None
     if matcher is None:

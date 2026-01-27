@@ -23,7 +23,7 @@ fn runtime_error_exc(
         "StopAsyncIteration:", "UnicodeError:", "UnicodeDecodeError:", "UnicodeEncodeError:",
         "UnicodeTranslateError:", "ModuleNotFoundError:", "OSError:", "FileNotFoundError:",
         "FileExistsError:", "PermissionError:", "IsADirectoryError:", "NotADirectoryError:",
-        "SystemExit:", "SkipTest:", "struct.error:",
+        "SystemExit:", "SkipTest:", "struct.error:", "BufferError:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])

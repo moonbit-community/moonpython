@@ -790,11 +790,16 @@ fn make_binascii_module(builtins : Array[(String, Value)]) -> Value {
     ("Incomplete", Value::Class(incomplete_class)),
     ("a2b_base64", module_function_stub("binascii.a2b_base64")),
     ("b2a_base64", module_function_stub("binascii.b2a_base64")),
+    ("a2b_qp", module_function_stub("binascii.a2b_qp")),
+    ("b2a_qp", module_function_stub("binascii.b2a_qp")),
+    ("a2b_uu", module_function_stub("binascii.a2b_uu")),
+    ("b2a_uu", module_function_stub("binascii.b2a_uu")),
     ("hexlify", module_function_stub("binascii.hexlify")),
     ("unhexlify", module_function_stub("binascii.unhexlify")),
     ("a2b_hex", module_function_stub("binascii.a2b_hex")),
     ("b2a_hex", module_function_stub("binascii.b2a_hex")),
     ("crc32", module_function_stub("binascii.crc32")),
+    ("crc_hqx", module_function_stub("binascii.crc_hqx")),
     ("__doc__", Value::Str("Minimal binascii shim for moonpython")),
   ])
 }
