@@ -1052,6 +1052,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     },
     BuiltinDef::{ name: "vars", run: builtin_vars },
     BuiltinDef::{ name: "locals", run: builtin_locals },
+    BuiltinDef::{ name: "compile", run: builtin_compile },
     BuiltinDef::{ name: "eval", run: builtin_eval },
     BuiltinDef::{ name: "exec", run: builtin_exec },
     BuiltinDef::{ name: "__import__", run: builtin_import },

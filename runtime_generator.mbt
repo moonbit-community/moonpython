@@ -680,7 +680,7 @@ fn generator_step_statement(
             Err(err) => return Err(err)
           }
           let next = match
-            eval_binary_op_values(
+            eval_augassign_op_values(
               op,
               current,
               right_val,

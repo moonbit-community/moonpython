@@ -254,7 +254,36 @@ fn eval_binary_op_values(
           )
       }
     }
-    BinaryOp::Mul =>
+    BinaryOp::Mul => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__mul__", globals, builtins, io) {
+          Ok(mul_method) =>
+            return call_callable_with_env(
+              mul_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rmul__", globals, builtins, io) {
+          Ok(rmul_method) =>
+            return call_callable_with_env(
+              rmul_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
           Ok(Value::Complex(ar * br - ai * bi, ar * bi + ai * br))
@@ -399,7 +428,37 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::Div =>
+    }
+    BinaryOp::Div => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__truediv__", globals, builtins, io) {
+          Ok(truediv_method) =>
+            return call_callable_with_env(
+              truediv_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rtruediv__", globals, builtins, io) {
+          Ok(rtruediv_method) =>
+            return call_callable_with_env(
+              rtruediv_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Complex(ar, ai), Value::Complex(br, bi)) => {
           let denom = br * br + bi * bi
@@ -480,6 +539,7 @@ fn eval_binary_op_values(
           Ok(Value::Float(left_num / right_num))
         }
       }
+    }
     BinaryOp::FloorDiv => {
       if left_val is Value::Instance(_) {
         match
@@ -675,7 +735,35 @@ fn eval_binary_op_values(
         }
       }
     }
-    BinaryOp::Pow =>
+    BinaryOp::Pow => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__pow__", globals, builtins, io) {
+          Ok(pow_method) =>
+            return call_callable_with_env(
+              pow_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match get_attr_from_value(right_val, "__rpow__", globals, builtins, io) {
+          Ok(rpow_method) =>
+            return call_callable_with_env(
+              rpow_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(left), Value::Int(right)) =>
           if right < 0N {
@@ -708,14 +796,74 @@ fn eval_binary_op_values(
           Ok(Value::Float(@math.pow(left_num, right_num)))
         }
       }
-    BinaryOp::MatMul =>
+    }
+    BinaryOp::MatMul => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__matmul__", globals, builtins, io) {
+          Ok(matmul_method) =>
+            return call_callable_with_env(
+              matmul_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rmatmul__", globals, builtins, io) {
+          Ok(rmatmul_method) =>
+            return call_callable_with_env(
+              rmatmul_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "unsupported operand type for @".to_string(),
         ),
       )
-    BinaryOp::ShiftLeft =>
+    }
+    BinaryOp::ShiftLeft => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__lshift__", globals, builtins, io) {
+          Ok(lshift_method) =>
+            return call_callable_with_env(
+              lshift_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rlshift__", globals, builtins, io) {
+          Ok(rlshift_method) =>
+            return call_callable_with_env(
+              rlshift_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => {
           let bb = match bigint_to_int_checked(b) {
@@ -743,7 +891,37 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::ShiftRight =>
+    }
+    BinaryOp::ShiftRight => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__rshift__", globals, builtins, io) {
+          Ok(rshift_method) =>
+            return call_callable_with_env(
+              rshift_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match
+          get_attr_from_value(right_val, "__rrshift__", globals, builtins, io) {
+          Ok(rrshift_method) =>
+            return call_callable_with_env(
+              rrshift_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => {
           let bb = match bigint_to_int_checked(b) {
@@ -771,7 +949,36 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::BitAnd =>
+    }
+    BinaryOp::BitAnd => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__and__", globals, builtins, io) {
+          Ok(and_method) =>
+            return call_callable_with_env(
+              and_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match get_attr_from_value(right_val, "__rand__", globals, builtins, io) {
+          Ok(rand_method) =>
+            return call_callable_with_env(
+              rand_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b))
         (Value::Bool(a), Value::Int(b)) =>
@@ -787,7 +994,36 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::BitXor =>
+    }
+    BinaryOp::BitXor => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__xor__", globals, builtins, io) {
+          Ok(xor_method) =>
+            return call_callable_with_env(
+              xor_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match get_attr_from_value(right_val, "__rxor__", globals, builtins, io) {
+          Ok(rxor_method) =>
+            return call_callable_with_env(
+              rxor_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b))
         (Value::Bool(a), Value::Int(b)) =>
@@ -803,7 +1039,36 @@ fn eval_binary_op_values(
             ),
           )
       }
-    BinaryOp::BitOr =>
+    }
+    BinaryOp::BitOr => {
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, "__or__", globals, builtins, io) {
+          Ok(or_method) =>
+            return call_callable_with_env(
+              or_method,
+              [right_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
+      if right_val is Value::Instance(_) {
+        match get_attr_from_value(right_val, "__ror__", globals, builtins, io) {
+          Ok(ror_method) =>
+            return call_callable_with_env(
+              ror_method,
+              [left_val],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          Err(_) => ()
+        }
+      }
       match (left_val, right_val) {
         (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b))
         (Value::Bool(a), Value::Int(b)) =>
@@ -868,5 +1133,111 @@ fn eval_binary_op_values(
           }
         }
       }
+    }
   }
+}
+
+///|
+fn inplace_dunder_name(op : BinaryOp) -> String? {
+  match op {
+    BinaryOp::Add => Some("__iadd__")
+    BinaryOp::Sub => Some("__isub__")
+    BinaryOp::Mul => Some("__imul__")
+    BinaryOp::MatMul => Some("__imatmul__")
+    BinaryOp::Div => Some("__itruediv__")
+    BinaryOp::FloorDiv => Some("__ifloordiv__")
+    BinaryOp::Mod => Some("__imod__")
+    BinaryOp::Pow => Some("__ipow__")
+    BinaryOp::ShiftLeft => Some("__ilshift__")
+    BinaryOp::ShiftRight => Some("__irshift__")
+    BinaryOp::BitAnd => Some("__iand__")
+    BinaryOp::BitXor => Some("__ixor__")
+    BinaryOp::BitOr => Some("__ior__")
+  }
+}
+
+///|
+fn eval_augassign_op_values(
+  op : BinaryOp,
+  left_val : Value,
+  right_val : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  // Builtin list in-place ops are observable via aliasing (`a is b`).
+  match (op, left_val) {
+    (BinaryOp::Add, Value::List(values)) => {
+      let iterator = match iter_value_to_iterator(right_val, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      while true {
+        match iterator_next(iterator, None, globals, builtins, io) {
+          Ok(item) => values.push(item)
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              break
+            } else {
+              return Err(err)
+            }
+        }
+      }
+      return Ok(Value::List(values))
+    }
+    (BinaryOp::Mul, Value::List(values)) => {
+      let count = match right_val {
+        Value::Int(v) => v
+        Value::Bool(v) => if v { 1N } else { 0N }
+        _ => return eval_binary_op_values(op, Value::List(values), right_val, globals, builtins, io)
+      }
+      if count <= 0N {
+        replace_array_values(values, [])
+        return Ok(Value::List(values))
+      }
+      let count_i = match bigint_to_int_checked(count) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let original : Array[Value] = []
+      for item in values {
+        original.push(item)
+      }
+      let next : Array[Value] = []
+      for _i = 0; _i < count_i; _i = _i + 1 {
+        for item in original {
+          next.push(item)
+        }
+      }
+      replace_array_values(values, next)
+      return Ok(Value::List(values))
+    }
+    _ => ()
+  }
+
+  // User-defined in-place dunders (`__iadd__`, `__imul__`, ...) take precedence.
+  match inplace_dunder_name(op) {
+    Some(name) =>
+      if left_val is Value::Instance(_) {
+        match get_attr_from_value(left_val, name, globals, builtins, io) {
+          Ok(inplace_method) => {
+            let out = match
+              call_callable_with_env(inplace_method, [right_val], [], globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            if !is_not_implemented_value(out) {
+              return Ok(out)
+            }
+          }
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => ()
+              _ => return Err(err)
+            }
+        }
+      }
+    None => ()
+  }
+  eval_binary_op_values(op, left_val, right_val, globals, builtins, io)
 }

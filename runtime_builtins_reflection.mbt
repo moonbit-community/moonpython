@@ -2796,6 +2796,87 @@ fn builtin_exec(
 }
 
 ///|
+fn builtin_compile(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  if keywords.length() != 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "compile() does not support keyword arguments yet".to_string(),
+      ),
+    )
+  }
+  if positional.length() < 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "compile() missing required arguments".to_string(),
+      ),
+    )
+  }
+  let source_text = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "compile() arg 1 must be a string".to_string(),
+        ),
+      )
+  }
+  let _filename = match positional[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "compile() arg 2 must be a string".to_string(),
+        ),
+      )
+  }
+  let mode = match positional[2] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "compile() arg 3 must be a string".to_string(),
+        ),
+      )
+  }
+
+  if mode == "eval" {
+    let _ = match parse_expr(source_text) {
+      Ok(v) => v
+      Err(err) => return Err(make_parse_runtime_error(err))
+    }
+  } else if mode == "exec" || mode == "single" {
+    let _ = match parse(source_text) {
+      Ok(v) => v
+      Err(err) => return Err(make_parse_runtime_error(err))
+    }
+  } else {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "compile() mode must be 'exec', 'eval' or 'single'".to_string(),
+      ),
+    )
+  }
+
+  // Placeholder: we don't model a CodeType yet. Returning the source text keeps
+  // `exec(compile(...))` and `eval(compile(...))` usable in practice.
+  Ok(Value::Str(source_text))
+}
+
+///|
 fn builtin_import(
   positional : Array[Value],
   keywords : Array[(String, Value)],

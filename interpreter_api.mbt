@@ -431,7 +431,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "print", "len", "range", "str", "bytes", "bytearray", "memoryview", "int", "float",
     "complex", "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map",
     "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super", "eval", "exec", "ascii", "open", "__import__",
+    "super", "compile", "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -1032,6 +1032,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("globals", function_stub("globals")),
     ("vars", function_stub("vars")),
     ("locals", function_stub("locals")),
+    ("compile", function_stub("compile")),
     ("eval", function_stub("eval")),
     ("exec", function_stub("exec")),
     ("__import__", function_stub("__import__")),

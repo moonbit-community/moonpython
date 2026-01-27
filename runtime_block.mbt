@@ -755,7 +755,7 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
             let next = match
-              eval_binary_op_values(
+              eval_augassign_op_values(
                 op, current, right_val, globals, builtins, io,
               ) {
               Ok(value) => value
@@ -775,7 +775,7 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
             let next = match
-              eval_binary_op_values(
+              eval_augassign_op_values(
                 op, current, right_val, globals, builtins, io,
               ) {
               Ok(value) => value
@@ -794,37 +794,132 @@ fn eval_block_flow(
               Ok(value) => value
               Err(err) => return Err(err)
             }
-            let index_value = match
-              eval_expr_with_env(index, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
             match container {
               Value::List(values) => {
-                let idx = match index_from_value(index_value, 0) {
-                  Ok(v) => v
-                  Err(err) => return Err(err)
+                match index {
+                  Expr::Slice(start~, end~, step~) => {
+                    let start_value = match start {
+                      Some(expr) =>
+                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      None => Value::None
+                    }
+                    let end_value = match end {
+                      Some(expr) =>
+                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      None => Value::None
+                    }
+                    let step_value = match step {
+                      Some(expr) =>
+                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                          Ok(value) => value
+                          Err(err) => return Err(err)
+                        }
+                      None => Value::None
+                    }
+                    let indices = match
+                      slice_indices_from_values(
+                        values.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let current = Value::List(slice_values_by_indices(values, indices))
+                    let next = match
+                      eval_augassign_op_values(
+                        op, current, right_val, globals, builtins, io,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let new_items = match iterable_values(next) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let (start_i, end_i, step_i) = match
+                      slice_params_from_values(
+                        values.length(),
+                        start_value,
+                        end_value,
+                        step_value,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    if step_i == 1 {
+                      let merged : Array[Value] = []
+                      for i = 0; i < start_i; i = i + 1 {
+                        merged.push(values[i])
+                      }
+                      for item in new_items {
+                        merged.push(item)
+                      }
+                      for i = end_i; i < values.length(); i = i + 1 {
+                        merged.push(values[i])
+                      }
+                      replace_array_values(values, merged)
+                    } else {
+                      if new_items.length() != indices.length() {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "ValueError: attempt to assign sequence of size " +
+                            new_items.length().to_string() +
+                            " to extended slice of size " +
+                            indices.length().to_string(),
+                          ),
+                        )
+                      }
+                      for i = 0; i < indices.length(); i = i + 1 {
+                        values[indices[i]] = new_items[i]
+                      }
+                    }
+                  }
+                  _ => {
+                    let index_value = match
+                      eval_expr_with_env(index, locals, globals, builtins, io) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                    let idx = match index_from_value(index_value, 0) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let norm = normalize_index(idx, values.length())
+                    if norm < 0 || norm >= values.length() {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Index,
+                          "index out of range".to_string(),
+                        ),
+                      )
+                    }
+                    let current = values[norm]
+                    let next = match
+                      eval_augassign_op_values(
+                        op, current, right_val, globals, builtins, io,
+                      ) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                    values[norm] = next
+                  }
                 }
-                let norm = normalize_index(idx, values.length())
-                if norm < 0 || norm >= values.length() {
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Index,
-                      "index out of range".to_string(),
-                    ),
-                  )
-                }
-                let current = values[norm]
-                let next = match
-                  eval_binary_op_values(
-                    op, current, right_val, globals, builtins, io,
-                  ) {
+              }
+              Value::Dict(pairs) => {
+                let index_value = match
+                  eval_expr_with_env(index, locals, globals, builtins, io) {
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                values[norm] = next
-              }
-              Value::Dict(pairs) => {
                 let mut found : Int? = None
                 for i = 0; i < pairs.length(); i = i + 1 {
                   if eq_value(pairs[i].0, index_value) {
@@ -843,7 +938,7 @@ fn eval_block_flow(
                 let i = found.unwrap()
                 let current = pairs[i].1
                 let next = match
-                  eval_binary_op_values(
+                  eval_augassign_op_values(
                     op, current, right_val, globals, builtins, io,
                   ) {
                   Ok(value) => value

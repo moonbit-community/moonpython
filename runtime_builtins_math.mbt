@@ -364,15 +364,15 @@ fn builtin_math_ldexp(
     Err(err) => return Err(err)
   }
   let exp_i64 = match positional[1] {
-    Value::Int(v) => v.to_int64(),
-    Value::Bool(v) => if v { 1L } else { 0L },
+    Value::Int(v) => v.to_int64()
+    Value::Bool(v) => if v { 1L } else { 0L }
     _ =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "math.ldexp() expects an integer exponent".to_string(),
         ),
-      ),
+      )
   }
   Ok(Value::Float(x * @math.pow(2.0, exp_i64.to_double())))
 }
