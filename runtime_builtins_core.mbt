@@ -937,11 +937,24 @@ fn builtin_reversed(
       ),
     )
   }
-  let items = match iterable_values(positional[0]) {
+  let iterator_value = match
+    iter_value_to_iterator(positional[0], globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  Ok(Value::List(reverse_values(items)))
+  let items : Array[Value] = []
+  while true {
+    match iterator_next(iterator_value, None, globals, builtins, io) {
+      Ok(item) => items.push(item)
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(make_iterator(reverse_values(items)))
 }
 
 ///|
