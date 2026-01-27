@@ -210,20 +210,110 @@ class BytesIO(_BufferedIOBase):
 class StringIO(_TextIOBase):
     def __init__(self, initial_value=""):
         super().__init__()
-        self._buffer = []
-        if initial_value:
-            self._buffer.append(str(initial_value))
+        if initial_value is None:
+            initial_value = ""
+        if not isinstance(initial_value, str):
+            raise TypeError("StringIO() argument must be a str")
+        self._buffer = initial_value
+        self._pos = 0
 
     def write(self, s):
-        text = str(s)
-        self._buffer.append(text)
+        if self.closed:
+            raise ValueError("write to closed file")
+        if not isinstance(s, str):
+            raise TypeError("string argument expected, got %s" % type(s).__name__)
+        text = s
+        pos = self._pos
+        if pos > len(self._buffer):
+            self._buffer = self._buffer + ("\x00" * (pos - len(self._buffer)))
+        self._buffer = self._buffer[:pos] + text + self._buffer[pos + len(text) :]
+        self._pos = pos + len(text)
         return len(text)
 
+    def read(self, size=-1):
+        if self.closed:
+            raise ValueError("read from closed file")
+        if size is None:
+            size = -1
+        else:
+            try:
+                size_index = size.__index__
+            except AttributeError:
+                raise TypeError(f"{size!r} is not an integer")
+            else:
+                size = size_index()
+        if size < 0:
+            size = len(self._buffer) - self._pos
+        if self._pos >= len(self._buffer):
+            return ""
+        end = min(len(self._buffer), self._pos + size)
+        data = self._buffer[self._pos : end]
+        self._pos = end
+        return data
+
+    def readline(self, size=-1):
+        if self.closed:
+            raise ValueError("read from closed file")
+        if size is None:
+            size = -1
+        else:
+            try:
+                size_index = size.__index__
+            except AttributeError:
+                raise TypeError(f"{size!r} is not an integer")
+            else:
+                size = size_index()
+        if self._pos >= len(self._buffer):
+            return ""
+        limit = len(self._buffer) if size < 0 else min(len(self._buffer), self._pos + size)
+        end = limit
+        for i in range(self._pos, limit):
+            if self._buffer[i] == "\n":
+                end = i + 1
+                break
+        data = self._buffer[self._pos : end]
+        self._pos = end
+        return data
+
+    def tell(self):
+        return self._pos
+
+    def seek(self, offset, whence=0):
+        if self.closed:
+            raise ValueError("seek on closed file")
+        try:
+            offset_index = offset.__index__
+        except AttributeError:
+            raise TypeError(f"{offset!r} is not an integer")
+        else:
+            offset = offset_index()
+        if whence == 0:
+            newpos = offset
+        elif whence == 1:
+            newpos = self._pos + offset
+        elif whence == 2:
+            newpos = len(self._buffer) + offset
+        else:
+            raise ValueError("invalid whence")
+        if newpos < 0:
+            raise ValueError("negative seek position")
+        self._pos = newpos
+        return self._pos
+
     def getvalue(self):
-        return "".join(self._buffer)
+        return self._buffer
 
     def flush(self):
         return None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if line == "":
+            raise StopIteration
+        return line
 
 
 class BufferedReader(_BufferedIOBase):
