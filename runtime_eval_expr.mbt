@@ -1698,10 +1698,12 @@ fn eval_expr_with_env(
 
       fn eq_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
         match call_compare_method(left, "__eq__", right) {
-          Ok(Some(value)) => Ok(bool_from_value(value))
+          Ok(Some(value)) =>
+            truthy_from_value_with_env(value, globals, builtins, io)
           Ok(None) =>
             match call_compare_method(right, "__eq__", left) {
-              Ok(Some(value)) => Ok(bool_from_value(value))
+              Ok(Some(value)) =>
+                truthy_from_value_with_env(value, globals, builtins, io)
               Ok(None) => Ok(eq_value(left, right))
               Err(err) => Err(err)
             }
@@ -1711,10 +1713,12 @@ fn eval_expr_with_env(
 
       fn ne_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
         match call_compare_method(left, "__ne__", right) {
-          Ok(Some(value)) => Ok(bool_from_value(value))
+          Ok(Some(value)) =>
+            truthy_from_value_with_env(value, globals, builtins, io)
           Ok(None) =>
             match call_compare_method(right, "__ne__", left) {
-              Ok(Some(value)) => Ok(bool_from_value(value))
+              Ok(Some(value)) =>
+                truthy_from_value_with_env(value, globals, builtins, io)
               Ok(None) =>
                 match eq_bool(left, right) {
                   Ok(v) => Ok(!v)
@@ -1765,13 +1769,13 @@ fn eval_expr_with_env(
                   if is_notimplemented(value2) {
                     Err(unsupported(op_symbol, left, right))
                   } else {
-                    Ok(bool_from_value(value2))
+                    truthy_from_value_with_env(value2, globals, builtins, io)
                   }
                 Ok(None) => Err(unsupported(op_symbol, left, right))
                 Err(err) => Err(err)
               }
             } else {
-              Ok(bool_from_value(value))
+              truthy_from_value_with_env(value, globals, builtins, io)
             }
           Ok(None) =>
             match call_compare_method(right, reverse_method_name, left) {
@@ -1779,7 +1783,7 @@ fn eval_expr_with_env(
                 if is_notimplemented(value2) {
                   Err(unsupported(op_symbol, left, right))
                 } else {
-                  Ok(bool_from_value(value2))
+                  truthy_from_value_with_env(value2, globals, builtins, io)
                 }
               Ok(None) => Err(unsupported(op_symbol, left, right))
               Err(err) => Err(err)
