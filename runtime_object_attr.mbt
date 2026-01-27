@@ -1101,6 +1101,21 @@ fn get_attr_raw_from_value(
         "real" => Ok(Value::Float(value))
         // CPython returns `0.0`; equality with `0` still holds in stdlib tests.
         "imag" => Ok(Value::Float(0.0))
+        "as_integer_ratio" =>
+          Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "float.as_integer_ratio",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
         "conjugate" =>
           Ok(
             Value::BoundMethod(BoundMethodValue::{

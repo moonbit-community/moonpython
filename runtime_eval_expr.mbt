@@ -1704,6 +1704,31 @@ fn eval_expr_with_env(
         Ok(value) => value
         Err(err) => return Err(err)
       }
+      fn compare_bytes_like(left : Array[Int], right : Array[Int]) -> Int {
+        let min_len = if left.length() < right.length() {
+          left.length()
+        } else {
+          right.length()
+        }
+        for i = 0; i < min_len; i = i + 1 {
+          let a = left[i] & 0xFF
+          let b = right[i] & 0xFF
+          if a < b {
+            return -1
+          }
+          if a > b {
+            return 1
+          }
+        }
+        if left.length() == right.length() {
+          0
+        } else if left.length() < right.length() {
+          -1
+        } else {
+          1
+        }
+      }
+
       fn is_intrinsic_default_compare(
         method_value : Value,
         name : String,
@@ -2034,6 +2059,14 @@ fn eval_expr_with_env(
               (Value::Bool(left), Value::Float(right)) =>
                 (if left { 1.0 } else { 0.0 }) < right
               (Value::Str(left), Value::Str(right)) => left < right
+              (
+                Value::Bytes(left)
+                | Value::ByteArray(left)
+                | Value::MemoryView(left),
+                Value::Bytes(right)
+                | Value::ByteArray(right)
+                | Value::MemoryView(right),
+              ) => compare_bytes_like(left, right) < 0
               _ =>
                 match
                   ordering_bool(previous, current, "__lt__", "__gt__", "<") {
@@ -2090,6 +2123,14 @@ fn eval_expr_with_env(
               (Value::Bool(left), Value::Float(right)) =>
                 (if left { 1.0 } else { 0.0 }) <= right
               (Value::Str(left), Value::Str(right)) => left <= right
+              (
+                Value::Bytes(left)
+                | Value::ByteArray(left)
+                | Value::MemoryView(left),
+                Value::Bytes(right)
+                | Value::ByteArray(right)
+                | Value::MemoryView(right),
+              ) => compare_bytes_like(left, right) <= 0
               _ =>
                 match
                   ordering_bool(previous, current, "__le__", "__ge__", "<=") {
@@ -2146,6 +2187,14 @@ fn eval_expr_with_env(
               (Value::Bool(left), Value::Float(right)) =>
                 (if left { 1.0 } else { 0.0 }) > right
               (Value::Str(left), Value::Str(right)) => left > right
+              (
+                Value::Bytes(left)
+                | Value::ByteArray(left)
+                | Value::MemoryView(left),
+                Value::Bytes(right)
+                | Value::ByteArray(right)
+                | Value::MemoryView(right),
+              ) => compare_bytes_like(left, right) > 0
               _ =>
                 match
                   ordering_bool(previous, current, "__gt__", "__lt__", ">") {
@@ -2202,6 +2251,14 @@ fn eval_expr_with_env(
               (Value::Bool(left), Value::Float(right)) =>
                 (if left { 1.0 } else { 0.0 }) >= right
               (Value::Str(left), Value::Str(right)) => left >= right
+              (
+                Value::Bytes(left)
+                | Value::ByteArray(left)
+                | Value::MemoryView(left),
+                Value::Bytes(right)
+                | Value::ByteArray(right)
+                | Value::MemoryView(right),
+              ) => compare_bytes_like(left, right) >= 0
               _ =>
                 match
                   ordering_bool(previous, current, "__ge__", "__le__", ">=") {

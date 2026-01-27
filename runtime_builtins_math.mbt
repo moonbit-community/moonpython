@@ -881,6 +881,45 @@ fn builtin_math_isnan(
 }
 
 ///|
+fn builtin_math_isinf(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.isinf", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.isinf() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Float(v) => Ok(Value::Bool(v.is_inf()))
+    Value::Int(_) | Value::Bool(_) => Ok(Value::Bool(false))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "math.isinf() expects a number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_math_copysign(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -917,6 +956,54 @@ fn builtin_math_copysign(
   let ax = if x == 0.0 { 0.0 } else if x < 0.0 { -x } else { x }
   let neg = if y == 0.0 { 1.0 / y < 0.0 } else { y < 0.0 }
   Ok(Value::Float(if neg { -ax } else { ax }))
+}
+
+///|
+fn bigint_gcd(a : @bigint.BigInt, b : @bigint.BigInt) -> @bigint.BigInt {
+  let mut x = if a < 0N { -a } else { a }
+  let mut y = if b < 0N { -b } else { b }
+  while y != 0N {
+    let r = x % y
+    x = y
+    y = r
+  }
+  x
+}
+
+///|
+fn builtin_math_gcd(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.gcd", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut g = 0N
+  for item in positional {
+    let value = match item {
+      Value::Int(v) => v
+      Value::Bool(v) => if v { 1N } else { 0N }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "math.gcd() expects ints".to_string(),
+          ),
+        )
+    }
+    g = bigint_gcd(g, value)
+  }
+  Ok(Value::Int(g))
 }
 
 ///|

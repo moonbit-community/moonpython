@@ -373,6 +373,8 @@ fn make_math_module() -> Value {
     ("sumprod", module_function_stub("math.sumprod")),
     ("isfinite", module_function_stub("math.isfinite")),
     ("isnan", module_function_stub("math.isnan")),
+    ("isinf", module_function_stub("math.isinf")),
+    ("gcd", module_function_stub("math.gcd")),
     ("isqrt", module_function_stub("math.isqrt")),
   ])
 }

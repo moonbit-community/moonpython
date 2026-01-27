@@ -925,6 +925,92 @@ fn builtin_float_conjugate(
 }
 
 ///|
+fn builtin_float_as_integer_ratio(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("float.as_integer_ratio", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "float.as_integer_ratio() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let x = match positional[0] {
+    Value::Float(v) => v
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "float.as_integer_ratio() expects a float".to_string(),
+        ),
+      )
+  }
+  if x.is_inf() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "OverflowError: cannot convert Infinity to integer ratio".to_string(),
+      ),
+    )
+  }
+  if x.is_nan() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: cannot convert NaN to integer ratio".to_string(),
+      ),
+    )
+  }
+  if x == 0.0 {
+    return Ok(Value::Tuple([Value::Int(0N), Value::Int(1N)]))
+  }
+  let neg = x < 0.0
+  let mut mant = if neg { -x } else { x }
+  let mut exp : Int64 = 0L
+  while mant >= 1.0 {
+    mant = mant / 2.0
+    exp = exp + 1L
+  }
+  while mant < 0.5 {
+    mant = mant * 2.0
+    exp = exp - 1L
+  }
+  let scaled = mant * 9007199254740992.0 // 2**53
+  let mut mant_i64 = @math.floor(scaled + 0.5).to_int64()
+  // Normalize (mantissa is positive here).
+  if mant_i64 < 0L {
+    mant_i64 = -mant_i64
+  }
+  let mut num : @bigint.BigInt = @bigint.BigInt::from_int64(mant_i64)
+  let mut den : @bigint.BigInt = 1N
+  let exp2 = exp - 53L
+  if exp2 >= 0L {
+    num = num << exp2.to_int()
+  } else {
+    den = den << (-exp2).to_int()
+  }
+  while den > 1N && num % 2N == 0N {
+    num = num / 2N
+    den = den / 2N
+  }
+  if neg {
+    num = -num
+  }
+  Ok(Value::Tuple([Value::Int(num), Value::Int(den)]))
+}
+
+///|
 fn builtin_complex_conjugate(
   positional : Array[Value],
   keywords : Array[(String, Value)],
