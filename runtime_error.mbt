@@ -23,7 +23,7 @@ fn runtime_error_exc(
         "StopAsyncIteration:", "UnicodeError:", "UnicodeDecodeError:", "UnicodeEncodeError:",
         "UnicodeTranslateError:", "ModuleNotFoundError:", "OSError:", "FileNotFoundError:",
         "FileExistsError:", "PermissionError:", "IsADirectoryError:", "NotADirectoryError:",
-        "SystemExit:", "SkipTest:",
+        "SystemExit:", "SkipTest:", "struct.error:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])
@@ -36,7 +36,12 @@ fn runtime_error_exc(
       }
       for prefix in prefixes {
         if message.has_prefix(prefix) {
-          let type_name = prefix.trim(chars=":").to_string()
+          let mut type_name = prefix.trim(chars=":").to_string()
+          if type_name == "struct.error" {
+            // `struct.error` is exposed as an exception class named `error` from
+            // the `_struct` module. Matching relies on class names.
+            type_name = "error".to_string()
+          }
           let mut rest = match message.strip_prefix(prefix) {
             Some(view) => view.to_string()
             None => "".to_string()
