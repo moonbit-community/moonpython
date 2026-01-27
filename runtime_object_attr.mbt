@@ -186,7 +186,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: staticmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "staticmethod" {
+        if class_has_base_name(inst.class, "staticmethod") {
           match get_named_value(inst.dict, "func") {
             Some(func) => return Ok(Some(func))
             None => return Ok(None)
@@ -198,7 +198,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: classmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if inst.class.name == "classmethod" {
+        if class_has_base_name(inst.class, "classmethod") {
           match get_named_value(inst.dict, "func") {
             Some(func_value) => {
               let func = match func_value {
