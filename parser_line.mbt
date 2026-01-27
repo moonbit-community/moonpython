@@ -666,16 +666,24 @@ fn LineParser::parse_block(
           context_text = substring(first_item, 0, pos)
             .trim(chars=" \t\n\r")
             .to_string()
-          let mut name_text = substring(first_item, pos + 2, first_item.length())
+          let mut name_text = substring(
+              first_item,
+              pos + 2,
+              first_item.length(),
+            )
             .trim(chars=" \t\n\r")
             .to_string()
           let comma_pos = find_char(name_text, ',')
           if comma_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+            name_text = substring(name_text, 0, pos)
+              .trim(chars=" \t")
+              .to_string()
           }
           let close_pos = find_char(name_text, ')')
           if close_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+            name_text = substring(name_text, 0, pos)
+              .trim(chars=" \t")
+              .to_string()
           }
           if name_text.length() > 0 {
             target = Some(name_text)
@@ -2307,16 +2315,24 @@ fn LineParser::parse_block(
           context_text = substring(first_item, 0, pos)
             .trim(chars=" \t\n\r")
             .to_string()
-          let mut name_text = substring(first_item, pos + 2, first_item.length())
+          let mut name_text = substring(
+              first_item,
+              pos + 2,
+              first_item.length(),
+            )
             .trim(chars=" \t\n\r")
             .to_string()
           let comma_pos = find_char(name_text, ',')
           if comma_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+            name_text = substring(name_text, 0, pos)
+              .trim(chars=" \t")
+              .to_string()
           }
           let close_pos = find_char(name_text, ')')
           if close_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos).trim(chars=" \t").to_string()
+            name_text = substring(name_text, 0, pos)
+              .trim(chars=" \t")
+              .to_string()
           }
           if name_text.length() > 0 {
             target = Some(name_text)

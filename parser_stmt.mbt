@@ -866,7 +866,6 @@ fn parse_pattern(
       None => ()
     }
   }
-
   let raw_parts = split_top_level_commas(trimmed)
   if raw_parts.length() > 1 {
     let patterns : Array[Pattern] = []
@@ -2223,13 +2222,17 @@ fn parse_simple_statement(
         Target::Name(_) | Target::Attribute(_) | Target::Subscript(_) => ()
         _ =>
           return Err(
-            make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
-              kind: Eof,
-              start: base_offset,
-              end: base_offset + 1,
-              line: line_index + 1,
-              column: 1,
-            }),
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: base_offset,
+                end: base_offset + 1,
+                line: line_index + 1,
+                column: 1,
+              },
+            ),
           )
       }
       let right_tokens = match

@@ -1109,6 +1109,38 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "index" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "index",
+              params: ["self", "sub", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rindex" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rindex",
+              params: ["self", "sub", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "isascii" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{

@@ -7,6 +7,8 @@ target
 .moonagent/
 cpython-tests
 scripts/reference_cache/
+__pycache__/
+*.pyc
 
 # Local scratch/debug scripts (not part of the repo)
 tmp_*.py
@@ -15,6 +17,9 @@ examples/try_*.py
 examples/repro_*.py
 examples/mpy_repro_*.py
 examples/runtests.py
+
+# Local scratch marker file.
+/x
 
 # Local scratch workspace
 tempcwd/

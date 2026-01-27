@@ -111,8 +111,17 @@ fn exception_matches_handler(
   handler_class : ClassValue,
   builtins : Array[(String, Value)],
 ) -> Result[Bool, RuntimeError] {
-  if handler_class.name == "Exception" || handler_class.name == "BaseException" {
+  if handler_class.name == "BaseException" {
     return Ok(true)
+  }
+  match err.exc_value {
+    Some(Value::Instance(_)) | Some(Value::Class(_)) =>
+      return exception_value_matches_handler(
+        err.exc_value.unwrap(),
+        handler_class,
+        builtins,
+      )
+    _ => ()
   }
   match get_named_value(builtins, err.exc_type) {
     Some(Value::Class(err_class)) => {
@@ -138,7 +147,7 @@ fn exception_value_matches_handler(
   builtins : Array[(String, Value)],
 ) -> Result[Bool, RuntimeError] {
   let _ = builtins
-  if handler_class.name == "Exception" || handler_class.name == "BaseException" {
+  if handler_class.name == "BaseException" {
     return Ok(true)
   }
   let exc_class = match exc_value {
@@ -164,20 +173,65 @@ fn exception_value_matches_handler(
 }
 
 ///|
-fn handler_classes_from_value(value : Value) -> Array[ClassValue] {
+fn handler_classes_from_value(
+  value : Value,
+  builtins : Array[(String, Value)],
+) -> Result[Array[ClassValue], RuntimeError] {
   let classes : Array[ClassValue] = []
+  let _ = builtins
+  fn ensure_handler_class(klass : ClassValue) -> Result[Unit, RuntimeError] {
+    let ok = match is_base_exception_class(klass) {
+      Ok(v) => v
+      Err(err) => return Err(err)
+    }
+    if ok {
+      Ok(())
+    } else {
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "catching classes that do not inherit from BaseException is not allowed".to_string(),
+        ),
+      )
+    }
+  }
+
   match value {
-    Value::Class(klass) => classes.push(klass)
+    Value::Class(klass) => {
+      let _ = match ensure_handler_class(klass) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      classes.push(klass)
+    }
     Value::Tuple(items) =>
       for item in items {
         match item {
-          Value::Class(klass) => classes.push(klass)
-          _ => ()
+          Value::Class(klass) => {
+            let _ = match ensure_handler_class(klass) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            classes.push(klass)
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "catching classes that do not inherit from BaseException is not allowed".to_string(),
+              ),
+            )
         }
       }
-    _ => ()
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "catching classes that do not inherit from BaseException is not allowed".to_string(),
+        ),
+      )
   }
-  classes
+  Ok(classes)
 }
 
 ///|
@@ -795,12 +849,15 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
             match container {
-              Value::List(values) => {
+              Value::List(values) =>
                 match index {
                   Expr::Slice(start~, end~, step~) => {
                     let start_value = match start {
                       Some(expr) =>
-                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        match
+                          eval_expr_with_env(
+                            expr, locals, globals, builtins, io,
+                          ) {
                           Ok(value) => value
                           Err(err) => return Err(err)
                         }
@@ -808,7 +865,10 @@ fn eval_block_flow(
                     }
                     let end_value = match end {
                       Some(expr) =>
-                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        match
+                          eval_expr_with_env(
+                            expr, locals, globals, builtins, io,
+                          ) {
                           Ok(value) => value
                           Err(err) => return Err(err)
                         }
@@ -816,7 +876,10 @@ fn eval_block_flow(
                     }
                     let step_value = match step {
                       Some(expr) =>
-                        match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                        match
+                          eval_expr_with_env(
+                            expr, locals, globals, builtins, io,
+                          ) {
                           Ok(value) => value
                           Err(err) => return Err(err)
                         }
@@ -832,7 +895,9 @@ fn eval_block_flow(
                       Ok(v) => v
                       Err(err) => return Err(err)
                     }
-                    let current = Value::List(slice_values_by_indices(values, indices))
+                    let current = Value::List(
+                      slice_values_by_indices(values, indices),
+                    )
                     let next = match
                       eval_augassign_op_values(
                         op, current, right_val, globals, builtins, io,
@@ -913,7 +978,6 @@ fn eval_block_flow(
                     values[norm] = next
                   }
                 }
-              }
               Value::Dict(pairs) => {
                 let index_value = match
                   eval_expr_with_env(index, locals, globals, builtins, io) {
@@ -1631,38 +1695,33 @@ fn eval_block_flow(
                         break
                       }
                     }
-                    match exc_value {
-                      Value::Class(klass) =>
-                        match exception_matches_handler(err, klass, builtins) {
-                          Ok(true) => matches = true
-                          Ok(false) => ()
-                          Err(e) => {
-                            handled = true
-                            handled_result = Err(e)
-                            break
-                          }
+                    let handler_classes = match
+                      handler_classes_from_value(exc_value, builtins) {
+                      Ok(v) => v
+                      Err(e) => {
+                        handled = true
+                        handled_result = Err(e)
+                        break
+                      }
+                    }
+                    let mut match_error : RuntimeError? = None
+                    for klass in handler_classes {
+                      match exception_matches_handler(err, klass, builtins) {
+                        Ok(true) => {
+                          matches = true
+                          break
                         }
-                      Value::Tuple(items) =>
-                        for item in items {
-                          match item {
-                            Value::Class(klass) =>
-                              match
-                                exception_matches_handler(err, klass, builtins) {
-                                Ok(true) => {
-                                  matches = true
-                                  break
-                                }
-                                Ok(false) => ()
-                                Err(e) => {
-                                  handled = true
-                                  handled_result = Err(e)
-                                  break
-                                }
-                              }
-                            _ => ()
-                          }
+                        Ok(false) => ()
+                        Err(e) => {
+                          match_error = Some(e)
+                          break
                         }
-                      _ => ()
+                      }
+                    }
+                    if match_error is Some(e) {
+                      handled = true
+                      handled_result = Err(e)
+                      break
                     }
                   }
                 }
@@ -1711,7 +1770,13 @@ fn eval_block_flow(
                         break
                       }
                     }
-                    handler_classes_from_value(exc_value)
+                    match handler_classes_from_value(exc_value, builtins) {
+                      Ok(v) => v
+                      Err(e) => {
+                        handler_error = Some(e)
+                        break
+                      }
+                    }
                   }
                   None => []
                 }

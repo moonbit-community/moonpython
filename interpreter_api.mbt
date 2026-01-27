@@ -287,6 +287,34 @@ pub fn Interpreter::new_spec() -> Interpreter {
       }),
     ),
   )
+  base_exception_dict.push(
+    (
+      "__setstate__",
+      Value::Function(FunctionValue::{
+        name: "__setstate__",
+        params: ["self", "state"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "__repr__",
+      Value::Function(FunctionValue::{
+        name: "__repr__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
   let base_exception_class = ClassValue::{
     name: "BaseException",
     bases: [Value::Class(object_class)],
@@ -304,6 +332,11 @@ pub fn Interpreter::new_spec() -> Interpreter {
   }
   let keyboard_interrupt_class = ClassValue::{
     name: "KeyboardInterrupt",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let generator_exit_class = ClassValue::{
+    name: "GeneratorExit",
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
@@ -390,6 +423,51 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
+  let blocking_io_error_class = ClassValue::{
+    name: "BlockingIOError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let child_process_error_class = ClassValue::{
+    name: "ChildProcessError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let connection_error_class = ClassValue::{
+    name: "ConnectionError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let broken_pipe_error_class = ClassValue::{
+    name: "BrokenPipeError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_aborted_error_class = ClassValue::{
+    name: "ConnectionAbortedError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_refused_error_class = ClassValue::{
+    name: "ConnectionRefusedError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_reset_error_class = ClassValue::{
+    name: "ConnectionResetError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let interrupted_error_class = ClassValue::{
+    name: "InterruptedError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let process_lookup_error_class = ClassValue::{
+    name: "ProcessLookupError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
   let file_not_found_error_class = ClassValue::{
     name: "FileNotFoundError",
     bases: [Value::Class(os_error_class)],
@@ -440,6 +518,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("Ellipsis", ellipsis_value))
   builtins.push(("NotImplemented", not_implemented_value))
   builtins.push(("BaseException", Value::Class(base_exception_class)))
+  builtins.push(("GeneratorExit", Value::Class(generator_exit_class)))
   builtins.push(("SystemExit", Value::Class(system_exit_class)))
   builtins.push(("KeyboardInterrupt", Value::Class(keyboard_interrupt_class)))
   builtins.push(("Exception", Value::Class(exception_class)))
@@ -466,6 +545,23 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("EncodingWarning", Value::Class(encoding_warning_class)))
   builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
+  builtins.push(("BlockingIOError", Value::Class(blocking_io_error_class)))
+  builtins.push(("ChildProcessError", Value::Class(child_process_error_class)))
+  builtins.push(("ConnectionError", Value::Class(connection_error_class)))
+  builtins.push(("BrokenPipeError", Value::Class(broken_pipe_error_class)))
+  builtins.push(
+    ("ConnectionAbortedError", Value::Class(connection_aborted_error_class)),
+  )
+  builtins.push(
+    ("ConnectionRefusedError", Value::Class(connection_refused_error_class)),
+  )
+  builtins.push(
+    ("ConnectionResetError", Value::Class(connection_reset_error_class)),
+  )
+  builtins.push(("InterruptedError", Value::Class(interrupted_error_class)))
+  builtins.push(
+    ("ProcessLookupError", Value::Class(process_lookup_error_class)),
+  )
   builtins.push(("TimeoutError", Value::Class(timeout_error_class)))
   builtins.push(("FileNotFoundError", Value::Class(file_not_found_error_class)))
   builtins.push(("FileExistsError", Value::Class(file_exists_error_class)))
@@ -684,6 +780,34 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       }),
     ),
   )
+  base_exception_dict.push(
+    (
+      "__setstate__",
+      Value::Function(FunctionValue::{
+        name: "__setstate__",
+        params: ["self", "state"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "__repr__",
+      Value::Function(FunctionValue::{
+        name: "__repr__",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
   let base_exception_class = ClassValue::{
     name: "BaseException",
     bases: [Value::Class(object_class)],
@@ -701,6 +825,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   }
   let keyboard_interrupt_class = ClassValue::{
     name: "KeyboardInterrupt",
+    bases: [Value::Class(base_exception_class)],
+    dict: [],
+  }
+  let generator_exit_class = ClassValue::{
+    name: "GeneratorExit",
     bases: [Value::Class(base_exception_class)],
     dict: [],
   }
@@ -817,14 +946,24 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(lookup_error_class)],
     dict: [],
   }
-  let not_implemented_error_class = ClassValue::{
-    name: "NotImplementedError",
+  let buffer_error_class = ClassValue::{
+    name: "BufferError",
+    bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let reference_error_class = ClassValue::{
+    name: "ReferenceError",
     bases: [Value::Class(exception_class)],
     dict: [],
   }
   let arithmetic_error_class = ClassValue::{
     name: "ArithmeticError",
     bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let floating_point_error_class = ClassValue::{
+    name: "FloatingPointError",
+    bases: [Value::Class(arithmetic_error_class)],
     dict: [],
   }
   let zero_division_error_class = ClassValue::{
@@ -865,6 +1004,51 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let os_error_class = ClassValue::{
     name: "OSError",
     bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let blocking_io_error_class = ClassValue::{
+    name: "BlockingIOError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let child_process_error_class = ClassValue::{
+    name: "ChildProcessError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let connection_error_class = ClassValue::{
+    name: "ConnectionError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let broken_pipe_error_class = ClassValue::{
+    name: "BrokenPipeError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_aborted_error_class = ClassValue::{
+    name: "ConnectionAbortedError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_refused_error_class = ClassValue::{
+    name: "ConnectionRefusedError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let connection_reset_error_class = ClassValue::{
+    name: "ConnectionResetError",
+    bases: [Value::Class(connection_error_class)],
+    dict: [],
+  }
+  let interrupted_error_class = ClassValue::{
+    name: "InterruptedError",
+    bases: [Value::Class(os_error_class)],
+    dict: [],
+  }
+  let process_lookup_error_class = ClassValue::{
+    name: "ProcessLookupError",
+    bases: [Value::Class(os_error_class)],
     dict: [],
   }
   let file_not_found_error_class = ClassValue::{
@@ -922,6 +1106,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(syntax_error_class)],
     dict: [],
   }
+  let tab_error_class = ClassValue::{
+    name: "TabError",
+    bases: [Value::Class(indentation_error_class)],
+    dict: [],
+  }
   let eof_error_class = ClassValue::{
     name: "EOFError",
     bases: [Value::Class(exception_class)],
@@ -940,6 +1129,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   let runtime_error_class = ClassValue::{
     name: "RuntimeError",
     bases: [Value::Class(exception_class)],
+    dict: [],
+  }
+  let not_implemented_error_class = ClassValue::{
+    name: "NotImplementedError",
+    bases: [Value::Class(runtime_error_class)],
     dict: [],
   }
   let recursion_error_class = ClassValue::{
@@ -1044,6 +1238,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("Ellipsis", ellipsis_value),
     ("NotImplemented", not_implemented_value),
     ("BaseException", Value::Class(base_exception_class)),
+    ("GeneratorExit", Value::Class(generator_exit_class)),
     ("SystemExit", Value::Class(system_exit_class)),
     ("KeyboardInterrupt", Value::Class(keyboard_interrupt_class)),
     ("Exception", Value::Class(exception_class)),
@@ -1069,11 +1264,13 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("UnboundLocalError", Value::Class(unbound_local_error_class)),
     ("TypeError", Value::Class(type_error_class)),
     ("AttributeError", Value::Class(attribute_error_class)),
+    ("BufferError", Value::Class(buffer_error_class)),
     ("LookupError", Value::Class(lookup_error_class)),
     ("IndexError", Value::Class(index_error_class)),
     ("KeyError", Value::Class(key_error_class)),
     ("NotImplementedError", Value::Class(not_implemented_error_class)),
     ("ArithmeticError", Value::Class(arithmetic_error_class)),
+    ("FloatingPointError", Value::Class(floating_point_error_class)),
     ("ZeroDivisionError", Value::Class(zero_division_error_class)),
     ("OverflowError", Value::Class(overflow_error_class)),
     ("ValueError", Value::Class(value_error_class)),
@@ -1082,23 +1279,34 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("UnicodeEncodeError", Value::Class(unicode_encode_error_class)),
     ("UnicodeTranslateError", Value::Class(unicode_translate_error_class)),
     ("OSError", Value::Class(os_error_class)),
+    ("BlockingIOError", Value::Class(blocking_io_error_class)),
+    ("ChildProcessError", Value::Class(child_process_error_class)),
+    ("ConnectionError", Value::Class(connection_error_class)),
+    ("BrokenPipeError", Value::Class(broken_pipe_error_class)),
+    ("ConnectionAbortedError", Value::Class(connection_aborted_error_class)),
+    ("ConnectionRefusedError", Value::Class(connection_refused_error_class)),
+    ("ConnectionResetError", Value::Class(connection_reset_error_class)),
+    ("InterruptedError", Value::Class(interrupted_error_class)),
     ("TimeoutError", Value::Class(timeout_error_class)),
     ("FileNotFoundError", Value::Class(file_not_found_error_class)),
     ("FileExistsError", Value::Class(file_exists_error_class)),
     ("PermissionError", Value::Class(permission_error_class)),
     ("IsADirectoryError", Value::Class(is_a_directory_error_class)),
     ("NotADirectoryError", Value::Class(not_a_directory_error_class)),
+    ("ProcessLookupError", Value::Class(process_lookup_error_class)),
     ("ImportError", Value::Class(import_error_class)),
     ("ModuleNotFoundError", Value::Class(module_not_found_error_class)),
     ("AssertionError", Value::Class(assertion_error_class)),
     ("SyntaxError", Value::Class(syntax_error_class)),
     ("IndentationError", Value::Class(indentation_error_class)),
+    ("TabError", Value::Class(tab_error_class)),
     ("EOFError", Value::Class(eof_error_class)),
     ("StopIteration", Value::Class(stop_iteration_class)),
     ("StopAsyncIteration", Value::Class(stop_async_iteration_class)),
     ("RuntimeError", Value::Class(runtime_error_class)),
     ("RecursionError", Value::Class(recursion_error_class)),
     ("MemoryError", Value::Class(memory_error_class)),
+    ("ReferenceError", Value::Class(reference_error_class)),
   ]
   let builtin_type_names : Array[String] = [
     "int", "bool", "float", "complex", "str", "bytes", "bytearray", "memoryview",

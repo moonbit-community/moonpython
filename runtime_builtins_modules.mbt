@@ -4053,9 +4053,11 @@ fn builtin_warnings_filters_mutated(
   touch_env(locals, globals, builtins, io)
   if positional.length() > 0 {
     let _ = positional[0]
+
   }
   if keywords.length() > 0 {
     let _ = keywords[0]
+
   }
   Ok(Value::None)
 }
@@ -4087,10 +4089,8 @@ fn builtin_warnings_warn(
     )
   }
   let message = positional[0]
-
   let mut category : Value = Value::None
   let mut stacklevel : Int = 1
-
   if positional.length() > 1 {
     category = positional[1]
   }
@@ -4121,6 +4121,7 @@ fn builtin_warnings_warn(
     } else if key == "source" || key == "skip_file_prefixes" {
       // ignored
       let _ = value
+
     } else {
       return Err(
         make_runtime_error(
@@ -4133,7 +4134,6 @@ fn builtin_warnings_warn(
   if category is Value::None {
     category = warnings_default_category(builtins)
   }
-
   let message_obj = match message {
     Value::Instance(inst) =>
       if class_has_base_name(inst.class, "Warning") {
@@ -4146,14 +4146,20 @@ fn builtin_warnings_warn(
       match category {
         Value::Class(_) =>
           match
-            call_callable_with_env(category, [message], [], globals, builtins, io) {
+            call_callable_with_env(
+              category,
+              [message],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
         _ => message
       }
   }
-
   let frames = snapshot_traceback()
   let (filename, lineno) = if frames.length() == 0 {
     ("sys".to_string(), 1)
@@ -4164,7 +4170,6 @@ fn builtin_warnings_warn(
     }
     (frames[idx].filename, frames[idx].line)
   }
-
   let import_value = match get_named_value(builtins, "__import__") {
     Some(v) => v
     None =>
@@ -4252,7 +4257,6 @@ fn builtin_warnings_warn_explicit(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-
   let message_obj = match message {
     Value::Instance(inst) =>
       if class_has_base_name(inst.class, "Warning") {
@@ -4265,14 +4269,20 @@ fn builtin_warnings_warn_explicit(
       match category {
         Value::Class(_) =>
           match
-            call_callable_with_env(category, [message], [], globals, builtins, io) {
+            call_callable_with_env(
+              category,
+              [message],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
             Ok(v) => v
             Err(err) => return Err(err)
           }
         _ => message
       }
   }
-
   let import_value = match get_named_value(builtins, "__import__") {
     Some(v) => v
     None =>

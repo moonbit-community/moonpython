@@ -431,7 +431,8 @@ fn eval_binary_op_values(
     }
     BinaryOp::Div => {
       if left_val is Value::Instance(_) {
-        match get_attr_from_value(left_val, "__truediv__", globals, builtins, io) {
+        match
+          get_attr_from_value(left_val, "__truediv__", globals, builtins, io) {
           Ok(truediv_method) =>
             return call_callable_with_env(
               truediv_method,
@@ -751,7 +752,8 @@ fn eval_binary_op_values(
         }
       }
       if right_val is Value::Instance(_) {
-        match get_attr_from_value(right_val, "__rpow__", globals, builtins, io) {
+        match
+          get_attr_from_value(right_val, "__rpow__", globals, builtins, io) {
           Ok(rpow_method) =>
             return call_callable_with_env(
               rpow_method,
@@ -799,7 +801,8 @@ fn eval_binary_op_values(
     }
     BinaryOp::MatMul => {
       if left_val is Value::Instance(_) {
-        match get_attr_from_value(left_val, "__matmul__", globals, builtins, io) {
+        match
+          get_attr_from_value(left_val, "__matmul__", globals, builtins, io) {
           Ok(matmul_method) =>
             return call_callable_with_env(
               matmul_method,
@@ -836,7 +839,8 @@ fn eval_binary_op_values(
     }
     BinaryOp::ShiftLeft => {
       if left_val is Value::Instance(_) {
-        match get_attr_from_value(left_val, "__lshift__", globals, builtins, io) {
+        match
+          get_attr_from_value(left_val, "__lshift__", globals, builtins, io) {
           Ok(lshift_method) =>
             return call_callable_with_env(
               lshift_method,
@@ -894,7 +898,8 @@ fn eval_binary_op_values(
     }
     BinaryOp::ShiftRight => {
       if left_val is Value::Instance(_) {
-        match get_attr_from_value(left_val, "__rshift__", globals, builtins, io) {
+        match
+          get_attr_from_value(left_val, "__rshift__", globals, builtins, io) {
           Ok(rshift_method) =>
             return call_callable_with_env(
               rshift_method,
@@ -966,7 +971,8 @@ fn eval_binary_op_values(
         }
       }
       if right_val is Value::Instance(_) {
-        match get_attr_from_value(right_val, "__rand__", globals, builtins, io) {
+        match
+          get_attr_from_value(right_val, "__rand__", globals, builtins, io) {
           Ok(rand_method) =>
             return call_callable_with_env(
               rand_method,
@@ -1011,7 +1017,8 @@ fn eval_binary_op_values(
         }
       }
       if right_val is Value::Instance(_) {
-        match get_attr_from_value(right_val, "__rxor__", globals, builtins, io) {
+        match
+          get_attr_from_value(right_val, "__rxor__", globals, builtins, io) {
           Ok(rxor_method) =>
             return call_callable_with_env(
               rxor_method,
@@ -1168,7 +1175,8 @@ fn eval_augassign_op_values(
   // Builtin list in-place ops are observable via aliasing (`a is b`).
   match (op, left_val) {
     (BinaryOp::Add, Value::List(values)) => {
-      let iterator = match iter_value_to_iterator(right_val, globals, builtins, io) {
+      let iterator = match
+        iter_value_to_iterator(right_val, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
@@ -1189,7 +1197,15 @@ fn eval_augassign_op_values(
       let count = match right_val {
         Value::Int(v) => v
         Value::Bool(v) => if v { 1N } else { 0N }
-        _ => return eval_binary_op_values(op, Value::List(values), right_val, globals, builtins, io)
+        _ =>
+          return eval_binary_op_values(
+            op,
+            Value::List(values),
+            right_val,
+            globals,
+            builtins,
+            io,
+          )
       }
       if count <= 0N {
         replace_array_values(values, [])
@@ -1222,7 +1238,14 @@ fn eval_augassign_op_values(
         match get_attr_from_value(left_val, name, globals, builtins, io) {
           Ok(inplace_method) => {
             let out = match
-              call_callable_with_env(inplace_method, [right_val], [], globals, builtins, io) {
+              call_callable_with_env(
+                inplace_method,
+                [right_val],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
               Ok(v) => v
               Err(err) => return Err(err)
             }

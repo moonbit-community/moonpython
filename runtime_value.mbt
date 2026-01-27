@@ -247,22 +247,22 @@ fn value_to_string(value : Value) -> String {
     Value::Class(klass) => "<class '" + klass.name + "'>"
     Value::Instance(inst) =>
       if is_base_exception_class_value(inst.class) {
-        // Exception stringification: prefer the synthetic `message` field
-        // (populated by the runtime for many exception constructions), then
-        // fall back to `args` like CPython's BaseException.__str__.
-        match lookup_instance_field(inst.dict, "message") {
-          Some(Value::Str(text)) => text
+        // Exception stringification: match CPython's BaseException.__str__ based
+        // on `.args`. Keep the synthetic `message` field as a fallback for
+        // runtime-generated errors that don't populate `args`.
+        match lookup_instance_field(inst.dict, "args") {
+          Some(Value::Tuple(args)) =>
+            if args.length() == 0 {
+              "".to_string()
+            } else if args.length() == 1 {
+              value_to_string(args[0])
+            } else {
+              value_to_string(Value::Tuple(args))
+            }
           Some(other) => value_to_string(other)
           None =>
-            match lookup_instance_field(inst.dict, "args") {
-              Some(Value::Tuple(args)) =>
-                if args.length() == 0 {
-                  "".to_string()
-                } else if args.length() == 1 {
-                  value_to_string(args[0])
-                } else {
-                  value_to_string(Value::Tuple(args))
-                }
+            match lookup_instance_field(inst.dict, "message") {
+              Some(Value::Str(text)) => text
               Some(other) => value_to_string(other)
               None => "".to_string()
             }

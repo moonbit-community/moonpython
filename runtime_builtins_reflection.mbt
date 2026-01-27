@@ -1000,66 +1000,115 @@ fn builtin_repr(
   match value {
     Value::Str(text) =>
       Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
-    Value::Instance(_) =>
-      match get_attr_from_value(value, "__repr__", globals, builtins, io) {
-        Ok(callable) =>
-          match callable {
-            Value::BoundMethod(bound) =>
-              if bound.function.body.length() > 0 {
-                match
-                  (eval_function_with_kwargs_ref.val)(
-                    bound.function,
-                    [bound.self],
-                    [],
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(Value::Str(text)) => Ok(Value::Str(text))
-                  Ok(_) =>
-                    Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Type,
-                        "__repr__ returned non-string".to_string(),
-                      ),
-                    )
-                  Err(err) => Err(err)
-                }
-              } else {
-                Ok(Value::Str(value_to_string(value)))
-              }
-            Value::Function(func) =>
-              if func.body.length() > 0 {
-                match
-                  (eval_function_with_kwargs_ref.val)(
-                    func,
-                    [value],
-                    [],
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(Value::Str(text)) => Ok(Value::Str(text))
-                  Ok(_) =>
-                    Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Type,
-                        "__repr__ returned non-string".to_string(),
-                      ),
-                    )
-                  Err(err) => Err(err)
-                }
-              } else {
-                Ok(Value::Str(value_to_string(value)))
-              }
-            _ => Ok(Value::Str(value_to_string(value)))
+    Value::Instance(inst) =>
+      if is_base_exception_class_value(inst.class) {
+        fn repr_arg(
+          arg : Value,
+          globals : Array[(String, Value)],
+          builtins : Array[(String, Value)],
+          io : MockIO,
+        ) -> Result[String, RuntimeError] {
+          match
+            eval_builtin_call("repr", [arg], [], [], globals, builtins, io) {
+            Ok(Some(Value::Str(text))) => Ok(text)
+            Ok(Some(other)) => Ok(value_to_string(other))
+            Ok(None) => Ok(value_to_string(arg))
+            Err(err) => Err(err)
           }
-        Err(err) =>
-          match err.kind {
-            RuntimeErrorKind::Attribute =>
-              Ok(Value::Str(value_to_string(value)))
-            _ => Err(err)
+        }
+
+        let args : Array[Value] = match
+          lookup_instance_field(inst.dict, "args") {
+          Some(Value::Tuple(items)) => items
+          Some(other) => [other]
+          None => []
+        }
+        if args.length() == 0 {
+          Ok(Value::Str(inst.class.name + "()"))
+        } else if args.length() == 1 {
+          let part = match repr_arg(args[0], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
           }
+          Ok(Value::Str(inst.class.name + "(" + part + ")"))
+        } else {
+          let buf = StringBuilder::new()
+          buf.write_string(inst.class.name)
+          buf.write_char('(')
+          for i = 0; i < args.length(); i = i + 1 {
+            if i > 0 {
+              buf.write_string(", ")
+            }
+            let part = match repr_arg(args[i], globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            buf.write_string(part)
+          }
+          buf.write_char(')')
+          Ok(Value::Str(buf.to_string()))
+        }
+      } else {
+        match get_attr_from_value(value, "__repr__", globals, builtins, io) {
+          Ok(callable) =>
+            match callable {
+              Value::BoundMethod(bound) =>
+                if bound.function.body.length() > 0 {
+                  match
+                    (eval_function_with_kwargs_ref.val)(
+                      bound.function,
+                      [bound.self],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(Value::Str(text)) => Ok(Value::Str(text))
+                    Ok(_) =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__repr__ returned non-string".to_string(),
+                        ),
+                      )
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  Ok(Value::Str(value_to_string(value)))
+                }
+              Value::Function(func) =>
+                if func.body.length() > 0 {
+                  match
+                    (eval_function_with_kwargs_ref.val)(
+                      func,
+                      [value],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(Value::Str(text)) => Ok(Value::Str(text))
+                    Ok(_) =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__repr__ returned non-string".to_string(),
+                        ),
+                      )
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  Ok(Value::Str(value_to_string(value)))
+                }
+              _ => Ok(Value::Str(value_to_string(value)))
+            }
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute =>
+                Ok(Value::Str(value_to_string(value)))
+              _ => Err(err)
+            }
+        }
       }
     _ => Ok(Value::Str(value_to_string(value)))
   }
@@ -2851,17 +2900,18 @@ fn builtin_compile(
         ),
       )
   }
-
   if mode == "eval" {
     let _ = match parse_expr(source_text) {
       Ok(v) => v
       Err(err) => return Err(make_parse_runtime_error(err))
     }
+
   } else if mode == "exec" || mode == "single" {
     let _ = match parse(source_text) {
       Ok(v) => v
       Err(err) => return Err(make_parse_runtime_error(err))
     }
+
   } else {
     return Err(
       make_runtime_error(
