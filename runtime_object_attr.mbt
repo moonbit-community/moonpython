@@ -768,12 +768,50 @@ fn get_attr_raw_from_value(
       // Provide list methods on list subclasses (instances storing `$__list__`).
       match get_named_value(inst.dict, list_storage_name) {
         Some(Value::List(_)) =>
-          if attr == "append" {
+          // Don't override user-defined methods (e.g. `class L(list): def insert...`).
+          // Only provide fallbacks for operations missing from the class dict.
+          if (match lookup_class_attr(inst.class, attr) {
+              Ok(Some(_)) => true
+              Ok(None) => false
+              Err(err) => return Err(err)
+            }) {
+            ()
+          } else if attr == "append" {
             return Ok(
               Value::BoundMethod(BoundMethodValue::{
                 function: FunctionValue::{
                   name: "append",
                   params: ["self", "object"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "extend" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "extend",
+                  params: ["self", "iterable"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "insert" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "insert",
+                  params: ["self", "index", "object"],
                   defaults: [],
                   body: [],
                   is_generator: false,
@@ -798,6 +836,51 @@ fn get_attr_raw_from_value(
                 self: Value::Instance(inst),
               }),
             )
+          } else if attr == "clear" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "clear",
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "pop" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "pop",
+                  params: ["self", "index"],
+                  defaults: [Value::Int(@bigint.BigInt::from_int(-1))],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "copy" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "copy",
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
           } else if attr == "reverse" {
             return Ok(
               Value::BoundMethod(BoundMethodValue::{
@@ -805,6 +888,21 @@ fn get_attr_raw_from_value(
                   name: "reverse",
                   params: ["self"],
                   defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "sort" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "sort",
+                  params: ["self", "key", "reverse"],
+                  defaults: [Value::None, Value::Bool(false)],
                   body: [],
                   is_generator: false,
                   is_async: false,

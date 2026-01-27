@@ -1726,6 +1726,68 @@ fn eval_expr_with_env(
         }
       }
 
+      fn is_notimplemented(value : Value) -> Bool {
+        match value {
+          Value::Instance(inst) => inst.class.name == "NotImplementedType"
+          _ => false
+        }
+      }
+
+      fn ordering_bool(
+        left : Value,
+        right : Value,
+        method_name : String,
+        reverse_method_name : String,
+        op_symbol : String,
+      ) -> Result[Bool, RuntimeError] {
+        fn unsupported(
+          op_symbol : String,
+          left : Value,
+          right : Value,
+        ) -> RuntimeError {
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "'" +
+            op_symbol +
+            "' not supported between instances of '" +
+            type_name_from_value(left) +
+            "' and '" +
+            type_name_from_value(right) +
+            "'",
+          )
+        }
+
+        match call_compare_method(left, method_name, right) {
+          Ok(Some(value)) =>
+            if is_notimplemented(value) {
+              match call_compare_method(right, reverse_method_name, left) {
+                Ok(Some(value2)) =>
+                  if is_notimplemented(value2) {
+                    Err(unsupported(op_symbol, left, right))
+                  } else {
+                    Ok(bool_from_value(value2))
+                  }
+                Ok(None) => Err(unsupported(op_symbol, left, right))
+                Err(err) => Err(err)
+              }
+            } else {
+              Ok(bool_from_value(value))
+            }
+          Ok(None) =>
+            match call_compare_method(right, reverse_method_name, left) {
+              Ok(Some(value2)) =>
+                if is_notimplemented(value2) {
+                  Err(unsupported(op_symbol, left, right))
+                } else {
+                  Ok(bool_from_value(value2))
+                }
+              Ok(None) => Err(unsupported(op_symbol, left, right))
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      }
+
       for i = 0; i < ops.length(); i = i + 1 {
         let current = match
           eval_expr_with_env(comparators[i], locals, globals, builtins, io) {
@@ -1776,18 +1838,28 @@ fn eval_expr_with_env(
                 (if left { 1N } else { 0N }) < right
               (Value::Int(left), Value::Bool(right)) =>
                 left < (if right { 1N } else { 0N })
+              (Value::Float(left), Value::Float(right)) => left < right
+              (Value::Float(left), Value::Int(right)) =>
+                match bigint_to_double_checked(right) {
+                  Ok(v) => left < v
+                  Err(err) => return Err(err)
+                }
+              (Value::Int(left), Value::Float(right)) =>
+                match bigint_to_double_checked(left) {
+                  Ok(v) => v < right
+                  Err(err) => return Err(err)
+                }
+              (Value::Float(left), Value::Bool(right)) =>
+                left < (if right { 1.0 } else { 0.0 })
+              (Value::Bool(left), Value::Float(right)) =>
+                (if left { 1.0 } else { 0.0 }) < right
               (Value::Str(left), Value::Str(right)) => left < right
-              _ => {
-                let (_, left_num) = match number_value(previous) {
-                  Ok(value) => value
+              _ =>
+                match
+                  ordering_bool(previous, current, "__lt__", "__gt__", "<") {
+                  Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let (_, right_num) = match number_value(current) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                left_num < right_num
-              }
             }
           CompareOp::Lte =>
             match (previous, current) {
@@ -1822,18 +1894,28 @@ fn eval_expr_with_env(
                 (if left { 1N } else { 0N }) <= right
               (Value::Int(left), Value::Bool(right)) =>
                 left <= (if right { 1N } else { 0N })
+              (Value::Float(left), Value::Float(right)) => left <= right
+              (Value::Float(left), Value::Int(right)) =>
+                match bigint_to_double_checked(right) {
+                  Ok(v) => left <= v
+                  Err(err) => return Err(err)
+                }
+              (Value::Int(left), Value::Float(right)) =>
+                match bigint_to_double_checked(left) {
+                  Ok(v) => v <= right
+                  Err(err) => return Err(err)
+                }
+              (Value::Float(left), Value::Bool(right)) =>
+                left <= (if right { 1.0 } else { 0.0 })
+              (Value::Bool(left), Value::Float(right)) =>
+                (if left { 1.0 } else { 0.0 }) <= right
               (Value::Str(left), Value::Str(right)) => left <= right
-              _ => {
-                let (_, left_num) = match number_value(previous) {
-                  Ok(value) => value
+              _ =>
+                match
+                  ordering_bool(previous, current, "__le__", "__ge__", "<=") {
+                  Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let (_, right_num) = match number_value(current) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                left_num <= right_num
-              }
             }
           CompareOp::Gt =>
             match (previous, current) {
@@ -1868,18 +1950,28 @@ fn eval_expr_with_env(
                 (if left { 1N } else { 0N }) > right
               (Value::Int(left), Value::Bool(right)) =>
                 left > (if right { 1N } else { 0N })
+              (Value::Float(left), Value::Float(right)) => left > right
+              (Value::Float(left), Value::Int(right)) =>
+                match bigint_to_double_checked(right) {
+                  Ok(v) => left > v
+                  Err(err) => return Err(err)
+                }
+              (Value::Int(left), Value::Float(right)) =>
+                match bigint_to_double_checked(left) {
+                  Ok(v) => v > right
+                  Err(err) => return Err(err)
+                }
+              (Value::Float(left), Value::Bool(right)) =>
+                left > (if right { 1.0 } else { 0.0 })
+              (Value::Bool(left), Value::Float(right)) =>
+                (if left { 1.0 } else { 0.0 }) > right
               (Value::Str(left), Value::Str(right)) => left > right
-              _ => {
-                let (_, left_num) = match number_value(previous) {
-                  Ok(value) => value
+              _ =>
+                match
+                  ordering_bool(previous, current, "__gt__", "__lt__", ">") {
+                  Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let (_, right_num) = match number_value(current) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                left_num > right_num
-              }
             }
           CompareOp::Gte =>
             match (previous, current) {
@@ -1914,18 +2006,28 @@ fn eval_expr_with_env(
                 (if left { 1N } else { 0N }) >= right
               (Value::Int(left), Value::Bool(right)) =>
                 left >= (if right { 1N } else { 0N })
+              (Value::Float(left), Value::Float(right)) => left >= right
+              (Value::Float(left), Value::Int(right)) =>
+                match bigint_to_double_checked(right) {
+                  Ok(v) => left >= v
+                  Err(err) => return Err(err)
+                }
+              (Value::Int(left), Value::Float(right)) =>
+                match bigint_to_double_checked(left) {
+                  Ok(v) => v >= right
+                  Err(err) => return Err(err)
+                }
+              (Value::Float(left), Value::Bool(right)) =>
+                left >= (if right { 1.0 } else { 0.0 })
+              (Value::Bool(left), Value::Float(right)) =>
+                (if left { 1.0 } else { 0.0 }) >= right
               (Value::Str(left), Value::Str(right)) => left >= right
-              _ => {
-                let (_, left_num) = match number_value(previous) {
-                  Ok(value) => value
+              _ =>
+                match
+                  ordering_bool(previous, current, "__ge__", "__le__", ">=") {
+                  Ok(v) => v
                   Err(err) => return Err(err)
                 }
-                let (_, right_num) = match number_value(current) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-                left_num >= right_num
-              }
             }
           CompareOp::Is => is_value_identity(previous, current)
           CompareOp::IsNot => !is_value_identity(previous, current)

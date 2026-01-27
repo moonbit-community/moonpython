@@ -1060,6 +1060,73 @@ fn call_callable_with_env(
                       values.push(positional[0])
                       return Ok(Value::None)
                     }
+                  "extend" =>
+                    if positional.length() != 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "extend() takes exactly one argument".to_string(),
+                        ),
+                      )
+                    } else {
+                      let to_add : Array[Value] = []
+                      let iterator = match
+                        iter_value_to_iterator(
+                          positional[0],
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      while true {
+                        match
+                          iterator_next(iterator, None, globals, builtins, io) {
+                          Ok(item) => to_add.push(item)
+                          Err(err) =>
+                            if err.exc_type == "StopIteration" {
+                              break
+                            } else {
+                              return Err(err)
+                            }
+                        }
+                      }
+                      for item in to_add {
+                        values.push(item)
+                      }
+                      return Ok(Value::None)
+                    }
+                  "insert" =>
+                    if positional.length() != 2 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "insert() takes exactly two arguments".to_string(),
+                        ),
+                      )
+                    } else {
+                      let idx = match index_from_value(positional[0], 0) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      let len = values.length()
+                      let mut pos = normalize_index(idx, len)
+                      if pos < 0 {
+                        pos = 0
+                      }
+                      if pos > len {
+                        pos = len
+                      }
+                      values.push(Value::None)
+                      let mut i = len
+                      while i > pos {
+                        values[i] = values[i - 1]
+                        i = i - 1
+                      }
+                      values[pos] = positional[1]
+                      return Ok(Value::None)
+                    }
                   "remove" =>
                     if positional.length() != 1 {
                       return Err(
@@ -1106,6 +1173,351 @@ fn call_callable_with_env(
                       }
                       return Ok(Value::None)
                     }
+                  "clear" =>
+                    if positional.length() != 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "clear() takes no arguments".to_string(),
+                        ),
+                      )
+                    } else {
+                      let mut i = values.length()
+                      while i > 0 {
+                        i = i - 1
+                        let _ = values.remove(i)
+
+                      }
+                      return Ok(Value::None)
+                    }
+                  "pop" => {
+                    if positional.length() > 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "pop() takes at most one argument".to_string(),
+                        ),
+                      )
+                    }
+                    if values.length() == 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Index,
+                          "pop from empty list".to_string(),
+                        ),
+                      )
+                    }
+                    let mut idx = values.length() - 1
+                    if positional.length() == 1 {
+                      let raw = match positional[0] {
+                        Value::Int(v) =>
+                          match bigint_to_int_checked(v) {
+                            Ok(i) => i
+                            Err(err) => return Err(err)
+                          }
+                        Value::Bool(b) => if b { 1 } else { 0 }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "invalid index".to_string(),
+                            ),
+                          )
+                      }
+                      let normalized = normalize_index(raw, values.length())
+                      if normalized < 0 || normalized >= values.length() {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Index,
+                            "pop index out of range".to_string(),
+                          ),
+                        )
+                      }
+                      idx = normalized
+                    }
+                    let item = values.remove(idx)
+                    return Ok(item)
+                  }
+                  "copy" =>
+                    if positional.length() != 0 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "copy() takes no arguments".to_string(),
+                        ),
+                      )
+                    } else {
+                      let out : Array[Value] = []
+                      for item in values {
+                        out.push(item)
+                      }
+                      return Ok(Value::List(out))
+                    }
+                  "sort" => {
+                    if positional.length() > 2 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "sort() takes at most 2 arguments".to_string(),
+                        ),
+                      )
+                    }
+                    let mut reverse = false
+                    let mut key_value : Value? = None
+                    for pair in keywords {
+                      if pair.0 == "key" {
+                        key_value = Some(pair.1)
+                      } else if pair.0 == "reverse" {
+                        reverse = bool_from_value(pair.1)
+                      } else {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "sort() got unexpected keyword arguments".to_string(),
+                          ),
+                        )
+                      }
+                    }
+                    if positional.length() >= 1 {
+                      if key_value is Some(_) {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "sort() got multiple values for argument 'key'".to_string(),
+                          ),
+                        )
+                      }
+                      key_value = Some(positional[0])
+                    }
+                    if positional.length() == 2 {
+                      reverse = bool_from_value(positional[1])
+                    }
+                    if values.length() == 0 {
+                      return Ok(Value::None)
+                    }
+                    fn lt_for_sort(
+                      a : Value,
+                      b : Value,
+                      globals : Array[(String, Value)],
+                      builtins : Array[(String, Value)],
+                      io : MockIO,
+                    ) -> Result[Bool, RuntimeError] {
+                      match (a, b) {
+                        (Value::Str(x), Value::Str(y)) => Ok(x < y)
+                        (Value::Int(_) | Value::Float(_) | Value::Bool(_), _)
+                        | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
+                          let (_, left_num) = match number_value(a) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          let (_, right_num) = match number_value(b) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          Ok(left_num < right_num)
+                        }
+                        _ => {
+                          let lt = match
+                            get_attr_from_value(
+                              a, "__lt__", globals, builtins, io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) =>
+                              match err.kind {
+                                RuntimeErrorKind::Attribute =>
+                                  return Err(
+                                    make_runtime_error(
+                                      RuntimeErrorKind::Type,
+                                      "sort() cannot compare values".to_string(),
+                                    ),
+                                  )
+                                _ => return Err(err)
+                              }
+                          }
+                          let result = match
+                            call_callable_with_env(
+                              lt,
+                              [b],
+                              [],
+                              globals,
+                              builtins,
+                              io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          Ok(bool_from_value(result))
+                        }
+                      }
+                    }
+
+                    match key_value {
+                      Some(key_fn) => {
+                        let key_pairs : Array[(Value, Value)] = []
+                        for item in values {
+                          let key = if key_fn is Value::None {
+                            item
+                          } else {
+                            match
+                              call_callable_with_env(
+                                key_fn,
+                                [item],
+                                [],
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(value) => value
+                              Err(err) => return Err(err)
+                            }
+                          }
+                          key_pairs.push((key, item))
+                        }
+                        fn insertion_sort_pairs_by_key(
+                          pairs : Array[(Value, Value)],
+                          globals : Array[(String, Value)],
+                          builtins : Array[(String, Value)],
+                          io : MockIO,
+                        ) -> Result[Unit, RuntimeError] {
+                          let mut i = 1
+                          while i < pairs.length() {
+                            let item = pairs[i]
+                            let mut j = i
+                            while j > 0 {
+                              let less = match
+                                lt_for_sort(
+                                  item.0,
+                                  pairs[j - 1].0,
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              if !less {
+                                break
+                              }
+                              pairs[j] = pairs[j - 1]
+                              j -= 1
+                            }
+                            pairs[j] = item
+                            i += 1
+                          }
+                          Ok(())
+                        }
+
+                        let mut kind_opt : SortKind? = None
+                        let mut can_use_fast = true
+                        for pair in key_pairs {
+                          match sort_kind_for_sorted(pair.0) {
+                            Some(kind) =>
+                              match kind_opt {
+                                None => kind_opt = Some(kind)
+                                Some(prev) =>
+                                  if prev != kind {
+                                    can_use_fast = false
+                                  }
+                              }
+                            None => can_use_fast = false
+                          }
+                        }
+                        let sorted_pairs = if can_use_fast {
+                          let kind = match kind_opt {
+                            Some(kind) => kind
+                            None => return Ok(Value::None)
+                          }
+                          match stable_sort_pairs_by_key(key_pairs, kind) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                        } else {
+                          let _ = match
+                            insertion_sort_pairs_by_key(
+                              key_pairs, globals, builtins, io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          key_pairs
+                        }
+                        let sorted_items : Array[Value] = []
+                        for pair in sorted_pairs {
+                          sorted_items.push(pair.1)
+                        }
+                        let out = if reverse {
+                          reverse_values(sorted_items)
+                        } else {
+                          sorted_items
+                        }
+                        replace_array_values(values, out)
+                        return Ok(Value::None)
+                      }
+                      None => {
+                        let mut kind_opt : SortKind? = None
+                        let mut can_use_fast = true
+                        for item in values {
+                          match sort_kind_for_sorted(item) {
+                            Some(kind) =>
+                              match kind_opt {
+                                None => kind_opt = Some(kind)
+                                Some(prev) =>
+                                  if prev != kind {
+                                    can_use_fast = false
+                                  }
+                              }
+                            None => can_use_fast = false
+                          }
+                        }
+                        let mut out = if can_use_fast {
+                          let kind = match kind_opt {
+                            Some(kind) => kind
+                            None => return Ok(Value::None)
+                          }
+                          match stable_sort_for_sorted(values, kind) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                        } else {
+                          let out : Array[Value] = []
+                          for item in values {
+                            out.push(item)
+                          }
+                          let mut i = 1
+                          while i < out.length() {
+                            let item = out[i]
+                            let mut j = i
+                            while j > 0 {
+                              let less = match
+                                lt_for_sort(
+                                  item,
+                                  out[j - 1],
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              if !less {
+                                break
+                              }
+                              out[j] = out[j - 1]
+                              j -= 1
+                            }
+                            out[j] = item
+                            i += 1
+                          }
+                          out
+                        }
+                        if reverse {
+                          out = reverse_values(out)
+                        }
+                        replace_array_values(values, out)
+                        return Ok(Value::None)
+                      }
+                    }
+                  }
                   _ => ()
                 }
               }
@@ -5059,6 +5471,45 @@ fn call_callable_with_env(
       }
       match inst_value {
         Value::Instance(inst) => {
+          match get_named_value(inst.dict, list_storage_name) {
+            Some(Value::List(values)) =>
+              // List subclasses (e.g. `class L(list): ...`) currently don't inherit
+              // `list.__init__` from the builtins class table, so initialize their
+              // backing storage here unless they define a custom `__init__`.
+              if get_named_value(klass.dict, "__init__") is None {
+                if keywords.length() > 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "list() takes no keyword arguments".to_string(),
+                    ),
+                  )
+                }
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "list expected at most 1 argument, got " +
+                      positional.length().to_string(),
+                    ),
+                  )
+                }
+                if positional.length() == 1 {
+                  let items = match
+                    collect_items_from_iterable(
+                      positional[0],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  replace_array_values(values, items)
+                }
+              }
+            _ => ()
+          }
           match init {
             Some(Value::Function(func)) =>
               if inst.class.name == klass.name {

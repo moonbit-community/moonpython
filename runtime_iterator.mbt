@@ -20,6 +20,9 @@ let rangeiter_class_ref : Ref[ClassValue?] = { val: None }
 let cycle_class_ref : Ref[ClassValue?] = { val: None }
 
 ///|
+let seqiter_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
 fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
   match cache.val {
     Some(value) => return value
@@ -136,6 +139,17 @@ fn make_range_iterator(
 }
 
 ///|
+fn make_seqiter_iterator(target : Value) -> Value {
+  let dict : Array[(String, Value)] = []
+  dict.push(("target", target))
+  dict.push(("index", Value::Int(0N)))
+  Value::Instance(InstanceValue::{
+    class: internal_iter_class("seqiter", seqiter_class_ref),
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -180,6 +194,22 @@ fn iter_value_to_iterator(
           Err(err) =>
             match err.kind {
               RuntimeErrorKind::Attribute => {
+                match
+                  get_attr_from_value(
+                    Value::Instance(inst),
+                    "__getitem__",
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(_) =>
+                    return Ok(make_seqiter_iterator(Value::Instance(inst)))
+                  Err(err2) =>
+                    match err2.kind {
+                      RuntimeErrorKind::Attribute => ()
+                      _ => return Err(err2)
+                    }
+                }
                 // Fallback to the internal materialization path (builtins + our
                 // internal iterator/generator types).
                 let items = match iterable_values(Value::Instance(inst)) {
@@ -503,6 +533,56 @@ fn iterator_next(
         } else {
           set_named_value(inst.dict, "current", Value::Int(current + step))
           Ok(Value::Int(current))
+        }
+      } else if inst.class.name == "seqiter" {
+        let target = match get_named_value(inst.dict, "target") {
+          Some(v) => v
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "invalid seqiter iterator".to_string(),
+              ),
+            )
+        }
+        let index0 = match get_named_value(inst.dict, "index") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => 0N
+        }
+        let getitem = match
+          get_attr_from_value(target, "__getitem__", globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        match
+          call_callable_with_env(
+            getitem,
+            [Value::Int(index0)],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(item) => {
+            set_named_value(inst.dict, "index", Value::Int(index0 + 1N))
+            Ok(item)
+          }
+          Err(err) =>
+            if err.exc_type == "IndexError" {
+              match default_value {
+                Some(v) => Ok(v)
+                None =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "StopIteration".to_string(),
+                    ),
+                  )
+              }
+            } else {
+              Err(err)
+            }
         }
       } else if inst.class.name == "generator" {
         generator_next(Value::Instance(inst), default_value)

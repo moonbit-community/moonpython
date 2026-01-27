@@ -209,6 +209,16 @@ fn builtin_len(
       Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
     Value::Instance(inst) => {
       let _ = locals
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(values)) =>
+          return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+        _ => ()
+      }
+      match get_named_value(inst.dict, dict_storage_name) {
+        Some(Value::Dict(pairs)) =>
+          return Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
+        _ => ()
+      }
       let len_method = match
         get_attr_from_value(
           Value::Instance(inst),
@@ -1011,13 +1021,10 @@ fn builtin_sorted(
     }
     key_value = Some(positional[1])
   }
-  let items_in = match iterable_values(positional[0]) {
+  let items = match
+    collect_items_from_iterable(positional[0], globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
-  }
-  let items : Array[Value] = []
-  for item in items_in {
-    items.push(item)
   }
   if items.length() == 0 {
     return Ok(Value::List([]))
