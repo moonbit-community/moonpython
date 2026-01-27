@@ -5,6 +5,7 @@ import sys
 check_hash_based_pycs = "never"
 
 _multi_interp_extensions_check = 0
+_frozen_modules_override_for_tests = 0
 
 
 def extension_suffixes():
@@ -50,6 +51,18 @@ def find_frozen(name):
 
 def get_frozen_object(name):
     raise ImportError(f"{name!r} is not a frozen module", name=name)
+
+
+def _override_frozen_modules_for_tests(override):
+    """Test-only hook used by CPython's test.support.import_helper.
+
+    moonpython does not support frozen modules. We keep the state purely so the
+    stdlib test helpers can call this function without failing.
+    """
+    global _frozen_modules_override_for_tests
+    old = _frozen_modules_override_for_tests
+    _frozen_modules_override_for_tests = int(override)
+    return old
 
 
 def _fix_co_filename(code, path):
