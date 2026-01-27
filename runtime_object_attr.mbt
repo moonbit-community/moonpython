@@ -118,6 +118,13 @@ fn get_attr_raw_from_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  if attr == "__call__" {
+    match target {
+      Value::Function(_) | Value::BoundMethod(_) | Value::Class(_) =>
+        return Ok(target)
+      _ => ()
+    }
+  }
   fn apply_descriptor(
     class_attr : Value,
     obj : Value,
