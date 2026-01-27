@@ -3464,10 +3464,29 @@ fn builtin_binascii_a2b_base64(
       ()
     }
   }
-  if clean.length() == 0 {
+  // CPython's `binascii.a2b_base64` is permissive in non-strict mode and
+  // ignores leading padding.
+  let filtered = if strict_mode {
+    clean
+  } else {
+    let mut start = 0
+    while start < clean.length() && clean[start] == '='.to_int() {
+      start = start + 1
+    }
+    if start == 0 {
+      clean
+    } else {
+      let out : Array[Int] = []
+      for i = start; i < clean.length(); i = i + 1 {
+        out.push(clean[i])
+      }
+      out
+    }
+  }
+  if filtered.length() == 0 {
     return Ok(Value::Bytes([]))
   }
-  if clean.length() % 4 != 0 {
+  if filtered.length() % 4 != 0 {
     let err = match
       binascii_error_from_message(
         "Incorrect padding".to_string(),
@@ -3491,11 +3510,11 @@ fn builtin_binascii_a2b_base64(
   }
   let out : Array[Int] = []
   let mut i = 0
-  while i < clean.length() {
-    let c0 = clean[i]
-    let c1 = clean[i + 1]
-    let c2 = clean[i + 2]
-    let c3 = clean[i + 3]
+  while i < filtered.length() {
+    let c0 = filtered[i]
+    let c1 = filtered[i + 1]
+    let c2 = filtered[i + 2]
+    let c3 = filtered[i + 3]
     let pad2 = c2 == '='.to_int()
     let pad3 = c3 == '='.to_int()
     if pad2 && !pad3 {
@@ -3539,7 +3558,7 @@ fn builtin_binascii_a2b_base64(
     }
     if pad2 || pad3 {
       // padding only allowed in last group
-      if i + 4 != clean.length() {
+      if i + 4 != filtered.length() {
         let err = match
           binascii_error_from_message(
             "Incorrect padding".to_string(),
