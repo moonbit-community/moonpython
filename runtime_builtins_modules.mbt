@@ -4857,6 +4857,19 @@ fn builtin_binascii_a2b_uu(
     }
     encoded.push(c)
   }
+  if encoded.length() != 0 && encoded.length() % 4 != 0 {
+    let err = match
+      binascii_error_from_message(
+        "Illegal uuencoded line".to_string(),
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(e) => e
+      Err(e) => return Err(e)
+    }
+    return Err(err)
+  }
   let groups = (n + 2) / 3
   let out : Array[Int] = []
   let mut idx = 0
