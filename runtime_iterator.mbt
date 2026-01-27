@@ -228,13 +228,12 @@ fn iter_value_to_iterator(
                       _ => return Err(err2)
                     }
                 }
-                // Fallback to the internal materialization path (builtins + our
-                // internal iterator/generator types).
-                let items = match iterable_values(Value::Instance(inst)) {
-                  Ok(v) => v
-                  Err(e) => return Err(e)
-                }
-                Ok(make_iterator(items))
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "'" + inst.class.name + "' object is not iterable",
+                  ),
+                )
               }
               _ => Err(err)
             }

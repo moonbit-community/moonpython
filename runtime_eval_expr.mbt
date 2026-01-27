@@ -2216,7 +2216,8 @@ fn eval_expr_with_env(
               Value::List(values) | Value::Tuple(values) => {
                 let mut found = false
                 for item in values {
-                  if eq_value(item, previous) {
+                  if is_value_identity(item, previous) ||
+                    eq_value(item, previous) {
                     found = true
                     break
                   }
@@ -2239,7 +2240,14 @@ fn eval_expr_with_env(
               Value::Str(text) =>
                 match previous {
                   Value::Str(needle) => text.contains(needle)
-                  _ => false
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "'in <string>' requires string as left operand, not " +
+                        type_name_from_value(previous),
+                      ),
+                    )
                 }
               _ =>
                 // 1) Prefer `__contains__` when available.
@@ -2250,6 +2258,16 @@ fn eval_expr_with_env(
                         current, "__contains__", globals, builtins, io,
                       ) {
                       Ok(contains_method) => {
+                        if contains_method is Value::None {
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "argument of type '" +
+                              type_name_from_value(current) +
+                              "' is not iterable",
+                            ),
+                          )
+                        }
                         let result = match
                           call_callable_with_env(
                             contains_method,
@@ -2286,7 +2304,8 @@ fn eval_expr_with_env(
                                   io,
                                 ) {
                                 Ok(item) =>
-                                  if eq_value(item, previous) {
+                                  if is_value_identity(item, previous) ||
+                                    eq_value(item, previous) {
                                     found = true
                                     break
                                   }
@@ -2314,7 +2333,8 @@ fn eval_expr_with_env(
                       match
                         iterator_next(iterator, None, globals, builtins, io) {
                         Ok(item) =>
-                          if eq_value(item, previous) {
+                          if is_value_identity(item, previous) ||
+                            eq_value(item, previous) {
                             found = true
                             break
                           }
@@ -2335,7 +2355,8 @@ fn eval_expr_with_env(
               Value::List(values) | Value::Tuple(values) => {
                 let mut found = false
                 for item in values {
-                  if eq_value(item, previous) {
+                  if is_value_identity(item, previous) ||
+                    eq_value(item, previous) {
                     found = true
                     break
                   }
@@ -2358,7 +2379,14 @@ fn eval_expr_with_env(
               Value::Str(text) =>
                 match previous {
                   Value::Str(needle) => text.contains(needle)
-                  _ => false
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "'in <string>' requires string as left operand, not " +
+                        type_name_from_value(previous),
+                      ),
+                    )
                 }
               _ =>
                 match current {
@@ -2368,6 +2396,16 @@ fn eval_expr_with_env(
                         current, "__contains__", globals, builtins, io,
                       ) {
                       Ok(contains_method) => {
+                        if contains_method is Value::None {
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "argument of type '" +
+                              type_name_from_value(current) +
+                              "' is not iterable",
+                            ),
+                          )
+                        }
                         let result = match
                           call_callable_with_env(
                             contains_method,
@@ -2403,7 +2441,8 @@ fn eval_expr_with_env(
                                   io,
                                 ) {
                                 Ok(item) =>
-                                  if eq_value(item, previous) {
+                                  if is_value_identity(item, previous) ||
+                                    eq_value(item, previous) {
                                     found = true
                                     break
                                   }
@@ -2431,7 +2470,8 @@ fn eval_expr_with_env(
                       match
                         iterator_next(iterator, None, globals, builtins, io) {
                         Ok(item) =>
-                          if eq_value(item, previous) {
+                          if is_value_identity(item, previous) ||
+                            eq_value(item, previous) {
                             found = true
                             break
                           }

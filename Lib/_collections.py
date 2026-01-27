@@ -40,6 +40,11 @@ class deque:
     def __repr__(self):
         return f"deque({self._items!r})"
 
+    def __eq__(self, other):
+        if type(other) is deque:
+            return self._items == other._items
+        return NotImplemented
+
     def append(self, value):
         self._items.append(value)
 

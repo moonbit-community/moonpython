@@ -579,7 +579,7 @@ fn eq_value(a : Value, b : Value) -> Bool {
     }
     let mut equal = true
     for i = 0; i < a.length(); i = i + 1 {
-      if !eq_value(a[i], b[i]) {
+      if !(is_value_identity(a[i], b[i]) || eq_value(a[i], b[i])) {
         equal = false
         break
       }
@@ -677,7 +677,7 @@ fn eq_value(a : Value, b : Value) -> Bool {
       } else {
         let mut equal = true
         for i = 0; i < a.length(); i = i + 1 {
-          if !eq_value(a[i], b[i]) {
+          if !(is_value_identity(a[i], b[i]) || eq_value(a[i], b[i])) {
             equal = false
             break
           }
@@ -692,7 +692,7 @@ fn eq_value(a : Value, b : Value) -> Bool {
         for item in a {
           let mut found = false
           for other in b {
-            if eq_value(item, other) {
+            if is_value_identity(item, other) || eq_value(item, other) {
               found = true
               break
             }
@@ -715,7 +715,8 @@ fn eq_value(a : Value, b : Value) -> Bool {
         for pair in a {
           let mut found = false
           for other in b {
-            if eq_value(pair.0, other.0) && eq_value(pair.1, other.1) {
+            if (is_value_identity(pair.0, other.0) || eq_value(pair.0, other.0)) &&
+              (is_value_identity(pair.1, other.1) || eq_value(pair.1, other.1)) {
               found = true
               break
             }
@@ -764,12 +765,17 @@ fn eq_value(a : Value, b : Value) -> Bool {
 
 ///|
 fn is_value_identity(a : Value, b : Value) -> Bool {
+  fn same_double(a : Double, b : Double) -> Bool {
+    a == b || (a.is_nan() && b.is_nan())
+  }
+
   match (a, b) {
     (Value::None, Value::None) => true
     (Value::Bool(a), Value::Bool(b)) => a == b
     (Value::Int(a), Value::Int(b)) => a == b
-    (Value::Float(a), Value::Float(b)) => a == b
-    (Value::Complex(ar, ai), Value::Complex(br, bi)) => ar == br && ai == bi
+    (Value::Float(a), Value::Float(b)) => same_double(a, b)
+    (Value::Complex(ar, ai), Value::Complex(br, bi)) =>
+      same_double(ar, br) && same_double(ai, bi)
     (Value::Str(a), Value::Str(b)) => a == b
     (Value::Bytes(a), Value::Bytes(b))
     | (Value::ByteArray(a), Value::ByteArray(b))
@@ -796,7 +802,14 @@ fn is_value_identity(a : Value, b : Value) -> Bool {
     (Value::BoundMethod(a), Value::BoundMethod(b)) =>
       a.function.name == b.function.name && is_value_identity(a.self, b.self)
     (Value::Instance(a), Value::Instance(b)) =>
-      eq_value(Value::Instance(a), Value::Instance(b))
+      match
+        (
+          get_named_value(a.dict, "hashvalue"),
+          get_named_value(b.dict, "hashvalue"),
+        ) {
+        (Some(Value::Int(ha)), Some(Value::Int(hb))) => ha == hb
+        _ => false
+      }
     _ => false
   }
 }
@@ -871,7 +884,7 @@ fn dict_find_index(
     Err(err) => return Err(err)
   }
   for i = 0; i < pairs.length(); i = i + 1 {
-    if eq_value(pairs[i].0, key) {
+    if is_value_identity(pairs[i].0, key) || eq_value(pairs[i].0, key) {
       return Ok(Some(i))
     }
   }
@@ -923,7 +936,7 @@ fn set_find_index(
     Err(err) => return Err(err)
   }
   for i = 0; i < values.length(); i = i + 1 {
-    if eq_value(values[i], item) {
+    if is_value_identity(values[i], item) || eq_value(values[i], item) {
       return Ok(Some(i))
     }
   }
