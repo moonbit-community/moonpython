@@ -594,12 +594,24 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_mpython_posix_open,
     },
     BuiltinDef::{
+      name: "__mpython_posix_read",
+      run: builtin_mpython_posix_read,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_lseek",
+      run: builtin_mpython_posix_lseek,
+    },
+    BuiltinDef::{
       name: "__mpython_posix_write",
       run: builtin_mpython_posix_write,
     },
     BuiltinDef::{
       name: "__mpython_posix_close",
       run: builtin_mpython_posix_close,
+    },
+    BuiltinDef::{
+      name: "__mpython_posix_fstat",
+      run: builtin_mpython_posix_fstat,
     },
     BuiltinDef::{
       name: "__mpython_posix_unlink",
@@ -910,6 +922,10 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "bytearray.__setitem__",
       run: builtin_bytearray_setitem,
     },
+    BuiltinDef::{
+      name: "bytearray.__delitem__",
+      run: builtin_bytearray_delitem,
+    },
     BuiltinDef::{ name: "memoryview", run: builtin_memoryview },
     BuiltinDef::{ name: "memoryview.tobytes", run: builtin_memoryview_tobytes },
     BuiltinDef::{ name: "memoryview.cast", run: builtin_memoryview_cast },
@@ -1123,6 +1139,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "setattr", run: builtin_setattr },
     BuiltinDef::{ name: "delattr", run: builtin_delattr },
     BuiltinDef::{ name: "super", run: builtin_super },
+    BuiltinDef::{ name: "staticmethod.__get__", run: builtin_staticmethod_get },
   ]
   builtin_defs_ready.val = true
 }

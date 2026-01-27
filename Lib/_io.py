@@ -397,10 +397,11 @@ def text_encoding(encoding, stacklevel=2):
         return encoding
     return "utf-8"
 
-
-def open(*args, **kwargs):
-    import builtins
-    return builtins.open(*args, **kwargs)
+import builtins as _builtins
+# IMPORTANT: keep this as a direct alias, not a Python wrapper function.
+# The stdlib assigns `io.open` onto classes in `Lib/test`, and a wrapper
+# would become a bound method (receiving `self` as the first argument).
+open = _builtins.open
 
 
 def open_code(*args, **kwargs):

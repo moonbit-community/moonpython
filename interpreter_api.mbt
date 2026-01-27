@@ -503,13 +503,14 @@ pub fn Interpreter::new_spec() -> Interpreter {
   let builtin_fn_names : Array[String] = [
     "__mpython_run", "__mpython_asyncgenexp_next", "__mpython_asyncgen_next", "__mpython_asyncgen_send",
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_posix_open",
-    "__mpython_posix_write", "__mpython_posix_close", "__mpython_posix_unlink", "__mpython_posix_mkdir",
-    "__mpython_posix_rmdir", "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir",
-    "__mpython_posix_listdir", "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump",
-    "print", "len", "range", "str", "bytes", "bytearray", "memoryview", "int", "float",
-    "complex", "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map",
-    "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super", "compile", "eval", "exec", "ascii", "open", "__import__",
+    "__mpython_posix_read", "__mpython_posix_lseek", "__mpython_posix_write", "__mpython_posix_close",
+    "__mpython_posix_fstat", "__mpython_posix_unlink", "__mpython_posix_mkdir", "__mpython_posix_rmdir",
+    "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir", "__mpython_posix_listdir",
+    "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump", "print", "len",
+    "range", "str", "bytes", "bytearray", "memoryview", "int", "float", "complex",
+    "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter",
+    "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr", "super",
+    "compile", "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -1158,8 +1159,11 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_asyncgen_throw", function_stub("__mpython_asyncgen_throw")),
     ("__mpython_asyncgen_close", function_stub("__mpython_asyncgen_close")),
     ("__mpython_posix_open", function_stub("__mpython_posix_open")),
+    ("__mpython_posix_read", function_stub("__mpython_posix_read")),
+    ("__mpython_posix_lseek", function_stub("__mpython_posix_lseek")),
     ("__mpython_posix_write", function_stub("__mpython_posix_write")),
     ("__mpython_posix_close", function_stub("__mpython_posix_close")),
+    ("__mpython_posix_fstat", function_stub("__mpython_posix_fstat")),
     ("__mpython_posix_unlink", function_stub("__mpython_posix_unlink")),
     ("__mpython_posix_mkdir", function_stub("__mpython_posix_mkdir")),
     ("__mpython_posix_rmdir", function_stub("__mpython_posix_rmdir")),

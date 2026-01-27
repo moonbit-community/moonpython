@@ -45,6 +45,12 @@ __all__ = [
     "O_RDWR",
     "O_CREAT",
     "O_EXCL",
+    "O_TRUNC",
+    "O_APPEND",
+    "read",
+    "lseek",
+    "fstat",
+    "isatty",
 ]
 
 name = "posix"
@@ -80,6 +86,8 @@ O_WRONLY = 1
 O_RDWR = 2
 O_CREAT = 0x40
 O_EXCL = 0x80
+O_TRUNC = 0x200
+O_APPEND = 0x400
 
 error = OSError
 _have_functions = set()
@@ -209,13 +217,21 @@ def lstat(path, *args, **kwargs):
 
 
 def fstat(fd, *args, **kwargs):
-    # Minimal: we don't currently track file metadata separately per fd.
-    raise OSError("operation not supported")
+    return stat_result(__mpython_posix_fstat(fd))
 
 
 def open(path, flags, mode=0o777, *args, **kwargs):
     # Backed by host filesystem helpers in the interpreter runtime.
     return __mpython_posix_open(path, flags, mode)
+
+def read(fd, n):
+    return __mpython_posix_read(fd, n)
+
+def lseek(fd, pos, how):
+    return __mpython_posix_lseek(fd, pos, how)
+
+def isatty(fd):
+    return False
 
 def write(fd, data):
     # Backed by host filesystem helpers in the interpreter runtime.

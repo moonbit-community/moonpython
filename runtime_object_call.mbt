@@ -5539,6 +5539,21 @@ fn call_callable_with_env(
       }
     }
     Value::Instance(inst) => {
+      if inst.class.name == "staticmethod" {
+        let func = match get_named_value(inst.dict, "func") {
+          Some(v) => v
+          None =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "staticmethod is missing __func__".to_string(),
+              ),
+            )
+        }
+        return call_callable_with_env(
+          func, positional, keywords, globals, builtins, io,
+        )
+      }
       if inst.class.name == "weakref" || inst.class.name == "KeyedRef" {
         if positional.length() != 0 || keywords.length() != 0 {
           return Err(

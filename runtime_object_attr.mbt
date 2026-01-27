@@ -186,7 +186,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: staticmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if class_has_base_name(inst.class, "staticmethod") {
+        if inst.class.name == "staticmethod" {
           match get_named_value(inst.dict, "func") {
             Some(func) => return Ok(Some(func))
             None => return Ok(None)
@@ -198,7 +198,7 @@ fn get_attr_raw_from_value(
     // Built-in descriptor: classmethod(func)
     match class_attr {
       Value::Instance(inst) =>
-        if class_has_base_name(inst.class, "classmethod") {
+        if inst.class.name == "classmethod" {
           match get_named_value(inst.dict, "func") {
             Some(func_value) => {
               let func = match func_value {
@@ -920,12 +920,20 @@ fn get_attr_raw_from_value(
       }
       match class_attr {
         Some(Value::Function(func)) =>
-          Ok(
-            Value::BoundMethod(BoundMethodValue::{
-              function: func,
-              self: Value::Instance(inst),
-            }),
-          )
+          if func.body.length() == 0 &&
+            !func.name.has_prefix("__") &&
+            !func.name.contains(".") {
+            // Builtin function objects don't participate in method binding in
+            // CPython (e.g. `open` assigned as a class attribute).
+            Ok(Value::Function(func))
+          } else {
+            Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: func,
+                self: Value::Instance(inst),
+              }),
+            )
+          }
         Some(value) =>
           match
             apply_descriptor(
@@ -2734,6 +2742,22 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "bytearray.__setitem__",
               params: ["self", "key", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__delitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytearray.__delitem__",
+              params: ["self", "key"],
               defaults: [],
               body: [],
               is_generator: false,

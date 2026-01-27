@@ -664,7 +664,7 @@ fn delete_target_with_env(
               Ok(())
             }
           }
-        Value::Instance(_) => {
+        Value::Instance(_) | Value::ByteArray(_) => {
           let index_arg = match index {
             Expr::Slice(start~, end~, step~) => {
               let start_value = match start {

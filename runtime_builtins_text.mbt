@@ -2008,6 +2008,131 @@ fn builtin_bytearray_setitem(
 }
 
 ///|
+fn builtin_bytearray_delitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytearray.__delitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "bytearray.__delitem__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let values = match positional[0] {
+    Value::ByteArray(v) => v
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "bytearray.__delitem__() expects a bytearray".to_string(),
+        ),
+      )
+  }
+  let key = positional[1]
+  match key {
+    Value::Instance(slice_inst) =>
+      if slice_inst.class.name == "slice" {
+        let slice_start = match get_named_value(slice_inst.dict, "start") {
+          Some(v) => v
+          None => Value::None
+        }
+        let slice_stop = match get_named_value(slice_inst.dict, "stop") {
+          Some(v) => v
+          None => Value::None
+        }
+        let slice_step = match get_named_value(slice_inst.dict, "step") {
+          Some(v) => v
+          None => Value::None
+        }
+        let len_big = @bigint.BigInt::from_int(values.length())
+        let (istart, istop, istep) = match
+          range_slice_indices(len_big, slice_start, slice_stop, slice_step) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if istep == 1N {
+          let start_idx = match bigint_to_int_checked(istart) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let stop_idx = match bigint_to_int_checked(istop) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let old_len = values.length()
+          let out : Array[Int] = []
+          for i = 0; i < start_idx; i = i + 1 {
+            out.push(values[i] & 0xFF)
+          }
+          for i = stop_idx; i < old_len; i = i + 1 {
+            out.push(values[i] & 0xFF)
+          }
+          while values.length() > 0 {
+            let _ = values.remove(values.length() - 1)
+
+          }
+          for b in out {
+            values.push(b & 0xFF)
+          }
+          return Ok(Value::None)
+        }
+        let expected_big = range_slice_length(istart, istop, istep)
+        let expected = match bigint_to_int_checked(expected_big) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let idxs : Array[Int] = []
+        for j = 0; j < expected; j = j + 1 {
+          let idx_big = range_element_at(
+            istart,
+            istep,
+            @bigint.BigInt::from_int(j),
+          )
+          let idx = match bigint_to_int_checked(idx_big) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          idxs.push(idx)
+        }
+        let mut i = idxs.length()
+        while i > 0 {
+          i = i - 1
+          let _ = values.remove(idxs[i])
+
+        }
+        return Ok(Value::None)
+      }
+    _ => ()
+  }
+  let idx = match index_from_value(key, 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let idx = normalize_index(idx, values.length())
+  if idx < 0 || idx >= values.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "IndexError: bytearray index out of range".to_string(),
+      ),
+    )
+  }
+  let _ = values.remove(idx)
+  Ok(Value::None)
+}
+
+///|
 fn builtin_memoryview(
   positional : Array[Value],
   keywords : Array[(String, Value)],

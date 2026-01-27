@@ -1358,6 +1358,9 @@ fn builtin_open(
 priv struct PosixFdEntry {
   path : String
   buffer : Array[Byte]
+  pos : Int
+  dirty : Bool
+  appending : Bool
 }
 
 ///|
@@ -1518,8 +1521,13 @@ fn builtin_mpython_posix_open(
   }
   let o_creat = 0x40
   let o_excl = 0x80
+  let o_trunc = 0x200
+  let o_append = 0x400
   let creating = (flags & o_creat) != 0
   let exclusive = (flags & o_excl) != 0
+  let truncating = (flags & o_trunc) != 0
+  let appending = (flags & o_append) != 0
+  let existed = @fs.path_exists(path)
   if creating && exclusive && @fs.path_exists(path) {
     return Err(
       make_runtime_error(
@@ -1536,9 +1544,23 @@ fn builtin_mpython_posix_open(
       ),
     )
   }
+  let buffer : Array[Byte] = if truncating || !existed {
+    []
+  } else {
+    let bytes = @fs.read_file_to_bytes(path) catch { _ => b"" }
+    let out : Array[Byte] = []
+    for b in bytes {
+      out.push(b)
+    }
+    out
+  }
   let fd = posix_next_fd.val
   posix_next_fd.val = posix_next_fd.val + 1
-  posix_fd_table.val.push((fd, PosixFdEntry::{ path, buffer: [] }))
+  let pos = if appending { buffer.length() } else { 0 }
+  let dirty = truncating || (creating && !existed)
+  posix_fd_table.val.push(
+    (fd, PosixFdEntry::{ path, buffer, pos, dirty, appending }),
+  )
   Ok(Value::Int(@bigint.BigInt::from_int(fd)))
 }
 
@@ -1580,11 +1602,165 @@ fn builtin_mpython_posix_write(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  for b in bytes {
-    entry.buffer.push(b)
+  let mut pos = if entry.appending { entry.buffer.length() } else { entry.pos }
+  while pos > entry.buffer.length() {
+    entry.buffer.push((0).to_byte())
   }
-  posix_update_fd(fd, entry)
+  for b in bytes {
+    if pos < entry.buffer.length() {
+      entry.buffer[pos] = b
+    } else {
+      entry.buffer.push(b)
+    }
+    pos = pos + 1
+  }
+  posix_update_fd(fd, PosixFdEntry::{
+    path: entry.path,
+    buffer: entry.buffer,
+    pos,
+    dirty: true,
+    appending: entry.appending,
+  })
   Ok(Value::Int(@bigint.BigInt::from_int(bytes.length())))
+}
+
+///|
+fn builtin_mpython_posix_read(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_read() takes 2 arguments".to_string(),
+      ),
+    )
+  }
+  let fd = match index_from_value(positional[0], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let n = match index_from_value(positional[1], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if n < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: os.read() size must be non-negative".to_string(),
+      ),
+    )
+  }
+  let entry = match posix_lookup_fd(fd) {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: bad file descriptor",
+        ),
+      )
+  }
+  let start = entry.pos
+  let end = if start + n > entry.buffer.length() {
+    entry.buffer.length()
+  } else {
+    start + n
+  }
+  let out : Array[Int] = []
+  for i = start; i < end; i = i + 1 {
+    out.push(entry.buffer[i].to_int())
+  }
+  posix_update_fd(fd, PosixFdEntry::{
+    path: entry.path,
+    buffer: entry.buffer,
+    pos: end,
+    dirty: entry.dirty,
+    appending: entry.appending,
+  })
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_mpython_posix_lseek(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_lseek() takes 3 arguments".to_string(),
+      ),
+    )
+  }
+  let fd = match index_from_value(positional[0], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let offset = match index_from_value(positional[1], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let whence = match index_from_value(positional[2], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let entry = match posix_lookup_fd(fd) {
+    Some(v) => v
+    None =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "OSError: bad file descriptor",
+        ),
+      )
+  }
+  let base = if whence == 0 {
+    0
+  } else if whence == 1 {
+    entry.pos
+  } else if whence == 2 {
+    entry.buffer.length()
+  } else {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: os.lseek() invalid whence".to_string(),
+      ),
+    )
+  }
+  let new_pos = base + offset
+  if new_pos < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "OSError: invalid argument".to_string(),
+      ),
+    )
+  }
+  posix_update_fd(fd, PosixFdEntry::{
+    path: entry.path,
+    buffer: entry.buffer,
+    pos: new_pos,
+    dirty: entry.dirty,
+    appending: entry.appending,
+  })
+  Ok(Value::Int(@bigint.BigInt::from_int(new_pos)))
 }
 
 ///|
@@ -1614,17 +1790,71 @@ fn builtin_mpython_posix_close(
     Some(v) => v
     None => return Ok(Value::None)
   }
-  let bytes = Bytes::from_array(entry.buffer)
-  let _ = @fs.write_bytes_to_file(entry.path, bytes) catch {
-    _ =>
+  if entry.dirty {
+    let bytes = Bytes::from_array(entry.buffer)
+    let _ = @fs.write_bytes_to_file(entry.path, bytes) catch {
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "OSError: cannot write file".to_string(),
+          ),
+        )
+    }
+
+  }
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_fstat(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_fstat() takes 1 argument".to_string(),
+      ),
+    )
+  }
+  let fd = match index_from_value(positional[0], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let entry = match posix_lookup_fd(fd) {
+    Some(v) => v
+    None =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
-          "OSError: cannot write file".to_string(),
+          "OSError: bad file descriptor",
         ),
       )
   }
-  Ok(Value::None)
+  let st_mode = 0o100000 | 0o666
+  let st_size = entry.buffer.length()
+  Ok(
+    Value::Tuple([
+      Value::Int(@bigint.BigInt::from_int(st_mode)), // st_mode
+      Value::Int(0N), // st_ino
+      Value::Int(0N), // st_dev
+      Value::Int(1N), // st_nlink
+      Value::Int(0N), // st_uid
+      Value::Int(0N), // st_gid
+      Value::Int(@bigint.BigInt::from_int(st_size)), // st_size
+      Value::Int(0N), // st_atime
+      Value::Int(0N), // st_mtime
+      Value::Int(0N), // st_ctime
+    ]),
+  )
 }
 
 ///|

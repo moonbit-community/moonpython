@@ -107,6 +107,22 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "staticmethod" {
+    dict.push(
+      (
+        "__get__",
+        Value::Function(FunctionValue::{
+          name: "staticmethod.__get__",
+          params: ["self", "obj", "owner"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "range" {
     dict.push(
       (

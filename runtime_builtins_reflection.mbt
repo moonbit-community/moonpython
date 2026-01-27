@@ -637,10 +637,6 @@ fn builtin_staticmethod(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   if positional.length() != 1 {
     return Err(
       make_runtime_error(
@@ -651,12 +647,55 @@ fn builtin_staticmethod(
   }
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
-  Ok(
-    Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "staticmethod", bases: [], dict: [] },
-      dict,
-    }),
-  )
+  let klass = builtin_class_from_name("staticmethod", builtins)
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+}
+
+///|
+fn builtin_staticmethod_get(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("staticmethod.__get__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__get__() takes exactly 2 arguments".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Instance(inst) =>
+      if inst.class.name == "staticmethod" {
+        match get_named_value(inst.dict, "func") {
+          Some(v) => Ok(v)
+          None => Ok(Value::None)
+        }
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "staticmethod.__get__() expects a staticmethod".to_string(),
+          ),
+        )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "staticmethod.__get__() expects a staticmethod".to_string(),
+        ),
+      )
+  }
 }
 
 ///|
@@ -673,10 +712,6 @@ fn builtin_classmethod(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   if positional.length() != 1 {
     return Err(
       make_runtime_error(
@@ -687,12 +722,8 @@ fn builtin_classmethod(
   }
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
-  Ok(
-    Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "classmethod", bases: [], dict: [] },
-      dict,
-    }),
-  )
+  let klass = builtin_class_from_name("classmethod", builtins)
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
 }
 
 ///|
