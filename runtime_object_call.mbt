@@ -1474,6 +1474,83 @@ fn call_callable_with_env(
                   return Ok(Value::Int(@bigint.BigInt::from_int(found)))
                 }
               }
+              "count" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "count() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                let needle = match positional[0] {
+                  Value::Str(value) => value
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "count() expects a str substring".to_string(),
+                      ),
+                    )
+                }
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    text.length(),
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, text.length())
+                let mut end_idx = normalize_index(end, text.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > text.length() {
+                  start_idx = text.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > text.length() {
+                  end_idx = text.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                if needle.length() == 0 {
+                  let out = end_idx - start_idx + 1
+                  return Ok(Value::Int(@bigint.BigInt::from_int(out)))
+                }
+                let max_start = end_idx - needle.length()
+                let mut found = 0
+                let mut i = start_idx
+                while i <= max_start {
+                  if substring(text, i, i + needle.length()) == needle {
+                    found += 1
+                    i += needle.length()
+                  } else {
+                    i += 1
+                  }
+                }
+                return Ok(Value::Int(@bigint.BigInt::from_int(found)))
+              }
               "index" => {
                 if positional.length() == 0 || positional.length() > 3 {
                   return Err(
@@ -2376,6 +2453,73 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::Bool(true))
                 }
+              "capitalize" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "capitalize() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  if text.length() == 0 {
+                    return Ok(Value::Str(text))
+                  }
+                  let first = substring(text, 0, 1).to_upper()
+                  let rest = substring(text, 1, text.length()).to_lower()
+                  return Ok(Value::Str(first + rest))
+                }
+              "center" => {
+                if positional.length() == 0 || positional.length() > 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "center() takes 1 or 2 arguments".to_string(),
+                    ),
+                  )
+                }
+                let width = match index_from_value(positional[0], 0) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let fill = if positional.length() == 2 {
+                  match positional[1] {
+                    Value::Str(v) => v
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "center() fillchar must be str".to_string(),
+                        ),
+                      )
+                  }
+                } else {
+                  " ".to_string()
+                }
+                if fill.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "ValueError: The fill character must be exactly one character long".to_string(),
+                    ),
+                  )
+                }
+                if width <= text.length() {
+                  return Ok(Value::Str(text))
+                }
+                let padding = width - text.length()
+                let left = padding / 2
+                let right = padding - left
+                let builder = StringBuilder::new()
+                for _i = 0; _i < left; _i = _i + 1 {
+                  builder.write_string(fill)
+                }
+                builder.write_string(text)
+                for _i = 0; _i < right; _i = _i + 1 {
+                  builder.write_string(fill)
+                }
+                return Ok(Value::Str(builder.to_string()))
+              }
               "upper" =>
                 if positional.length() != 0 {
                   return Err(
