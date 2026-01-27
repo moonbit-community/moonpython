@@ -3853,69 +3853,6 @@ fn builtin_binascii_a2b_base64(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let clean : Array[Int] = []
-  for b in raw {
-    let v = b & 0xFF
-    let is_alpha = (v >= 'A'.to_int() && v <= 'Z'.to_int()) ||
-      (v >= 'a'.to_int() && v <= 'z'.to_int()) ||
-      (v >= '0'.to_int() && v <= '9'.to_int()) ||
-      v == '+'.to_int() ||
-      v == '/'.to_int() ||
-      v == '='.to_int()
-    if is_alpha {
-      clean.push(v)
-    } else if strict_mode {
-      let err = match
-        binascii_error_from_message(
-          "Only base64 data is allowed".to_string(),
-          globals,
-          builtins,
-          io,
-        ) {
-        Ok(e) => e
-        Err(e) => return Err(e)
-      }
-      return Err(err)
-    } else {
-      // ignore non alphabet characters
-      ()
-    }
-  }
-  // CPython's `binascii.a2b_base64` is permissive in non-strict mode and
-  // ignores leading padding.
-  let filtered = if strict_mode {
-    clean
-  } else {
-    let mut start = 0
-    while start < clean.length() && clean[start] == '='.to_int() {
-      start = start + 1
-    }
-    if start == 0 {
-      clean
-    } else {
-      let out : Array[Int] = []
-      for i = start; i < clean.length(); i = i + 1 {
-        out.push(clean[i])
-      }
-      out
-    }
-  }
-  if filtered.length() == 0 {
-    return Ok(Value::Bytes([]))
-  }
-  if filtered.length() % 4 != 0 {
-    let err = match
-      binascii_error_from_message(
-        "Incorrect padding".to_string(),
-        globals,
-        builtins,
-        io,
-      ) {
-      Ok(e) => e
-      Err(e) => return Err(e)
-    }
-    return Err(err)
-  }
   // Map base64 sextets.
   let table : Array[Int] = []
   for _i = 0; _i < 256; _i = _i + 1 {
@@ -3925,17 +3862,188 @@ fn builtin_binascii_a2b_base64(
   for i = 0; i < alpha.length(); i = i + 1 {
     table[alpha[i].to_int()] = i
   }
-  let out : Array[Int] = []
-  let mut i = 0
-  while i < filtered.length() {
-    let c0 = filtered[i]
-    let c1 = filtered[i + 1]
-    let c2 = filtered[i + 2]
-    let c3 = filtered[i + 3]
-    let pad2 = c2 == '='.to_int()
-    let pad3 = c3 == '='.to_int()
-    if pad2 && !pad3 {
-      // Only '==' or '=' at the end is allowed.
+  let decode_strict_error = fn(
+    message : String,
+  ) -> Result[Value, RuntimeError] {
+    let err = match
+      binascii_error_from_message(message, globals, builtins, io) {
+      Ok(e) => e
+      Err(e) => return Err(e)
+    }
+    Err(err)
+  }
+  let decode_error_invalid_length = fn(
+    n_data_chars : Int,
+  ) -> Result[Value, RuntimeError] {
+    let msg = "Invalid base64-encoded string: number of data characters (" +
+      n_data_chars.to_string() +
+      ") cannot be 1 more than a multiple of 4"
+    decode_strict_error(msg)
+  }
+  if strict_mode {
+    if raw.length() == 0 {
+      return Ok(Value::Bytes([]))
+    }
+    let out : Array[Int] = []
+    let mut quad : Array[Int] = []
+    let mut data_chars = 0
+    let mut i = 0
+    while i < raw.length() {
+      let c = raw[i] & 0xFF
+      if c == '='.to_int() && quad.length() == 0 {
+        if i == 0 {
+          return decode_strict_error("Leading padding".to_string())
+        }
+        return decode_strict_error("Excess padding".to_string())
+      }
+      if c != '='.to_int() {
+        if table[c] < 0 {
+          return decode_strict_error("Only base64 data is allowed".to_string())
+        }
+        data_chars = data_chars + 1
+      }
+      quad.push(c)
+      if quad.length() == 4 {
+        if quad[0] == '='.to_int() || quad[1] == '='.to_int() {
+          return decode_strict_error("Discontinuous padding".to_string())
+        }
+        let pad2 = quad[2] == '='.to_int()
+        let pad3 = quad[3] == '='.to_int()
+        if pad2 && !pad3 {
+          return decode_strict_error("Discontinuous padding".to_string())
+        }
+        let v0 = table[quad[0]]
+        let v1 = table[quad[1]]
+        let v2 = if pad2 { 0 } else { table[quad[2]] }
+        let v3 = if pad3 { 0 } else { table[quad[3]] }
+        let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+        out.push((triple >> 16) & 0xFF)
+        if !pad2 {
+          out.push((triple >> 8) & 0xFF)
+        }
+        if !pad3 {
+          out.push(triple & 0xFF)
+        }
+        if pad2 || pad3 {
+          if i + 1 != raw.length() {
+            return decode_strict_error("Excess data".to_string())
+          }
+          return Ok(Value::Bytes(out))
+        }
+        quad = []
+      }
+      i = i + 1
+    }
+    if quad.length() != 0 {
+      if data_chars % 4 == 1 {
+        return decode_error_invalid_length(data_chars)
+      }
+      return decode_strict_error("Incorrect padding".to_string())
+    }
+    Ok(Value::Bytes(out))
+  } else {
+    // Non-strict mode: ignore non-alphabet characters and be permissive about
+    // stray '=' padding, matching CPython's legacy decoder behavior.
+    let filtered : Array[Int] = []
+    let mut n_data_chars = 0
+    for b in raw {
+      let c = b & 0xFF
+      if c == '='.to_int() {
+        filtered.push(c)
+      } else if table[c] >= 0 {
+        filtered.push(c)
+        n_data_chars = n_data_chars + 1
+      } else {
+        ()
+      }
+    }
+    if n_data_chars % 4 == 1 {
+      let err = match
+        binascii_error_from_message(
+          "Invalid base64-encoded string: number of data characters (" +
+          n_data_chars.to_string() +
+          ") cannot be 1 more than a multiple of 4".to_string(),
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(e) => e
+        Err(e) => return Err(e)
+      }
+      return Err(err)
+    }
+    let out : Array[Int] = []
+    let mut quad : Array[Int] = []
+    let mut idx = 0
+    while idx < filtered.length() {
+      let c = filtered[idx]
+      if c == '='.to_int() {
+        if quad.length() == 0 {
+          idx = idx + 1
+          continue
+        }
+        if quad.length() == 1 {
+          let err = match
+            binascii_error_from_message(
+              "Incorrect padding".to_string(),
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(e) => e
+            Err(e) => return Err(e)
+          }
+          return Err(err)
+        }
+        if quad.length() == 2 {
+          if idx + 1 < filtered.length() && filtered[idx + 1] != '='.to_int() {
+            idx = idx + 1
+            continue
+          }
+        }
+        quad.push(c)
+      } else {
+        quad.push(c)
+      }
+      if quad.length() == 4 {
+        let pad2 = quad[2] == '='.to_int()
+        let pad3 = quad[3] == '='.to_int()
+        if pad2 && !pad3 {
+          let err = match
+            binascii_error_from_message(
+              "Incorrect padding".to_string(),
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(e) => e
+            Err(e) => return Err(e)
+          }
+          return Err(err)
+        }
+        let v0 = table[quad[0]]
+        let v1 = table[quad[1]]
+        let v2 = if pad2 { 0 } else { table[quad[2]] }
+        let v3 = if pad3 { 0 } else { table[quad[3]] }
+        let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+        out.push((triple >> 16) & 0xFF)
+        if !pad2 {
+          out.push((triple >> 8) & 0xFF)
+        }
+        if !pad3 {
+          out.push(triple & 0xFF)
+        }
+        if pad2 || pad3 {
+          return Ok(Value::Bytes(out))
+        }
+        quad = []
+      }
+      idx = idx + 1
+    }
+    if quad.length() == 0 {
+      return Ok(Value::Bytes(out))
+    }
+    if quad.length() == 2 || quad.length() == 3 {
       let err = match
         binascii_error_from_message(
           "Incorrect padding".to_string(),
@@ -3948,50 +4056,19 @@ fn builtin_binascii_a2b_base64(
       }
       return Err(err)
     }
-    let v0 = table[c0]
-    let v1 = table[c1]
-    let v2 = if pad2 { 0 } else { table[c2] }
-    let v3 = if pad3 { 0 } else { table[c3] }
-    if v0 < 0 || v1 < 0 || (!pad2 && v2 < 0) || (!pad3 && v3 < 0) {
-      let err = match
-        binascii_error_from_message(
-          "Non-base64 digit found".to_string(),
-          globals,
-          builtins,
-          io,
-        ) {
-        Ok(e) => e
-        Err(e) => return Err(e)
-      }
-      return Err(err)
+    // quad.length()==1 should have been caught by the invalid-length check.
+    let err = match
+      binascii_error_from_message(
+        "Incorrect padding".to_string(),
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(e) => e
+      Err(e) => return Err(e)
     }
-    let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
-    out.push((triple >> 16) & 0xFF)
-    if !pad2 {
-      out.push((triple >> 8) & 0xFF)
-    }
-    if !pad3 {
-      out.push(triple & 0xFF)
-    }
-    if pad2 || pad3 {
-      // padding only allowed in last group
-      if i + 4 != filtered.length() {
-        let err = match
-          binascii_error_from_message(
-            "Incorrect padding".to_string(),
-            globals,
-            builtins,
-            io,
-          ) {
-          Ok(e) => e
-          Err(e) => return Err(e)
-        }
-        return Err(err)
-      }
-    }
-    i = i + 4
+    Err(err)
   }
-  Ok(Value::Bytes(out))
 }
 
 ///|
