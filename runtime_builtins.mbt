@@ -933,6 +933,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "memoryview.cast", run: builtin_memoryview_cast },
     BuiltinDef::{ name: "int", run: builtin_int },
     BuiltinDef::{ name: "int.__new__", run: builtin_int_new },
+    BuiltinDef::{ name: "int.__bool__", run: builtin_int_bool },
     BuiltinDef::{ name: "int.__index__", run: builtin_int_index },
     BuiltinDef::{ name: "int.__repr__", run: builtin_int_repr },
     BuiltinDef::{ name: "int.from_bytes", run: builtin_int_from_bytes },

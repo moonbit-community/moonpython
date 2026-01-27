@@ -8,6 +8,9 @@ let list_storage_name = "$__list__"
 let dict_storage_name = "$__mpython_dict__"
 
 ///|
+let int_storage_name = "$__int__"
+
+///|
 fn is_builtin_class_name(name : String) -> Bool {
   match name {
     "bool"
@@ -533,6 +536,20 @@ fn builtin_class_from_name(
           name: "int.__new__",
           params: ["cls", "value"],
           defaults: [Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "__bool__",
+        Value::Function(FunctionValue::{
+          name: "int.__bool__",
+          params: ["self"],
+          defaults: [],
           body: [],
           is_generator: false,
           is_async: false,

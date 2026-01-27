@@ -353,7 +353,78 @@ fn builtin_int_new(
         )
     }
   }
-  Ok(Value::Int(value))
+  if cls.name == "int" ||
+    class_has_base_name(cls, "Enum") ||
+    class_has_base_name(cls, "Flag") ||
+    class_has_base_name(cls, "IntFlag") ||
+    class_has_base_name(cls, "StrEnum") {
+    return Ok(Value::Int(value))
+  }
+  Ok(
+    Value::Instance(InstanceValue::{
+      class: cls,
+      dict: [(int_storage_name, Value::Int(value))],
+    }),
+  )
+}
+
+///|
+fn int_value_for_builtin(
+  name : String,
+  value : Value,
+) -> Result[@bigint.BigInt, RuntimeError] {
+  match value {
+    Value::Int(v) => Ok(v)
+    Value::Bool(v) => Ok(if v { 1N } else { 0N })
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, int_storage_name) {
+        Some(Value::Int(v)) => Ok(v)
+        Some(Value::Bool(v)) => Ok(if v { 1N } else { 0N })
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              name + " expects an int".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          name + " expects an int".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_int_bool(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("int.__bool__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "int.__bool__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let n = match int_value_for_builtin("int.__bool__()", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bool(n != 0N))
 }
 
 ///|
@@ -378,17 +449,11 @@ fn builtin_int_repr(
       ),
     )
   }
-  match positional[0] {
-    Value::Int(v) => Ok(Value::Str(v.to_string()))
-    Value::Bool(v) => Ok(Value::Str(if v { "1" } else { "0" }))
-    _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "int.__repr__() expects an int".to_string(),
-        ),
-      )
+  let n = match int_value_for_builtin("int.__repr__()", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
+  Ok(Value::Str(n.to_string()))
 }
 
 ///|
@@ -413,17 +478,11 @@ fn builtin_int_index(
       ),
     )
   }
-  match positional[0] {
-    Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "int.__index__() expects an int".to_string(),
-        ),
-      )
+  let n = match int_value_for_builtin("int.__index__()", positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
+  Ok(Value::Int(n))
 }
 
 ///|
