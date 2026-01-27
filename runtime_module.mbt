@@ -752,10 +752,29 @@ fn make_gc_module() -> Value {
 }
 
 ///|
-fn make_binascii_module() -> Value {
-  // CPython exposes `binascii` as a C extension. The stdlib (e.g. zipfile)
-  // primarily needs crc32().
+fn make_binascii_module(builtins : Array[(String, Value)]) -> Value {
+  // CPython exposes `binascii` as a C extension. moonpython doesn't support C
+  // extensions, so provide a small pure-runtime subset used by the stdlib.
+  let exc_base : Array[Value] = []
+  match get_named_value(builtins, "Exception") {
+    Some(Value::Class(exc)) => exc_base.push(Value::Class(exc))
+    _ => ()
+  }
+  let error_class = ClassValue::{ name: "Error", bases: exc_base, dict: [] }
+  let incomplete_class = ClassValue::{
+    name: "Incomplete",
+    bases: [Value::Class(error_class)],
+    dict: [],
+  }
   make_module_instance("binascii", [
+    ("Error", Value::Class(error_class)),
+    ("Incomplete", Value::Class(incomplete_class)),
+    ("a2b_base64", module_function_stub("binascii.a2b_base64")),
+    ("b2a_base64", module_function_stub("binascii.b2a_base64")),
+    ("hexlify", module_function_stub("binascii.hexlify")),
+    ("unhexlify", module_function_stub("binascii.unhexlify")),
+    ("a2b_hex", module_function_stub("binascii.a2b_hex")),
+    ("b2a_hex", module_function_stub("binascii.b2a_hex")),
     ("crc32", module_function_stub("binascii.crc32")),
     ("__doc__", Value::Str("Minimal binascii shim for moonpython")),
   ])
@@ -1791,7 +1810,7 @@ fn import_module(
   } else if module_name == "gc" {
     make_gc_module()
   } else if module_name == "binascii" {
-    make_binascii_module()
+    make_binascii_module(builtins)
   } else if module_name == "faulthandler" {
     make_faulthandler_module()
   } else if module_name == "atexit" {

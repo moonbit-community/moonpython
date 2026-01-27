@@ -627,7 +627,7 @@ fn find_top_level_colon(text : String) -> Int? {
           }
         } else if c == ':' && depth == 0 {
           if i + 1 < chars.length() && chars[i + 1] == '=' {
-            i += 1
+            i += 2
             continue
           }
           return Some(i)

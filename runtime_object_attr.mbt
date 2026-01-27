@@ -917,7 +917,7 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "int.to_bytes",
               params: ["self", "length", "byteorder", "signed"],
-              defaults: [Value::Bool(false)],
+              defaults: [Value::Str("big"), Value::Bool(false)],
               body: [],
               is_generator: false,
               is_async: false,
@@ -1596,7 +1596,57 @@ fn get_attr_raw_from_value(
         ),
       )
     }
-    Value::Bytes(_) | Value::MemoryView(_) => {
+    Value::MemoryView(_) => {
+      if attr == "format" {
+        // CPython exposes memoryview.format as a read-only attribute.
+        // We currently treat all memoryviews as a stream of bytes.
+        return Ok(Value::Str("B"))
+      }
+      if attr == "ndim" {
+        // CPython uses ndim to distinguish between multi-dimensional views.
+        // We currently only support a 1-D view of bytes.
+        return Ok(Value::Int(1))
+      }
+      if attr == "tobytes" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "memoryview.tobytes",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "cast" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "memoryview.cast",
+              params: ["self", "format", "shape"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Attribute,
+          "'memoryview' object has no attribute '" + attr + "'",
+        ),
+      )
+    }
+    Value::Bytes(_) => {
       if attr == "decode" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -1620,6 +1670,70 @@ fn get_attr_raw_from_value(
               name: "startswith",
               params: ["self", "prefix", "start", "end"],
               defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "endswith" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "endswith",
+              params: ["self", "suffix", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "upper" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytes.upper",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rstrip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytes.rstrip",
+              params: ["self", "chars"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "join" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytes.join",
+              params: ["self", "iterable"],
+              defaults: [],
               body: [],
               is_generator: false,
               is_async: false,
@@ -2022,7 +2136,7 @@ fn get_attr_raw_from_value(
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
             function: FunctionValue::{
-              name: "__setitem__",
+              name: "bytearray.__setitem__",
               params: ["self", "key", "value"],
               defaults: [],
               body: [],
@@ -2338,6 +2452,38 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "upper" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytearray.upper",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rstrip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytearray.rstrip",
+              params: ["self", "chars"],
+              defaults: [Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "extend" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -2360,6 +2506,22 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "copy",
               params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "__setitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "bytearray.__setitem__",
+              params: ["self", "key", "value"],
               defaults: [],
               body: [],
               is_generator: false,
@@ -2763,7 +2925,7 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "int.from_bytes",
               params: ["cls", "bytes", "byteorder", "signed"],
-              defaults: [Value::Bool(false)],
+              defaults: [Value::Str("big"), Value::Bool(false)],
               body: [],
               is_generator: false,
               is_async: false,
@@ -2778,7 +2940,7 @@ fn get_attr_raw_from_value(
             function: FunctionValue::{
               name: "bool.from_bytes",
               params: ["cls", "bytes", "byteorder", "signed"],
-              defaults: [Value::Bool(false)],
+              defaults: [Value::Str("big"), Value::Bool(false)],
               body: [],
               is_generator: false,
               is_async: false,

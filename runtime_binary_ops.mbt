@@ -100,6 +100,17 @@ fn eval_binary_op_values(
           }
           Ok(Value::ByteArray(merged))
         }
+        (Value::ByteArray(a), Value::Bytes(b))
+        | (Value::ByteArray(a), Value::MemoryView(b)) => {
+          let merged : Array[Int] = []
+          for item in a {
+            merged.push(item)
+          }
+          for item in b {
+            merged.push(item)
+          }
+          Ok(Value::ByteArray(merged))
+        }
         (Value::List(a), Value::List(b)) => {
           let merged : Array[Value] = []
           for item in a {

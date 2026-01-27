@@ -1543,36 +1543,10 @@ fn LineParser::parse_block(
             ),
           )
         }
-        if cond_text.contains(":=") {
-          let _ = match self.parse_block(next_indent) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          stmts.push(
-            wrap_stmt_for_line(
-              self.offsets,
-              line_index,
-              current_indent,
-              Stmt::ExprStmt(cond_expr),
-            ),
-          )
-          continue
-        }
         body = match self.parse_block(next_indent) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-      }
-      if cond_text.contains(":=") {
-        stmts.push(
-          wrap_stmt_for_line(
-            self.offsets,
-            line_index,
-            current_indent,
-            Stmt::ExprStmt(cond_expr),
-          ),
-        )
-        continue
       }
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {

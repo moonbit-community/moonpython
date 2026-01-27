@@ -453,11 +453,11 @@ fn builtin_int_from_bytes(
       )
     }
   }
-  if positional.length() < 3 || positional.length() > 4 {
+  if positional.length() < 2 || positional.length() > 4 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "int.from_bytes() takes 2 or 3 arguments".to_string(),
+        "int.from_bytes() takes 1 or 2 arguments".to_string(),
       ),
     )
   }
@@ -469,20 +469,25 @@ fn builtin_int_from_bytes(
     | Value::ByteArray(values)
     | Value::MemoryView(values) => values
     other =>
-      match bytes_from_iterable("int.from_bytes", other) {
+      match
+        bytes_from_iterable("int.from_bytes", other, globals, builtins, io) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
   }
-  let byteorder = match positional[2] {
-    Value::Str(text) => text
-    _ =>
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "int.from_bytes() byteorder must be str".to_string(),
-        ),
-      )
+  let byteorder = if positional.length() >= 3 {
+    match positional[2] {
+      Value::Str(text) => text
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "int.from_bytes() byteorder must be str".to_string(),
+          ),
+        )
+    }
+  } else {
+    "big".to_string()
   }
   let mut value = 0N
   if byteorder == "big" {
@@ -621,11 +626,11 @@ fn builtin_int_to_bytes(
       )
     }
   }
-  if positional.length() < 3 || positional.length() > 4 {
+  if positional.length() < 2 || positional.length() > 4 {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Type,
-        "int.to_bytes() takes 2 or 3 arguments".to_string(),
+        "int.to_bytes() takes 1 or 2 arguments".to_string(),
       ),
     )
   }
@@ -666,15 +671,19 @@ fn builtin_int_to_bytes(
       ),
     )
   }
-  let byteorder = match positional[2] {
-    Value::Str(text) => text
-    _ =>
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "int.to_bytes() byteorder must be str".to_string(),
-        ),
-      )
+  let byteorder = if positional.length() >= 3 {
+    match positional[2] {
+      Value::Str(text) => text
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "int.to_bytes() byteorder must be str".to_string(),
+          ),
+        )
+    }
+  } else {
+    "big".to_string()
   }
   if byteorder != "big" && byteorder != "little" {
     return Err(

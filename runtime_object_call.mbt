@@ -4224,6 +4224,111 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Bool(matched))
               }
+              "endswith" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "endswith() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                fn suffix_bytes(
+                  value : Value,
+                ) -> Result[Array[Int], RuntimeError] {
+                  match value {
+                    Value::Bytes(v)
+                    | Value::ByteArray(v)
+                    | Value::MemoryView(v) => Ok(v)
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "endswith() expects a bytes-like suffix".to_string(),
+                        ),
+                      )
+                  }
+                }
+
+                let suffixes : Array[Array[Int]] = []
+                match positional[0] {
+                  Value::Tuple(items) =>
+                    for item in items {
+                      let suffix = match suffix_bytes(item) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      suffixes.push(suffix)
+                    }
+                  _ => {
+                    let suffix = match suffix_bytes(positional[0]) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    suffixes.push(suffix)
+                  }
+                }
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    values.length(),
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, values.length())
+                let mut end_idx = normalize_index(end, values.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > values.length() {
+                  start_idx = values.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > values.length() {
+                  end_idx = values.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                let available = end_idx - start_idx
+                let mut matched = false
+                for suffix in suffixes {
+                  if suffix.length() <= available {
+                    let offset = end_idx - suffix.length()
+                    let mut ok = true
+                    for j = 0; j < suffix.length(); j = j + 1 {
+                      if values[offset + j] != suffix[j] {
+                        ok = false
+                        break
+                      }
+                    }
+                    if ok {
+                      matched = true
+                      break
+                    }
+                  }
+                }
+                return Ok(Value::Bool(matched))
+              }
               _ => ()
             }
           }

@@ -845,18 +845,32 @@ fn byte_from_value(name : String, value : Value) -> Result[Int, RuntimeError] {
 fn bytes_from_iterable(
   name : String,
   value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Array[Int], RuntimeError] {
-  let items = match iterable_values(value) {
-    Ok(values) => values
+  let iterator_value = match
+    iter_value_to_iterator(value, globals, builtins, io) {
+    Ok(v) => v
     Err(err) => return Err(err)
   }
   let out : Array[Int] = []
-  for item in items {
-    let byte = match byte_from_value(name, item) {
-      Ok(value) => value
-      Err(err) => return Err(err)
+  while true {
+    match iterator_next(iterator_value, None, globals, builtins, io) {
+      Ok(item) => {
+        let byte = match byte_from_value(name, item) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        out.push(byte)
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
     }
-    out.push(byte)
   }
   Ok(out)
 }
@@ -953,9 +967,6 @@ fn builtin_bytes(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   let _ = match ensure_no_keywords("bytes", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -990,7 +1001,7 @@ fn builtin_bytes(
       other =>
         return Ok(
           Value::Bytes(
-            match bytes_from_iterable("bytes", other) {
+            match bytes_from_iterable("bytes", other, globals, builtins, io) {
               Ok(value) => value
               Err(err) => return Err(err)
             },
@@ -1207,6 +1218,336 @@ fn builtin_bytes_translate(
 }
 
 ///|
+fn builtin_bytes_upper(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytes.upper", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "upper() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let bytes = match positional[0] {
+    Value::Bytes(values) | Value::MemoryView(values) => values
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "upper() expects a bytes-like object".to_string(),
+        ),
+      )
+  }
+  let out : Array[Int] = []
+  for b in bytes {
+    let v = b & 0xFF
+    if v >= 'a'.to_int() && v <= 'z'.to_int() {
+      out.push(v - 32)
+    } else {
+      out.push(v)
+    }
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_bytes_rstrip(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytes.rstrip", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 && positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "rstrip() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  let bytes = match positional[0] {
+    Value::Bytes(values) | Value::MemoryView(values) => values
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "rstrip() expects a bytes-like object".to_string(),
+        ),
+      )
+  }
+  let strip_set : Array[Bool] = []
+  for _i = 0; _i < 256; _i = _i + 1 {
+    strip_set.push(false)
+  }
+  if positional.length() == 1 || positional[1] is Value::None {
+    // Default: ASCII whitespace.
+    for
+      ch in [
+        ' '.to_int(),
+        '\t'.to_int(),
+        '\n'.to_int(),
+        '\r'.to_int(),
+        0x0b,
+        0x0c,
+      ] {
+      strip_set[ch] = true
+    }
+  } else {
+    let chars = match positional[1] {
+      Value::Bytes(values)
+      | Value::ByteArray(values)
+      | Value::MemoryView(values) => values
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "rstrip() chars must be a bytes-like object".to_string(),
+          ),
+        )
+    }
+    for b in chars {
+      strip_set[b & 0xFF] = true
+    }
+  }
+  let mut end = bytes.length()
+  while end > 0 {
+    let b = bytes[end - 1] & 0xFF
+    if strip_set[b] {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  let out : Array[Int] = []
+  for i = 0; i < end; i = i + 1 {
+    out.push(bytes[i] & 0xFF)
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_bytes_join(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytes.join", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "join() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let sep = match positional[0] {
+    Value::Bytes(values) | Value::MemoryView(values) => values
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "join() expects a bytes-like separator".to_string(),
+        ),
+      )
+  }
+  let iterator_value = match
+    iter_value_to_iterator(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let out : Array[Int] = []
+  let mut first = true
+  while true {
+    match iterator_next(iterator_value, None, globals, builtins, io) {
+      Ok(item) => {
+        let part = match item {
+          Value::Bytes(values)
+          | Value::ByteArray(values)
+          | Value::MemoryView(values) => values
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "sequence item is not a bytes-like object".to_string(),
+              ),
+            )
+        }
+        if first {
+          first = false
+        } else {
+          for b in sep {
+            out.push(b & 0xFF)
+          }
+        }
+        for b in part {
+          out.push(b & 0xFF)
+        }
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_bytearray_upper(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytearray.upper", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "upper() takes no arguments".to_string(),
+      ),
+    )
+  }
+  let bytes = match positional[0] {
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "upper() expects a bytearray".to_string(),
+        ),
+      )
+  }
+  let out : Array[Int] = []
+  for b in bytes {
+    let v = b & 0xFF
+    if v >= 'a'.to_int() && v <= 'z'.to_int() {
+      out.push(v - 32)
+    } else {
+      out.push(v)
+    }
+  }
+  Ok(Value::ByteArray(out))
+}
+
+///|
+fn builtin_bytearray_rstrip(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytearray.rstrip", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 && positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "rstrip() takes at most one argument".to_string(),
+      ),
+    )
+  }
+  let bytes = match positional[0] {
+    Value::ByteArray(values) => values
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "rstrip() expects a bytearray".to_string(),
+        ),
+      )
+  }
+  let strip_set : Array[Bool] = []
+  for _i = 0; _i < 256; _i = _i + 1 {
+    strip_set.push(false)
+  }
+  if positional.length() == 1 || positional[1] is Value::None {
+    for
+      ch in [
+        ' '.to_int(),
+        '\t'.to_int(),
+        '\n'.to_int(),
+        '\r'.to_int(),
+        0x0b,
+        0x0c,
+      ] {
+      strip_set[ch] = true
+    }
+  } else {
+    let chars = match positional[1] {
+      Value::Bytes(values)
+      | Value::ByteArray(values)
+      | Value::MemoryView(values) => values
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "rstrip() chars must be a bytes-like object".to_string(),
+          ),
+        )
+    }
+    for b in chars {
+      strip_set[b & 0xFF] = true
+    }
+  }
+  let mut end = bytes.length()
+  while end > 0 {
+    let b = bytes[end - 1] & 0xFF
+    if strip_set[b] {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  let out : Array[Int] = []
+  for i = 0; i < end; i = i + 1 {
+    out.push(bytes[i] & 0xFF)
+  }
+  Ok(Value::ByteArray(out))
+}
+
+///|
 fn builtin_bytearray(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1217,9 +1558,6 @@ fn builtin_bytearray(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   let _ = match ensure_no_keywords("bytearray", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1255,7 +1593,8 @@ fn builtin_bytearray(
       other =>
         return Ok(
           Value::ByteArray(
-            match bytes_from_iterable("bytearray", other) {
+            match
+              bytes_from_iterable("bytearray", other, globals, builtins, io) {
               Ok(value) => value
               Err(err) => return Err(err)
             },
@@ -1371,6 +1710,164 @@ fn builtin_bytearray_copy(
 }
 
 ///|
+fn builtin_bytearray_setitem(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("bytearray.__setitem__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "bytearray.__setitem__() takes exactly two arguments".to_string(),
+      ),
+    )
+  }
+  let values = match positional[0] {
+    Value::ByteArray(v) => v
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "bytearray.__setitem__() expects a bytearray".to_string(),
+        ),
+      )
+  }
+  let key = positional[1]
+  let assigned = positional[2]
+  fn replacement_bytes(
+    value : Value,
+    globals : Array[(String, Value)],
+    builtins : Array[(String, Value)],
+    io : MockIO,
+  ) -> Result[Array[Int], RuntimeError] {
+    match value {
+      Value::Bytes(bytes)
+      | Value::ByteArray(bytes)
+      | Value::MemoryView(bytes) => Ok(copy_ints(bytes))
+      other =>
+        bytes_from_iterable(
+          "bytearray.__setitem__", other, globals, builtins, io,
+        )
+    }
+  }
+
+  match key {
+    Value::Instance(slice_inst) =>
+      if slice_inst.class.name == "slice" {
+        let slice_start = match get_named_value(slice_inst.dict, "start") {
+          Some(v) => v
+          None => Value::None
+        }
+        let slice_stop = match get_named_value(slice_inst.dict, "stop") {
+          Some(v) => v
+          None => Value::None
+        }
+        let slice_step = match get_named_value(slice_inst.dict, "step") {
+          Some(v) => v
+          None => Value::None
+        }
+        let len_big = @bigint.BigInt::from_int(values.length())
+        let (istart, istop, istep) = match
+          range_slice_indices(len_big, slice_start, slice_stop, slice_step) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let repl = match replacement_bytes(assigned, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if istep == 1N {
+          let start_idx = match bigint_to_int_checked(istart) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let stop_idx = match bigint_to_int_checked(istop) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let old_len = values.length()
+          let out : Array[Int] = []
+          for i = 0; i < start_idx; i = i + 1 {
+            out.push(values[i] & 0xFF)
+          }
+          for b in repl {
+            out.push(b & 0xFF)
+          }
+          for i = stop_idx; i < old_len; i = i + 1 {
+            out.push(values[i] & 0xFF)
+          }
+          while values.length() > 0 {
+            let _ = values.remove(values.length() - 1)
+
+          }
+          for b in out {
+            values.push(b & 0xFF)
+          }
+          return Ok(Value::None)
+        }
+        let expected_big = range_slice_length(istart, istop, istep)
+        let expected = match bigint_to_int_checked(expected_big) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if repl.length() != expected {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ValueError: attempt to assign sequence of size " +
+              repl.length().to_string() +
+              " to extended slice of size " +
+              expected.to_string(),
+            ),
+          )
+        }
+        for j = 0; j < expected; j = j + 1 {
+          let idx_big = range_element_at(
+            istart,
+            istep,
+            @bigint.BigInt::from_int(j),
+          )
+          let idx = match bigint_to_int_checked(idx_big) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          values[idx] = repl[j] & 0xFF
+        }
+        return Ok(Value::None)
+      }
+    _ => ()
+  }
+  let idx = match index_from_value(key, 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let idx = normalize_index(idx, values.length())
+  if idx < 0 || idx >= values.length() {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "IndexError: bytearray index out of range".to_string(),
+      ),
+    )
+  }
+  let b = match byte_from_value("bytearray.__setitem__", assigned) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  values[idx] = b & 0xFF
+  Ok(Value::None)
+}
+
+///|
 fn builtin_memoryview(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -1381,9 +1878,6 @@ fn builtin_memoryview(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = locals
-  let _ = globals
-  let _ = builtins
-  let _ = io
   let _ = match ensure_no_keywords("memoryview", keywords) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1403,10 +1897,93 @@ fn builtin_memoryview(
     other =>
       Ok(
         Value::MemoryView(
-          match bytes_from_iterable("memoryview", other) {
+          match
+            bytes_from_iterable("memoryview", other, globals, builtins, io) {
             Ok(value) => value
             Err(err) => return Err(err)
           },
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_memoryview_tobytes(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("memoryview.tobytes", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "tobytes() takes no arguments".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::MemoryView(values) => Ok(Value::Bytes(copy_ints(values)))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "tobytes() expects a memoryview".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_memoryview_cast(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("memoryview.cast", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 && positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "cast() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  match positional[1] {
+    Value::Str(_) => ()
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "cast() format must be str".to_string(),
+        ),
+      )
+  }
+  match positional[0] {
+    Value::MemoryView(values) => Ok(Value::MemoryView(copy_ints(values)))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "cast() expects a memoryview".to_string(),
         ),
       )
   }

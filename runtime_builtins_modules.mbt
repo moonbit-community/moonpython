@@ -2462,7 +2462,10 @@ fn builtin_struct_pack(
             | Value::ByteArray(items)
             | Value::MemoryView(items) => items
             other =>
-              match bytes_from_iterable("_struct.pack", other) {
+              match
+                bytes_from_iterable(
+                  "_struct.pack", other, globals, builtins, io,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -2487,7 +2490,10 @@ fn builtin_struct_pack(
             | Value::ByteArray(items)
             | Value::MemoryView(items) => items
             other =>
-              match bytes_from_iterable("_struct.pack", other) {
+              match
+                bytes_from_iterable(
+                  "_struct.pack", other, globals, builtins, io,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -3206,6 +3212,531 @@ fn builtin_binascii_crc32(
   }
   let out = (crc ^ mask) & mask
   Ok(Value::Int(@bigint.BigInt::from_int(out)))
+}
+
+///|
+fn binascii_bytes_like(
+  name : String,
+  value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Array[Int], RuntimeError] {
+  match value {
+    Value::Bytes(values) => Ok(copy_ints(values))
+    Value::ByteArray(values) => Ok(copy_ints(values))
+    Value::MemoryView(values) => Ok(copy_ints(values))
+    other => bytes_from_iterable(name, other, globals, builtins, io)
+  }
+}
+
+///|
+fn binascii_error_from_message(
+  message : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[RuntimeError, RuntimeError] {
+  match module_cache_get("binascii") {
+    Some(Value::Instance(inst)) =>
+      match get_named_value(inst.dict, "Error") {
+        Some(Value::Class(klass)) => {
+          let inst_value = match
+            call_callable_with_env(
+              Value::Class(klass),
+              [Value::Str(message)],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(Value::Instance(exc_inst)) => exc_inst
+            Ok(_) =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "RuntimeError: binascii.Error constructor returned non-exception".to_string(),
+                ),
+              )
+            Err(err) => return Err(err)
+          }
+          Ok(runtime_error_from_exception_instance(inst_value))
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "ImportError: binascii.Error is missing".to_string(),
+            ),
+          )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ImportError: binascii module is not loaded".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_binascii_b2a_base64(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut newline : Bool = true
+  if positional.length() == 0 || positional.length() > 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.b2a_base64() takes 1 or 2 arguments".to_string(),
+      ),
+    )
+  }
+  if positional.length() == 2 {
+    newline = match positional[1] {
+      Value::Bool(v) => v
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "binascii.b2a_base64() newline must be bool".to_string(),
+          ),
+        )
+    }
+  }
+  for pair in keywords {
+    if pair.0 == "newline" {
+      newline = match pair.1 {
+        Value::Bool(v) => v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "binascii.b2a_base64() newline must be bool".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "b2a_base64() got an unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  let bytes = match
+    binascii_bytes_like(
+      "binascii.b2a_base64",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_array()
+  fn alpha_at(alpha : Array[Char], idx : Int) -> Int {
+    alpha[idx].to_int()
+  }
+
+  let out : Array[Int] = []
+  let mut i = 0
+  while i < bytes.length() {
+    let b0 = bytes[i] & 0xFF
+    let b1 = if i + 1 < bytes.length() { bytes[i + 1] & 0xFF } else { 0 }
+    let b2 = if i + 2 < bytes.length() { bytes[i + 2] & 0xFF } else { 0 }
+    let triple = (b0 << 16) | (b1 << 8) | b2
+    let idx0 = (triple >> 18) & 0x3F
+    let idx1 = (triple >> 12) & 0x3F
+    let idx2 = (triple >> 6) & 0x3F
+    let idx3 = triple & 0x3F
+    out.push(alpha_at(alphabet, idx0))
+    out.push(alpha_at(alphabet, idx1))
+    if i + 1 < bytes.length() {
+      out.push(alpha_at(alphabet, idx2))
+    } else {
+      out.push('='.to_int())
+    }
+    if i + 2 < bytes.length() {
+      out.push(alpha_at(alphabet, idx3))
+    } else {
+      out.push('='.to_int())
+    }
+    i = i + 3
+  }
+  if newline {
+    out.push('\n'.to_int())
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn builtin_binascii_a2b_base64(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let mut strict_mode : Bool = false
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.a2b_base64() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  for pair in keywords {
+    if pair.0 == "strict_mode" {
+      strict_mode = match pair.1 {
+        Value::Bool(v) => v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "binascii.a2b_base64() strict_mode must be bool".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "a2b_base64() got an unexpected keyword argument".to_string(),
+        ),
+      )
+    }
+  }
+  let raw = match
+    binascii_bytes_like(
+      "binascii.a2b_base64",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let clean : Array[Int] = []
+  for b in raw {
+    let v = b & 0xFF
+    let is_alpha = (v >= 'A'.to_int() && v <= 'Z'.to_int()) ||
+      (v >= 'a'.to_int() && v <= 'z'.to_int()) ||
+      (v >= '0'.to_int() && v <= '9'.to_int()) ||
+      v == '+'.to_int() ||
+      v == '/'.to_int() ||
+      v == '='.to_int()
+    if is_alpha {
+      clean.push(v)
+    } else if strict_mode {
+      let err = match
+        binascii_error_from_message(
+          "Only base64 data is allowed".to_string(),
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(e) => e
+        Err(e) => return Err(e)
+      }
+      return Err(err)
+    } else {
+      // ignore non alphabet characters
+      ()
+    }
+  }
+  if clean.length() == 0 {
+    return Ok(Value::Bytes([]))
+  }
+  if clean.length() % 4 != 0 {
+    let err = match
+      binascii_error_from_message(
+        "Incorrect padding".to_string(),
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(e) => e
+      Err(e) => return Err(e)
+    }
+    return Err(err)
+  }
+  // Map base64 sextets.
+  let table : Array[Int] = []
+  for _i = 0; _i < 256; _i = _i + 1 {
+    table.push(-1)
+  }
+  let alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_array()
+  for i = 0; i < alpha.length(); i = i + 1 {
+    table[alpha[i].to_int()] = i
+  }
+  let out : Array[Int] = []
+  let mut i = 0
+  while i < clean.length() {
+    let c0 = clean[i]
+    let c1 = clean[i + 1]
+    let c2 = clean[i + 2]
+    let c3 = clean[i + 3]
+    let pad2 = c2 == '='.to_int()
+    let pad3 = c3 == '='.to_int()
+    if pad2 && !pad3 {
+      // Only '==' or '=' at the end is allowed.
+      let err = match
+        binascii_error_from_message(
+          "Incorrect padding".to_string(),
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(e) => e
+        Err(e) => return Err(e)
+      }
+      return Err(err)
+    }
+    let v0 = table[c0]
+    let v1 = table[c1]
+    let v2 = if pad2 { 0 } else { table[c2] }
+    let v3 = if pad3 { 0 } else { table[c3] }
+    if v0 < 0 || v1 < 0 || (!pad2 && v2 < 0) || (!pad3 && v3 < 0) {
+      let err = match
+        binascii_error_from_message(
+          "Non-base64 digit found".to_string(),
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(e) => e
+        Err(e) => return Err(e)
+      }
+      return Err(err)
+    }
+    let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+    out.push((triple >> 16) & 0xFF)
+    if !pad2 {
+      out.push((triple >> 8) & 0xFF)
+    }
+    if !pad3 {
+      out.push(triple & 0xFF)
+    }
+    if pad2 || pad3 {
+      // padding only allowed in last group
+      if i + 4 != clean.length() {
+        let err = match
+          binascii_error_from_message(
+            "Incorrect padding".to_string(),
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(e) => e
+          Err(e) => return Err(e)
+        }
+        return Err(err)
+      }
+    }
+    i = i + 4
+  }
+  Ok(Value::Bytes(out))
+}
+
+///|
+fn binascii_hexlify_bytes(bytes : Array[Int]) -> Array[Int] {
+  let out : Array[Int] = []
+  let hex = "0123456789abcdef".to_array()
+  for b in bytes {
+    let v = b & 0xFF
+    out.push(hex[(v >> 4) & 0xF].to_int())
+    out.push(hex[v & 0xF].to_int())
+  }
+  out
+}
+
+///|
+fn binascii_unhexlify_bytes(
+  bytes : Array[Int],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Array[Int], RuntimeError] {
+  if bytes.length() % 2 != 0 {
+    let err = match
+      binascii_error_from_message(
+        "Odd-length string".to_string(),
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(e) => e
+      Err(e) => return Err(e)
+    }
+    return Err(err)
+  }
+  fn hex_value(v : Int) -> Int? {
+    if v >= '0'.to_int() && v <= '9'.to_int() {
+      Some(v - '0'.to_int())
+    } else if v >= 'a'.to_int() && v <= 'f'.to_int() {
+      Some(10 + (v - 'a'.to_int()))
+    } else if v >= 'A'.to_int() && v <= 'F'.to_int() {
+      Some(10 + (v - 'A'.to_int()))
+    } else {
+      None
+    }
+  }
+
+  let out : Array[Int] = []
+  let mut i = 0
+  while i < bytes.length() {
+    let hi = match hex_value(bytes[i]) {
+      Some(v) => v
+      None => {
+        let err = match
+          binascii_error_from_message(
+            "Non-hex digit found".to_string(),
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(e) => e
+          Err(e) => return Err(e)
+        }
+        return Err(err)
+      }
+    }
+    let lo = match hex_value(bytes[i + 1]) {
+      Some(v) => v
+      None => {
+        let err = match
+          binascii_error_from_message(
+            "Non-hex digit found".to_string(),
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(e) => e
+          Err(e) => return Err(e)
+        }
+        return Err(err)
+      }
+    }
+    out.push((hi << 4) | lo)
+    i = i + 2
+  }
+  Ok(out)
+}
+
+///|
+fn builtin_binascii_hexlify(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("binascii.hexlify", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.hexlify() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let bytes = match
+    binascii_bytes_like(
+      "binascii.hexlify",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bytes(binascii_hexlify_bytes(bytes)))
+}
+
+///|
+fn builtin_binascii_unhexlify(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("binascii.unhexlify", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "binascii.unhexlify() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let bytes = match
+    binascii_bytes_like(
+      "binascii.unhexlify",
+      positional[0],
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let decoded = match binascii_unhexlify_bytes(bytes, globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Bytes(decoded))
+}
+
+///|
+fn builtin_binascii_b2a_hex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  builtin_binascii_hexlify(positional, keywords, locals, globals, builtins, io)
+}
+
+///|
+fn builtin_binascii_a2b_hex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  builtin_binascii_unhexlify(
+    positional, keywords, locals, globals, builtins, io,
+  )
 }
 
 ///|
