@@ -1686,6 +1686,14 @@ fn eval_expr_with_env(
               _ => return Err(err)
             }
         }
+        if candidate is Value::None {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              method_name + " is not callable".to_string(),
+            ),
+          )
+        }
         if is_intrinsic_default_compare(candidate, method_name) {
           return Ok(None)
         }
@@ -1696,14 +1704,63 @@ fn eval_expr_with_env(
         }
       }
 
+      fn is_notimplemented(value : Value) -> Bool {
+        match value {
+          Value::Instance(inst) => inst.class.name == "NotImplementedType"
+          _ => false
+        }
+      }
+
+      fn is_strict_subclass(left : Value, right : Value) -> Bool {
+        match (left, right) {
+          (Value::Instance(left_inst), Value::Instance(right_inst)) =>
+            if left_inst.class.name == right_inst.class.name {
+              false
+            } else {
+              match class_mro(right_inst.class) {
+                Ok(mro) => {
+                  for cls in mro {
+                    if cls.name == left_inst.class.name {
+                      return true
+                    }
+                  }
+                  false
+                }
+                Err(_) => false
+              }
+            }
+          _ => false
+        }
+      }
+
       fn eq_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
-        match call_compare_method(left, "__eq__", right) {
+        let swapped = is_strict_subclass(left, right)
+        let first = if swapped { right } else { left }
+        let second = if swapped { left } else { right }
+        match call_compare_method(first, "__eq__", second) {
           Ok(Some(value)) =>
-            truthy_from_value_with_env(value, globals, builtins, io)
+            if is_notimplemented(value) {
+              match call_compare_method(second, "__eq__", first) {
+                Ok(Some(value2)) =>
+                  if is_notimplemented(value2) {
+                    Ok(eq_value(left, right))
+                  } else {
+                    truthy_from_value_with_env(value2, globals, builtins, io)
+                  }
+                Ok(None) => Ok(eq_value(left, right))
+                Err(err) => Err(err)
+              }
+            } else {
+              truthy_from_value_with_env(value, globals, builtins, io)
+            }
           Ok(None) =>
-            match call_compare_method(right, "__eq__", left) {
-              Ok(Some(value)) =>
-                truthy_from_value_with_env(value, globals, builtins, io)
+            match call_compare_method(second, "__eq__", first) {
+              Ok(Some(value2)) =>
+                if is_notimplemented(value2) {
+                  Ok(eq_value(left, right))
+                } else {
+                  truthy_from_value_with_env(value2, globals, builtins, io)
+                }
               Ok(None) => Ok(eq_value(left, right))
               Err(err) => Err(err)
             }
@@ -1712,28 +1769,68 @@ fn eval_expr_with_env(
       }
 
       fn ne_bool(left : Value, right : Value) -> Result[Bool, RuntimeError] {
-        match call_compare_method(left, "__ne__", right) {
-          Ok(Some(value)) =>
-            truthy_from_value_with_env(value, globals, builtins, io)
-          Ok(None) =>
-            match call_compare_method(right, "__ne__", left) {
-              Ok(Some(value)) =>
+        if is_strict_subclass(left, right) {
+          match call_compare_method(right, "__ne__", left) {
+            Ok(Some(value)) =>
+              if is_notimplemented(value) {
+                match call_compare_method(left, "__ne__", right) {
+                  Ok(Some(value2)) =>
+                    if is_notimplemented(value2) {
+                      match eq_bool(left, right) {
+                        Ok(v) => Ok(!v)
+                        Err(err) => Err(err)
+                      }
+                    } else {
+                      truthy_from_value_with_env(value2, globals, builtins, io)
+                    }
+                  Ok(None) =>
+                    match eq_bool(left, right) {
+                      Ok(v) => Ok(!v)
+                      Err(err) => Err(err)
+                    }
+                  Err(err) => Err(err)
+                }
+              } else {
                 truthy_from_value_with_env(value, globals, builtins, io)
-              Ok(None) =>
+              }
+            Ok(None) =>
+              match call_compare_method(left, "__ne__", right) {
+                Ok(Some(value2)) =>
+                  if is_notimplemented(value2) {
+                    match eq_bool(left, right) {
+                      Ok(v) => Ok(!v)
+                      Err(err) => Err(err)
+                    }
+                  } else {
+                    truthy_from_value_with_env(value2, globals, builtins, io)
+                  }
+                Ok(None) =>
+                  match eq_bool(left, right) {
+                    Ok(v) => Ok(!v)
+                    Err(err) => Err(err)
+                  }
+                Err(err) => Err(err)
+              }
+            Err(err) => Err(err)
+          }
+        } else {
+          match call_compare_method(left, "__ne__", right) {
+            Ok(Some(value)) =>
+              if is_notimplemented(value) {
                 match eq_bool(left, right) {
                   Ok(v) => Ok(!v)
                   Err(err) => Err(err)
                 }
-              Err(err) => Err(err)
-            }
-          Err(err) => Err(err)
-        }
-      }
-
-      fn is_notimplemented(value : Value) -> Bool {
-        match value {
-          Value::Instance(inst) => inst.class.name == "NotImplementedType"
-          _ => false
+              } else {
+                truthy_from_value_with_env(value, globals, builtins, io)
+              }
+            Ok(None) =>
+              match eq_bool(left, right) {
+                Ok(v) => Ok(!v)
+                Err(err) => Err(err)
+              }
+            Err(err) => Err(err)
+          }
         }
       }
 
@@ -1761,9 +1858,54 @@ fn eval_expr_with_env(
           )
         }
 
-        match call_compare_method(left, method_name, right) {
-          Ok(Some(value)) =>
-            if is_notimplemented(value) {
+        if is_strict_subclass(left, right) {
+          match call_compare_method(right, reverse_method_name, left) {
+            Ok(Some(value)) =>
+              if is_notimplemented(value) {
+                match call_compare_method(left, method_name, right) {
+                  Ok(Some(value2)) =>
+                    if is_notimplemented(value2) {
+                      Err(unsupported(op_symbol, left, right))
+                    } else {
+                      truthy_from_value_with_env(value2, globals, builtins, io)
+                    }
+                  Ok(None) => Err(unsupported(op_symbol, left, right))
+                  Err(err) => Err(err)
+                }
+              } else {
+                truthy_from_value_with_env(value, globals, builtins, io)
+              }
+            Ok(None) =>
+              match call_compare_method(left, method_name, right) {
+                Ok(Some(value2)) =>
+                  if is_notimplemented(value2) {
+                    Err(unsupported(op_symbol, left, right))
+                  } else {
+                    truthy_from_value_with_env(value2, globals, builtins, io)
+                  }
+                Ok(None) => Err(unsupported(op_symbol, left, right))
+                Err(err) => Err(err)
+              }
+            Err(err) => Err(err)
+          }
+        } else {
+          match call_compare_method(left, method_name, right) {
+            Ok(Some(value)) =>
+              if is_notimplemented(value) {
+                match call_compare_method(right, reverse_method_name, left) {
+                  Ok(Some(value2)) =>
+                    if is_notimplemented(value2) {
+                      Err(unsupported(op_symbol, left, right))
+                    } else {
+                      truthy_from_value_with_env(value2, globals, builtins, io)
+                    }
+                  Ok(None) => Err(unsupported(op_symbol, left, right))
+                  Err(err) => Err(err)
+                }
+              } else {
+                truthy_from_value_with_env(value, globals, builtins, io)
+              }
+            Ok(None) =>
               match call_compare_method(right, reverse_method_name, left) {
                 Ok(Some(value2)) =>
                   if is_notimplemented(value2) {
@@ -1774,21 +1916,8 @@ fn eval_expr_with_env(
                 Ok(None) => Err(unsupported(op_symbol, left, right))
                 Err(err) => Err(err)
               }
-            } else {
-              truthy_from_value_with_env(value, globals, builtins, io)
-            }
-          Ok(None) =>
-            match call_compare_method(right, reverse_method_name, left) {
-              Ok(Some(value2)) =>
-                if is_notimplemented(value2) {
-                  Err(unsupported(op_symbol, left, right))
-                } else {
-                  truthy_from_value_with_env(value2, globals, builtins, io)
-                }
-              Ok(None) => Err(unsupported(op_symbol, left, right))
-              Err(err) => Err(err)
-            }
-          Err(err) => Err(err)
+            Err(err) => Err(err)
+          }
         }
       }
 
