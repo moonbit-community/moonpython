@@ -310,6 +310,40 @@ fn get_attr_raw_from_value(
       if direct is Some(value) {
         return Ok(value)
       }
+      if inst.class.name == "memoryview" {
+        if attr == "tobytes" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "memoryview.tobytes",
+                params: ["self"],
+                defaults: [],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        }
+        if attr == "cast" {
+          return Ok(
+            Value::BoundMethod(BoundMethodValue::{
+              function: FunctionValue::{
+                name: "memoryview.cast",
+                params: ["self", "format", "shape"],
+                defaults: [Value::None],
+                body: [],
+                is_generator: false,
+                is_async: false,
+                closure: [],
+              },
+              self: target,
+            }),
+          )
+        }
+      }
       if inst.class.name == "module" {
         // PEP 562: if a module defines `__getattr__`, use it to resolve missing
         // attributes (e.g. unittest's lazy IsolatedAsyncioTestCase import).

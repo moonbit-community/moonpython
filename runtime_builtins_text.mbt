@@ -1997,7 +1997,22 @@ fn builtin_memoryview(
     Value::ByteArray(values) => Ok(Value::MemoryView(copy_ints(values)))
     Value::MemoryView(values) => Ok(Value::MemoryView(copy_ints(values)))
     Value::Instance(inst) =>
-      if inst.class.name == "array" {
+      if inst.class.name == "memoryview" {
+        match get_named_value(inst.dict, "__mpython_bytes__") {
+          Some(Value::MemoryView(_))
+          | Some(Value::Bytes(_))
+          | Some(Value::ByteArray(_)) => Ok(Value::Instance(inst))
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "memoryview: a bytes-like object is required, not '" +
+                type_name_from_value(positional[0]) +
+                "'".to_string(),
+              ),
+            )
+        }
+      } else if inst.class.name == "array" {
         let typecode = match get_named_value(inst.dict, "typecode") {
           Some(Value::Str(v)) => v
           _ => "".to_string()
@@ -2071,6 +2086,29 @@ fn builtin_memoryview_tobytes(
   }
   match positional[0] {
     Value::MemoryView(values) => Ok(Value::Bytes(copy_ints(values)))
+    Value::Instance(inst) =>
+      if inst.class.name == "memoryview" {
+        match get_named_value(inst.dict, "__mpython_bytes__") {
+          Some(Value::MemoryView(values))
+          | Some(Value::Bytes(values))
+          | Some(Value::ByteArray(values)) =>
+            Ok(Value::Bytes(copy_ints(values)))
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "tobytes() expects a memoryview".to_string(),
+              ),
+            )
+        }
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "tobytes() expects a memoryview".to_string(),
+          ),
+        )
+      }
     _ =>
       Err(
         make_runtime_error(
@@ -2117,14 +2155,84 @@ fn builtin_memoryview_cast(
         ),
       )
   }
-  match positional[0] {
-    Value::MemoryView(values) => Ok(Value::MemoryView(copy_ints(values)))
+  let format = match positional[1] {
+    Value::Str(v) => v
     _ =>
-      Err(
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "cast() format must be str".to_string(),
+        ),
+      )
+  }
+  let mut ndim = 1
+  if positional.length() == 3 && !(positional[2] is Value::None) {
+    match positional[2] {
+      Value::Tuple(values) => {
+        ndim = values.length()
+        for v in values {
+          match v {
+            Value::Int(_) => ()
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "cast() shape must be a tuple of ints".to_string(),
+                ),
+              )
+          }
+        }
+      }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "cast() shape must be a tuple".to_string(),
+          ),
+        )
+    }
+  }
+  let raw = match positional[0] {
+    Value::MemoryView(values) => copy_ints(values)
+    Value::Instance(inst) =>
+      if inst.class.name == "memoryview" {
+        match get_named_value(inst.dict, "__mpython_bytes__") {
+          Some(Value::MemoryView(values))
+          | Some(Value::Bytes(values))
+          | Some(Value::ByteArray(values)) => copy_ints(values)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "cast() expects a memoryview".to_string(),
+              ),
+            )
+        }
+      } else {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "cast() expects a memoryview".to_string(),
+          ),
+        )
+      }
+    _ =>
+      return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "cast() expects a memoryview".to_string(),
         ),
       )
   }
+  let cls = builtin_class_from_name("memoryview", builtins)
+  Ok(
+    Value::Instance(InstanceValue::{
+      class: cls,
+      dict: [
+        ("__mpython_bytes__", Value::MemoryView(raw)),
+        ("format", Value::Str(format)),
+        ("ndim", Value::Int(@bigint.BigInt::from_int(ndim))),
+      ],
+    }),
+  )
 }

@@ -288,8 +288,9 @@ def b16decode(s, casefold=False):
     s = _bytes_from_decode_data(s)
     if casefold:
         s = s.upper()
-    if re.search(b'[^0-9A-F]', s):
-        raise binascii.Error('Non-base16 digit found')
+    for c in s:
+        if not (48 <= c <= 57 or 65 <= c <= 70):
+            raise binascii.Error('Non-base16 digit found')
     return binascii.unhexlify(s)
 
 #

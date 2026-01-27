@@ -756,9 +756,15 @@ fn make_binascii_module(builtins : Array[(String, Value)]) -> Value {
   // CPython exposes `binascii` as a C extension. moonpython doesn't support C
   // extensions, so provide a small pure-runtime subset used by the stdlib.
   let exc_base : Array[Value] = []
-  match get_named_value(builtins, "Exception") {
+  match get_named_value(builtins, "ValueError") {
     Some(Value::Class(exc)) => exc_base.push(Value::Class(exc))
     _ => ()
+  }
+  if exc_base.length() == 0 {
+    match get_named_value(builtins, "Exception") {
+      Some(Value::Class(exc)) => exc_base.push(Value::Class(exc))
+      _ => ()
+    }
   }
   let error_class = ClassValue::{ name: "Error", bases: exc_base, dict: [] }
   let incomplete_class = ClassValue::{

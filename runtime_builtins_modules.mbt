@@ -3275,6 +3275,21 @@ fn binascii_bytes_like(
           out.push(int_val & 0xFF)
         }
         Ok(out)
+      } else if inst.class.name == "memoryview" {
+        match get_named_value(inst.dict, "__mpython_bytes__") {
+          Some(Value::MemoryView(values))
+          | Some(Value::Bytes(values))
+          | Some(Value::ByteArray(values)) => Ok(copy_ints(values))
+          _ =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "a bytes-like object is required, not '" +
+                type_name_from_value(value) +
+                "'".to_string(),
+              ),
+            )
+        }
       } else {
         Err(
           make_runtime_error(
