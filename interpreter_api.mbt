@@ -1335,7 +1335,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   // Seed a tiny `pdb` module in `sys.modules` so stdlib helpers like
   // `unittest.mock.patch("pdb.set_trace")` don't import CPython's full pdb
   // implementation (which requires many unsupported modules).
-  module_cache_set("pdb", make_pdb_module())
+  module_cache_set("pdb", make_pdb_module(builtins))
   Interpreter::{ config, globals, builtins, io }
 }
 

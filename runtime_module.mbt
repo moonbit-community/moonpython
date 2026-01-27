@@ -1000,13 +1000,20 @@ fn make_itertools_module() -> Value {
 }
 
 ///|
-fn make_pdb_module() -> Value {
+fn make_pdb_module(builtins : Array[(String, Value)]) -> Value {
   // Minimal debugger shim. CPython's `pdb` pulls in a large dependency chain
   // (inspect/tokenize/io) that isn't available yet in moonpython. For the
   // standard library tests we only need `pdb.set_trace` to exist and be
   // patchable by unittest.mock.
+  let bases : Array[Value] = []
+  match get_named_value(builtins, "object") {
+    Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
+    _ => ()
+  }
+  let pdb_class = ClassValue::{ name: "Pdb", bases, dict: [] }
   make_module_instance("pdb", [
     ("set_trace", module_function_stub("pdb.set_trace")),
+    ("Pdb", Value::Class(pdb_class)),
   ])
 }
 
@@ -1949,7 +1956,7 @@ fn import_module(
   } else if module_name == "itertools" {
     make_itertools_module()
   } else if module_name == "pdb" {
-    make_pdb_module()
+    make_pdb_module(builtins)
   } else if module_name == "math" {
     make_math_module()
   } else if module_name == "time" {
