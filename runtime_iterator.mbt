@@ -54,6 +54,22 @@ fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
       }),
     ),
   ]
+  if name == "rangeiter" {
+    dict.push(
+      (
+        "__setstate__",
+        Value::Function(FunctionValue::{
+          name: "rangeiter.__setstate__",
+          params: ["self", "state"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   let klass = ClassValue::{ name, bases: [], dict }
   cache.val = Some(klass)
   klass
@@ -129,9 +145,11 @@ fn make_range_iterator(
   step : @bigint.BigInt,
 ) -> Value {
   let dict : Array[(String, Value)] = []
+  dict.push(("start", Value::Int(start)))
   dict.push(("current", Value::Int(start)))
   dict.push(("stop", Value::Int(stop)))
   dict.push(("step", Value::Int(step)))
+  dict.push(("index", Value::Int(0N)))
   Value::Instance(InstanceValue::{
     class: internal_iter_class("rangeiter", rangeiter_class_ref),
     dict,
@@ -508,6 +526,11 @@ fn iterator_next(
           Some(Value::Bool(v)) => if v { 1N } else { 0N }
           _ => 0N
         }
+        let start0 = match get_named_value(inst.dict, "start") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => current
+        }
         let stop = match get_named_value(inst.dict, "stop") {
           Some(Value::Int(v)) => v
           Some(Value::Bool(v)) => if v { 1N } else { 0N }
@@ -517,6 +540,11 @@ fn iterator_next(
           Some(Value::Int(v)) => v
           Some(Value::Bool(v)) => if v { 1N } else { 0N }
           _ => 1N
+        }
+        let index0 = match get_named_value(inst.dict, "index") {
+          Some(Value::Int(v)) => v
+          Some(Value::Bool(v)) => if v { 1N } else { 0N }
+          _ => (current - start0) / step
         }
         let done = if step > 0N { current >= stop } else { current <= stop }
         if done {
@@ -532,6 +560,7 @@ fn iterator_next(
           }
         } else {
           set_named_value(inst.dict, "current", Value::Int(current + step))
+          set_named_value(inst.dict, "index", Value::Int(index0 + 1N))
           Ok(Value::Int(current))
         }
       } else if inst.class.name == "seqiter" {
@@ -704,4 +733,62 @@ fn iterator_send(
         ),
       )
   }
+}
+
+///|
+fn builtin_rangeiter_setstate(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("rangeiter.__setstate__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "rangeiter.__setstate__() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let inst = match positional[0] {
+    Value::Instance(inst) if inst.class.name == "rangeiter" => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "rangeiter.__setstate__ expects a range iterator".to_string(),
+        ),
+      )
+  }
+  let state = match positional[1] {
+    Value::Int(v) => v
+    Value::Bool(v) => if v { 1N } else { 0N }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "rangeiter.__setstate__ state must be int".to_string(),
+        ),
+      )
+  }
+  let start0 = match get_named_value(inst.dict, "start") {
+    Some(Value::Int(v)) => v
+    Some(Value::Bool(v)) => if v { 1N } else { 0N }
+    _ => 0N
+  }
+  let step0 = match get_named_value(inst.dict, "step") {
+    Some(Value::Int(v)) => v
+    Some(Value::Bool(v)) => if v { 1N } else { 0N }
+    _ => 1N
+  }
+  set_named_value(inst.dict, "index", Value::Int(state))
+  set_named_value(inst.dict, "current", Value::Int(start0 + step0 * state))
+  Ok(Value::None)
 }

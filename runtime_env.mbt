@@ -143,6 +143,34 @@ fn builtin_class_from_name(
     )
     dict.push(
       (
+        "count",
+        Value::Function(FunctionValue::{
+          name: "range.count",
+          params: ["self", "value"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
+        "index",
+        Value::Function(FunctionValue::{
+          name: "range.index",
+          params: ["self", "value", "start", "stop"],
+          defaults: [Value::Int(0N), Value::Int(9223372036854775807N)],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+    dict.push(
+      (
         "__len__",
         Value::Function(FunctionValue::{
           name: "range.__len__",

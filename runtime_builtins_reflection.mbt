@@ -3034,13 +3034,6 @@ fn builtin_import(
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
   let _ = locals
-  let _ = match ensure_no_keywords("__import__", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  if positional.length() == 0 {
-    return Err(missing_required_argument_error("__import__", "name"))
-  }
   if positional.length() > 5 {
     return Err(
       make_runtime_error(
@@ -3051,40 +3044,134 @@ fn builtin_import(
       ),
     )
   }
-  let name = match positional[0] {
-    Value::Str(text) => text
-    _ =>
+
+  // Signature: __import__(name, globals=None, locals=None, fromlist=(), level=0)
+  let mut name_value : Value? = None
+  let mut globals_value = Value::None
+  let mut locals_value = Value::None
+  let mut fromlist_value : Value = Value::Tuple([])
+  let mut level_value : Value = Value::Int(0N)
+  if positional.length() >= 1 {
+    name_value = Some(positional[0])
+  }
+  if positional.length() >= 2 {
+    globals_value = positional[1]
+  }
+  if positional.length() >= 3 {
+    locals_value = positional[2]
+  }
+  if positional.length() >= 4 {
+    fromlist_value = positional[3]
+  }
+  if positional.length() == 5 {
+    level_value = positional[4]
+  }
+  for pair in keywords {
+    let key = pair.0
+    let value = pair.1
+    match key {
+      "name" =>
+        if name_value is Some(_) || positional.length() >= 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__import__() got multiple values for argument 'name'".to_string(),
+            ),
+          )
+        } else {
+          name_value = Some(value)
+        }
+      "globals" =>
+        if positional.length() >= 2 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__import__() got multiple values for argument 'globals'".to_string(),
+            ),
+          )
+        } else {
+          globals_value = value
+        }
+      "locals" =>
+        if positional.length() >= 3 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__import__() got multiple values for argument 'locals'".to_string(),
+            ),
+          )
+        } else {
+          locals_value = value
+        }
+      "fromlist" =>
+        if positional.length() >= 4 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__import__() got multiple values for argument 'fromlist'".to_string(),
+            ),
+          )
+        } else {
+          fromlist_value = value
+        }
+      "level" =>
+        if positional.length() >= 5 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__import__() got multiple values for argument 'level'".to_string(),
+            ),
+          )
+        } else {
+          level_value = value
+        }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "__import__() got an unexpected keyword argument '" + key + "'",
+          ),
+        )
+    }
+  }
+
+  // Keep compatibility with existing call sites: we don't use `globals/locals`
+  // yet, but accept them to match CPython's signature.
+  let _ = globals_value
+  let _ = locals_value
+  let name = match name_value {
+    Some(Value::Str(text)) => text
+    Some(_) =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "__import__() name must be str".to_string(),
         ),
       )
+    None => return Err(missing_required_argument_error("__import__", "name"))
   }
-  if positional.length() == 5 {
-    match positional[4] {
-      Value::None => ()
-      Value::Int(v) =>
-        match bigint_to_int_checked(v) {
-          Ok(level) =>
-            if level != 0 {
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Runtime,
-                  "ImportError: relative import level not supported".to_string(),
-                ),
-              )
-            }
-          Err(err) => return Err(err)
-        }
-      _ =>
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "__import__() level must be int".to_string(),
-          ),
-        )
-    }
+  match level_value {
+    Value::None => ()
+    Value::Int(v) =>
+      match bigint_to_int_checked(v) {
+        Ok(level) =>
+          if level != 0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "ImportError: relative import level not supported".to_string(),
+              ),
+            )
+          }
+        Err(err) => return Err(err)
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__import__() level must be int".to_string(),
+        ),
+      )
   }
   let module_value = match
     import_module(name, globals, builtins, io, current_config()) {
@@ -3092,13 +3179,11 @@ fn builtin_import(
     Err(err) => return Err(err)
   }
   let mut has_fromlist = false
-  if positional.length() >= 4 {
-    match positional[3] {
-      Value::None => ()
-      Value::List(values) => has_fromlist = values.length() > 0
-      Value::Tuple(values) => has_fromlist = values.length() > 0
-      _ => has_fromlist = true
-    }
+  match fromlist_value {
+    Value::None => ()
+    Value::List(values) => has_fromlist = values.length() > 0
+    Value::Tuple(values) => has_fromlist = values.length() > 0
+    _ => has_fromlist = true
   }
   if has_fromlist || !name.contains(".") {
     return Ok(module_value)

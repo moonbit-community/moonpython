@@ -65,6 +65,17 @@ fn range_member_value_to_bigint(
   match value {
     Value::Int(v) => Ok(Some(v))
     Value::Bool(v) => Ok(Some(if v { 1N } else { 0N }))
+    Value::Complex(real, imag) =>
+      if imag != 0.0 || real.is_nan() || real.is_inf() || real != real.floor() {
+        Ok(None)
+      } else {
+        let abs_v = if real < 0.0 { -real } else { real }
+        if abs_v > 9.223372036854776e18 {
+          Ok(None)
+        } else {
+          Ok(Some(@bigint.BigInt::from_int64(real.to_int64())))
+        }
+      }
     Value::Float(v) =>
       if v.is_nan() || v.is_inf() || v != v.floor() {
         Ok(None)

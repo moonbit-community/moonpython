@@ -643,6 +643,10 @@ fn ensure_builtin_defs_ready() -> Unit {
     },
     BuiltinDef::{ name: "__mpython.internal_iter", run: builtin_internal_iter },
     BuiltinDef::{ name: "__mpython.internal_next", run: builtin_internal_next },
+    BuiltinDef::{
+      name: "rangeiter.__setstate__",
+      run: builtin_rangeiter_setstate,
+    },
     BuiltinDef::{ name: "asyncio.run", run: builtin_asyncio_run },
     BuiltinDef::{ name: "asyncio.gather", run: builtin_asyncio_gather },
     BuiltinDef::{
