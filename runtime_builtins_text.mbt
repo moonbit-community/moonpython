@@ -1894,14 +1894,52 @@ fn builtin_memoryview(
     Value::Bytes(values) => Ok(Value::MemoryView(copy_ints(values)))
     Value::ByteArray(values) => Ok(Value::MemoryView(copy_ints(values)))
     Value::MemoryView(values) => Ok(Value::MemoryView(copy_ints(values)))
-    other =>
-      Ok(
-        Value::MemoryView(
-          match
-            bytes_from_iterable("memoryview", other, globals, builtins, io) {
-            Ok(value) => value
+    Value::Instance(inst) =>
+      if inst.class.name == "array" {
+        let typecode = match get_named_value(inst.dict, "typecode") {
+          Some(Value::Str(v)) => v
+          _ => "".to_string()
+        }
+        if typecode != "b" && typecode != "B" {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "memoryview: a bytes-like object is required, not '" +
+              type_name_from_value(positional[0]) +
+              "'".to_string(),
+            ),
+          )
+        }
+        let data = match get_named_value(inst.dict, "_data") {
+          Some(Value::List(values)) => values
+          _ => []
+        }
+        let out : Array[Int] = []
+        for v in data {
+          let b = match byte_from_value("memoryview", v) {
+            Ok(b) => b
             Err(err) => return Err(err)
-          },
+          }
+          out.push(b & 0xFF)
+        }
+        Ok(Value::MemoryView(out))
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "memoryview: a bytes-like object is required, not '" +
+            type_name_from_value(positional[0]) +
+            "'".to_string(),
+          ),
+        )
+      }
+    other =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "memoryview: a bytes-like object is required, not '" +
+          type_name_from_value(other) +
+          "'".to_string(),
         ),
       )
   }
