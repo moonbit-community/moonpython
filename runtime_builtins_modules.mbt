@@ -2165,15 +2165,18 @@ fn struct_parse_format(fmt : String) -> Result[(Int, Int), RuntimeError] {
   let mut size = 0
   let mut fields = 0
   let mut repeat = 0
+  let mut has_repeat = false
   while i < chars.length() {
     let c = chars[i]
     if is_digit(c) {
       repeat = repeat * 10 + (c.to_int() - '0'.to_int())
+      has_repeat = true
       i += 1
       continue
     }
-    let n = if repeat == 0 { 1 } else { repeat }
+    let n = if has_repeat { repeat } else { 1 }
     repeat = 0
+    has_repeat = false
     match struct_field_size(c, n) {
       Some(pair) => {
         size += pair.0
@@ -2221,16 +2224,19 @@ fn struct_parse_format_detail(
   let mut size = 0
   let mut fields = 0
   let mut repeat = 0
+  let mut has_repeat = false
   let tokens : Array[(Char, Int)] = []
   while i < chars.length() {
     let c = chars[i]
     if is_digit(c) {
       repeat = repeat * 10 + (c.to_int() - '0'.to_int())
+      has_repeat = true
       i += 1
       continue
     }
-    let n = if repeat == 0 { 1 } else { repeat }
+    let n = if has_repeat { repeat } else { 1 }
     repeat = 0
+    has_repeat = false
     match struct_field_size(c, n) {
       Some(pair) => {
         size += pair.0

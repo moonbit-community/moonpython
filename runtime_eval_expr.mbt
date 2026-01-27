@@ -257,7 +257,7 @@ fn eval_expr_with_env(
       for clause in clauses {
         for name in clause.targets {
           if name != "_" {
-            ensure_local_cell(comp_locals, name, Value::None)
+            shadow_local_cell(comp_locals, name, Value::None)
           }
         }
       }
@@ -599,7 +599,7 @@ fn eval_expr_with_env(
       for clause in clauses {
         for name in clause.targets {
           if name != "_" {
-            ensure_local_cell(comp_locals, name, Value::None)
+            shadow_local_cell(comp_locals, name, Value::None)
           }
         }
       }
@@ -664,7 +664,7 @@ fn eval_expr_with_env(
       for clause in clauses {
         for name in clause.targets {
           if name != "_" {
-            ensure_local_cell(comp_locals, name, Value::None)
+            shadow_local_cell(comp_locals, name, Value::None)
           }
         }
       }

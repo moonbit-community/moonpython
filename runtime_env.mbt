@@ -999,6 +999,21 @@ fn ensure_local_cell(
 }
 
 ///|
+fn shadow_local_cell(
+  locals : Array[(String, Value)],
+  name : String,
+  initial : Value,
+) -> Unit {
+  for i = 0; i < locals.length(); i = i + 1 {
+    if locals[i].0 == name {
+      locals[i] = (name, cell_new(initial))
+      return
+    }
+  }
+  locals.push((name, cell_new(initial)))
+}
+
+///|
 fn ensure_local_cell_unbound(
   locals : Array[(String, Value)],
   name : String,
