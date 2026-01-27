@@ -52,9 +52,20 @@ class array:
         return iter(self._data)
 
     def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            out = array(self.typecode)
+            out._data = list(self._data[idx])
+            return out
         return self._data[idx]
 
     def __setitem__(self, idx, value):
+        if isinstance(idx, slice):
+            if isinstance(value, array):
+                values = value._data
+            else:
+                values = list(value)
+            self._data[idx] = [int(v) for v in values]
+            return
         self._data[idx] = int(value)
 
     def append(self, value):
