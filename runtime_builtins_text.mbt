@@ -1087,10 +1087,55 @@ fn bytes_like_ints_for_translate(
   name : String,
   value : Value,
 ) -> Result[Array[Int], RuntimeError] {
-  let _ = name
   match value {
     Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) =>
       Ok(bytes)
+    Value::Instance(inst) =>
+      if inst.class.name == "array" {
+        let typecode = match get_named_value(inst.dict, "typecode") {
+          Some(Value::Str(v)) => v
+          _ => "".to_string()
+        }
+        if typecode != "b" && typecode != "B" {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "a bytes-like object is required".to_string(),
+            ),
+          )
+        }
+        let data = match get_named_value(inst.dict, "_data") {
+          Some(Value::List(values)) => values
+          _ => []
+        }
+        let out : Array[Int] = []
+        for v in data {
+          let int_val = match v {
+            Value::Int(bi) =>
+              match bigint_to_int_checked(bi) {
+                Ok(iv) => iv
+                Err(err) => return Err(err)
+              }
+            Value::Bool(b) => if b { 1 } else { 0 }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  name + "() an integer is required".to_string(),
+                ),
+              )
+          }
+          out.push(int_val & 0xFF)
+        }
+        Ok(out)
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "a bytes-like object is required".to_string(),
+          ),
+        )
+      }
     _ =>
       Err(
         make_runtime_error(
