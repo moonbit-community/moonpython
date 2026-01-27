@@ -3228,11 +3228,72 @@ fn binascii_bytes_like(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Array[Int], RuntimeError] {
+  let _ = globals
+  let _ = builtins
+  let _ = io
   match value {
     Value::Bytes(values) => Ok(copy_ints(values))
     Value::ByteArray(values) => Ok(copy_ints(values))
     Value::MemoryView(values) => Ok(copy_ints(values))
-    other => bytes_from_iterable(name, other, globals, builtins, io)
+    Value::Instance(inst) =>
+      if inst.class.name == "array" {
+        let typecode = match get_named_value(inst.dict, "typecode") {
+          Some(Value::Str(v)) => v
+          _ => "".to_string()
+        }
+        if typecode != "b" && typecode != "B" {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "a bytes-like object is required, not '" +
+              type_name_from_value(value) +
+              "'".to_string(),
+            ),
+          )
+        }
+        let data = match get_named_value(inst.dict, "_data") {
+          Some(Value::List(values)) => values
+          _ => []
+        }
+        let out : Array[Int] = []
+        for v in data {
+          let int_val = match v {
+            Value::Int(bi) =>
+              match bigint_to_int_checked(bi) {
+                Ok(iv) => iv
+                Err(err) => return Err(err)
+              }
+            Value::Bool(b) => if b { 1 } else { 0 }
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  name + "() an integer is required".to_string(),
+                ),
+              )
+          }
+          out.push(int_val & 0xFF)
+        }
+        Ok(out)
+      } else {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "a bytes-like object is required, not '" +
+            type_name_from_value(value) +
+            "'".to_string(),
+          ),
+        )
+      }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "a bytes-like object is required, not '" +
+          type_name_from_value(value) +
+          "'".to_string(),
+        ),
+      )
   }
 }
 
