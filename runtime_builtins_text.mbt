@@ -283,6 +283,44 @@ fn builtin_str_maketrans(
 }
 
 ///|
+fn builtin_str_casefold(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("str.casefold", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "casefold() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Str(text) => Ok(Value::Str(text.to_lower()))
+    other =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "casefold() expects a str, not '" + type_name_from_value(other) + "'",
+        ),
+      )
+  }
+}
+
+///|
 fn builtin_sys_intern(
   positional : Array[Value],
   keywords : Array[(String, Value)],

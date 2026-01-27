@@ -889,6 +889,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "open", run: builtin_open },
     BuiltinDef::{ name: "str", run: builtin_str },
     BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
+    BuiltinDef::{ name: "str.casefold", run: builtin_str_casefold },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },
     BuiltinDef::{ name: "bytes.fromhex", run: builtin_bytes_fromhex },
     BuiltinDef::{ name: "bytes.maketrans", run: builtin_bytes_maketrans },

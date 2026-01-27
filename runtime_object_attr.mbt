@@ -1511,6 +1511,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "casefold" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "casefold",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       if attr == "replace" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -2896,6 +2912,18 @@ fn get_attr_raw_from_value(
         Ok(
           Value::Function(FunctionValue::{
             name: "list.copy",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        )
+      } else if klass.name == "str" && attr == "casefold" {
+        Ok(
+          Value::Function(FunctionValue::{
+            name: "str.casefold",
             params: ["self"],
             defaults: [],
             body: [],

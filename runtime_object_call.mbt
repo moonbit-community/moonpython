@@ -2542,6 +2542,17 @@ fn call_callable_with_env(
                 } else {
                   return Ok(Value::Str(text.to_lower()))
                 }
+              "casefold" =>
+                if positional.length() != 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "casefold() takes no arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  return Ok(Value::Str(text.to_lower()))
+                }
               "replace" => {
                 if positional.length() < 2 || positional.length() > 3 {
                   return Err(
