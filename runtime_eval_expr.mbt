@@ -1769,6 +1769,13 @@ fn eval_expr_with_env(
                 }
                 ok && left.length() < right.length()
               }
+              (Value::Int(left), Value::Int(right)) => left < right
+              (Value::Bool(left), Value::Bool(right)) =>
+                (if left { 1N } else { 0N }) < (if right { 1N } else { 0N })
+              (Value::Bool(left), Value::Int(right)) =>
+                (if left { 1N } else { 0N }) < right
+              (Value::Int(left), Value::Bool(right)) =>
+                left < (if right { 1N } else { 0N })
               (Value::Str(left), Value::Str(right)) => left < right
               _ => {
                 let (_, left_num) = match number_value(previous) {
@@ -1808,6 +1815,13 @@ fn eval_expr_with_env(
                 }
                 ok
               }
+              (Value::Int(left), Value::Int(right)) => left <= right
+              (Value::Bool(left), Value::Bool(right)) =>
+                (if left { 1N } else { 0N }) <= (if right { 1N } else { 0N })
+              (Value::Bool(left), Value::Int(right)) =>
+                (if left { 1N } else { 0N }) <= right
+              (Value::Int(left), Value::Bool(right)) =>
+                left <= (if right { 1N } else { 0N })
               (Value::Str(left), Value::Str(right)) => left <= right
               _ => {
                 let (_, left_num) = match number_value(previous) {
@@ -1847,6 +1861,13 @@ fn eval_expr_with_env(
                 }
                 ok && left.length() > right.length()
               }
+              (Value::Int(left), Value::Int(right)) => left > right
+              (Value::Bool(left), Value::Bool(right)) =>
+                (if left { 1N } else { 0N }) > (if right { 1N } else { 0N })
+              (Value::Bool(left), Value::Int(right)) =>
+                (if left { 1N } else { 0N }) > right
+              (Value::Int(left), Value::Bool(right)) =>
+                left > (if right { 1N } else { 0N })
               (Value::Str(left), Value::Str(right)) => left > right
               _ => {
                 let (_, left_num) = match number_value(previous) {
@@ -1886,6 +1907,13 @@ fn eval_expr_with_env(
                 }
                 ok
               }
+              (Value::Int(left), Value::Int(right)) => left >= right
+              (Value::Bool(left), Value::Bool(right)) =>
+                (if left { 1N } else { 0N }) >= (if right { 1N } else { 0N })
+              (Value::Bool(left), Value::Int(right)) =>
+                (if left { 1N } else { 0N }) >= right
+              (Value::Int(left), Value::Bool(right)) =>
+                left >= (if right { 1N } else { 0N })
               (Value::Str(left), Value::Str(right)) => left >= right
               _ => {
                 let (_, left_num) = match number_value(previous) {

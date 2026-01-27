@@ -704,6 +704,9 @@ fn eq_value(a : Value, b : Value) -> Bool {
         }
         equal
       }
+    (Value::Function(a), Value::Function(b)) => a.name == b.name
+    (Value::BoundMethod(a), Value::BoundMethod(b)) =>
+      a.function.name == b.function.name && eq_value(a.self, b.self)
     (Value::Dict(a), Value::Dict(b)) =>
       if a.length() != b.length() {
         false
