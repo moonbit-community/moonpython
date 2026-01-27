@@ -58,6 +58,16 @@ _UNSUPPORTED_C_EXTENSIONS = {
     "_socket",
 }
 
+_FORCED_SKIP_MODULES = {
+    # CPython's `array` is a C extension; moonpython only provides a tiny shim.
+    "test.test_array",
+}
+
+_FORCED_SKIP_PREFIXES = {
+    # CPython's asyncio heavily relies on real sockets/selectors/threads.
+    "test.test_asyncio.",
+}
+
 
 def discover_test_modules(lib_dir: Path) -> List[str]:
     test_dir = lib_dir / "test"
@@ -68,6 +78,15 @@ def discover_test_modules(lib_dir: Path) -> List[str]:
         rel = path.relative_to(lib_dir).with_suffix("")
         modules.append(".".join(rel.parts))
     return modules
+
+
+def forced_skip_reason(module: str) -> Optional[str]:
+    if module in _FORCED_SKIP_MODULES:
+        return "requires unsupported C extension semantics"
+    for prefix in _FORCED_SKIP_PREFIXES:
+        if module.startswith(prefix):
+            return "requires socket/selectors/threading support"
+    return None
 
 
 def classify(exit_code: int, output: str) -> str:
@@ -185,6 +204,15 @@ def run_one(
     target: str,
     native_release: bool,
 ) -> Result:
+    reason = forced_skip_reason(module)
+    if reason is not None:
+        return Result(
+            module=module,
+            status="skip",
+            seconds=0.0,
+            exit_code=0,
+            output=f"SkipTest: {reason}\n",
+        )
     cmd = list(
         build_run_command(
             repo_root,
