@@ -914,6 +914,42 @@ fn format_percent_string(
     let raw = match spec {
       's' => Ok(value_to_string(arg))
       'r' => Ok(value_repr_for_format(arg))
+      'c' =>
+        match arg {
+          Value::Str(s) =>
+            if s.to_array().length() == 1 {
+              Ok(s)
+            } else {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "%c requires int or char".to_string(),
+                ),
+              )
+            }
+          _ => {
+            let code = match arg {
+              Value::Int(v) => v
+              Value::Bool(v) => if v { 1N } else { 0N }
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "%c requires int or char".to_string(),
+                  ),
+                )
+            }
+            if code < 0N || code > 0x10FFFFN {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "OverflowError: %c arg not in range(0x110000)".to_string(),
+                ),
+              )
+            }
+            Ok(char_to_string(Int::unsafe_to_char(code.to_int64().to_int())))
+          }
+        }
       'd' | 'i' => format_decimal_value(arg)
       'x' => format_hex_value(arg, false)
       'X' => format_hex_value(arg, true)
