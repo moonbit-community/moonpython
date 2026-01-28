@@ -467,6 +467,49 @@ fn compile_stmt(
       let _ = b.emit(BcOp::ReturnValue, span)
       Ok(())
     }
+    Stmt::Function(
+      name~,
+      decorators~,
+      type_params~,
+      params~,
+      defaults~,
+      body~,
+      is_generator~,
+      is_async~
+    ) => {
+      let _ = type_params
+      // Keep evaluation order aligned with CPython:
+      // decorator expressions first, then default expressions, then function creation.
+      for dec_expr in decorators {
+        match compile_expr(dec_expr, b, span) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      for def_expr in defaults {
+        match compile_expr(def_expr, b, span) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let template = FunctionValue::{
+        name,
+        params,
+        defaults: [],
+        body,
+        is_generator,
+        is_async,
+        closure: [],
+      }
+      let template_idx = b.add_const(Value::Function(template))
+      let _ = b.emit(
+        BcOp::MakeFunction(template_idx, defaults.length(), decorators.length()),
+        span,
+      )
+      let name_idx = b.intern_name(name)
+      let _ = b.emit(BcOp::StoreName(name_idx), span)
+      Ok(())
+    }
     _ =>
       Err(
         make_runtime_error(

@@ -50,6 +50,13 @@ pub(all) enum BcOp {
   // Calls.
   CallFunction(Int) // positional arg count
 
+  // Function definitions.
+  // Stack effect (top is right):
+  //   [decorators..., defaults...] -> [defined_value]
+  //
+  // `template` is a `Value::Function` carrying name/params/body/flags.
+  MakeFunction(Int, Int, Int)
+
   // Function boundaries.
   ReturnValue
 }
@@ -141,6 +148,14 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::JumpIfFalseOrPop(pc) => "JumpIfFalseOrPop(" + pc.to_string() + ")"
     BcOp::JumpIfTrueOrPop(pc) => "JumpIfTrueOrPop(" + pc.to_string() + ")"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
+    BcOp::MakeFunction(template, default_count, decorator_count) =>
+      "MakeFunction(" +
+      template.to_string() +
+      ", " +
+      default_count.to_string() +
+      ", " +
+      decorator_count.to_string() +
+      ")"
     BcOp::ReturnValue => "ReturnValue"
   }
 }

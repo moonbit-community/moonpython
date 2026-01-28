@@ -546,6 +546,36 @@ pub fn bc_exec(
         stack.push(out)
         Ok(())
       }
+      BcOp::MakeFunction(template, default_count, decorator_count) => {
+        let defaults = match pop_n(stack, default_count) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let decorators = match pop_n(stack, decorator_count) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let template_value = code.consts[template]
+        let template_func = match template_value {
+          Value::Function(f) => f
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "bytecode vm: MakeFunction template is not a function".to_string(),
+              ),
+            )
+        }
+        let defined = match
+          make_function_from_template_with_env(
+            template_func, defaults, decorators, locals, globals, builtins, io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        stack.push(defined)
+        Ok(())
+      }
       BcOp::ReturnValue => {
         let v = match pop_stack(stack) {
           Ok(v) => v

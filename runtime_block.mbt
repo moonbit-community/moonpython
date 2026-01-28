@@ -1064,61 +1064,6 @@ fn eval_block_flow(
         is_async~
       ) => {
         let _ = type_params
-        let default_values : Array[Value] = []
-        for expr in defaults {
-          let value = match
-            eval_expr_with_env(expr, locals, globals, builtins, io) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          default_values.push(value)
-        }
-        let (global_names, nonlocal_names) = collect_scope_decl_names(body)
-        let _ = match
-          check_scope_decl_conflicts(params, global_names, nonlocal_names) {
-          Ok(_) => ()
-          Err(err) => return Err(err)
-        }
-        let extra_cells : Array[(String, Value)] = []
-        for nonlocal_name in nonlocal_names {
-          match get_local_value(locals, nonlocal_name) {
-            Some(v) =>
-              ensure_local_cell(locals, nonlocal_name, deref_cell_value(v))
-            None =>
-              match lookup_closure_cell(nonlocal_name) {
-                Some(cell) => extra_cells.push((nonlocal_name, cell))
-                None =>
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Runtime,
-                      "SyntaxError: no binding for nonlocal '" +
-                      nonlocal_name +
-                      "' found",
-                    ),
-                  )
-              }
-          }
-        }
-        let inherited = merge_cell_closures(current_closure_env(), extra_cells)
-        let closure = merge_cell_closures(locals, inherited)
-        let globals_marker = Value::Instance(InstanceValue::{
-          class: ClassValue::{
-            name: "__mpython_globals__",
-            bases: [],
-            dict: [],
-          },
-          dict: globals,
-        })
-        closure.push(("$__mpython_globals__", globals_marker))
-        let func = FunctionValue::{
-          name,
-          params,
-          defaults: default_values,
-          body,
-          is_generator,
-          is_async,
-          closure,
-        }
         let decorator_values : Array[Value] = []
         for dec_expr in decorators {
           let dec_value = match
@@ -1128,66 +1073,31 @@ fn eval_block_flow(
           }
           decorator_values.push(dec_value)
         }
-        let mut defined : Value = Value::Function(func)
-        for i = decorator_values.length(); i > 0; i = i - 1 {
-          let decorator_value = decorator_values[i - 1]
-          defined = match decorator_value {
-            Value::Function(dec_func) =>
-              if dec_func.body.length() == 0 {
-                match
-                  eval_builtin_call(
-                    dec_func.name,
-                    [defined],
-                    [],
-                    locals,
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(Some(value)) => value
-                  Ok(None) =>
-                    match
-                      call_callable_with_env(
-                        decorator_value,
-                        [defined],
-                        [],
-                        globals,
-                        builtins,
-                        io,
-                      ) {
-                      Ok(value) => value
-                      Err(err) => return Err(err)
-                    }
-                  Err(err) => return Err(err)
-                }
-              } else {
-                match
-                  call_callable_with_env(
-                    decorator_value,
-                    [defined],
-                    [],
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(value) => value
-                  Err(err) => return Err(err)
-                }
-              }
-            _ =>
-              match
-                call_callable_with_env(
-                  decorator_value,
-                  [defined],
-                  [],
-                  globals,
-                  builtins,
-                  io,
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
+        let default_values : Array[Value] = []
+        for expr in defaults {
+          let value = match
+            eval_expr_with_env(expr, locals, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) => return Err(err)
           }
+          default_values.push(value)
+        }
+        let template = FunctionValue::{
+          name,
+          params,
+          defaults: [],
+          body,
+          is_generator,
+          is_async,
+          closure: [],
+        }
+        let defined = match
+          make_function_from_template_with_env(
+            template, default_values, decorator_values, locals, globals, builtins,
+            io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
         }
         set_scoped_value(locals, globals, name, defined)
         last = Value::None
