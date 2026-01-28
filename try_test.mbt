@@ -56,6 +56,21 @@ test "try/finally runs after else error" {
 }
 
 ///|
+test "try/finally runs on return" {
+  let source =
+    #|log = []
+    #|def f():
+    #|  global log
+    #|  try:
+    #|    return 3
+    #|  finally:
+    #|    log = log + [1]
+    #|v = f()
+  inspect(test_exec_global(source, "v"), content="3")
+  inspect(test_exec_global(source, "log"), content="[1]")
+}
+
+///|
 test "try requires except or finally" {
   let source =
     #|try:

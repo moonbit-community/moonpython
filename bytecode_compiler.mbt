@@ -25,54 +25,48 @@ priv struct LoopCtx {
 }
 
 ///|
-priv struct CleanupCtx {
-  exit_name : Int
-  is_async : Bool
-}
-
-///|
-fn has_nonlocal_exit(stmts : Array[Stmt]) -> Bool {
+fn has_break_or_continue(stmts : Array[Stmt]) -> Bool {
   for stmt in stmts {
     match stmt {
       Stmt::WithSpan(span~, stmt~) => {
         let _ = span
-        if has_nonlocal_exit([stmt]) {
+        if has_break_or_continue([stmt]) {
           return true
         }
       }
-      Stmt::Return(_) | Stmt::Break | Stmt::Continue => return true
+      Stmt::Break | Stmt::Continue => return true
       Stmt::If(condition~, body~, else_body~) => {
         let _ = condition
-        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+        if has_break_or_continue(body) || has_break_or_continue(else_body) {
           return true
         }
       }
       Stmt::While(condition~, body~, else_body~) => {
         let _ = condition
-        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+        if has_break_or_continue(body) || has_break_or_continue(else_body) {
           return true
         }
       }
       Stmt::For(target~, iter~, body~, else_body~) => {
         let _ = target
         let _ = iter
-        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+        if has_break_or_continue(body) || has_break_or_continue(else_body) {
           return true
         }
       }
       Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-        if has_nonlocal_exit(body) ||
-          has_nonlocal_exit(else_body) ||
-          has_nonlocal_exit(finally_body) {
+        if has_break_or_continue(body) ||
+          has_break_or_continue(else_body) ||
+          has_break_or_continue(finally_body) {
           return true
         }
         for h in handlers {
-          if has_nonlocal_exit(h.body) {
+          if has_break_or_continue(h.body) {
             return true
           }
         }
       }
-      // Nested scopes do not affect outer `try/finally` control flow.
+      // Nested scopes do not affect outer control flow.
       Stmt::Function(..) | Stmt::Class(..) => ()
       _ => ()
     }
@@ -334,7 +328,6 @@ fn compile_try_except_else(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
-  cleanup_stack : Ref[Array[CleanupCtx]],
 ) -> Result[Unit, RuntimeError] {
   for handler in handlers {
     if handler.is_star {
@@ -348,14 +341,14 @@ fn compile_try_except_else(
   }
   let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
   for s in body {
-    match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+    match compile_stmt(s, b, span, loop_stack) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
   }
   let _ = b.emit(BcOp::PopExcept, span)
   for s in else_body {
-    match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+    match compile_stmt(s, b, span, loop_stack) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -387,7 +380,7 @@ fn compile_try_except_else(
       None => ()
     }
     for s in handler.body {
-      match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+      match compile_stmt(s, b, span, loop_stack) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
@@ -418,11 +411,10 @@ fn compile_stmt(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
-  cleanup_stack : Ref[Array[CleanupCtx]],
 ) -> Result[Unit, RuntimeError] {
   match stmt {
     Stmt::WithSpan(span~, stmt~) =>
-      compile_stmt(stmt, b, Some(span), loop_stack, cleanup_stack)
+      compile_stmt(stmt, b, Some(span), loop_stack)
     Stmt::Pass => Ok(())
     Stmt::ExprStmt(expr) => {
       match compile_expr(expr, b, span) {
@@ -490,7 +482,7 @@ fn compile_stmt(
       }
       let j_else = b.emit(BcOp::JumpIfFalse(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -499,7 +491,7 @@ fn compile_stmt(
       let else_pc = b.code.ops.length()
       bc_patch_jump(b.code, j_else, else_pc)
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -529,7 +521,7 @@ fn compile_stmt(
         continue_jumps: [],
       })
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -578,7 +570,7 @@ fn compile_stmt(
         Err(err) => return Err(err)
       }
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -595,7 +587,7 @@ fn compile_stmt(
 
       // `for ... else`: run else_body only when loop is exhausted (i.e. not broken).
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -655,48 +647,20 @@ fn compile_stmt(
 
         }
       }
-      // If we are inside `with`/`async with`, ensure exit handlers run before returning.
-      if cleanup_stack.val.length() == 0 {
-        let _ = b.emit(BcOp::ReturnValue, span)
-        return Ok(())
-      }
-      let ret_name = "__mpy_ret$" + b.code.ops.length().to_string()
-      let ret_idx = b.intern_name(ret_name)
-      let _ = b.emit(BcOp::StoreName(ret_idx), span)
-      let none_idx = b.add_const(Value::None)
-      for i = cleanup_stack.val.length(); i > 0; i = i - 1 {
-        let ctx = cleanup_stack.val[i - 1]
-        let _ = b.emit(BcOp::LoadName(ctx.exit_name), span)
-        let _ = b.emit(BcOp::LoadConst(none_idx), span)
-        let _ = b.emit(BcOp::LoadConst(none_idx), span)
-        let _ = b.emit(BcOp::LoadConst(none_idx), span)
-        let _ = b.emit(BcOp::CallFunction(3), span)
-        if ctx.is_async {
-          let _ = b.emit(BcOp::Await, span)
-
-        }
-        let _ = b.emit(BcOp::PopTop, span)
-        let _ = b.emit(BcOp::DeleteName(ctx.exit_name), span)
-
-      }
-      let _ = b.emit(BcOp::LoadName(ret_idx), span)
-      let _ = b.emit(BcOp::DeleteName(ret_idx), span)
       let _ = b.emit(BcOp::ReturnValue, span)
       Ok(())
     }
     Stmt::Try(body~, handlers~, else_body~, finally_body~) =>
       if finally_body.length() == 0 {
-        compile_try_except_else(
-          body, handlers, else_body, b, span, loop_stack, cleanup_stack,
-        )
+        compile_try_except_else(body, handlers, else_body, b, span, loop_stack)
       } else {
-        // Without unwind support, do not attempt to compile `finally` when the try
-        // body may exit via return/break/continue.
-        let mut blocked = has_nonlocal_exit(body) ||
-          has_nonlocal_exit(else_body) ||
-          has_nonlocal_exit(finally_body)
+        // `return` is supported (VM unwinds finally blocks). `break`/`continue`
+        // that exit the try-suite are not supported yet.
+        let mut blocked = has_break_or_continue(body) ||
+          has_break_or_continue(else_body) ||
+          has_break_or_continue(finally_body)
         for h in handlers {
-          if has_nonlocal_exit(h.body) {
+          if has_break_or_continue(h.body) {
             blocked = true
             break
           }
@@ -705,42 +669,29 @@ fn compile_stmt(
           return Err(
             make_runtime_error(
               RuntimeErrorKind::NotImplemented,
-              "bytecode compiler: try/finally with nonlocal exits not implemented".to_string(),
+              "bytecode compiler: try/finally with break/continue not implemented".to_string(),
             ),
           )
         }
-
-        // Outer setup ensures `finally` runs even when the inner try/except does
-        // not handle the exception.
-        let outer_setup = b.emit(BcOp::SetupExcept(-1), span)
+        let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
         match
           compile_try_except_else(
-            body, handlers, else_body, b, span, loop_stack, cleanup_stack,
+            body, handlers, else_body, b, span, loop_stack,
           ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
-        let _ = b.emit(BcOp::PopExcept, span)
-        for s in finally_body {
-          match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-        }
-        let j_end = b.emit(BcOp::Jump(-1), span)
-
-        // Exception path.
+        let enter_pc = b.emit(BcOp::EnterFinally(-1), span)
         let finally_pc = b.code.ops.length()
-        bc_patch_jump(b.code, outer_setup, finally_pc)
+        bc_patch_jump(b.code, setup_pc, finally_pc)
+        bc_patch_jump(b.code, enter_pc, finally_pc)
         for s in finally_body {
-          match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+          match compile_stmt(s, b, span, loop_stack) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
         }
-        let _ = b.emit(BcOp::Reraise, span)
-        let end_pc = b.code.ops.length()
-        bc_patch_jump(b.code, j_end, end_pc)
+        let _ = b.emit(BcOp::EndFinally, span)
         Ok(())
       }
     Stmt::Function(
@@ -787,8 +738,6 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::With(context~, target~, body~) => {
-      // NOTE: We store `__exit__` in a hidden name so `return` inside the body can
-      // run it before returning (without VM-level unwind support).
       match compile_expr(context, b, span) {
         Ok(_) => ()
         Err(err) => return Err(err)
@@ -813,19 +762,35 @@ fn compile_stmt(
           ()
         }
       }
-      let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
-      cleanup_stack.val.push(CleanupCtx::{
-        exit_name: exit_name_idx,
-        is_async: false,
-      })
+      let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
       }
-      let _ = cleanup_stack.val.remove(cleanup_stack.val.length() - 1)
-      let _ = b.emit(BcOp::PopExcept, span)
+      let enter_pc = b.emit(BcOp::EnterFinally(-1), span)
+
+      // Handler (runs on normal exit, return, and exception unwind).
+      let handler_pc = b.code.ops.length()
+      bc_patch_jump(b.code, setup_pc, handler_pc)
+      bc_patch_jump(b.code, enter_pc, handler_pc)
+      let _ = b.emit(BcOp::HasPendingException, span)
+      let j_normal = b.emit(BcOp::JumpIfFalse(-1), span)
+
+      // Exception path: __exit__(exc_type, exc, tb); if truthy -> suppress.
+      let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
+      let _ = b.emit(BcOp::LoadExceptionType, span)
+      let _ = b.emit(BcOp::LoadException, span)
+      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let j_no_suppress = b.emit(BcOp::JumpIfFalse(-1), span)
+      let _ = b.emit(BcOp::ClearPendingException, span)
+      let j_tail = b.emit(BcOp::Jump(-1), span)
+
+      // Normal/return path: __exit__(None, None, None)
+      let normal_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_normal, normal_pc)
       let none_idx = b.add_const(Value::None)
       let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
       let _ = b.emit(BcOp::LoadConst(none_idx), span)
@@ -833,28 +798,13 @@ fn compile_stmt(
       let _ = b.emit(BcOp::LoadConst(none_idx), span)
       let _ = b.emit(BcOp::CallFunction(3), span)
       let _ = b.emit(BcOp::PopTop, span)
-      let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let j_end = b.emit(BcOp::Jump(-1), span)
 
-      // Exception path.
-      let handler_pc = b.code.ops.length()
-      bc_patch_jump(b.code, setup_pc, handler_pc)
-      let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
-      let _ = b.emit(BcOp::LoadExceptionType, span)
-      let _ = b.emit(BcOp::LoadException, span)
-      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
-      let _ = b.emit(BcOp::CallFunction(3), span)
-      let j_reraise = b.emit(BcOp::JumpIfFalse(-1), span)
-      let _ = b.emit(BcOp::EndExcept, span)
+      // Tail: delete hidden exit and let EndFinally continue unwind.
+      let tail_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_no_suppress, tail_pc)
+      bc_patch_jump(b.code, j_tail, tail_pc)
       let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let j_done = b.emit(BcOp::Jump(-1), span)
-      let reraise_pc = b.code.ops.length()
-      bc_patch_jump(b.code, j_reraise, reraise_pc)
-      let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let _ = b.emit(BcOp::Reraise, span)
-      let end_pc = b.code.ops.length()
-      bc_patch_jump(b.code, j_end, end_pc)
-      bc_patch_jump(b.code, j_done, end_pc)
+      let _ = b.emit(BcOp::EndFinally, span)
       Ok(())
     }
     Stmt::AsyncWith(context~, target~, body~) => {
@@ -883,19 +833,36 @@ fn compile_stmt(
           ()
         }
       }
-      let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
-      cleanup_stack.val.push(CleanupCtx::{
-        exit_name: exit_name_idx,
-        is_async: true,
-      })
+      let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, cleanup_stack) {
+        match compile_stmt(s, b, span, loop_stack) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
       }
-      let _ = cleanup_stack.val.remove(cleanup_stack.val.length() - 1)
-      let _ = b.emit(BcOp::PopExcept, span)
+      let enter_pc = b.emit(BcOp::EnterFinally(-1), span)
+
+      // Handler (runs on normal exit, return, and exception unwind).
+      let handler_pc = b.code.ops.length()
+      bc_patch_jump(b.code, setup_pc, handler_pc)
+      bc_patch_jump(b.code, enter_pc, handler_pc)
+      let _ = b.emit(BcOp::HasPendingException, span)
+      let j_normal = b.emit(BcOp::JumpIfFalse(-1), span)
+
+      // Exception path: await __aexit__(exc_type_name, exc, tb); if truthy -> suppress.
+      let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
+      let _ = b.emit(BcOp::LoadExceptionTypeName, span)
+      let _ = b.emit(BcOp::LoadException, span)
+      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let _ = b.emit(BcOp::Await, span)
+      let j_no_suppress = b.emit(BcOp::JumpIfFalse(-1), span)
+      let _ = b.emit(BcOp::ClearPendingException, span)
+      let j_tail = b.emit(BcOp::Jump(-1), span)
+
+      // Normal/return path: await __aexit__(None, None, None)
+      let normal_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_normal, normal_pc)
       let none_idx = b.add_const(Value::None)
       let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
       let _ = b.emit(BcOp::LoadConst(none_idx), span)
@@ -904,29 +871,13 @@ fn compile_stmt(
       let _ = b.emit(BcOp::CallFunction(3), span)
       let _ = b.emit(BcOp::Await, span)
       let _ = b.emit(BcOp::PopTop, span)
-      let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let j_end = b.emit(BcOp::Jump(-1), span)
 
-      // Exception path.
-      let handler_pc = b.code.ops.length()
-      bc_patch_jump(b.code, setup_pc, handler_pc)
-      let _ = b.emit(BcOp::LoadName(exit_name_idx), span)
-      let _ = b.emit(BcOp::LoadExceptionTypeName, span)
-      let _ = b.emit(BcOp::LoadException, span)
-      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
-      let _ = b.emit(BcOp::CallFunction(3), span)
-      let _ = b.emit(BcOp::Await, span)
-      let j_reraise = b.emit(BcOp::JumpIfFalse(-1), span)
-      let _ = b.emit(BcOp::EndExcept, span)
+      // Tail: delete hidden exit and let EndFinally continue unwind.
+      let tail_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_no_suppress, tail_pc)
+      bc_patch_jump(b.code, j_tail, tail_pc)
       let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let j_done = b.emit(BcOp::Jump(-1), span)
-      let reraise_pc = b.code.ops.length()
-      bc_patch_jump(b.code, j_reraise, reraise_pc)
-      let _ = b.emit(BcOp::DeleteName(exit_name_idx), span)
-      let _ = b.emit(BcOp::Reraise, span)
-      let end_pc = b.code.ops.length()
-      bc_patch_jump(b.code, j_end, end_pc)
-      bc_patch_jump(b.code, j_done, end_pc)
+      let _ = b.emit(BcOp::EndFinally, span)
       Ok(())
     }
     _ =>
@@ -955,9 +906,8 @@ pub fn compile_stmts_to_bc(
 ) -> Result[BcCode, RuntimeError] {
   let b = BcBuilder::new(name, filename)
   let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
-  let cleanup_stack : Ref[Array[CleanupCtx]] = { val: [] }
   for stmt in body {
-    match compile_stmt(stmt, b, None, loop_stack, cleanup_stack) {
+    match compile_stmt(stmt, b, None, loop_stack) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }

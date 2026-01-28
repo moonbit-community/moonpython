@@ -8,6 +8,8 @@
 priv enum VmBlockKind {
   Except(Int)
   ExceptHandler
+  Finally(Int)
+  FinallyHandler
 }
 
 ///|
@@ -310,6 +312,32 @@ fn vm_make_traceback_value(frames : Array[TracebackFrame]) -> Value {
 }
 
 ///|
+fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
+  while blocks.length() > 0 {
+    let blk = blocks.remove(blocks.length() - 1)
+    while stack.length() > blk.stack_height {
+      let _ = stack.remove(stack.length() - 1)
+
+    }
+    match blk.kind {
+      VmBlockKind::Finally(target) => {
+        // Mark as active so exceptions inside the finally do not re-enter it.
+        blocks.push(VmBlock::{
+          kind: VmBlockKind::FinallyHandler,
+          stack_height: stack.length(),
+        })
+        return Some(target)
+      }
+      // A return bypasses exception handlers; just drop them.
+      VmBlockKind::Except(_)
+      | VmBlockKind::ExceptHandler
+      | VmBlockKind::FinallyHandler => continue
+    }
+  }
+  None
+}
+
+///|
 pub fn bc_exec(
   code : BcCode,
   locals : Array[(String, Value)],
@@ -320,6 +348,7 @@ pub fn bc_exec(
   let stack : Array[Value] = []
   let blocks : Array[VmBlock] = []
   let mut pending_exc : RuntimeError? = None
+  let mut pending_return : Value? = None
   let mut pc = 0
   while pc < code.ops.length() {
     let op = code.ops[pc]
@@ -686,6 +715,13 @@ pub fn bc_exec(
         })
         Ok(())
       }
+      BcOp::SetupFinally(target) => {
+        blocks.push(VmBlock::{
+          kind: VmBlockKind::Finally(target),
+          stack_height: stack.length(),
+        })
+        Ok(())
+      }
       BcOp::PopExcept =>
         if blocks.length() == 0 {
           Err(
@@ -703,6 +739,34 @@ pub fn bc_exec(
                 make_runtime_error(
                   RuntimeErrorKind::Runtime,
                   "bytecode vm: PopExcept on non-except block".to_string(),
+                ),
+              )
+          }
+        }
+      BcOp::EnterFinally(target) =>
+        if blocks.length() == 0 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: block underflow".to_string(),
+            ),
+          )
+        } else {
+          let blk = blocks.remove(blocks.length() - 1)
+          match blk.kind {
+            VmBlockKind::Finally(_) => {
+              blocks.push(VmBlock::{
+                kind: VmBlockKind::FinallyHandler,
+                stack_height: blk.stack_height,
+              })
+              next_pc = target
+              Ok(())
+            }
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: EnterFinally on non-finally block".to_string(),
                 ),
               )
           }
@@ -727,6 +791,48 @@ pub fn bc_exec(
                 make_runtime_error(
                   RuntimeErrorKind::Runtime,
                   "bytecode vm: EndExcept on non-handler block".to_string(),
+                ),
+              )
+          }
+        }
+      BcOp::EndFinally =>
+        if blocks.length() == 0 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: block underflow".to_string(),
+            ),
+          )
+        } else {
+          let blk = blocks.remove(blocks.length() - 1)
+          match blk.kind {
+            VmBlockKind::FinallyHandler =>
+              match pending_return {
+                Some(v) =>
+                  match vm_unwind_return(stack, blocks) {
+                    Some(target) => {
+                      next_pc = target
+                      Ok(())
+                    }
+                    None => {
+                      pending_return = None
+                      if span is Some(_) {
+                        pop_active_span()
+                      }
+                      return Ok(v)
+                    }
+                  }
+                None =>
+                  match pending_exc {
+                    Some(err) => Err(err)
+                    None => Ok(())
+                  }
+              }
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: EndFinally on non-handler block".to_string(),
                 ),
               )
           }
@@ -790,6 +896,14 @@ pub fn bc_exec(
               ),
             )
         }
+      BcOp::HasPendingException => {
+        stack.push(Value::Bool(pending_exc is Some(_)))
+        Ok(())
+      }
+      BcOp::ClearPendingException => {
+        pending_exc = None
+        Ok(())
+      }
       BcOp::LoadExceptionType =>
         match pending_exc {
           Some(err) => {
@@ -920,12 +1034,20 @@ pub fn bc_exec(
         }
       BcOp::ReturnValue =>
         match pop_stack(stack) {
-          Ok(v) => {
-            if span is Some(_) {
-              pop_active_span()
+          Ok(v) =>
+            match vm_unwind_return(stack, blocks) {
+              Some(target) => {
+                pending_return = Some(v)
+                next_pc = target
+                Ok(())
+              }
+              None => {
+                if span is Some(_) {
+                  pop_active_span()
+                }
+                return Ok(v)
+              }
             }
-            return Ok(v)
-          }
           Err(err) => Err(err)
         }
       _ =>
@@ -943,6 +1065,9 @@ pub fn bc_exec(
     match step {
       Ok(_) => pc = next_pc
       Err(err) => {
+        // An exception overrides any pending return (including one in-flight from
+        // an inner finally handler).
+        pending_return = None
         let mut handler_pc : Int? = None
         let exc = err
         // Unwind blocks until we find a handler.
@@ -962,8 +1087,22 @@ pub fn bc_exec(
               handler_pc = Some(target)
               break
             }
+            VmBlockKind::Finally(target) => {
+              pending_exc = Some(exc)
+              blocks.push(VmBlock::{
+                kind: VmBlockKind::FinallyHandler,
+                stack_height: stack.length(),
+              })
+              handler_pc = Some(target)
+              break
+            }
             VmBlockKind::ExceptHandler => {
               // An exception raised while already in an except path.
+              pending_exc = None
+              continue
+            }
+            VmBlockKind::FinallyHandler => {
+              // An exception raised while already in a finally path.
               pending_exc = None
               continue
             }

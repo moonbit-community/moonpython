@@ -52,13 +52,18 @@ pub(all) enum BcOp {
 
   // Exceptions.
   SetupExcept(Int) // absolute pc for exception handler
+  SetupFinally(Int) // absolute pc for finally handler
   PopExcept
+  EnterFinally(Int) // jump to finally handler and mark it active
   EndExcept
+  EndFinally
   CheckExceptionMatch // pops handler type value; pushes bool
   LoadException // pushes current exception instance value
   LoadExceptionType // pushes exception type value for `__exit__` (`<class ...>` or a string fallback)
   LoadExceptionTypeName // pushes exception type name (string), for `__aexit__`
   LoadExceptionTraceback // pushes traceback object value
+  HasPendingException // pushes bool; true when a pending exception is being unwound
+  ClearPendingException // clears the pending exception (for suppressing in `with`/`async with`)
   Reraise
 
   // Async helpers.
@@ -168,13 +173,18 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::JumpIfFalseOrPop(pc) => "JumpIfFalseOrPop(" + pc.to_string() + ")"
     BcOp::JumpIfTrueOrPop(pc) => "JumpIfTrueOrPop(" + pc.to_string() + ")"
     BcOp::SetupExcept(pc) => "SetupExcept(" + pc.to_string() + ")"
+    BcOp::SetupFinally(pc) => "SetupFinally(" + pc.to_string() + ")"
     BcOp::PopExcept => "PopExcept"
+    BcOp::EnterFinally(pc) => "EnterFinally(" + pc.to_string() + ")"
     BcOp::EndExcept => "EndExcept"
+    BcOp::EndFinally => "EndFinally"
     BcOp::CheckExceptionMatch => "CheckExceptionMatch"
     BcOp::LoadException => "LoadException"
     BcOp::LoadExceptionType => "LoadExceptionType"
     BcOp::LoadExceptionTypeName => "LoadExceptionTypeName"
     BcOp::LoadExceptionTraceback => "LoadExceptionTraceback"
+    BcOp::HasPendingException => "HasPendingException"
+    BcOp::ClearPendingException => "ClearPendingException"
     BcOp::Reraise => "Reraise"
     BcOp::Await => "Await"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
