@@ -256,6 +256,36 @@ pub fn bc_exec(
           Ok(_) => Ok(())
           Err(err) => Err(err)
         }
+      BcOp::DupTop =>
+        if stack.length() == 0 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        } else {
+          stack.push(stack[stack.length() - 1])
+          Ok(())
+        }
+      BcOp::RotThree =>
+        if stack.length() < 3 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        } else {
+          let c = stack.remove(stack.length() - 1)
+          let b = stack.remove(stack.length() - 1)
+          let a = stack.remove(stack.length() - 1)
+          // [a, b, c] -> [c, a, b]
+          stack.push(c)
+          stack.push(a)
+          stack.push(b)
+          Ok(())
+        }
       BcOp::LoadConst(i) => {
         stack.push(code.consts[i])
         Ok(())

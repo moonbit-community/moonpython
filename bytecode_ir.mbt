@@ -9,6 +9,8 @@
 pub(all) enum BcOp {
   Nop
   PopTop
+  DupTop
+  RotThree
 
   // Stack pushes.
   LoadConst(Int) // consts[idx]
@@ -124,6 +126,8 @@ fn bc_op_repr(op : BcOp) -> String {
   match op {
     BcOp::Nop => "Nop"
     BcOp::PopTop => "PopTop"
+    BcOp::DupTop => "DupTop"
+    BcOp::RotThree => "RotThree"
     BcOp::LoadConst(i) => "LoadConst(" + i.to_string() + ")"
     BcOp::LoadName(i) => "LoadName(" + i.to_string() + ")"
     BcOp::StoreName(i) => "StoreName(" + i.to_string() + ")"

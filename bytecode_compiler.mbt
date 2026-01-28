@@ -90,13 +90,18 @@ fn compile_expr(
       Ok(())
     }
     Expr::Compare(left~, ops~, comparators~) => {
-      if ops.length() != 1 || comparators.length() != 1 {
+      if ops.length() != comparators.length() {
         return Err(
           make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "bytecode compiler: chained comparisons not implemented".to_string(),
+            RuntimeErrorKind::Runtime,
+            "bytecode compiler: invalid compare node".to_string(),
           ),
         )
+      }
+      if ops.length() == 0 {
+        let idx = b.add_const(Value::Bool(true))
+        let _ = b.emit(BcOp::LoadConst(idx), span)
+        return Ok(())
       }
       match compile_expr(left, b, span) {
         Ok(_) => ()
@@ -106,7 +111,42 @@ fn compile_expr(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      let _ = b.emit(BcOp::Compare(ops[0]), span)
+      if ops.length() == 1 {
+        let _ = b.emit(BcOp::Compare(ops[0]), span)
+        return Ok(())
+      }
+      let fail_jumps : Array[Int] = []
+      for i = 0; i < ops.length(); i = i + 1 {
+        let op = ops[i]
+        if i < ops.length() - 1 {
+          // Stack: [prev, cur]
+          // -> duplicate cur and rotate so we can compare prev/cur while keeping cur:
+          //    [prev, cur] -> [prev, cur, cur] -> [cur, prev, cur]
+          let _ = b.emit(BcOp::DupTop, span)
+          let _ = b.emit(BcOp::RotThree, span)
+          let _ = b.emit(BcOp::Compare(op), span)
+          // On failure: JumpIfFalse consumes the bool and jumps, leaving [cur] on the stack.
+          let j_fail = b.emit(BcOp::JumpIfFalse(-1), span)
+          fail_jumps.push(j_fail)
+          match compile_expr(comparators[i + 1], b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        } else {
+          let _ = b.emit(BcOp::Compare(op), span)
+
+        }
+      }
+      let j_done = b.emit(BcOp::Jump(-1), span)
+      let fail_pc = b.code.ops.length()
+      for pc in fail_jumps {
+        bc_patch_jump(b.code, pc, fail_pc)
+      }
+      let _ = b.emit(BcOp::PopTop, span)
+      let false_idx = b.add_const(Value::Bool(false))
+      let _ = b.emit(BcOp::LoadConst(false_idx), span)
+      let done_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_done, done_pc)
       Ok(())
     }
     Expr::Call(callee~, args~) => {
