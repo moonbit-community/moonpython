@@ -1162,6 +1162,106 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
+      BcOp::CallFunctionKw(argc) =>
+        match pop_stack(stack) {
+          Ok(kw_names_val) => {
+            let kw_names = match kw_names_val {
+              Value::Tuple(values) => {
+                let names : Array[String] = []
+                for v in values {
+                  match v {
+                    Value::Str(name) => names.push(name)
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: CallFunctionKw expects tuple of str names".to_string(),
+                        ),
+                      )
+                  }
+                }
+                names
+              }
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: CallFunctionKw expects tuple of keyword names".to_string(),
+                  ),
+                )
+            }
+            let kwc = kw_names.length()
+            match pop_n(stack, kwc) {
+              Ok(kw_values) =>
+                match pop_n(stack, argc) {
+                  Ok(pos_args) =>
+                    match pop_stack(stack) {
+                      Ok(callee) => {
+                        let keywords : Array[(String, Value)] = []
+                        for i = 0; i < kwc; i = i + 1 {
+                          keywords.push((kw_names[i], kw_values[i]))
+                        }
+                        match callee {
+                          Value::Function(func) if func.body.length() == 0 =>
+                            match
+                              eval_builtin_call(
+                                func.name,
+                                pos_args,
+                                keywords,
+                                locals,
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(Some(out)) => {
+                                stack.push(out)
+                                Ok(())
+                              }
+                              Ok(None) =>
+                                match
+                                  call_callable_with_env(
+                                    Value::Function(func),
+                                    pos_args,
+                                    keywords,
+                                    globals,
+                                    builtins,
+                                    io,
+                                  ) {
+                                  Ok(out) => {
+                                    stack.push(out)
+                                    Ok(())
+                                  }
+                                  Err(err) => Err(err)
+                                }
+                              Err(err) => Err(err)
+                            }
+                          _ =>
+                            match
+                              call_callable_with_env(
+                                callee,
+                                pos_args,
+                                keywords,
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(out) => {
+                                stack.push(out)
+                                Ok(())
+                              }
+                              Err(err) => Err(err)
+                            }
+                        }
+                      }
+                      Err(err) => Err(err)
+                    }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          }
+          Err(err) => Err(err)
+        }
       BcOp::MakeFunction(template, default_count, decorator_count) =>
         match pop_n(stack, default_count) {
           Ok(defaults) =>

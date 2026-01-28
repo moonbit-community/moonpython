@@ -76,6 +76,8 @@ pub(all) enum BcOp {
 
   // Calls.
   CallFunction(Int) // positional arg count
+  // CALL_FUNCTION_KW-style: pushes keyword values then a tuple of keyword names.
+  CallFunctionKw(Int) // positional arg count
 
   // Function definitions.
   // Stack effect (top is right):
@@ -196,6 +198,7 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::Reraise => "Reraise"
     BcOp::Await => "Await"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
+    BcOp::CallFunctionKw(n) => "CallFunctionKw(" + n.to_string() + ")"
     BcOp::MakeFunction(template, default_count, decorator_count) =>
       "MakeFunction(" +
       template.to_string() +

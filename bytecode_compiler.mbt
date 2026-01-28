@@ -201,29 +201,52 @@ fn compile_expr(
       Ok(())
     }
     Expr::Call(callee~, args~) => {
+      let pos_args : Array[Expr] = []
+      let kw_names : Array[String] = []
+      let kw_values : Array[Expr] = []
       for arg in args {
         match arg {
-          Expr::Keyword(_) | Expr::Starred(_) | Expr::DoubleStarred(_) =>
+          Expr::Keyword(name~, value~) => {
+            kw_names.push(name)
+            kw_values.push(value)
+          }
+          Expr::Starred(_) | Expr::DoubleStarred(_) =>
             return Err(
               make_runtime_error(
                 RuntimeErrorKind::NotImplemented,
-                "bytecode compiler: keyword/star args not implemented".to_string(),
+                "bytecode compiler: *args/**kwargs not implemented".to_string(),
               ),
             )
-          _ => ()
+          _ => pos_args.push(arg)
         }
       }
       match compile_expr(callee, b, span) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      for arg in args {
+      for arg in pos_args {
         match compile_expr(arg, b, span) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
       }
-      let _ = b.emit(BcOp::CallFunction(args.length()), span)
+      for value in kw_values {
+        match compile_expr(value, b, span) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      if kw_names.length() == 0 {
+        let _ = b.emit(BcOp::CallFunction(pos_args.length()), span)
+      } else {
+        let name_values : Array[Value] = []
+        for name in kw_names {
+          name_values.push(Value::Str(name))
+        }
+        let kw_tuple_idx = b.add_const(Value::Tuple(name_values))
+        let _ = b.emit(BcOp::LoadConst(kw_tuple_idx), span)
+        let _ = b.emit(BcOp::CallFunctionKw(pos_args.length()), span)
+      }
       Ok(())
     }
     Expr::Tuple(items) => {
