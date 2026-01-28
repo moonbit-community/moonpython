@@ -972,6 +972,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "breakpoint", run: builtin_breakpoint },
     BuiltinDef::{ name: "open", run: builtin_open },
     BuiltinDef::{ name: "str", run: builtin_str },
+    BuiltinDef::{ name: "str.join", run: builtin_str_join },
     BuiltinDef::{ name: "str.maketrans", run: builtin_str_maketrans },
     BuiltinDef::{ name: "str.casefold", run: builtin_str_casefold },
     BuiltinDef::{ name: "bytes", run: builtin_bytes },

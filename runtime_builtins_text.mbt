@@ -321,6 +321,76 @@ fn builtin_str_casefold(
 }
 
 ///|
+fn builtin_str_join(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("str.join", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "join() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let sep = match positional[0] {
+    Value::Str(text) => text
+    other =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "join() expects a str separator, not '" + type_name_from_value(other) + "'",
+        ),
+      )
+  }
+  let iterator_value = match
+    iter_value_to_iterator(positional[1], globals, builtins, io) {
+    Ok(v) => v
+    Err(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "can only join an iterable".to_string(),
+        ),
+      )
+  }
+  let buf = StringBuilder::new()
+  let mut first = true
+  while true {
+    match iterator_next(iterator_value, None, globals, builtins, io) {
+      Ok(item) => {
+        let part = match item {
+          Value::Str(text) => text
+          other => value_to_string(other)
+        }
+        if first {
+          first = false
+        } else {
+          buf.write_string(sep)
+        }
+        buf.write_string(part)
+      }
+      Err(err) =>
+        if err.exc_type == "StopIteration" {
+          break
+        } else {
+          return Err(err)
+        }
+    }
+  }
+  Ok(Value::Str(buf.to_string()))
+}
+
+///|
 fn builtin_sys_intern(
   positional : Array[Value],
   keywords : Array[(String, Value)],

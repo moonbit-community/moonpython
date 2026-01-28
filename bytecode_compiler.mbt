@@ -504,20 +504,13 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::While(condition~, body~, else_body~) => {
-      if else_body.length() != 0 {
-        return Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "bytecode compiler: while-else not implemented".to_string(),
-          ),
-        )
-      }
       let loop_start = b.code.ops.length()
       match compile_expr(condition, b, span) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      let j_end = b.emit(BcOp::JumpIfFalse(-1), span)
+      // If the condition is false, jump to the `else` suite (or loop end when absent).
+      let j_else = b.emit(BcOp::JumpIfFalse(-1), span)
       loop_stack.val.push(LoopCtx::{
         has_iter: false,
         break_jumps: [],
@@ -534,11 +527,21 @@ fn compile_stmt(
       let ctx = loop_stack.val[ctx_idx]
       let _ = loop_stack.val.remove(ctx_idx)
       let _ = b.emit(BcOp::Jump(loop_start), span)
-      let end_pc = b.code.ops.length()
-      bc_patch_jump(b.code, j_end, end_pc)
+      let else_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_else, else_pc)
       for pc in ctx.continue_jumps {
         bc_patch_jump(b.code, pc, loop_start)
       }
+
+      // `while ... else`: run else_body only when loop terminates normally (i.e. not broken).
+      for s in else_body {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+
+      let end_pc = b.code.ops.length()
       for pc in ctx.break_jumps {
         bc_patch_jump(b.code, pc, end_pc)
       }

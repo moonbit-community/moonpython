@@ -636,7 +636,7 @@ fn builtin_class_from_name(
         "join",
         Value::Function(FunctionValue::{
           name: "str.join",
-          params: [],
+          params: ["self", "iterable"],
           defaults: [],
           body: [],
           is_generator: false,

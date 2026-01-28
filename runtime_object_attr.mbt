@@ -1829,6 +1829,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "join" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "str.join",
+              params: ["self", "iterable"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
