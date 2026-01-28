@@ -406,6 +406,20 @@ pub fn bc_exec(
           Err(err) => Err(err)
         }
       }
+      BcOp::DeleteName(i) => {
+        let name = code.names[i]
+        match delete_scoped_value(locals, globals, name) {
+          Ok(true) => Ok(())
+          Ok(false) =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Name,
+                "name '" + name + "' is not defined",
+              ),
+            )
+          Err(err) => Err(err)
+        }
+      }
       BcOp::LoadAttr(i) => {
         let attr = code.names[i]
         match pop_stack(stack) {

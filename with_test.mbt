@@ -62,3 +62,24 @@ test "with/exit runs before exception propagation" {
     #|  pass
   inspect(test_exec_global(source, "log"), content="[1]")
 }
+
+///|
+test "with/return runs exit" {
+  let source =
+    #|log = []
+    #|def enter():
+    #|  pass
+    #|def exit(a, b, c):
+    #|  global log
+    #|  log = log + [1]
+    #|  return False
+    #|ctx = object()
+    #|ctx.__enter__ = enter
+    #|ctx.__exit__ = exit
+    #|def f():
+    #|  with ctx:
+    #|    return 3
+    #|v = f()
+  inspect(test_exec_global(source, "v"), content="3")
+  inspect(test_exec_global(source, "log"), content="[1]")
+}
