@@ -468,6 +468,50 @@ pub fn bc_exec(
         }
         Ok(())
       }
+      BcOp::JumpIfFalseOrPop(target) => {
+        if stack.length() == 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        }
+        let v = stack[stack.length() - 1]
+        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if !ok {
+          next_pc = target
+        } else {
+          let _ = stack.remove(stack.length() - 1)
+
+        }
+        Ok(())
+      }
+      BcOp::JumpIfTrueOrPop(target) => {
+        if stack.length() == 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        }
+        let v = stack[stack.length() - 1]
+        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if ok {
+          next_pc = target
+        } else {
+          let _ = stack.remove(stack.length() - 1)
+
+        }
+        Ok(())
+      }
       BcOp::CallFunction(argc) => {
         let args = match pop_n(stack, argc) {
           Ok(v) => v

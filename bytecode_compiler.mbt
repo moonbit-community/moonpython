@@ -61,6 +61,34 @@ fn compile_expr(
       let _ = b.emit(BcOp::Binary(op), span)
       Ok(())
     }
+    Expr::BoolOp(op~, values~) => {
+      if values.length() == 0 {
+        let idx = b.add_const(Value::Bool(true))
+        let _ = b.emit(BcOp::LoadConst(idx), span)
+        return Ok(())
+      }
+      match compile_expr(values[0], b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let jumps : Array[Int] = []
+      for i = 1; i < values.length(); i = i + 1 {
+        let j = match op {
+          BoolOp::And => b.emit(BcOp::JumpIfFalseOrPop(-1), span)
+          BoolOp::Or => b.emit(BcOp::JumpIfTrueOrPop(-1), span)
+        }
+        jumps.push(j)
+        match compile_expr(values[i], b, span) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let end_pc = b.code.ops.length()
+      for pc in jumps {
+        bc_patch_jump(b.code, pc, end_pc)
+      }
+      Ok(())
+    }
     Expr::Call(callee~, args~) => {
       for arg in args {
         match arg {

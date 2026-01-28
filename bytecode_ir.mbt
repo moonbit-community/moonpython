@@ -44,6 +44,8 @@ pub(all) enum BcOp {
   Jump(Int) // absolute pc
   JumpIfFalse(Int) // absolute pc; consumes TOS
   JumpIfTrue(Int) // absolute pc; consumes TOS
+  JumpIfFalseOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
+  JumpIfTrueOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
 
   // Calls.
   CallFunction(Int) // positional arg count
@@ -136,6 +138,8 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::Jump(pc) => "Jump(" + pc.to_string() + ")"
     BcOp::JumpIfFalse(pc) => "JumpIfFalse(" + pc.to_string() + ")"
     BcOp::JumpIfTrue(pc) => "JumpIfTrue(" + pc.to_string() + ")"
+    BcOp::JumpIfFalseOrPop(pc) => "JumpIfFalseOrPop(" + pc.to_string() + ")"
+    BcOp::JumpIfTrueOrPop(pc) => "JumpIfTrueOrPop(" + pc.to_string() + ")"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
     BcOp::ReturnValue => "ReturnValue"
   }
