@@ -482,15 +482,24 @@ pub fn compile_module_to_bc(
   program : Module,
   filename : String,
 ) -> Result[BcCode, RuntimeError] {
-  let b = BcBuilder::new("<module>".to_string(), filename)
+  compile_stmts_to_bc(program.body, "<module>".to_string(), filename)
+}
+
+///|
+pub fn compile_stmts_to_bc(
+  body : Array[Stmt],
+  name : String,
+  filename : String,
+) -> Result[BcCode, RuntimeError] {
+  let b = BcBuilder::new(name, filename)
   let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
-  for stmt in program.body {
+  for stmt in body {
     match compile_stmt(stmt, b, None, loop_stack) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
   }
-  // Modules implicitly return None.
+  // Falling off the end returns None.
   let none_idx = b.add_const(Value::None)
   let _ = b.emit(BcOp::LoadConst(none_idx), None)
   let _ = b.emit(BcOp::ReturnValue, None)
