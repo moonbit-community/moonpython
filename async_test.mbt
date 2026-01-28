@@ -140,6 +140,31 @@ test "async/with_return_runs_exit" {
 }
 
 ///|
+test "async/with_break_runs_exit" {
+  let source =
+    #|log = []
+    #|class CM:
+    #|  async def __aenter__(self):
+    #|    global log
+    #|    log = log + ["enter"]
+    #|    return 0
+    #|  async def __aexit__(self, t, v, tb):
+    #|    global log
+    #|    log = log + ["exit"]
+    #|    return False
+    #|async def f():
+    #|  global log
+    #|  i = 0
+    #|  while True:
+    #|    async with CM():
+    #|      break
+    #|    i = 1
+    #|  return str(i) + "," + ",".join(log)
+    #|print(__mpython_run(f()))
+  inspect(run_stdout(source), content="0,enter,exit\n")
+}
+
+///|
 test "async/for_basic" {
   let source =
     #|class It:

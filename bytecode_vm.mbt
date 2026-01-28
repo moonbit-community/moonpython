@@ -349,6 +349,8 @@ pub fn bc_exec(
   let blocks : Array[VmBlock] = []
   let mut pending_exc : RuntimeError? = None
   let mut pending_return : Value? = None
+  let mut pending_jump_target : Int? = None
+  let mut pending_jump_count = 0
   let mut pc = 0
   while pc < code.ops.length() {
     let op = code.ops[pc]
@@ -634,6 +636,26 @@ pub fn bc_exec(
         next_pc = target
         Ok(())
       }
+      BcOp::UnwindJump(target, n) =>
+        if n <= 0 {
+          next_pc = target
+          Ok(())
+        } else {
+          pending_jump_target = Some(target)
+          pending_jump_count = n
+          match vm_unwind_return(stack, blocks) {
+            Some(handler) => {
+              next_pc = handler
+              Ok(())
+            }
+            None => {
+              pending_jump_target = None
+              pending_jump_count = 0
+              next_pc = target
+              Ok(())
+            }
+          }
+        }
       BcOp::JumpIfFalse(target) =>
         match pop_stack(stack) {
           Ok(v) =>
@@ -823,9 +845,35 @@ pub fn bc_exec(
                     }
                   }
                 None =>
-                  match pending_exc {
-                    Some(err) => Err(err)
-                    None => Ok(())
+                  match pending_jump_target {
+                    Some(target) => {
+                      pending_jump_count = pending_jump_count - 1
+                      if pending_jump_count <= 0 {
+                        pending_jump_target = None
+                        pending_jump_count = 0
+                        next_pc = target
+                        Ok(())
+                      } else {
+                        match vm_unwind_return(stack, blocks) {
+                          Some(handler) => {
+                            next_pc = handler
+                            Ok(())
+                          }
+                          None => {
+                            // Inconsistent unwind count; fall back to the jump.
+                            pending_jump_target = None
+                            pending_jump_count = 0
+                            next_pc = target
+                            Ok(())
+                          }
+                        }
+                      }
+                    }
+                    None =>
+                      match pending_exc {
+                        Some(err) => Err(err)
+                        None => Ok(())
+                      }
                   }
               }
             _ =>
@@ -1068,6 +1116,8 @@ pub fn bc_exec(
         // An exception overrides any pending return (including one in-flight from
         // an inner finally handler).
         pending_return = None
+        pending_jump_target = None
+        pending_jump_count = 0
         let mut handler_pc : Int? = None
         let exc = err
         // Unwind blocks until we find a handler.

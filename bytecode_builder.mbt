@@ -46,6 +46,7 @@ pub fn bc_patch_jump(code : BcCode, pc : Int, target : Int) -> Unit {
     BcOp::JumpIfTrue(_) => code.ops[pc] = BcOp::JumpIfTrue(target)
     BcOp::JumpIfFalseOrPop(_) => code.ops[pc] = BcOp::JumpIfFalseOrPop(target)
     BcOp::JumpIfTrueOrPop(_) => code.ops[pc] = BcOp::JumpIfTrueOrPop(target)
+    BcOp::UnwindJump(_, n) => code.ops[pc] = BcOp::UnwindJump(target, n)
     BcOp::ForIter(_) => code.ops[pc] = BcOp::ForIter(target)
     BcOp::SetupExcept(_) => code.ops[pc] = BcOp::SetupExcept(target)
     BcOp::SetupFinally(_) => code.ops[pc] = BcOp::SetupFinally(target)

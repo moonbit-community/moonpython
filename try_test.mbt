@@ -71,6 +71,21 @@ test "try/finally runs on return" {
 }
 
 ///|
+test "try/finally runs on break" {
+  let source =
+    #|log = []
+    #|i = 0
+    #|while True:
+    #|  try:
+    #|    break
+    #|  finally:
+    #|    log = [1]
+    #|  i = 1
+  inspect(test_exec_global(source, "i"), content="0")
+  inspect(test_exec_global(source, "log"), content="[1]")
+}
+
+///|
 test "try requires except or finally" {
   let source =
     #|try:

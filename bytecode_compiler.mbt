@@ -22,6 +22,7 @@ priv struct LoopCtx {
   has_iter : Bool
   break_jumps : Array[Int]
   continue_jumps : Array[Int]
+  finally_depth : Int
 }
 
 ///|
@@ -328,6 +329,7 @@ fn compile_try_except_else(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
+  finally_depth : Int,
 ) -> Result[Unit, RuntimeError] {
   for handler in handlers {
     if handler.is_star {
@@ -341,14 +343,14 @@ fn compile_try_except_else(
   }
   let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
   for s in body {
-    match compile_stmt(s, b, span, loop_stack) {
+    match compile_stmt(s, b, span, loop_stack, finally_depth) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
   }
   let _ = b.emit(BcOp::PopExcept, span)
   for s in else_body {
-    match compile_stmt(s, b, span, loop_stack) {
+    match compile_stmt(s, b, span, loop_stack, finally_depth) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -380,7 +382,7 @@ fn compile_try_except_else(
       None => ()
     }
     for s in handler.body {
-      match compile_stmt(s, b, span, loop_stack) {
+      match compile_stmt(s, b, span, loop_stack, finally_depth) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
@@ -411,10 +413,11 @@ fn compile_stmt(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
+  finally_depth : Int,
 ) -> Result[Unit, RuntimeError] {
   match stmt {
     Stmt::WithSpan(span~, stmt~) =>
-      compile_stmt(stmt, b, Some(span), loop_stack)
+      compile_stmt(stmt, b, Some(span), loop_stack, finally_depth)
     Stmt::Pass => Ok(())
     Stmt::ExprStmt(expr) => {
       match compile_expr(expr, b, span) {
@@ -482,7 +485,7 @@ fn compile_stmt(
       }
       let j_else = b.emit(BcOp::JumpIfFalse(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -491,7 +494,7 @@ fn compile_stmt(
       let else_pc = b.code.ops.length()
       bc_patch_jump(b.code, j_else, else_pc)
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -519,9 +522,10 @@ fn compile_stmt(
         has_iter: false,
         break_jumps: [],
         continue_jumps: [],
+        finally_depth,
       })
       for s in body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -562,6 +566,7 @@ fn compile_stmt(
         has_iter: true,
         break_jumps: [],
         continue_jumps: [],
+        finally_depth,
       })
 
       // Assign iteration value (TOS) to target; iterator stays below it.
@@ -570,7 +575,7 @@ fn compile_stmt(
         Err(err) => return Err(err)
       }
       for s in body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -587,7 +592,7 @@ fn compile_stmt(
 
       // `for ... else`: run else_body only when loop is exhausted (i.e. not broken).
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -613,7 +618,12 @@ fn compile_stmt(
         let _ = b.emit(BcOp::PopTop, span)
         // pop iterator
       }
-      let j = b.emit(BcOp::Jump(-1), span)
+      let unwind = finally_depth - ctx.finally_depth
+      let j = if unwind > 0 {
+        b.emit(BcOp::UnwindJump(-1, unwind), span)
+      } else {
+        b.emit(BcOp::Jump(-1), span)
+      }
       ctx.break_jumps.push(j)
       loop_stack.val[idx] = ctx
       Ok(())
@@ -629,7 +639,12 @@ fn compile_stmt(
       }
       let idx = loop_stack.val.length() - 1
       let ctx = loop_stack.val[idx]
-      let j = b.emit(BcOp::Jump(-1), span)
+      let unwind = finally_depth - ctx.finally_depth
+      let j = if unwind > 0 {
+        b.emit(BcOp::UnwindJump(-1, unwind), span)
+      } else {
+        b.emit(BcOp::Jump(-1), span)
+      }
       ctx.continue_jumps.push(j)
       loop_stack.val[idx] = ctx
       Ok(())
@@ -652,31 +667,29 @@ fn compile_stmt(
     }
     Stmt::Try(body~, handlers~, else_body~, finally_body~) =>
       if finally_body.length() == 0 {
-        compile_try_except_else(body, handlers, else_body, b, span, loop_stack)
+        compile_try_except_else(
+          body, handlers, else_body, b, span, loop_stack, finally_depth,
+        )
       } else {
-        // `return` is supported (VM unwinds finally blocks). `break`/`continue`
-        // that exit the try-suite are not supported yet.
-        let mut blocked = has_break_or_continue(body) ||
-          has_break_or_continue(else_body) ||
-          has_break_or_continue(finally_body)
-        for h in handlers {
-          if has_break_or_continue(h.body) {
-            blocked = true
-            break
-          }
-        }
-        if blocked {
+        // `break`/`continue` in the finally-suite itself is not supported yet.
+        if has_break_or_continue(finally_body) {
           return Err(
             make_runtime_error(
               RuntimeErrorKind::NotImplemented,
-              "bytecode compiler: try/finally with break/continue not implemented".to_string(),
+              "bytecode compiler: break/continue in finally suite not implemented".to_string(),
             ),
           )
         }
         let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
         match
           compile_try_except_else(
-            body, handlers, else_body, b, span, loop_stack,
+            body,
+            handlers,
+            else_body,
+            b,
+            span,
+            loop_stack,
+            finally_depth + 1,
           ) {
           Ok(_) => ()
           Err(err) => return Err(err)
@@ -686,7 +699,7 @@ fn compile_stmt(
         bc_patch_jump(b.code, setup_pc, finally_pc)
         bc_patch_jump(b.code, enter_pc, finally_pc)
         for s in finally_body {
-          match compile_stmt(s, b, span, loop_stack) {
+          match compile_stmt(s, b, span, loop_stack, finally_depth) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -764,7 +777,7 @@ fn compile_stmt(
       }
       let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth + 1) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -835,7 +848,7 @@ fn compile_stmt(
       }
       let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack) {
+        match compile_stmt(s, b, span, loop_stack, finally_depth + 1) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -907,7 +920,7 @@ pub fn compile_stmts_to_bc(
   let b = BcBuilder::new(name, filename)
   let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
   for stmt in body {
-    match compile_stmt(stmt, b, None, loop_stack) {
+    match compile_stmt(stmt, b, None, loop_stack, 0) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }

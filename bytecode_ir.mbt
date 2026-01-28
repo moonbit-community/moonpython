@@ -49,6 +49,8 @@ pub(all) enum BcOp {
   JumpIfTrue(Int) // absolute pc; consumes TOS
   JumpIfFalseOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
   JumpIfTrueOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
+  // Jump that unwinds `finally`/`with` handlers first (used by break/continue).
+  UnwindJump(Int, Int) // absolute pc; number of finally handlers to unwind
 
   // Exceptions.
   SetupExcept(Int) // absolute pc for exception handler
@@ -172,6 +174,8 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::JumpIfTrue(pc) => "JumpIfTrue(" + pc.to_string() + ")"
     BcOp::JumpIfFalseOrPop(pc) => "JumpIfFalseOrPop(" + pc.to_string() + ")"
     BcOp::JumpIfTrueOrPop(pc) => "JumpIfTrueOrPop(" + pc.to_string() + ")"
+    BcOp::UnwindJump(pc, n) =>
+      "UnwindJump(" + pc.to_string() + ", " + n.to_string() + ")"
     BcOp::SetupExcept(pc) => "SetupExcept(" + pc.to_string() + ")"
     BcOp::SetupFinally(pc) => "SetupFinally(" + pc.to_string() + ")"
     BcOp::PopExcept => "PopExcept"

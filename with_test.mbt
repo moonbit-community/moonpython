@@ -107,3 +107,25 @@ test "with/try_finally_return_orders_finally_before_exit" {
     #|f()
   inspect(test_exec_global(source, "log"), content="[finally, exit]")
 }
+
+///|
+test "with/exit runs on break" {
+  let source =
+    #|log = []
+    #|def enter():
+    #|  pass
+    #|def exit(a, b, c):
+    #|  global log
+    #|  log = log + [1]
+    #|  return False
+    #|ctx = object()
+    #|ctx.__enter__ = enter
+    #|ctx.__exit__ = exit
+    #|i = 0
+    #|while True:
+    #|  with ctx:
+    #|    break
+    #|  i = 1
+  inspect(test_exec_global(source, "i"), content="0")
+  inspect(test_exec_global(source, "log"), content="[1]")
+}
