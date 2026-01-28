@@ -1029,20 +1029,59 @@ pub fn bc_exec(
           Ok(args) =>
             match pop_stack(stack) {
               Ok(callee) =>
-                match
-                  call_callable_with_env(
-                    callee,
-                    args,
-                    [],
-                    globals,
-                    builtins,
-                    io,
-                  ) {
-                  Ok(out) => {
-                    stack.push(out)
-                    Ok(())
-                  }
-                  Err(err) => Err(err)
+                match callee {
+                  // Builtins need access to the caller's locals for features like
+                  // zero-arg `super()`. The AST evaluator special-cases this via
+                  // `eval_builtin_call`, so mirror that here.
+                  Value::Function(func) if func.body.length() == 0 =>
+                    match
+                      eval_builtin_call(
+                        func.name,
+                        args,
+                        [],
+                        locals,
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(Some(out)) => {
+                        stack.push(out)
+                        Ok(())
+                      }
+                      Ok(None) =>
+                        match
+                          call_callable_with_env(
+                            Value::Function(func),
+                            args,
+                            [],
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(out) => {
+                            stack.push(out)
+                            Ok(())
+                          }
+                          Err(err) => Err(err)
+                        }
+                      Err(err) => Err(err)
+                    }
+                  _ =>
+                    match
+                      call_callable_with_env(
+                        callee,
+                        args,
+                        [],
+                        globals,
+                        builtins,
+                        io,
+                      ) {
+                      Ok(out) => {
+                        stack.push(out)
+                        Ok(())
+                      }
+                      Err(err) => Err(err)
+                    }
                 }
               Err(err) => Err(err)
             }
