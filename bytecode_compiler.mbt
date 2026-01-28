@@ -157,27 +157,6 @@ fn compile_target_store(
       let _ = b.emit(BcOp::StoreName(idx), span)
       Ok(())
     }
-    Target::Attribute(value~, attr~) => {
-      match compile_expr(value, b, span) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-      let idx = b.intern_name(attr)
-      let _ = b.emit(BcOp::StoreAttr(idx), span)
-      Ok(())
-    }
-    Target::Subscript(value~, index~) => {
-      match compile_expr(value, b, span) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-      match compile_expr(index, b, span) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-      let _ = b.emit(BcOp::StoreSubscr, span)
-      Ok(())
-    }
     _ =>
       Err(
         make_runtime_error(
@@ -206,11 +185,55 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::Assign(target~, value~) => {
-      match compile_expr(value, b, span) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
+      // Match CPython/MicroPython evaluation order:
+      // - For attribute/subscript targets, evaluate the target object (and index)
+      //   before evaluating the RHS.
+      let rhs = value
+      match target {
+        Target::Name(_) => {
+          match compile_expr(rhs, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          compile_target_store(target, b, span)
+        }
+        Target::Attribute(value~, attr~) => {
+          match compile_expr(value, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match compile_expr(rhs, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let idx = b.intern_name(attr)
+          let _ = b.emit(BcOp::StoreAttr(idx), span)
+          Ok(())
+        }
+        Target::Subscript(value~, index~) => {
+          match compile_expr(value, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match compile_expr(index, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match compile_expr(rhs, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::StoreSubscr, span)
+          Ok(())
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::NotImplemented,
+              "bytecode compiler: complex assignment target not implemented".to_string(),
+            ),
+          )
       }
-      compile_target_store(target, b, span)
     }
     Stmt::If(condition~, body~, else_body~) => {
       match compile_expr(condition, b, span) {
