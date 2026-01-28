@@ -31,6 +31,10 @@ pub(all) enum BcOp {
   BuildList(Int) // count
   BuildMap(Int) // pair_count
 
+  // Iteration (MicroPython-style).
+  GetIter
+  ForIter(Int) // absolute pc to jump to on StopIteration; pops iterator on stop
+
   // Operators.
   Unary(UnaryOp)
   Binary(BinaryOp)
@@ -124,6 +128,8 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::BuildTuple(n) => "BuildTuple(" + n.to_string() + ")"
     BcOp::BuildList(n) => "BuildList(" + n.to_string() + ")"
     BcOp::BuildMap(n) => "BuildMap(" + n.to_string() + ")"
+    BcOp::GetIter => "GetIter"
+    BcOp::ForIter(pc) => "ForIter(" + pc.to_string() + ")"
     BcOp::Unary(u) => "Unary(" + unary_repr(u) + ")"
     BcOp::Binary(b) => "Binary(" + binary_repr(b) + ")"
     BcOp::Compare(c) => "Compare(" + compare_repr(c) + ")"

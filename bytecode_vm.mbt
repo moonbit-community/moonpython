@@ -368,6 +368,45 @@ pub fn bc_exec(
         stack.push(Value::Dict(out))
         Ok(())
       }
+      BcOp::GetIter => {
+        let value = match pop_stack(stack) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let iter = match iter_value_to_iterator(value, globals, builtins, io) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        stack.push(iter)
+        Ok(())
+      }
+      BcOp::ForIter(target) => {
+        if stack.length() == 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        }
+        let iter = stack[stack.length() - 1]
+        match iterator_next(iter, None, globals, builtins, io) {
+          Ok(item) => {
+            // Keep iterator on stack; push current item.
+            stack.push(item)
+            Ok(())
+          }
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              // Pop iterator and jump out of the loop.
+              let _ = stack.remove(stack.length() - 1)
+              next_pc = target
+              Ok(())
+            } else {
+              Err(err)
+            }
+        }
+      }
       BcOp::Unary(op) => {
         let value = match pop_stack(stack) {
           Ok(v) => v
