@@ -311,7 +311,7 @@ test "e2e/builtin_range" {
   inspect(e2e_stdout([], source), content="0,1,2,3,4\n5,3,1\n")
   inspect(
     test_exec_error("range(1, 2, 0)"),
-    content="TypeError: range() arg 3 must not be zero",
+    content="ValueError: range() arg 3 must not be zero",
   )
 }
 
