@@ -26,3 +26,6 @@ tempcwd/
 
 # Artifacts created by vendored CPython Lib/test runs.
 @test_*
+
+# Local reference checkout for architecture/bytecode design inspiration.
+micropython-reference/

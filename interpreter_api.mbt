@@ -1350,14 +1350,35 @@ pub fn Interpreter::exec(
     None => "<module>".to_string()
   }
   push_traceback_frame("<module>".to_string(), filename)
-  let value_result = eval_block(
-    program.body,
-    self.globals,
-    self.globals,
-    self.builtins,
-    self.io,
-    self.config,
-  )
+  // Prefer the new bytecode pipeline; fall back to the legacy AST evaluator
+  // for constructs not compiled yet.
+  let value_result = match compile_module_to_bc(program, filename) {
+    Ok(code) => {
+      push_active_config(self.config)
+      let out = bc_exec(
+        code,
+        self.globals,
+        self.globals,
+        self.builtins,
+        self.io,
+      )
+      pop_active_config()
+      out
+    }
+    Err(err) =>
+      match err.kind {
+        RuntimeErrorKind::NotImplemented =>
+          eval_block(
+            program.body,
+            self.globals,
+            self.globals,
+            self.builtins,
+            self.io,
+            self.config,
+          )
+        _ => Err(err)
+      }
+  }
   pop_traceback_frame()
   let value = match value_result {
     Ok(value) => value
