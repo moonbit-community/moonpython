@@ -29,3 +29,8 @@ tempcwd/
 
 # Local reference checkout for architecture/bytecode design inspiration.
 micropython-reference/
+
+# Beads local state (issues live in .beads/issues.jsonl).
+.beads/last-touched
+.beads/interactions.jsonl
+.beads/metadata.json
