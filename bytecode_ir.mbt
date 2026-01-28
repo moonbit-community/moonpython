@@ -49,6 +49,14 @@ pub(all) enum BcOp {
   JumpIfFalseOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
   JumpIfTrueOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
 
+  // Exceptions.
+  SetupExcept(Int) // absolute pc for exception handler
+  PopExcept
+  EndExcept
+  CheckExceptionMatch // pops handler type value; pushes bool
+  LoadException // pushes current exception instance value
+  Reraise
+
   // Calls.
   CallFunction(Int) // positional arg count
 
@@ -151,6 +159,12 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::JumpIfTrue(pc) => "JumpIfTrue(" + pc.to_string() + ")"
     BcOp::JumpIfFalseOrPop(pc) => "JumpIfFalseOrPop(" + pc.to_string() + ")"
     BcOp::JumpIfTrueOrPop(pc) => "JumpIfTrueOrPop(" + pc.to_string() + ")"
+    BcOp::SetupExcept(pc) => "SetupExcept(" + pc.to_string() + ")"
+    BcOp::PopExcept => "PopExcept"
+    BcOp::EndExcept => "EndExcept"
+    BcOp::CheckExceptionMatch => "CheckExceptionMatch"
+    BcOp::LoadException => "LoadException"
+    BcOp::Reraise => "Reraise"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
     BcOp::MakeFunction(template, default_count, decorator_count) =>
       "MakeFunction(" +

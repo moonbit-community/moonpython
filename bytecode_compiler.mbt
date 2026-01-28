@@ -25,6 +25,56 @@ priv struct LoopCtx {
 }
 
 ///|
+fn has_nonlocal_exit(stmts : Array[Stmt]) -> Bool {
+  for stmt in stmts {
+    match stmt {
+      Stmt::WithSpan(span~, stmt~) => {
+        let _ = span
+        if has_nonlocal_exit([stmt]) {
+          return true
+        }
+      }
+      Stmt::Return(_) | Stmt::Break | Stmt::Continue => return true
+      Stmt::If(condition~, body~, else_body~) => {
+        let _ = condition
+        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+          return true
+        }
+      }
+      Stmt::While(condition~, body~, else_body~) => {
+        let _ = condition
+        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+          return true
+        }
+      }
+      Stmt::For(target~, iter~, body~, else_body~) => {
+        let _ = target
+        let _ = iter
+        if has_nonlocal_exit(body) || has_nonlocal_exit(else_body) {
+          return true
+        }
+      }
+      Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+        if has_nonlocal_exit(body) ||
+          has_nonlocal_exit(else_body) ||
+          has_nonlocal_exit(finally_body) {
+          return true
+        }
+        for h in handlers {
+          if has_nonlocal_exit(h.body) {
+            return true
+          }
+        }
+      }
+      // Nested scopes do not affect outer `try/finally` control flow.
+      Stmt::Function(..) | Stmt::Class(..) => ()
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
 fn compile_expr(
   expr : Expr,
   b : BcBuilder,
@@ -260,6 +310,91 @@ fn compile_target_store(
         ),
       )
   }
+}
+
+///|
+fn compile_try_except_else(
+  body : Array[Stmt],
+  handlers : Array[ExceptHandler],
+  else_body : Array[Stmt],
+  b : BcBuilder,
+  span : Span?,
+  loop_stack : Ref[Array[LoopCtx]],
+) -> Result[Unit, RuntimeError] {
+  for handler in handlers {
+    if handler.is_star {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::NotImplemented,
+          "bytecode compiler: except* not implemented".to_string(),
+        ),
+      )
+    }
+  }
+  let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
+  for s in body {
+    match compile_stmt(s, b, span, loop_stack) {
+      Ok(_) => ()
+      Err(err) => return Err(err)
+    }
+  }
+  let _ = b.emit(BcOp::PopExcept, span)
+  for s in else_body {
+    match compile_stmt(s, b, span, loop_stack) {
+      Ok(_) => ()
+      Err(err) => return Err(err)
+    }
+  }
+  let j_end = b.emit(BcOp::Jump(-1), span)
+  let handlers_pc = b.code.ops.length()
+  bc_patch_jump(b.code, setup_pc, handlers_pc)
+  let handler_done_jumps : Array[Int] = []
+  for i = 0; i < handlers.length(); i = i + 1 {
+    let handler = handlers[i]
+    let next_handler_jump : Int? = match handler.exc {
+      None => (None : Int?)
+      Some(exc_expr) => {
+        match compile_expr(exc_expr, b, span) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+        let _ = b.emit(BcOp::CheckExceptionMatch, span)
+        Some(b.emit(BcOp::JumpIfFalse(-1), span))
+      }
+    }
+    match handler.name {
+      Some(name) => {
+        let name_idx = b.intern_name(name)
+        let _ = b.emit(BcOp::LoadException, span)
+        let _ = b.emit(BcOp::StoreName(name_idx), span)
+        ()
+      }
+      None => ()
+    }
+    for s in handler.body {
+      match compile_stmt(s, b, span, loop_stack) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+    }
+    let _ = b.emit(BcOp::EndExcept, span)
+    handler_done_jumps.push(b.emit(BcOp::Jump(-1), span))
+    match next_handler_jump {
+      Some(pc) => {
+        let next_pc = b.code.ops.length()
+        bc_patch_jump(b.code, pc, next_pc)
+        ()
+      }
+      None => ()
+    }
+  }
+  let _ = b.emit(BcOp::Reraise, span)
+  let end_pc = b.code.ops.length()
+  bc_patch_jump(b.code, j_end, end_pc)
+  for pc in handler_done_jumps {
+    bc_patch_jump(b.code, pc, end_pc)
+  }
+  Ok(())
 }
 
 ///|
@@ -507,6 +642,63 @@ fn compile_stmt(
       let _ = b.emit(BcOp::ReturnValue, span)
       Ok(())
     }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) =>
+      if finally_body.length() == 0 {
+        compile_try_except_else(body, handlers, else_body, b, span, loop_stack)
+      } else {
+        // Without unwind support, do not attempt to compile `finally` when the try
+        // body may exit via return/break/continue.
+        let mut blocked = has_nonlocal_exit(body) ||
+          has_nonlocal_exit(else_body) ||
+          has_nonlocal_exit(finally_body)
+        for h in handlers {
+          if has_nonlocal_exit(h.body) {
+            blocked = true
+            break
+          }
+        }
+        if blocked {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::NotImplemented,
+              "bytecode compiler: try/finally with nonlocal exits not implemented".to_string(),
+            ),
+          )
+        }
+
+        // Outer setup ensures `finally` runs even when the inner try/except does
+        // not handle the exception.
+        let outer_setup = b.emit(BcOp::SetupExcept(-1), span)
+        match
+          compile_try_except_else(
+            body, handlers, else_body, b, span, loop_stack,
+          ) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+        let _ = b.emit(BcOp::PopExcept, span)
+        for s in finally_body {
+          match compile_stmt(s, b, span, loop_stack) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        let j_end = b.emit(BcOp::Jump(-1), span)
+
+        // Exception path.
+        let finally_pc = b.code.ops.length()
+        bc_patch_jump(b.code, outer_setup, finally_pc)
+        for s in finally_body {
+          match compile_stmt(s, b, span, loop_stack) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        let _ = b.emit(BcOp::Reraise, span)
+        let end_pc = b.code.ops.length()
+        bc_patch_jump(b.code, j_end, end_pc)
+        Ok(())
+      }
     Stmt::Function(
       name~,
       decorators~,

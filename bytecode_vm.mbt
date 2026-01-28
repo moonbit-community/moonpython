@@ -5,6 +5,18 @@
 /// attribute lookup, call protocol, etc.) for semantics.
 
 ///|
+priv enum VmBlockKind {
+  Except(Int)
+  ExceptHandler
+}
+
+///|
+priv struct VmBlock {
+  kind : VmBlockKind
+  stack_height : Int
+}
+
+///|
 fn pop_stack(stack : Array[Value]) -> Result[Value, RuntimeError] {
   if stack.length() == 0 {
     Err(
@@ -240,6 +252,8 @@ pub fn bc_exec(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   let stack : Array[Value] = []
+  let blocks : Array[VmBlock] = []
+  let mut pending_exc : RuntimeError? = None
   let mut pc = 0
   while pc < code.ops.length() {
     let op = code.ops[pc]
@@ -292,84 +306,90 @@ pub fn bc_exec(
       }
       BcOp::LoadName(i) => {
         let name = code.names[i]
-        let v = match lookup_name_value(name, locals, globals, builtins) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        match lookup_name_value(name, locals, globals, builtins) {
+          Ok(v) => {
+            stack.push(v)
+            Ok(())
+          }
+          Err(err) => Err(err)
         }
-        stack.push(v)
-        Ok(())
       }
       BcOp::StoreName(i) => {
         let name = code.names[i]
-        let v = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        match pop_stack(stack) {
+          Ok(v) => {
+            set_scoped_value(locals, globals, name, v)
+            Ok(())
+          }
+          Err(err) => Err(err)
         }
-        set_scoped_value(locals, globals, name, v)
-        Ok(())
       }
       BcOp::LoadAttr(i) => {
         let attr = code.names[i]
-        let target = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        match pop_stack(stack) {
+          Ok(target) =>
+            match get_attr_from_value(target, attr, globals, builtins, io) {
+              Ok(v) => {
+                stack.push(v)
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        let v = match get_attr_from_value(target, attr, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        stack.push(v)
-        Ok(())
       }
       BcOp::StoreAttr(i) => {
         let attr = code.names[i]
-        let value = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let target = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        match set_attr_on_value(target, attr, value, globals, builtins, io) {
-          Ok(_) => Ok(())
+        match pop_stack(stack) {
+          Ok(value) =>
+            match pop_stack(stack) {
+              Ok(target) =>
+                match
+                  set_attr_on_value(target, attr, value, globals, builtins, io) {
+                  Ok(_) => Ok(())
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
           Err(err) => Err(err)
         }
       }
-      BcOp::LoadSubscr => {
-        let index = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let target = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let v = match get_subscr_value(target, index, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        stack.push(v)
-        Ok(())
-      }
-      BcOp::StoreSubscr => {
-        let value = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let index = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let target = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        match set_subscr_value(target, index, value, globals, builtins, io) {
-          Ok(_) => Ok(())
+      BcOp::LoadSubscr =>
+        match pop_stack(stack) {
+          Ok(index) =>
+            match pop_stack(stack) {
+              Ok(target) =>
+                match get_subscr_value(target, index, globals, builtins, io) {
+                  Ok(v) => {
+                    stack.push(v)
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
           Err(err) => Err(err)
         }
-      }
+      BcOp::StoreSubscr =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            match pop_stack(stack) {
+              Ok(index) =>
+                match pop_stack(stack) {
+                  Ok(target) =>
+                    match
+                      set_subscr_value(
+                        target, index, value, globals, builtins, io,
+                      ) {
+                      Ok(_) => Ok(())
+                      Err(err) => Err(err)
+                    }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
       BcOp::BuildTuple(n) =>
         match pop_n(stack, n) {
           Ok(values) => {
@@ -386,236 +406,371 @@ pub fn bc_exec(
           }
           Err(err) => Err(err)
         }
-      BcOp::BuildMap(pair_count) => {
-        let values = match pop_n(stack, pair_count * 2) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::BuildMap(pair_count) =>
+        match pop_n(stack, pair_count * 2) {
+          Ok(values) => {
+            let out : Array[(Value, Value)] = []
+            for i = 0; i < values.length(); i = i + 2 {
+              out.push((values[i], values[i + 1]))
+            }
+            stack.push(Value::Dict(out))
+            Ok(())
+          }
+          Err(err) => Err(err)
         }
-        let out : Array[(Value, Value)] = []
-        for i = 0; i < values.length(); i = i + 2 {
-          out.push((values[i], values[i + 1]))
+      BcOp::GetIter =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            match iter_value_to_iterator(value, globals, builtins, io) {
+              Ok(iter) => {
+                stack.push(iter)
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        stack.push(Value::Dict(out))
-        Ok(())
-      }
-      BcOp::GetIter => {
-        let value = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let iter = match iter_value_to_iterator(value, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        stack.push(iter)
-        Ok(())
-      }
-      BcOp::ForIter(target) => {
+      BcOp::ForIter(target) =>
         if stack.length() == 0 {
-          return Err(
+          Err(
             make_runtime_error(
               RuntimeErrorKind::Runtime,
               "bytecode vm: stack underflow".to_string(),
             ),
           )
-        }
-        let iter = stack[stack.length() - 1]
-        match iterator_next(iter, None, globals, builtins, io) {
-          Ok(item) => {
-            // Keep iterator on stack; push current item.
-            stack.push(item)
-            Ok(())
-          }
-          Err(err) =>
-            if err.exc_type == "StopIteration" {
-              // Pop iterator and jump out of the loop.
-              let _ = stack.remove(stack.length() - 1)
-              next_pc = target
+        } else {
+          let iter = stack[stack.length() - 1]
+          match iterator_next(iter, None, globals, builtins, io) {
+            Ok(item) => {
+              // Keep iterator on stack; push current item.
+              stack.push(item)
               Ok(())
-            } else {
-              Err(err)
             }
+            Err(err) =>
+              if err.exc_type == "StopIteration" {
+                // Pop iterator and jump out of the loop.
+                let _ = stack.remove(stack.length() - 1)
+                next_pc = target
+                Ok(())
+              } else {
+                Err(err)
+              }
+          }
         }
-      }
-      BcOp::Unary(op) => {
-        let value = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::Unary(op) =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            match unary_op_value(op, value, globals, builtins, io) {
+              Ok(out) => {
+                stack.push(out)
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        let out = match unary_op_value(op, value, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::Binary(op) =>
+        match pop_stack(stack) {
+          Ok(right) =>
+            match pop_stack(stack) {
+              Ok(left) =>
+                match
+                  eval_binary_op_values(op, left, right, globals, builtins, io) {
+                  Ok(out) => {
+                    stack.push(out)
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        stack.push(out)
-        Ok(())
-      }
-      BcOp::Binary(op) => {
-        let right = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::Compare(op) =>
+        match pop_stack(stack) {
+          Ok(right) =>
+            match pop_stack(stack) {
+              Ok(left) =>
+                match
+                  compare_values_with_env(
+                    op, left, right, globals, builtins, io,
+                  ) {
+                  Ok(ok) => {
+                    stack.push(Value::Bool(ok))
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        let left = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let out = match
-          eval_binary_op_values(op, left, right, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        stack.push(out)
-        Ok(())
-      }
-      BcOp::Compare(op) => {
-        let right = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let left = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let ok = match
-          compare_values_with_env(op, left, right, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        stack.push(Value::Bool(ok))
-        Ok(())
-      }
       BcOp::Jump(target) => {
         next_pc = target
         Ok(())
       }
-      BcOp::JumpIfFalse(target) => {
-        let v = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::JumpIfFalse(target) =>
+        match pop_stack(stack) {
+          Ok(v) =>
+            match truthy_from_value_with_env(v, globals, builtins, io) {
+              Ok(ok) => {
+                if !ok {
+                  next_pc = target
+                }
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::JumpIfTrue(target) =>
+        match pop_stack(stack) {
+          Ok(v) =>
+            match truthy_from_value_with_env(v, globals, builtins, io) {
+              Ok(ok) => {
+                if ok {
+                  next_pc = target
+                }
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        if !ok {
-          next_pc = target
-        }
-        Ok(())
-      }
-      BcOp::JumpIfTrue(target) => {
-        let v = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        if ok {
-          next_pc = target
-        }
-        Ok(())
-      }
-      BcOp::JumpIfFalseOrPop(target) => {
+      BcOp::JumpIfFalseOrPop(target) =>
         if stack.length() == 0 {
-          return Err(
+          Err(
             make_runtime_error(
               RuntimeErrorKind::Runtime,
               "bytecode vm: stack underflow".to_string(),
             ),
           )
-        }
-        let v = stack[stack.length() - 1]
-        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        if !ok {
-          next_pc = target
         } else {
-          let _ = stack.remove(stack.length() - 1)
+          let v = stack[stack.length() - 1]
+          match truthy_from_value_with_env(v, globals, builtins, io) {
+            Ok(ok) => {
+              if !ok {
+                next_pc = target
+              } else {
+                let _ = stack.remove(stack.length() - 1)
 
+              }
+              Ok(())
+            }
+            Err(err) => Err(err)
+          }
         }
-        Ok(())
-      }
-      BcOp::JumpIfTrueOrPop(target) => {
+      BcOp::JumpIfTrueOrPop(target) =>
         if stack.length() == 0 {
-          return Err(
+          Err(
             make_runtime_error(
               RuntimeErrorKind::Runtime,
               "bytecode vm: stack underflow".to_string(),
             ),
           )
-        }
-        let v = stack[stack.length() - 1]
-        let ok = match truthy_from_value_with_env(v, globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        if ok {
-          next_pc = target
         } else {
-          let _ = stack.remove(stack.length() - 1)
+          let v = stack[stack.length() - 1]
+          match truthy_from_value_with_env(v, globals, builtins, io) {
+            Ok(ok) => {
+              if ok {
+                next_pc = target
+              } else {
+                let _ = stack.remove(stack.length() - 1)
 
+              }
+              Ok(())
+            }
+            Err(err) => Err(err)
+          }
         }
+      BcOp::SetupExcept(target) => {
+        blocks.push(VmBlock::{
+          kind: VmBlockKind::Except(target),
+          stack_height: stack.length(),
+        })
         Ok(())
       }
-      BcOp::CallFunction(argc) => {
-        let args = match pop_n(stack, argc) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::PopExcept =>
+        if blocks.length() == 0 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: block underflow".to_string(),
+            ),
+          )
+        } else {
+          let blk = blocks.remove(blocks.length() - 1)
+          match blk.kind {
+            VmBlockKind::Except(_) => Ok(())
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: PopExcept on non-except block".to_string(),
+                ),
+              )
+          }
         }
-        let callee = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::EndExcept =>
+        if blocks.length() == 0 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: block underflow".to_string(),
+            ),
+          )
+        } else {
+          let blk = blocks.remove(blocks.length() - 1)
+          match blk.kind {
+            VmBlockKind::ExceptHandler => {
+              pending_exc = None
+              Ok(())
+            }
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: EndExcept on non-handler block".to_string(),
+                ),
+              )
+          }
         }
-        let out = match
-          call_callable_with_env(callee, args, [], globals, builtins, io) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::CheckExceptionMatch =>
+        match pop_stack(stack) {
+          Ok(exc_value) =>
+            match pending_exc {
+              Some(err) =>
+                match handler_classes_from_value(exc_value, builtins) {
+                  Ok(handler_classes) => {
+                    let mut matches = false
+                    let mut match_error : RuntimeError? = None
+                    for klass in handler_classes {
+                      match exception_matches_handler(err, klass, builtins) {
+                        Ok(true) => {
+                          matches = true
+                          break
+                        }
+                        Ok(false) => ()
+                        Err(e) => {
+                          match_error = Some(e)
+                          break
+                        }
+                      }
+                    }
+                    match match_error {
+                      Some(e) => Err(e)
+                      None => {
+                        stack.push(Value::Bool(matches))
+                        Ok(())
+                      }
+                    }
+                  }
+                  Err(e) => Err(e)
+                }
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: no pending exception".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
         }
-        stack.push(out)
-        Ok(())
-      }
-      BcOp::MakeFunction(template, default_count, decorator_count) => {
-        let defaults = match pop_n(stack, default_count) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let decorators = match pop_n(stack, decorator_count) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let template_value = code.consts[template]
-        let template_func = match template_value {
-          Value::Function(f) => f
-          _ =>
-            return Err(
+      BcOp::LoadException =>
+        match pending_exc {
+          Some(err) => {
+            let v = exception_value_from_runtime_error(
+              err, globals, builtins, io,
+            )
+            stack.push(v)
+            Ok(())
+          }
+          None =>
+            Err(
               make_runtime_error(
-                RuntimeErrorKind::Type,
-                "bytecode vm: MakeFunction template is not a function".to_string(),
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
               ),
             )
         }
-        let defined = match
-          make_function_from_template_with_env(
-            template_func, defaults, decorators, locals, globals, builtins, io,
-          ) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::Reraise =>
+        match pending_exc {
+          Some(e) => Err(e)
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
         }
-        stack.push(defined)
-        Ok(())
-      }
-      BcOp::ReturnValue => {
-        let v = match pop_stack(stack) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      BcOp::CallFunction(argc) =>
+        match pop_n(stack, argc) {
+          Ok(args) =>
+            match pop_stack(stack) {
+              Ok(callee) =>
+                match
+                  call_callable_with_env(
+                    callee,
+                    args,
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(out) => {
+                    stack.push(out)
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        if span is Some(_) {
-          pop_active_span()
+      BcOp::MakeFunction(template, default_count, decorator_count) =>
+        match pop_n(stack, default_count) {
+          Ok(defaults) =>
+            match pop_n(stack, decorator_count) {
+              Ok(decorators) => {
+                let template_value = code.consts[template]
+                match template_value {
+                  Value::Function(template_func) =>
+                    match
+                      make_function_from_template_with_env(
+                        template_func, defaults, decorators, locals, globals, builtins,
+                        io,
+                      ) {
+                      Ok(defined) => {
+                        stack.push(defined)
+                        Ok(())
+                      }
+                      Err(err) => Err(err)
+                    }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "bytecode vm: MakeFunction template is not a function".to_string(),
+                      ),
+                    )
+                }
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        return Ok(v)
-      }
+      BcOp::ReturnValue =>
+        match pop_stack(stack) {
+          Ok(v) => {
+            if span is Some(_) {
+              pop_active_span()
+            }
+            return Ok(v)
+          }
+          Err(err) => Err(err)
+        }
       _ =>
         Err(
           make_runtime_error(
@@ -630,7 +785,38 @@ pub fn bc_exec(
     }
     match step {
       Ok(_) => pc = next_pc
-      Err(err) => return Err(err)
+      Err(err) => {
+        let mut handler_pc : Int? = None
+        let exc = err
+        // Unwind blocks until we find a handler.
+        while blocks.length() > 0 {
+          let blk = blocks.remove(blocks.length() - 1)
+          while stack.length() > blk.stack_height {
+            let _ = stack.remove(stack.length() - 1)
+
+          }
+          match blk.kind {
+            VmBlockKind::Except(target) => {
+              pending_exc = Some(exc)
+              blocks.push(VmBlock::{
+                kind: VmBlockKind::ExceptHandler,
+                stack_height: stack.length(),
+              })
+              handler_pc = Some(target)
+              break
+            }
+            VmBlockKind::ExceptHandler => {
+              // An exception raised while already in an except path.
+              pending_exc = None
+              continue
+            }
+          }
+        }
+        match handler_pc {
+          Some(target) => pc = target
+          None => return Err(exc)
+        }
+      }
     }
   }
 
