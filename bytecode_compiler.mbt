@@ -473,6 +473,13 @@ fn compile_stmt(
           }
           compile_target_store(target, b, span)
         }
+        Target::Tuple(_) | Target::List(_) => {
+          match compile_expr(rhs, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          compile_target_store(target, b, span)
+        }
         Target::Attribute(value~, attr~) => {
           match compile_expr(value, b, span) {
             Ok(_) => ()
