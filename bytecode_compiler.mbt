@@ -305,12 +305,45 @@ fn compile_target_store(
   b : BcBuilder,
   span : Span?,
 ) -> Result[Unit, RuntimeError] {
+  fn is_name_unpack_tree(target : Target) -> Bool {
+    match target {
+      Target::Name(_) => true
+      Target::Tuple(items) | Target::List(items) => {
+        for item in items {
+          if !is_name_unpack_tree(item) {
+            return false
+          }
+        }
+        true
+      }
+      _ => false
+    }
+  }
+
   match target {
     Target::Name(name) => {
       let idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(idx), span)
       Ok(())
     }
+    Target::Tuple(items) | Target::List(items) =>
+      if !is_name_unpack_tree(target) {
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "bytecode compiler: for/assign unpack target not implemented".to_string(),
+          ),
+        )
+      } else {
+        let _ = b.emit(BcOp::UnpackSequence(items.length()), span)
+        for item in items {
+          match compile_target_store(item, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Ok(())
+      }
     _ =>
       Err(
         make_runtime_error(
@@ -549,7 +582,7 @@ fn compile_stmt(
     }
     Stmt::For(target~, iter~, body~, else_body~) => {
       match target {
-        Target::Name(_) => ()
+        Target::Name(_) | Target::Tuple(_) | Target::List(_) => ()
         _ =>
           return Err(
             make_runtime_error(

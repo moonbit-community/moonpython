@@ -34,6 +34,9 @@ pub(all) enum BcOp {
   BuildList(Int) // count
   BuildMap(Int) // pair_count
 
+  // Unpacking.
+  UnpackSequence(Int) // count; pops iterable and pushes items (reversed) for STORE
+
   // Iteration (MicroPython-style).
   GetIter
   ForIter(Int) // absolute pc to jump to on StopIteration; pops iterator on stop
@@ -164,6 +167,7 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::BuildTuple(n) => "BuildTuple(" + n.to_string() + ")"
     BcOp::BuildList(n) => "BuildList(" + n.to_string() + ")"
     BcOp::BuildMap(n) => "BuildMap(" + n.to_string() + ")"
+    BcOp::UnpackSequence(n) => "UnpackSequence(" + n.to_string() + ")"
     BcOp::GetIter => "GetIter"
     BcOp::ForIter(pc) => "ForIter(" + pc.to_string() + ")"
     BcOp::Unary(u) => "Unary(" + unary_repr(u) + ")"

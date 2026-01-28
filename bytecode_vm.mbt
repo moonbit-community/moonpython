@@ -545,6 +545,81 @@ pub fn bc_exec(
           }
           Err(err) => Err(err)
         }
+      BcOp::UnpackSequence(n) =>
+        match pop_stack(stack) {
+          Ok(assigned) => {
+            let items = match assigned {
+              Value::Tuple(values) => Ok(values)
+              Value::List(values) => Ok(values)
+              _ =>
+                match iter_value_to_iterator(assigned, globals, builtins, io) {
+                  Ok(iterator_value) => {
+                    let acc : Array[Value] = []
+                    while true {
+                      match iterator_next(iterator_value, None, globals, builtins, io) {
+                        Ok(v) => acc.push(v)
+                        Err(err) =>
+                          if err.exc_type == "StopIteration" {
+                            break
+                          } else {
+                            return Err(err)
+                          }
+                      }
+                    }
+                    Ok(acc)
+                  }
+                  Err(err) =>
+                    match err.kind {
+                      RuntimeErrorKind::Type =>
+                        if err.message == "object is not iterable" {
+                          Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "cannot unpack non-iterable".to_string(),
+                            ),
+                          )
+                        } else {
+                          Err(err)
+                        }
+                      _ => Err(err)
+                    }
+                }
+            }
+            match items {
+              Ok(values) => {
+                if values.length() != n {
+                  if values.length() < n {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "ValueError: not enough values to unpack (expected " +
+                        n.to_string() +
+                        ")",
+                      ),
+                    )
+                  }
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "ValueError: too many values to unpack (expected " +
+                      n.to_string() +
+                      ")",
+                    ),
+                  )
+                }
+                // Push in reverse so the first target consumes the first value.
+                let mut i = n
+                while i > 0 {
+                  i -= 1
+                  stack.push(values[i])
+                }
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          }
+          Err(err) => Err(err)
+        }
       BcOp::GetIter =>
         match pop_stack(stack) {
           Ok(value) =>
