@@ -89,6 +89,26 @@ fn compile_expr(
       }
       Ok(())
     }
+    Expr::Compare(left~, ops~, comparators~) => {
+      if ops.length() != 1 || comparators.length() != 1 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "bytecode compiler: chained comparisons not implemented".to_string(),
+          ),
+        )
+      }
+      match compile_expr(left, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      match compile_expr(comparators[0], b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = b.emit(BcOp::Compare(ops[0]), span)
+      Ok(())
+    }
     Expr::Call(callee~, args~) => {
       for arg in args {
         match arg {
