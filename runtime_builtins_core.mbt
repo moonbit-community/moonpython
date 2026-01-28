@@ -961,24 +961,41 @@ fn builtin_reversed(
       ),
     )
   }
-  let iterator_value = match
-    iter_value_to_iterator(positional[0], globals, builtins, io) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  let items : Array[Value] = []
-  while true {
-    match iterator_next(iterator_value, None, globals, builtins, io) {
-      Ok(item) => items.push(item)
-      Err(err) =>
-        if err.exc_type == "StopIteration" {
-          break
-        } else {
-          return Err(err)
+  // Prefer sequence fast-paths so `len(reversed(seq))` works (tests rely on it).
+  match positional[0] {
+    Value::List(values) => Ok(Value::List(reverse_values(values)))
+    Value::Tuple(values) => Ok(Value::List(reverse_values(values)))
+    Value::Str(text) => {
+      let chars = text.to_array()
+      let out : Array[Value] = []
+      let mut i = chars.length()
+      while i > 0 {
+        i -= 1
+        out.push(Value::Str(chars[i].to_string()))
+      }
+      Ok(Value::List(out))
+    }
+    other => {
+      // Fallback: consume any iterable and return a reversed list.
+      let iterator_value = match iter_value_to_iterator(other, globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      let items : Array[Value] = []
+      while true {
+        match iterator_next(iterator_value, None, globals, builtins, io) {
+          Ok(item) => items.push(item)
+          Err(err) =>
+            if err.exc_type == "StopIteration" {
+              break
+            } else {
+              return Err(err)
+            }
         }
+      }
+      Ok(Value::List(reverse_values(items)))
     }
   }
-  Ok(make_iterator(reverse_values(items)))
 }
 
 ///|
