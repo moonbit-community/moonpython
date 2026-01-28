@@ -244,6 +244,72 @@ fn set_subscr_value(
 }
 
 ///|
+fn vm_make_frame_value(frame : TracebackFrame) -> Value {
+  let code_value = Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    dict: [
+      ("co_filename", Value::Str(frame.filename)),
+      ("co_name", Value::Str(frame.name)),
+      ("co_firstlineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+    ],
+  })
+  Value::Instance(InstanceValue::{
+    class: ClassValue::{ name: "frame", bases: [], dict: [] },
+    dict: [
+      ("f_name", Value::Str(frame.name)),
+      ("f_filename", Value::Str(frame.filename)),
+      ("f_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+      ("f_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+      ("f_code", code_value),
+      ("f_back", Value::None),
+      ("f_globals", Value::Dict([])),
+      ("f_locals", Value::Dict([])),
+    ],
+  })
+}
+
+///|
+fn vm_make_traceback_value(frames : Array[TracebackFrame]) -> Value {
+  if frames.length() == 0 {
+    let frame_value = vm_make_frame_value(TracebackFrame::{
+      name: "<module>",
+      filename: "<module>",
+      line: 1,
+      column: 1,
+    })
+    return Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      dict: [
+        ("tb_frame", frame_value),
+        ("tb_lineno", Value::Int(1N)),
+        ("tb_colno", Value::Int(1N)),
+        ("tb_next", Value::None),
+        ("tb_lasti", Value::Int(-1N)),
+      ],
+    })
+  }
+  let mut next_value : Value = Value::None
+  let mut i = frames.length()
+  while i > 0 {
+    i = i - 1
+    let frame = frames[i]
+    let frame_value = vm_make_frame_value(frame)
+    let tb_value = Value::Instance(InstanceValue::{
+      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      dict: [
+        ("tb_frame", frame_value),
+        ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+        ("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+        ("tb_next", next_value),
+        ("tb_lasti", Value::Int(@bigint.BigInt::from_int(i))),
+      ],
+    })
+    next_value = tb_value
+  }
+  next_value
+}
+
+///|
 pub fn bc_exec(
   code : BcCode,
   locals : Array[(String, Value)],
@@ -280,6 +346,22 @@ pub fn bc_exec(
           )
         } else {
           stack.push(stack[stack.length() - 1])
+          Ok(())
+        }
+      BcOp::RotTwo =>
+        if stack.length() < 2 {
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: stack underflow".to_string(),
+            ),
+          )
+        } else {
+          let b = stack.remove(stack.length() - 1)
+          let a = stack.remove(stack.length() - 1)
+          // [a, b] -> [b, a]
+          stack.push(b)
+          stack.push(a)
           Ok(())
         }
       BcOp::RotThree =>
@@ -694,6 +776,55 @@ pub fn bc_exec(
               ),
             )
         }
+      BcOp::LoadExceptionType =>
+        match pending_exc {
+          Some(err) => {
+            let exc_value = exception_value_from_runtime_error(
+              err, globals, builtins, io,
+            )
+            let exc_type_value = match exc_value {
+              Value::Instance(inst) => Value::Class(inst.class)
+              _ => Value::Str(err.exc_type)
+            }
+            stack.push(exc_type_value)
+            Ok(())
+          }
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
+        }
+      BcOp::LoadExceptionTypeName =>
+        match pending_exc {
+          Some(err) => {
+            stack.push(Value::Str(err.exc_type))
+            Ok(())
+          }
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
+        }
+      BcOp::LoadExceptionTraceback =>
+        match pending_exc {
+          Some(err) => {
+            stack.push(vm_make_traceback_value(err.traceback))
+            Ok(())
+          }
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
+        }
       BcOp::Reraise =>
         match pending_exc {
           Some(e) => Err(e)
@@ -704,6 +835,18 @@ pub fn bc_exec(
                 "bytecode vm: no pending exception".to_string(),
               ),
             )
+        }
+      BcOp::Await =>
+        match pop_stack(stack) {
+          Ok(coro) =>
+            match coroutine_await(coro) {
+              Ok(v) => {
+                stack.push(v)
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
       BcOp::CallFunction(argc) =>
         match pop_n(stack, argc) {

@@ -10,6 +10,7 @@ pub(all) enum BcOp {
   Nop
   PopTop
   DupTop
+  RotTwo
   RotThree
 
   // Stack pushes.
@@ -55,7 +56,13 @@ pub(all) enum BcOp {
   EndExcept
   CheckExceptionMatch // pops handler type value; pushes bool
   LoadException // pushes current exception instance value
+  LoadExceptionType // pushes exception type value for `__exit__` (`<class ...>` or a string fallback)
+  LoadExceptionTypeName // pushes exception type name (string), for `__aexit__`
+  LoadExceptionTraceback // pushes traceback object value
   Reraise
+
+  // Async helpers.
+  Await // pops coroutine, pushes awaited result
 
   // Calls.
   CallFunction(Int) // positional arg count
@@ -135,6 +142,7 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::Nop => "Nop"
     BcOp::PopTop => "PopTop"
     BcOp::DupTop => "DupTop"
+    BcOp::RotTwo => "RotTwo"
     BcOp::RotThree => "RotThree"
     BcOp::LoadConst(i) => "LoadConst(" + i.to_string() + ")"
     BcOp::LoadName(i) => "LoadName(" + i.to_string() + ")"
@@ -164,7 +172,11 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::EndExcept => "EndExcept"
     BcOp::CheckExceptionMatch => "CheckExceptionMatch"
     BcOp::LoadException => "LoadException"
+    BcOp::LoadExceptionType => "LoadExceptionType"
+    BcOp::LoadExceptionTypeName => "LoadExceptionTypeName"
+    BcOp::LoadExceptionTraceback => "LoadExceptionTraceback"
     BcOp::Reraise => "Reraise"
+    BcOp::Await => "Await"
     BcOp::CallFunction(n) => "CallFunction(" + n.to_string() + ")"
     BcOp::MakeFunction(template, default_count, decorator_count) =>
       "MakeFunction(" +

@@ -280,6 +280,14 @@ fn compile_expr(
       let _ = b.emit(BcOp::LoadSubscr, span)
       Ok(())
     }
+    Expr::Await(expr) => {
+      match compile_expr(expr, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = b.emit(BcOp::Await, span)
+      Ok(())
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -740,6 +748,147 @@ fn compile_stmt(
       )
       let name_idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
+      Ok(())
+    }
+    Stmt::With(context~, target~, body~) => {
+      // Without unwind support, do not attempt to compile `with` when the body
+      // may exit via return/break/continue.
+      if has_nonlocal_exit(body) {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "bytecode compiler: with with nonlocal exits not implemented".to_string(),
+          ),
+        )
+      }
+
+      // Stack discipline:
+      // - Keep `__exit__` on the stack across the body so the exception handler can
+      //   call it after VM unwinds to the `SetupExcept` stack height.
+      match compile_expr(context, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let exit_idx = b.intern_name("__exit__")
+      let enter_idx = b.intern_name("__enter__")
+      let _ = b.emit(BcOp::DupTop, span)
+      let _ = b.emit(BcOp::LoadAttr(exit_idx), span)
+      let _ = b.emit(BcOp::RotTwo, span)
+      let _ = b.emit(BcOp::LoadAttr(enter_idx), span)
+      let _ = b.emit(BcOp::CallFunction(0), span)
+      match target {
+        Some(name) => {
+          let name_idx = b.intern_name(name)
+          let _ = b.emit(BcOp::StoreName(name_idx), span)
+          ()
+        }
+        None => {
+          let _ = b.emit(BcOp::PopTop, span)
+          ()
+        }
+      }
+      let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
+      for s in body {
+        match compile_stmt(s, b, span, loop_stack) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let _ = b.emit(BcOp::PopExcept, span)
+      let none_idx = b.add_const(Value::None)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let _ = b.emit(BcOp::PopTop, span)
+      let j_end = b.emit(BcOp::Jump(-1), span)
+
+      // Exception path.
+      let handler_pc = b.code.ops.length()
+      bc_patch_jump(b.code, setup_pc, handler_pc)
+      let _ = b.emit(BcOp::LoadExceptionType, span)
+      let _ = b.emit(BcOp::LoadException, span)
+      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let j_reraise = b.emit(BcOp::JumpIfFalse(-1), span)
+      let _ = b.emit(BcOp::EndExcept, span)
+      let j_done = b.emit(BcOp::Jump(-1), span)
+      let reraise_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_reraise, reraise_pc)
+      let _ = b.emit(BcOp::Reraise, span)
+      let end_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_end, end_pc)
+      bc_patch_jump(b.code, j_done, end_pc)
+      Ok(())
+    }
+    Stmt::AsyncWith(context~, target~, body~) => {
+      // Without unwind support, do not attempt to compile `async with` when the body
+      // may exit via return/break/continue.
+      if has_nonlocal_exit(body) {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::NotImplemented,
+            "bytecode compiler: async with with nonlocal exits not implemented".to_string(),
+          ),
+        )
+      }
+      match compile_expr(context, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let aexit_idx = b.intern_name("__aexit__")
+      let aenter_idx = b.intern_name("__aenter__")
+      let _ = b.emit(BcOp::DupTop, span)
+      let _ = b.emit(BcOp::LoadAttr(aexit_idx), span)
+      let _ = b.emit(BcOp::RotTwo, span)
+      let _ = b.emit(BcOp::LoadAttr(aenter_idx), span)
+      let _ = b.emit(BcOp::CallFunction(0), span)
+      let _ = b.emit(BcOp::Await, span)
+      match target {
+        Some(name) => {
+          let name_idx = b.intern_name(name)
+          let _ = b.emit(BcOp::StoreName(name_idx), span)
+          ()
+        }
+        None => {
+          let _ = b.emit(BcOp::PopTop, span)
+          ()
+        }
+      }
+      let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
+      for s in body {
+        match compile_stmt(s, b, span, loop_stack) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let _ = b.emit(BcOp::PopExcept, span)
+      let none_idx = b.add_const(Value::None)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::LoadConst(none_idx), span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let _ = b.emit(BcOp::Await, span)
+      let _ = b.emit(BcOp::PopTop, span)
+      let j_end = b.emit(BcOp::Jump(-1), span)
+
+      // Exception path.
+      let handler_pc = b.code.ops.length()
+      bc_patch_jump(b.code, setup_pc, handler_pc)
+      let _ = b.emit(BcOp::LoadExceptionTypeName, span)
+      let _ = b.emit(BcOp::LoadException, span)
+      let _ = b.emit(BcOp::LoadExceptionTraceback, span)
+      let _ = b.emit(BcOp::CallFunction(3), span)
+      let _ = b.emit(BcOp::Await, span)
+      let j_reraise = b.emit(BcOp::JumpIfFalse(-1), span)
+      let _ = b.emit(BcOp::EndExcept, span)
+      let j_done = b.emit(BcOp::Jump(-1), span)
+      let reraise_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_reraise, reraise_pc)
+      let _ = b.emit(BcOp::Reraise, span)
+      let end_pc = b.code.ops.length()
+      bc_patch_jump(b.code, j_end, end_pc)
+      bc_patch_jump(b.code, j_done, end_pc)
       Ok(())
     }
     _ =>
