@@ -82,8 +82,8 @@ fn eval_function_with_kwargs(
   push_traceback_frame(func.name, filename)
   push_closure_env(func.closure)
   push_scope_decls_with_nonlocals(global_names, nonlocal_names)
-  // Prefer bytecode execution for function bodies; fall back to the legacy AST
-  // evaluator when the compiler doesn't cover a construct yet.
+  // Execute via the bytecode pipeline. If compilation fails, surface the error
+  // directly so we don't silently fall back and hide bytecode compiler gaps.
   let result = match compile_stmts_to_bc(func.body, func.name, filename) {
     Ok(code) => {
       push_active_config(current_config())
@@ -91,23 +91,7 @@ fn eval_function_with_kwargs(
       pop_active_config()
       out
     }
-    Err(err) =>
-      match err.kind {
-        RuntimeErrorKind::NotImplemented =>
-          if current_config().bytecode_strict {
-            Err(err)
-          } else {
-            eval_block(
-              func.body,
-              locals,
-              active_globals,
-              builtins,
-              io,
-              current_config(),
-            )
-          }
-        _ => Err(err)
-      }
+    Err(err) => Err(err)
   }
   pop_scope_decls()
   pop_closure_env()

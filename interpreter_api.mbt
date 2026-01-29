@@ -1367,8 +1367,8 @@ pub fn Interpreter::exec(
     None => "<module>".to_string()
   }
   push_traceback_frame("<module>".to_string(), filename)
-  // Prefer the new bytecode pipeline; fall back to the legacy AST evaluator
-  // for constructs not compiled yet.
+  // Execute via the bytecode pipeline. If compilation fails, surface the error
+  // directly so we don't silently fall back and hide bytecode compiler gaps.
   let value_result = match compile_module_to_bc(program, filename) {
     Ok(code) => {
       push_active_config(self.config)
@@ -1382,23 +1382,7 @@ pub fn Interpreter::exec(
       pop_active_config()
       out
     }
-    Err(err) =>
-      match err.kind {
-        RuntimeErrorKind::NotImplemented =>
-          if self.config.bytecode_strict {
-            Err(err)
-          } else {
-            eval_block(
-              program.body,
-              self.globals,
-              self.globals,
-              self.builtins,
-              self.io,
-              self.config,
-            )
-          }
-        _ => Err(err)
-      }
+    Err(err) => Err(err)
   }
   pop_traceback_frame()
   let value = match value_result {
@@ -1493,6 +1477,13 @@ pub fn Interpreter::eval_source(
   }
   match value {
     Value::Function(_) =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "ValueError: unsupported value".to_string(),
+        ),
+      )
+    Value::Class(_) =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,

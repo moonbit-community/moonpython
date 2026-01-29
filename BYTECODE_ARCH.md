@@ -26,6 +26,6 @@ Key MicroPython files to compare against:
 
 - Keep public API (`Interpreter::exec`, `Interpreter::eval_source`, CLI behavior)
   stable while swapping the execution engine underneath.
-- Allow incremental migration: unsupported constructs in the bytecode compiler/VM
-  can temporarily fall back to the old AST evaluator until parity is reached.
-
+- During incremental migration, prefer surfacing bytecode compiler/VM gaps as
+  explicit errors so we don't silently mask missing features behind a fallback.
+  (A fallback mode may still be useful later, but should be opt-in.)
