@@ -364,52 +364,52 @@ fn is_valid_codepoint(value : Int) -> Bool {
 }
 
 ///|
-fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int) {
+fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
   if pos >= chars.length() {
-    return ("\\", pos)
+    return ("\\", pos, true)
   }
   let c = chars[pos]
   match c {
-    'a' => ("\u{07}", pos + 1) // bell
-    'b' => ("\u{08}", pos + 1) // backspace
-    'f' => ("\u{0c}", pos + 1) // form feed
-    'n' => ("\n", pos + 1)
-    't' => ("\t", pos + 1)
-    'r' => ("\r", pos + 1)
-    'v' => ("\u{0b}", pos + 1) // vertical tab
-    '\\' => ("\\", pos + 1)
-    '\'' => ("'", pos + 1)
-    '"' => ("\"", pos + 1)
+    'a' => ("\u{07}", pos + 1, true) // bell
+    'b' => ("\u{08}", pos + 1, true) // backspace
+    'f' => ("\u{0c}", pos + 1, true) // form feed
+    'n' => ("\n", pos + 1, true)
+    't' => ("\t", pos + 1, true)
+    'r' => ("\r", pos + 1, true)
+    'v' => ("\u{0b}", pos + 1, true) // vertical tab
+    '\\' => ("\\", pos + 1, true)
+    '\'' => ("'", pos + 1, true)
+    '"' => ("\"", pos + 1, true)
     'x' => {
       let seq = parse_hex_sequence(chars, pos + 1, 2)
       if seq is Some((value, next)) {
-        (char_to_string(Int::unsafe_to_char(value)), next)
+        (char_to_string(Int::unsafe_to_char(value)), next, true)
       } else {
-        ("\\x", pos + 1)
+        ("\\x", pos + 1, true)
       }
     }
     'u' => {
       let seq = parse_hex_sequence(chars, pos + 1, 4)
       if seq is Some((value, next)) {
         if is_valid_codepoint(value) {
-          (char_to_string(Int::unsafe_to_char(value)), next)
+          (char_to_string(Int::unsafe_to_char(value)), next, true)
         } else {
-          (substring_chars(chars, pos - 1, next), next)
+          (substring_chars(chars, pos - 1, next), next, false)
         }
       } else {
-        ("\\u", pos + 1)
+        ("\\u", pos + 1, true)
       }
     }
     'U' => {
       let seq = parse_hex_sequence(chars, pos + 1, 8)
       if seq is Some((value, next)) {
         if is_valid_codepoint(value) {
-          (char_to_string(Int::unsafe_to_char(value)), next)
+          (char_to_string(Int::unsafe_to_char(value)), next, true)
         } else {
-          (substring_chars(chars, pos - 1, next), next)
+          (substring_chars(chars, pos - 1, next), next, false)
         }
       } else {
-        ("\\U", pos + 1)
+        ("\\U", pos + 1, true)
       }
     }
     _ =>
@@ -424,9 +424,9 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int) {
             break
           }
         }
-        (char_to_string(Int::unsafe_to_char(value)), idx)
+        (char_to_string(Int::unsafe_to_char(value)), idx, true)
       } else {
-        ("\\" + c.to_string(), pos + 1)
+        ("\\" + c.to_string(), pos + 1, true)
       }
   }
 }
@@ -467,13 +467,14 @@ fn parse_string_literal(
   start : Int,
   raw : Bool,
   fstring : Bool,
-) -> (String, Int, Bool) {
+) -> (String, Int, Bool, Bool) {
   let quote = chars[start]
   let triple = start + 2 < chars.length() &&
     chars[start + 1] == quote &&
     chars[start + 2] == quote
   let mut i = if triple { start + 3 } else { start + 1 }
   let buf = StringBuilder::new()
+  let mut invalid_escape = false
   let mut brace_depth = 0
   let mut expr_quote : Char? = None
   let mut expr_escape = false
@@ -489,7 +490,7 @@ fn parse_string_literal(
         c == quote &&
         !raw_quote_escaped(chars, i) &&
         !has_unescaped_quote_ahead(chars, i + 1, quote) {
-        return (buf.to_string(), i + 1, true)
+        return (buf.to_string(), i + 1, true, invalid_escape)
       }
       match expr_quote {
         Some(q) =>
@@ -534,13 +535,17 @@ fn parse_string_literal(
         i += 2
         continue
       }
-      let (segment, next_i) = parse_escape(chars, i + 1)
+      let (segment, next_i, ok) = parse_escape(chars, i + 1)
+      if !ok {
+        invalid_escape = true
+        return (buf.to_string(), next_i, true, true)
+      }
       buf.write_string(segment)
       i = next_i
       continue
     }
     if !triple && c == '\n' {
-      return (buf.to_string(), i, false)
+      return (buf.to_string(), i, false, invalid_escape)
     }
     if c == quote {
       if raw && raw_quote_escaped(chars, i) {
@@ -550,17 +555,17 @@ fn parse_string_literal(
           chars[i + 1] == quote &&
           chars[i + 2] == quote {
           i += 3
-          return (buf.to_string(), i, true)
+          return (buf.to_string(), i, true, invalid_escape)
         }
       } else if !fstring || brace_depth == 0 {
         i += 1
-        return (buf.to_string(), i, true)
+        return (buf.to_string(), i, true, invalid_escape)
       }
     }
     buf.write_char(c)
     i += 1
   }
-  (buf.to_string(), i, false)
+  (buf.to_string(), i, false, invalid_escape)
 }
 
 ///|
@@ -998,7 +1003,9 @@ fn tokenize_expr(
       let triple = start + 2 < chars.length() &&
         chars[start + 1] == chars[start] &&
         chars[start + 2] == chars[start]
-      let (value, next_i, closed) = parse_string_literal(chars, i, false, false)
+      let (value, next_i, closed, invalid_escape) = parse_string_literal(
+        chars, i, false, false,
+      )
       if !closed {
         let mut detected_line = current_line
         for ch in substring_chars(chars, start, chars.length()).to_array() {
@@ -1023,6 +1030,22 @@ fn tokenize_expr(
           column: start - line_start + 1,
         }
         return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+      }
+      if invalid_escape {
+        let token = {
+          kind: Eof,
+          start: base_offset + start,
+          end: base_offset + start + 1,
+          line: start_line,
+          column: start_column,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
       }
       i = next_i
       let kind = StrLit(value)
@@ -1068,7 +1091,7 @@ fn tokenize_expr(
         let triple = j + 2 < chars.length() &&
           chars[j + 1] == chars[j] &&
           chars[j + 2] == chars[j]
-        let (value, next_i, closed) = parse_string_literal(
+        let (value, next_i, closed, invalid_escape) = parse_string_literal(
           chars, j, raw_prefix, f_prefix,
         )
         if !closed {
@@ -1093,6 +1116,22 @@ fn tokenize_expr(
             column: start - line_start + 1,
           }
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
+        }
+        if invalid_escape {
+          let token = {
+            kind: Eof,
+            start: base_offset + start,
+            end: base_offset + start + 1,
+            line: current_line,
+            column: start - line_start + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
         }
         if b_prefix && f_prefix {
           let token = {
