@@ -296,6 +296,11 @@ pub struct Config {
   max_recursion : Int
   traceback_limit : Int
   track_spans : Bool
+  /// When `true`, bytecode compilation failures (NotImplemented) are surfaced
+  /// as errors instead of falling back to the legacy AST evaluator.
+  ///
+  /// This is useful for validating bytecode coverage during refactors.
+  bytecode_strict : Bool
   /// When `false`, only built-in shim modules (e.g. `math`) are allowed.
   ///
   /// This is used by `Interpreter::new_spec()` to keep the environment deterministic.

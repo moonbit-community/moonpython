@@ -111,52 +111,239 @@ fn get_subscr_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
-  // Minimal implementation; `Expr::Subscript` in `runtime_eval_expr.mbt` has the
-  // complete behavior (slice objects, negative indices, etc.).
+  fn slice_parts_from_value(value : Value) -> (Value, Value, Value)? {
+    match value {
+      Value::Instance(inst) if inst.class.name == "slice" => {
+        let start = match get_named_value(inst.dict, "start") {
+          Some(v) => v
+          None => Value::None
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(v) => v
+          None => Value::None
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(v) => v
+          None => Value::None
+        }
+        Some((start, stop, step))
+      }
+      _ => None
+    }
+  }
+
   match target {
     Value::Dict(pairs) => {
-      for pair in pairs {
-        if is_value_identity(pair.0, index) || eq_value(pair.0, index) {
-          return Ok(pair.1)
-        }
+      let found = match dict_find_index(pairs, index) {
+        Ok(v) => v
+        Err(err) => return Err(err)
       }
-      Err(
-        make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
-      )
+      match found {
+        Some(i) => Ok(pairs[i].1)
+        None =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Key,
+              "key not found".to_string(),
+            ),
+          )
+      }
     }
     Value::List(items) =>
-      match index_from_value(index, 0) {
-        Ok(i) => {
-          let idx = normalize_index(i, items.length())
-          if idx < 0 || idx >= items.length() {
-            Err(
-              make_runtime_error(
-                RuntimeErrorKind::Index,
-                "list index out of range".to_string(),
-              ),
-            )
-          } else {
-            Ok(items[idx])
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) =>
+          match slice_indices_from_values(items.length(), start, stop, step) {
+            Ok(indices) => {
+              let out : Array[Value] = []
+              for idx in indices {
+                if idx >= 0 && idx < items.length() {
+                  out.push(items[idx])
+                }
+              }
+              Ok(Value::List(out))
+            }
+            Err(err) => Err(err)
           }
-        }
-        Err(err) => Err(err)
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, items.length())
+              if idx < 0 || idx >= items.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(items[idx])
+              }
+            }
+            Err(err) => Err(err)
+          }
       }
     Value::Tuple(items) =>
-      match index_from_value(index, 0) {
-        Ok(i) => {
-          let idx = normalize_index(i, items.length())
-          if idx < 0 || idx >= items.length() {
-            Err(
-              make_runtime_error(
-                RuntimeErrorKind::Index,
-                "tuple index out of range".to_string(),
-              ),
-            )
-          } else {
-            Ok(items[idx])
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) =>
+          match slice_indices_from_values(items.length(), start, stop, step) {
+            Ok(indices) => {
+              let out : Array[Value] = []
+              for idx in indices {
+                if idx >= 0 && idx < items.length() {
+                  out.push(items[idx])
+                }
+              }
+              Ok(Value::Tuple(out))
+            }
+            Err(err) => Err(err)
+          }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, items.length())
+              if idx < 0 || idx >= items.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(items[idx])
+              }
+            }
+            Err(err) => Err(err)
+          }
+      }
+    Value::Str(text) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) => {
+          let chars = text.to_array()
+          match slice_indices_from_values(chars.length(), start, stop, step) {
+            Ok(indices) =>
+              Ok(Value::Str(slice_string_by_indices(chars, indices)))
+            Err(err) => Err(err)
           }
         }
-        Err(err) => Err(err)
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let chars = text.to_array()
+              let idx = normalize_index(i, chars.length())
+              if idx < 0 || idx >= chars.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(Value::Str(char_to_string(chars[idx])))
+              }
+            }
+            Err(err) => Err(err)
+          }
+      }
+    Value::Bytes(bytes) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) =>
+          match slice_indices_from_values(bytes.length(), start, stop, step) {
+            Ok(indices) =>
+              Ok(Value::Bytes(slice_ints_by_indices(bytes, indices)))
+            Err(err) => Err(err)
+          }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, bytes.length())
+              if idx < 0 || idx >= bytes.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(Value::Int(@bigint.BigInt::from_int(bytes[idx])))
+              }
+            }
+            Err(err) => Err(err)
+          }
+      }
+    Value::ByteArray(bytes) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) =>
+          match slice_indices_from_values(bytes.length(), start, stop, step) {
+            Ok(indices) =>
+              Ok(Value::ByteArray(slice_ints_by_indices(bytes, indices)))
+            Err(err) => Err(err)
+          }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, bytes.length())
+              if idx < 0 || idx >= bytes.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(Value::Int(@bigint.BigInt::from_int(bytes[idx])))
+              }
+            }
+            Err(err) => Err(err)
+          }
+      }
+    Value::MemoryView(bytes) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) =>
+          match slice_indices_from_values(bytes.length(), start, stop, step) {
+            Ok(indices) => {
+              let step_bigint = match step {
+                Value::None => 1N
+                Value::Int(v) => v
+                Value::Bool(v) => if v { 1N } else { 0N }
+                _ => 1N
+              }
+              let sliced = Value::MemoryView(
+                slice_ints_by_indices(bytes, indices),
+              )
+              if step_bigint != 1N {
+                let dict : Array[(String, Value)] = [
+                  ("__mpython_bytes__", sliced),
+                  ("__mpython_contiguous__", Value::Bool(false)),
+                ]
+                Ok(
+                  Value::Instance(InstanceValue::{
+                    class: builtin_class_from_name("memoryview", builtins),
+                    dict,
+                  }),
+                )
+              } else {
+                Ok(sliced)
+              }
+            }
+            Err(err) => Err(err)
+          }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, bytes.length())
+              if idx < 0 || idx >= bytes.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                Ok(Value::Int(@bigint.BigInt::from_int(bytes[idx])))
+              }
+            }
+            Err(err) => Err(err)
+          }
       }
     Value::Instance(_) => {
       let getitem = match
@@ -170,7 +357,7 @@ fn get_subscr_value(
       Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "object is not subscriptable".to_string(),
+          "subscript requires sequence".to_string(),
         ),
       )
   }
@@ -185,34 +372,100 @@ fn set_subscr_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Unit, RuntimeError] {
+  fn slice_parts_from_value(value : Value) -> (Value, Value, Value)? {
+    match value {
+      Value::Instance(inst) if inst.class.name == "slice" => {
+        let start = match get_named_value(inst.dict, "start") {
+          Some(v) => v
+          None => Value::None
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(v) => v
+          None => Value::None
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(v) => v
+          None => Value::None
+        }
+        Some((start, stop, step))
+      }
+      _ => None
+    }
+  }
+
   match target {
     Value::List(items) =>
-      match index_from_value(index, 0) {
-        Ok(i) => {
-          let idx = normalize_index(i, items.length())
-          if idx < 0 || idx >= items.length() {
-            Err(
-              make_runtime_error(
-                RuntimeErrorKind::Index,
-                "list assignment index out of range".to_string(),
-              ),
-            )
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) => {
+          let indices = match
+            slice_indices_from_values(items.length(), start, stop, step) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let (start_i, end_i, step_i) = match
+            slice_params_from_values(items.length(), start, stop, step) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let new_items = match iterable_values(value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if step_i == 1 {
+            let merged : Array[Value] = []
+            for i = 0; i < start_i; i = i + 1 {
+              merged.push(items[i])
+            }
+            for item in new_items {
+              merged.push(item)
+            }
+            for i = end_i; i < items.length(); i = i + 1 {
+              merged.push(items[i])
+            }
+            replace_array_values(items, merged)
+            Ok(())
           } else {
-            items[idx] = value
+            if new_items.length() != indices.length() {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "ValueError: attempt to assign sequence of size " +
+                  new_items.length().to_string() +
+                  " to extended slice of size " +
+                  indices.length().to_string(),
+                ),
+              )
+            }
+            for i = 0; i < indices.length(); i = i + 1 {
+              items[indices[i]] = new_items[i]
+            }
             Ok(())
           }
         }
-        Err(err) => Err(err)
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, items.length())
+              if idx < 0 || idx >= items.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "list assignment index out of range".to_string(),
+                  ),
+                )
+              } else {
+                items[idx] = value
+                Ok(())
+              }
+            }
+            Err(err) => Err(err)
+          }
       }
     Value::Dict(pairs) => {
-      // Insert/update.
-      for i = 0; i < pairs.length(); i = i + 1 {
-        if is_value_identity(pairs[i].0, index) || eq_value(pairs[i].0, index) {
-          pairs[i] = (pairs[i].0, value)
-          return Ok(())
-        }
+      let _ = match dict_set_item(pairs, index, value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
       }
-      pairs.push((index, value))
       Ok(())
     }
     Value::Instance(_) => {
@@ -240,6 +493,130 @@ fn set_subscr_value(
         make_runtime_error(
           RuntimeErrorKind::Type,
           "object does not support item assignment".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn delete_subscr_value(
+  target : Value,
+  index : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Unit, RuntimeError] {
+  fn slice_parts_from_value(value : Value) -> (Value, Value, Value)? {
+    match value {
+      Value::Instance(inst) if inst.class.name == "slice" => {
+        let start = match get_named_value(inst.dict, "start") {
+          Some(v) => v
+          None => Value::None
+        }
+        let stop = match get_named_value(inst.dict, "stop") {
+          Some(v) => v
+          None => Value::None
+        }
+        let step = match get_named_value(inst.dict, "step") {
+          Some(v) => v
+          None => Value::None
+        }
+        Some((start, stop, step))
+      }
+      _ => None
+    }
+  }
+
+  match target {
+    Value::List(items) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) => {
+          let indices = match
+            slice_indices_from_values(items.length(), start, stop, step) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if indices.length() == 0 {
+            return Ok(())
+          }
+          let remove_mask : Array[Bool] = []
+          for i = 0; i < items.length(); i = i + 1 {
+            remove_mask.push(false)
+          }
+          for idx in indices {
+            if idx >= 0 && idx < remove_mask.length() {
+              remove_mask[idx] = true
+            }
+          }
+          let next : Array[Value] = []
+          for i = 0; i < items.length(); i = i + 1 {
+            if !remove_mask[i] {
+              next.push(items[i])
+            }
+          }
+          replace_array_values(items, next)
+          Ok(())
+        }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, items.length())
+              if idx < 0 || idx >= items.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "index out of range".to_string(),
+                  ),
+                )
+              } else {
+                let _ = items.remove(idx)
+                Ok(())
+              }
+            }
+            Err(err) => Err(err)
+          }
+      }
+    Value::Dict(pairs) => {
+      let removed = match dict_delete_key(pairs, index) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if removed {
+        Ok(())
+      } else {
+        Err(
+          make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
+        )
+      }
+    }
+    Value::Instance(_) | Value::ByteArray(_) => {
+      let delitem = match
+        get_attr_from_value(target, "__delitem__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) =>
+          return match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "object does not support item deletion".to_string(),
+                ),
+              )
+            _ => Err(err)
+          }
+      }
+      let _ = match
+        call_callable_with_env(delitem, [index], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(())
+    }
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "object does not support item deletion".to_string(),
         ),
       )
   }
@@ -439,6 +816,14 @@ pub fn bc_exec(
       }
       BcOp::DeleteName(i) => {
         let name = code.names[i]
+        if scope_name_is_nonlocal(name) {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: can't delete nonlocal".to_string(),
+            ),
+          )
+        }
         match delete_scoped_value(locals, globals, name) {
           Ok(true) => Ok(())
           Ok(false) =>
@@ -481,6 +866,14 @@ pub fn bc_exec(
           Err(err) => Err(err)
         }
       }
+      BcOp::DeleteAttr(i) => {
+        let attr = code.names[i]
+        match pop_stack(stack) {
+          Ok(target) =>
+            delete_attr_on_value(target, attr, globals, builtins, io)
+          Err(err) => Err(err)
+        }
+      }
       BcOp::LoadSubscr =>
         match pop_stack(stack) {
           Ok(index) =>
@@ -517,6 +910,16 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
+      BcOp::DeleteSubscr =>
+        match pop_stack(stack) {
+          Ok(index) =>
+            match pop_stack(stack) {
+              Ok(target) =>
+                delete_subscr_value(target, index, globals, builtins, io)
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
       BcOp::BuildTuple(n) =>
         match pop_n(stack, n) {
           Ok(values) => {
@@ -537,12 +940,416 @@ pub fn bc_exec(
         match pop_n(stack, pair_count * 2) {
           Ok(values) => {
             let out : Array[(Value, Value)] = []
+            let mut err_opt : RuntimeError? = None
             for i = 0; i < values.length(); i = i + 2 {
-              out.push((values[i], values[i + 1]))
+              match dict_set_item(out, values[i], values[i + 1]) {
+                Ok(_) => ()
+                Err(err) => {
+                  err_opt = Some(err)
+                  break
+                }
+              }
             }
-            stack.push(Value::Dict(out))
-            Ok(())
+            match err_opt {
+              Some(err) => Err(err)
+              None => {
+                stack.push(Value::Dict(out))
+                Ok(())
+              }
+            }
           }
+          Err(err) => Err(err)
+        }
+      BcOp::BuildSet(n) =>
+        match pop_n(stack, n) {
+          Ok(values) => {
+            let out : Array[Value] = []
+            let mut err_opt : RuntimeError? = None
+            for v in values {
+              match set_add_unique(out, v) {
+                Ok(_) => ()
+                Err(err) => {
+                  err_opt = Some(err)
+                  break
+                }
+              }
+            }
+            match err_opt {
+              Some(err) => Err(err)
+              None => {
+                stack.push(Value::Set(out))
+                Ok(())
+              }
+            }
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::BuildSlice =>
+        match pop_stack(stack) {
+          Ok(step) =>
+            match pop_stack(stack) {
+              Ok(stop) =>
+                match pop_stack(stack) {
+                  Ok(start) => {
+                    let dict : Array[(String, Value)] = []
+                    dict.push(("start", start))
+                    dict.push(("stop", stop))
+                    dict.push(("step", step))
+                    let klass = builtin_class_from_name("slice", builtins)
+                    stack.push(
+                      Value::Instance(InstanceValue::{ class: klass, dict }),
+                    )
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::ListAppend =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: ListAppend missing list".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::List(values) => {
+                  values.push(value)
+                  stack[idx] = Value::List(values)
+                  Ok(())
+                }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: ListAppend expects list".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::ListExtend =>
+        match pop_stack(stack) {
+          Ok(iterable) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: ListExtend missing list".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::List(values) =>
+                  match iterable_values(iterable) {
+                    Ok(items) => {
+                      for item in items {
+                        values.push(item)
+                      }
+                      stack[idx] = Value::List(values)
+                      Ok(())
+                    }
+                    Err(err) => Err(err)
+                  }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: ListExtend expects list".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::SetAdd =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: SetAdd missing set".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::Set(values) =>
+                  match set_add_unique(values, value) {
+                    Ok(_) => {
+                      stack[idx] = Value::Set(values)
+                      Ok(())
+                    }
+                    Err(err) => Err(err)
+                  }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: SetAdd expects set".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::SetUpdate =>
+        match pop_stack(stack) {
+          Ok(iterable) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: SetUpdate missing set".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::Set(values) =>
+                  match iterable_values(iterable) {
+                    Ok(items) => {
+                      let mut err_opt : RuntimeError? = None
+                      for item in items {
+                        match set_add_unique(values, item) {
+                          Ok(_) => ()
+                          Err(err) => {
+                            err_opt = Some(err)
+                            break
+                          }
+                        }
+                      }
+                      match err_opt {
+                        Some(err) => Err(err)
+                        None => {
+                          stack[idx] = Value::Set(values)
+                          Ok(())
+                        }
+                      }
+                    }
+                    Err(err) => Err(err)
+                  }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: SetUpdate expects set".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::DictSetItem =>
+        match pop_stack(stack) {
+          Ok(value) =>
+            match pop_stack(stack) {
+              Ok(key) =>
+                if stack.length() == 0 {
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "bytecode vm: DictSetItem missing dict".to_string(),
+                    ),
+                  )
+                } else {
+                  let idx = stack.length() - 1
+                  match stack[idx] {
+                    Value::Dict(pairs) =>
+                      match dict_set_item(pairs, key, value) {
+                        Ok(_) => {
+                          stack[idx] = Value::Dict(pairs)
+                          Ok(())
+                        }
+                        Err(err) => Err(err)
+                      }
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "bytecode vm: DictSetItem expects dict".to_string(),
+                        ),
+                      )
+                  }
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::DictUpdate =>
+        match pop_stack(stack) {
+          Ok(mapping) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: DictUpdate missing dict".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::Dict(out) => {
+                  let update_result : Result[Unit, RuntimeError] = match
+                    mapping {
+                    Value::Dict(pairs) => {
+                      let mut err_opt : RuntimeError? = None
+                      for pair in pairs {
+                        match dict_set_item(out, pair.0, pair.1) {
+                          Ok(_) => ()
+                          Err(err) => {
+                            err_opt = Some(err)
+                            break
+                          }
+                        }
+                      }
+                      match err_opt {
+                        Some(err) => Err(err)
+                        None => Ok(())
+                      }
+                    }
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "dict update sequence element has wrong length".to_string(),
+                        ),
+                      )
+                  }
+                  match update_result {
+                    Ok(_) => {
+                      stack[idx] = Value::Dict(out)
+                      Ok(())
+                    }
+                    Err(err) => Err(err)
+                  }
+                }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: DictUpdate expects dict".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::KwListExtendFromDict =>
+        match pop_stack(stack) {
+          Ok(mapping) =>
+            if stack.length() == 0 {
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: KwListExtendFromDict missing list".to_string(),
+                ),
+              )
+            } else {
+              let idx = stack.length() - 1
+              match stack[idx] {
+                Value::List(values) => {
+                  let extend_result : Result[Unit, RuntimeError] = match
+                    mapping {
+                    Value::Dict(pairs) => {
+                      let mut err_opt : RuntimeError? = None
+                      for pair in pairs {
+                        match pair.0 {
+                          Value::Str(name) =>
+                            values.push(
+                              Value::Tuple([Value::Str(name), pair.1]),
+                            )
+                          _ => {
+                            err_opt = Some(
+                              make_runtime_error(
+                                RuntimeErrorKind::Type,
+                                "keywords must be strings".to_string(),
+                              ),
+                            )
+                            break
+                          }
+                        }
+                      }
+                      match err_opt {
+                        Some(e) => Err(e)
+                        None => Ok(())
+                      }
+                    }
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "keywords must be strings".to_string(),
+                        ),
+                      )
+                  }
+                  match extend_result {
+                    Ok(_) => {
+                      stack[idx] = Value::List(values)
+                      Ok(())
+                    }
+                    Err(err) => Err(err)
+                  }
+                }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bytecode vm: KwListExtendFromDict expects list".to_string(),
+                    ),
+                  )
+              }
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::ListToTuple =>
+        match pop_stack(stack) {
+          Ok(v) =>
+            match v {
+              Value::List(values) => {
+                stack.push(Value::Tuple(values))
+                Ok(())
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "bytecode vm: ListToTuple expects list".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::EvalFString =>
+        match pop_stack(stack) {
+          Ok(v) =>
+            match v {
+              Value::Str(text) =>
+                match eval_fstring_text(text, locals, globals, builtins, io) {
+                  Ok(out) => {
+                    stack.push(Value::Str(out))
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "bytecode vm: EvalFString expects a string".to_string(),
+                  ),
+                )
+            }
           Err(err) => Err(err)
         }
       BcOp::UnpackSequence(n) =>
@@ -555,18 +1362,30 @@ pub fn bc_exec(
                 match iter_value_to_iterator(assigned, globals, builtins, io) {
                   Ok(iterator_value) => {
                     let acc : Array[Value] = []
+                    let mut err_opt : RuntimeError? = None
                     while true {
-                      match iterator_next(iterator_value, None, globals, builtins, io) {
+                      match
+                        iterator_next(
+                          iterator_value,
+                          None,
+                          globals,
+                          builtins,
+                          io,
+                        ) {
                         Ok(v) => acc.push(v)
                         Err(err) =>
                           if err.exc_type == "StopIteration" {
                             break
                           } else {
-                            return Err(err)
+                            err_opt = Some(err)
+                            break
                           }
                       }
                     }
-                    Ok(acc)
+                    match err_opt {
+                      Some(e) => Err(e)
+                      None => Ok(acc)
+                    }
                   }
                   Err(err) =>
                     match err.kind {
@@ -586,10 +1405,10 @@ pub fn bc_exec(
                 }
             }
             match items {
-              Ok(values) => {
+              Ok(values) =>
                 if values.length() != n {
                   if values.length() < n {
-                    return Err(
+                    Err(
                       make_runtime_error(
                         RuntimeErrorKind::Runtime,
                         "ValueError: not enough values to unpack (expected " +
@@ -597,24 +1416,25 @@ pub fn bc_exec(
                         ")",
                       ),
                     )
+                  } else {
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "ValueError: too many values to unpack (expected " +
+                        n.to_string() +
+                        ")",
+                      ),
+                    )
                   }
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Runtime,
-                      "ValueError: too many values to unpack (expected " +
-                      n.to_string() +
-                      ")",
-                    ),
-                  )
+                } else {
+                  // Push in reverse so the first target consumes the first value.
+                  let mut i = n
+                  while i > 0 {
+                    i -= 1
+                    stack.push(values[i])
+                  }
+                  Ok(())
                 }
-                // Push in reverse so the first target consumes the first value.
-                let mut i = n
-                while i > 0 {
-                  i -= 1
-                  stack.push(values[i])
-                }
-                Ok(())
-              }
               Err(err) => Err(err)
             }
           }
@@ -711,7 +1531,21 @@ pub fn bc_exec(
         next_pc = target
         Ok(())
       }
-      BcOp::UnwindJump(target, n) =>
+      BcOp::UnwindJump(target, n) => {
+        // `break`/`continue` in a `finally` suite must override any pending
+        // return/exception being unwound into this handler.
+        if blocks.length() > 0 {
+          let top = blocks[blocks.length() - 1]
+          match top.kind {
+            VmBlockKind::FinallyHandler => {
+              pending_exc = None
+              pending_return = None
+              pending_jump_target = None
+              pending_jump_count = 0
+            }
+            _ => ()
+          }
+        }
         if n <= 0 {
           next_pc = target
           Ok(())
@@ -731,6 +1565,7 @@ pub fn bc_exec(
             }
           }
         }
+      }
       BcOp::JumpIfFalse(target) =>
         match pop_stack(stack) {
           Ok(v) =>
@@ -1027,6 +1862,24 @@ pub fn bc_exec(
         pending_exc = None
         Ok(())
       }
+      BcOp::AssertFail =>
+        match pop_stack(stack) {
+          Ok(msg_value) =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "AssertionError: " + value_to_string(msg_value),
+              ),
+            )
+          Err(err) => Err(err)
+        }
+      BcOp::AssertFailNone =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "AssertionError: ".to_string(),
+          ),
+        )
       BcOp::LoadExceptionType =>
         match pending_exc {
           Some(err) => {
@@ -1076,6 +1929,125 @@ pub fn bc_exec(
               ),
             )
         }
+      BcOp::Raise =>
+        match pop_stack(stack) {
+          Ok(exc_value) => {
+            let context_err_opt = pending_exc
+            let inst_value = match
+              ensure_exception_instance_from_value(
+                exc_value, globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let err0 = match inst_value {
+              Value::Instance(inst) =>
+                runtime_error_from_exception_instance(inst)
+              _ =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "RuntimeError: invalid exception".to_string(),
+                  ),
+                )
+            }
+            let err1 = match (context_err_opt, err0.exc_context) {
+              (Some(ctx_err), None) => {
+                let ctx_value = exception_value_from_runtime_error(
+                  ctx_err, globals, builtins, io,
+                )
+                RuntimeError::{
+                  kind: err0.kind,
+                  message: err0.message,
+                  span: err0.span,
+                  traceback: err0.traceback,
+                  exc_type: err0.exc_type,
+                  exc_args: err0.exc_args,
+                  exc_value: err0.exc_value,
+                  exc_cause: err0.exc_cause,
+                  exc_context: Some(ctx_value),
+                  exc_suppress_context: err0.exc_suppress_context,
+                }
+              }
+              _ => err0
+            }
+            Err(err1)
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::RaiseFrom =>
+        match pop_stack(stack) {
+          Ok(cause_value) =>
+            match pop_stack(stack) {
+              Ok(exc_value) => {
+                let context_err_opt = pending_exc
+                let inst_value = match
+                  ensure_exception_instance_from_value(
+                    exc_value, globals, builtins, io,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let err0 = match inst_value {
+                  Value::Instance(inst) =>
+                    runtime_error_from_exception_instance(inst)
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "RuntimeError: invalid exception".to_string(),
+                      ),
+                    )
+                }
+                let err1 = match (context_err_opt, err0.exc_context) {
+                  (Some(ctx_err), None) => {
+                    let ctx_value = exception_value_from_runtime_error(
+                      ctx_err, globals, builtins, io,
+                    )
+                    RuntimeError::{
+                      kind: err0.kind,
+                      message: err0.message,
+                      span: err0.span,
+                      traceback: err0.traceback,
+                      exc_type: err0.exc_type,
+                      exc_args: err0.exc_args,
+                      exc_value: err0.exc_value,
+                      exc_cause: err0.exc_cause,
+                      exc_context: Some(ctx_value),
+                      exc_suppress_context: err0.exc_suppress_context,
+                    }
+                  }
+                  _ => err0
+                }
+                let cause_inst = match cause_value {
+                  Value::None => Value::None
+                  _ =>
+                    match
+                      ensure_exception_instance_from_value(
+                        cause_value, globals, builtins, io,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                }
+                let err2 = RuntimeError::{
+                  kind: err1.kind,
+                  message: err1.message,
+                  span: err1.span,
+                  traceback: err1.traceback,
+                  exc_type: err1.exc_type,
+                  exc_args: err1.exc_args,
+                  exc_value: err1.exc_value,
+                  exc_cause: Some(cause_inst),
+                  exc_context: err1.exc_context,
+                  exc_suppress_context: true,
+                }
+                Err(err2)
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
       BcOp::Reraise =>
         match pending_exc {
           Some(e) => Err(e)
@@ -1083,7 +2055,7 @@ pub fn bc_exec(
             Err(
               make_runtime_error(
                 RuntimeErrorKind::Runtime,
-                "bytecode vm: no pending exception".to_string(),
+                "RuntimeError: No active exception to reraise".to_string(),
               ),
             )
         }
@@ -1097,6 +2069,331 @@ pub fn bc_exec(
               }
               Err(err) => Err(err)
             }
+          Err(err) => Err(err)
+        }
+      BcOp::MatchPattern(pat_idx) =>
+        match pop_stack(stack) {
+          Ok(subject) => {
+            let pattern = code.patterns[pat_idx]
+            match match_pattern(subject, pattern) {
+              Some(bindings) => {
+                let pairs : Array[Value] = []
+                for binding in bindings {
+                  pairs.push(Value::Tuple([Value::Str(binding.0), binding.1]))
+                }
+                stack.push(Value::List(pairs))
+                Ok(())
+              }
+              None => {
+                stack.push(Value::None)
+                Ok(())
+              }
+            }
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::MatchBind =>
+        match pop_stack(stack) {
+          Ok(bindings_val) =>
+            match bindings_val {
+              Value::List(items) => {
+                let restore : Array[Value] = []
+                let mut err_opt : RuntimeError? = None
+                for item in items {
+                  if err_opt is Some(_) {
+                    break
+                  }
+                  match item {
+                    Value::Tuple(pair) =>
+                      if pair.length() != 2 {
+                        err_opt = Some(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "bytecode vm: MatchBind expects (name, value) pairs".to_string(),
+                          ),
+                        )
+                      } else {
+                        let name = match pair[0] {
+                          Value::Str(text) => text
+                          _ => {
+                            err_opt = Some(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "bytecode vm: MatchBind name must be str".to_string(),
+                              ),
+                            )
+                            ""
+                          }
+                        }
+                        if err_opt is None {
+                          let value = pair[1]
+                          let prev_opt = get_scoped_value(locals, globals, name)
+                          let existed = prev_opt is Some(_)
+                          let prev_value = match prev_opt {
+                            Some(v) => v
+                            None => Value::None
+                          }
+                          restore.push(
+                            Value::Tuple([
+                              Value::Str(name),
+                              Value::Bool(existed),
+                              prev_value,
+                            ]),
+                          )
+                          set_scoped_value(locals, globals, name, value)
+                        }
+                      }
+                    _ =>
+                      err_opt = Some(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: MatchBind expects a list of tuples".to_string(),
+                        ),
+                      )
+                  }
+                }
+                match err_opt {
+                  Some(e) => Err(e)
+                  None => {
+                    stack.push(Value::List(restore))
+                    Ok(())
+                  }
+                }
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: MatchBind expects a list".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::MatchRestore =>
+        match pop_stack(stack) {
+          Ok(restore_val) =>
+            match restore_val {
+              Value::List(items) => {
+                let mut err_opt : RuntimeError? = None
+                for item in items {
+                  if err_opt is Some(_) {
+                    break
+                  }
+                  match item {
+                    Value::Tuple(tup) =>
+                      if tup.length() != 3 {
+                        err_opt = Some(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "bytecode vm: MatchRestore expects (name, existed, value)".to_string(),
+                          ),
+                        )
+                      } else {
+                        let name = match tup[0] {
+                          Value::Str(text) => text
+                          _ => {
+                            err_opt = Some(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "bytecode vm: MatchRestore name must be str".to_string(),
+                              ),
+                            )
+                            ""
+                          }
+                        }
+                        let existed = match tup[1] {
+                          Value::Bool(v) => v
+                          _ => {
+                            err_opt = Some(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "bytecode vm: MatchRestore existed must be bool".to_string(),
+                              ),
+                            )
+                            false
+                          }
+                        }
+                        let value = tup[2]
+                        if err_opt is None {
+                          if existed {
+                            set_scoped_value(locals, globals, name, value)
+                          } else {
+                            let _ = delete_scoped_value(locals, globals, name)
+
+                          }
+                        }
+                      }
+                    _ =>
+                      err_opt = Some(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: MatchRestore expects a list of tuples".to_string(),
+                        ),
+                      )
+                  }
+                }
+                match err_opt {
+                  Some(e) => Err(e)
+                  None => Ok(())
+                }
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: MatchRestore expects a list".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::GenExpNew(template_idx, iter_name_idx, target_names_const_idx) =>
+        match
+          (if iter_name_idx >= 0 { pop_stack(stack) } else { Ok(Value::None) }) {
+          Ok(iter_or_dummy) => {
+            let iter_value : Value? = if iter_name_idx >= 0 {
+              Some(iter_or_dummy)
+            } else {
+              None
+            }
+            match code.consts[template_idx] {
+              Value::Function(template) => {
+                let gen_locals = clone_locals(locals)
+                match iter_value {
+                  Some(it) => {
+                    let iter_name = code.names[iter_name_idx]
+                    set_local_value(gen_locals, iter_name, it)
+                  }
+                  None => ()
+                }
+                match code.consts[target_names_const_idx] {
+                  Value::Tuple(items) => {
+                    let mut err_opt : RuntimeError? = None
+                    for item in items {
+                      match item {
+                        Value::Str(name) =>
+                          if name != "_" {
+                            ensure_local_cell(gen_locals, name, Value::None)
+                          }
+                        _ =>
+                          err_opt = Some(
+                            make_runtime_error(
+                              RuntimeErrorKind::Runtime,
+                              "bytecode vm: GenExpNew target names must be strings".to_string(),
+                            ),
+                          )
+                      }
+                      if err_opt is Some(_) {
+                        break
+                      }
+                    }
+                    match err_opt {
+                      Some(e) => Err(e)
+                      None => {
+                        let filename = current_traceback_filename()
+                        let gen = generator_new(
+                          template.body,
+                          gen_locals,
+                          globals,
+                          builtins,
+                          io,
+                          [],
+                          [],
+                          [],
+                          template.name,
+                          filename,
+                        )
+                        stack.push(gen)
+                        Ok(())
+                      }
+                    }
+                  }
+                  _ =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "bytecode vm: GenExpNew target names must be a tuple".to_string(),
+                      ),
+                    )
+                }
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "bytecode vm: GenExpNew template is not a function".to_string(),
+                  ),
+                )
+            }
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::AsyncGenExpNew(spec_idx, iter_name_idx, target_names_const_idx) =>
+        match
+          (if iter_name_idx >= 0 { pop_stack(stack) } else { Ok(Value::None) }) {
+          Ok(iter_or_dummy) => {
+            let iter_value : Value? = if iter_name_idx >= 0 {
+              Some(iter_or_dummy)
+            } else {
+              None
+            }
+            let gen_locals = clone_locals(locals)
+            match iter_value {
+              Some(it) => {
+                let iter_name = code.names[iter_name_idx]
+                set_local_value(gen_locals, iter_name, it)
+              }
+              None => ()
+            }
+            match code.consts[target_names_const_idx] {
+              Value::Tuple(items) => {
+                let mut err_opt : RuntimeError? = None
+                for item in items {
+                  match item {
+                    Value::Str(name) =>
+                      if name != "_" {
+                        ensure_local_cell(gen_locals, name, Value::None)
+                      }
+                    _ =>
+                      err_opt = Some(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: AsyncGenExpNew target names must be strings".to_string(),
+                        ),
+                      )
+                  }
+                  if err_opt is Some(_) {
+                    break
+                  }
+                }
+                match err_opt {
+                  Some(e) => Err(e)
+                  None => {
+                    let spec = code.genexps[spec_idx]
+                    let gen = async_genexp_new(
+                      spec.elt,
+                      spec.clauses,
+                      spec.filters,
+                      gen_locals,
+                      globals,
+                      builtins,
+                      io,
+                    )
+                    stack.push(gen)
+                    Ok(())
+                  }
+                }
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: AsyncGenExpNew target names must be a tuple".to_string(),
+                  ),
+                )
+            }
+          }
           Err(err) => Err(err)
         }
       BcOp::CallFunction(argc) =>
@@ -1238,12 +2535,7 @@ pub fn bc_exec(
                           _ =>
                             match
                               call_callable_with_env(
-                                callee,
-                                pos_args,
-                                keywords,
-                                globals,
-                                builtins,
-                                io,
+                                callee, pos_args, keywords, globals, builtins, io,
                               ) {
                               Ok(out) => {
                                 stack.push(out)
@@ -1260,6 +2552,120 @@ pub fn bc_exec(
               Err(err) => Err(err)
             }
           }
+          Err(err) => Err(err)
+        }
+      BcOp::CallFunctionVar =>
+        match pop_stack(stack) {
+          Ok(keyword_pairs_val) =>
+            match pop_stack(stack) {
+              Ok(positional_list_val) =>
+                match pop_stack(stack) {
+                  Ok(callee) => {
+                    let positional = match positional_list_val {
+                      Value::List(values) => values
+                      Value::Tuple(values) => values
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "bytecode vm: CallFunctionVar expects positional list".to_string(),
+                          ),
+                        )
+                    }
+                    let keyword_items = match keyword_pairs_val {
+                      Value::List(values) => values
+                      Value::Tuple(values) => values
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "bytecode vm: CallFunctionVar expects keyword list".to_string(),
+                          ),
+                        )
+                    }
+                    let keywords : Array[(String, Value)] = []
+                    for item in keyword_items {
+                      match item {
+                        Value::Tuple(pair) =>
+                          if pair.length() != 2 {
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Type,
+                                "bytecode vm: CallFunctionVar keyword pair arity".to_string(),
+                              ),
+                            )
+                          } else {
+                            match pair[0] {
+                              Value::Str(name) => keywords.push((name, pair[1]))
+                              _ =>
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "keywords must be strings".to_string(),
+                                  ),
+                                )
+                            }
+                          }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "bytecode vm: CallFunctionVar expects keyword tuples".to_string(),
+                            ),
+                          )
+                      }
+                    }
+                    match callee {
+                      Value::Function(func) if func.body.length() == 0 =>
+                        match
+                          eval_builtin_call(
+                            func.name,
+                            positional,
+                            keywords,
+                            locals,
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(Some(out)) => {
+                            stack.push(out)
+                            Ok(())
+                          }
+                          Ok(None) =>
+                            match
+                              call_callable_with_env(
+                                Value::Function(func),
+                                positional,
+                                keywords,
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(out) => {
+                                stack.push(out)
+                                Ok(())
+                              }
+                              Err(err) => Err(err)
+                            }
+                          Err(err) => Err(err)
+                        }
+                      _ =>
+                        match
+                          call_callable_with_env(
+                            callee, positional, keywords, globals, builtins, io,
+                          ) {
+                          Ok(out) => {
+                            stack.push(out)
+                            Ok(())
+                          }
+                          Err(err) => Err(err)
+                        }
+                    }
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
           Err(err) => Err(err)
         }
       BcOp::MakeFunction(template, default_count, decorator_count) =>
@@ -1294,6 +2700,949 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
+      BcOp::MakeClass(template, name_idx, decorator_count) =>
+        match pop_stack(stack) {
+          Ok(keyword_specs_val) =>
+            match pop_stack(stack) {
+              Ok(base_specs_val) =>
+                match pop_n(stack, decorator_count) {
+                  Ok(decorator_values) => {
+                    let class_name = code.names[name_idx]
+                    let template_value = code.consts[template]
+                    let body = match template_value {
+                      Value::Function(template_func) => template_func.body
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "bytecode vm: MakeClass template is not a function".to_string(),
+                          ),
+                        )
+                    }
+                    let base_specs = match base_specs_val {
+                      Value::List(items) => items
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "bytecode vm: MakeClass expects base spec list".to_string(),
+                          ),
+                        )
+                    }
+                    let raw_base_values : Array[Value] = []
+                    for spec in base_specs {
+                      match spec {
+                        Value::Tuple(values) if values.length() == 2 =>
+                          match values[0] {
+                            Value::Bool(true) => {
+                              let iter_value = values[1]
+                              let items = match iterable_values(iter_value) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              for item in items {
+                                raw_base_values.push(item)
+                              }
+                            }
+                            Value::Bool(false) =>
+                              raw_base_values.push(values[1])
+                            _ =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Runtime,
+                                  "bytecode vm: invalid base spec".to_string(),
+                                ),
+                              )
+                          }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Runtime,
+                              "bytecode vm: invalid base spec".to_string(),
+                            ),
+                          )
+                      }
+                    }
+                    let base_values : Array[Value] = []
+                    for base_value in raw_base_values {
+                      let expanded = match base_value {
+                        Value::Instance(_) =>
+                          match
+                            get_attr_from_value(
+                              base_value, "__mro_entries__", globals, builtins, io,
+                            ) {
+                            Ok(mro_entries) => {
+                              let bases_tuple : Array[Value] = []
+                              for item in raw_base_values {
+                                bases_tuple.push(item)
+                              }
+                              let entries = match
+                                call_callable_with_env(
+                                  mro_entries,
+                                  [Value::Tuple(bases_tuple)],
+                                  [],
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(value) => value
+                                Err(err) => return Err(err)
+                              }
+                              match entries {
+                                Value::Tuple(values) => values
+                                Value::List(values) => values
+                                _ =>
+                                  return Err(
+                                    make_runtime_error(
+                                      RuntimeErrorKind::Type,
+                                      "base class must be a class".to_string(),
+                                    ),
+                                  )
+                              }
+                            }
+                            Err(_) =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Type,
+                                  "base class must be a class".to_string(),
+                                ),
+                              )
+                          }
+                        _ => [base_value]
+                      }
+                      for value in expanded {
+                        match value {
+                          Value::Class(_) => base_values.push(value)
+                          Value::Function(func) =>
+                            if func.body.length() == 0 &&
+                              is_builtin_class_name(func.name) {
+                              base_values.push(
+                                Value::Class(
+                                  builtin_class_from_name(func.name, builtins),
+                                ),
+                              )
+                            } else {
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Type,
+                                  "base class must be a class".to_string(),
+                                ),
+                              )
+                            }
+                          other => base_values.push(other)
+                        }
+                      }
+                    }
+                    let keyword_specs = match keyword_specs_val {
+                      Value::List(items) => items
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "bytecode vm: MakeClass expects keyword spec list".to_string(),
+                          ),
+                        )
+                    }
+                    let class_kwargs : Array[(String, Value)] = []
+                    let mut metaclass_value : Value? = None
+                    for spec in keyword_specs {
+                      let (key, value) = match spec {
+                        Value::Tuple(values) if values.length() == 2 =>
+                          match values[0] {
+                            Value::Str(k) => (k, values[1])
+                            _ =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Runtime,
+                                  "bytecode vm: class keyword name must be str".to_string(),
+                                ),
+                              )
+                          }
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Runtime,
+                              "bytecode vm: invalid class keyword spec".to_string(),
+                            ),
+                          )
+                      }
+                      if key == "**" {
+                        let pairs = match
+                          dict_pairs_from_value("class", value) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        for pair in pairs {
+                          match pair.0 {
+                            Value::Str(k) =>
+                              if k == "metaclass" {
+                                metaclass_value = Some(pair.1)
+                              } else {
+                                set_global_value(class_kwargs, k, pair.1)
+                              }
+                            _ =>
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Type,
+                                  "keywords must be strings".to_string(),
+                                ),
+                              )
+                          }
+                        }
+                        continue
+                      }
+                      if key == "metaclass" {
+                        metaclass_value = Some(value)
+                        continue
+                      }
+                      set_global_value(class_kwargs, key, value)
+                    }
+                    if base_values.length() == 0 {
+                      for pair in builtins {
+                        if pair.0 == "object" {
+                          match pair.1 {
+                            Value::Class(object_class) =>
+                              base_values.push(Value::Class(object_class))
+                            _ => ()
+                          }
+                          break
+                        }
+                      }
+                    }
+                    for base_value in base_values {
+                      match base_value {
+                        Value::Class(base_class) =>
+                          match get_named_value(base_class.dict, "__module__") {
+                            Some(Value::Str(module_name)) =>
+                              if module_name == "builtins" &&
+                                base_class.name == "bool" {
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "type 'bool' is not an acceptable base type".to_string(),
+                                  ),
+                                )
+                              }
+                            _ => ()
+                          }
+                        _ => ()
+                      }
+                    }
+                    let module_name_value = get_global_value(
+                      globals, "__name__",
+                    )
+                    if module_name_value is None {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Name,
+                          "name '__name__' is not defined",
+                        ),
+                      )
+                    }
+                    let module_name = match module_name_value.unwrap() {
+                      Value::Str(text) => text
+                      other => value_to_string(other)
+                    }
+                    let class_dict : Array[(String, Value)] = []
+                    let mut qualname = class_name
+                    match get_global_value(locals, "__qualname__") {
+                      Some(Value::Str(parent)) =>
+                        qualname = parent + "." + class_name
+                      _ => ()
+                    }
+                    class_dict.push(("__module__", Value::Str(module_name)))
+                    class_dict.push(("__qualname__", Value::Str(qualname)))
+                    ensure_local_cell(class_dict, "__class__", Value::None)
+                    let mut pushed_closure = false
+                    if has_active_closure_env() {
+                      for i = 0; i < locals.length(); i = i + 1 {
+                        let name = locals[i].0
+                        let value = locals[i].1
+                        if !is_cell_value(value) {
+                          ensure_local_cell(locals, name, value)
+                        }
+                      }
+                      let class_closure = merge_cell_closures(
+                        locals,
+                        current_closure_env(),
+                      )
+                      push_closure_env(class_closure)
+                      pushed_closure = true
+                    }
+                    let flow = match
+                      eval_block_flow(
+                        body,
+                        class_dict,
+                        globals,
+                        builtins,
+                        io,
+                        current_config(),
+                        0,
+                      ) {
+                      Ok(value) => value
+                      Err(err) => return Err(err)
+                    }
+                    if pushed_closure {
+                      pop_closure_env()
+                    }
+                    match flow {
+                      BlockFlow::Normal(_) => ()
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "SyntaxError: invalid class body".to_string(),
+                          ),
+                        )
+                    }
+                    let mut selected_meta = Value::Class(
+                      builtin_class_from_name("type", builtins),
+                    )
+                    match metaclass_value {
+                      Some(v) => selected_meta = v
+                      None =>
+                        for base_value in base_values {
+                          match base_value {
+                            Value::Class(base_class) =>
+                              match
+                                get_named_value(
+                                  base_class.dict,
+                                  "__mpython_metaclass__",
+                                ) {
+                                Some(Value::Class(meta)) => {
+                                  selected_meta = Value::Class(meta)
+                                  break
+                                }
+                                _ => ()
+                              }
+                            _ => ()
+                          }
+                        }
+                    }
+                    let namespace_pairs : Array[(Value, Value)] = []
+                    for pair in class_dict {
+                      namespace_pairs.push((Value::Str(pair.0), pair.1))
+                    }
+                    let metaclass_args : Array[Value] = [
+                      Value::Str(class_name),
+                      Value::Tuple(base_values),
+                      Value::Dict(namespace_pairs),
+                    ]
+                    let created_value = match
+                      call_callable_with_env(
+                        selected_meta, metaclass_args, class_kwargs, globals, builtins,
+                        io,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    fn apply_decorators(
+                      defined0 : Value,
+                      decorator_values : Array[Value],
+                      locals : Array[(String, Value)],
+                      globals : Array[(String, Value)],
+                      builtins : Array[(String, Value)],
+                      io : MockIO,
+                    ) -> Result[Value, RuntimeError] {
+                      let mut defined = defined0
+                      for i = decorator_values.length(); i > 0; i = i - 1 {
+                        let decorator_value = decorator_values[i - 1]
+                        defined = match decorator_value {
+                          Value::Function(dec_func) =>
+                            if dec_func.body.length() == 0 {
+                              match
+                                eval_builtin_call(
+                                  dec_func.name,
+                                  [defined],
+                                  [],
+                                  locals,
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(Some(value)) => value
+                                Ok(None) =>
+                                  match
+                                    call_callable_with_env(
+                                      decorator_value,
+                                      [defined],
+                                      [],
+                                      globals,
+                                      builtins,
+                                      io,
+                                    ) {
+                                    Ok(value) => value
+                                    Err(err) => return Err(err)
+                                  }
+                                Err(err) => return Err(err)
+                              }
+                            } else {
+                              match
+                                call_callable_with_env(
+                                  decorator_value,
+                                  [defined],
+                                  [],
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(value) => value
+                                Err(err) => return Err(err)
+                              }
+                            }
+                          _ =>
+                            match
+                              call_callable_with_env(
+                                decorator_value,
+                                [defined],
+                                [],
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(value) => value
+                              Err(err) => return Err(err)
+                            }
+                        }
+                      }
+                      Ok(defined)
+                    }
+
+                    match created_value {
+                      Value::Class(klass) => {
+                        match get_named_value(class_dict, "__class__") {
+                          Some(cell) =>
+                            cell_set_value(cell, Value::Class(klass))
+                          None => ()
+                        }
+                        if get_named_value(klass.dict, "__mpython_metaclass__")
+                          is None {
+                          match selected_meta {
+                            Value::Class(meta) =>
+                              set_named_value(
+                                klass.dict,
+                                "__mpython_metaclass__",
+                                Value::Class(meta),
+                              )
+                            _ => ()
+                          }
+                        }
+                        let _ = match class_mro(klass) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                        for pair in klass.dict {
+                          match pair.1 {
+                            Value::Instance(desc_inst) =>
+                              if class_has_base_name(
+                                  desc_inst.class,
+                                  "property",
+                                ) {
+                                if get_named_value(desc_inst.dict, "__name__")
+                                  is None {
+                                  set_named_value(
+                                    desc_inst.dict,
+                                    "__name__",
+                                    Value::Str(pair.0),
+                                  )
+                                }
+                              }
+                            _ => ()
+                          }
+                        }
+                        fn value_is_abstract(
+                          value : Value,
+                          globals : Array[(String, Value)],
+                          builtins : Array[(String, Value)],
+                          io : MockIO,
+                        ) -> Result[Bool, RuntimeError] {
+                          match
+                            get_attr_from_value(
+                              value, "__isabstractmethod__", globals, builtins, io,
+                            ) {
+                            Ok(flag) =>
+                              truthy_from_value_with_env(
+                                flag, globals, builtins, io,
+                              )
+                            Err(err) =>
+                              match err.kind {
+                                RuntimeErrorKind::Attribute => Ok(false)
+                                _ =>
+                                  if err.exc_type == "AttributeError" {
+                                    Ok(false)
+                                  } else {
+                                    Err(err)
+                                  }
+                              }
+                          }
+                        }
+
+                        let abstract_names : Array[Value] = []
+                        for pair in class_dict {
+                          let is_abstract = match
+                            value_is_abstract(pair.1, globals, builtins, io) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          if is_abstract {
+                            let _ = set_add_unique(
+                              abstract_names,
+                              Value::Str(pair.0),
+                            )
+
+                          }
+                        }
+                        let mut has_abstractmethods_attr = false
+                        for base_value in base_values {
+                          match base_value {
+                            Value::Class(base_class) => {
+                              let base_abs = get_named_value(
+                                base_class.dict,
+                                "__abstractmethods__",
+                              )
+                              if base_abs is Some(_) {
+                                has_abstractmethods_attr = true
+                              }
+                              match base_abs {
+                                Some(Value::Set(items))
+                                | Some(Value::Tuple(items)) =>
+                                  for item in items {
+                                    match item {
+                                      Value::Str(name) =>
+                                        match lookup_class_attr(klass, name) {
+                                          Ok(Some(value)) => {
+                                            let is_abstract = match
+                                              value_is_abstract(
+                                                value, globals, builtins, io,
+                                              ) {
+                                              Ok(v) => v
+                                              Err(err) => return Err(err)
+                                            }
+                                            if is_abstract {
+                                              let _ = set_add_unique(
+                                                abstract_names,
+                                                Value::Str(name),
+                                              )
+
+                                            }
+                                          }
+                                          _ => ()
+                                        }
+                                      _ => ()
+                                    }
+                                  }
+                                _ => ()
+                              }
+                            }
+                            _ => ()
+                          }
+                        }
+                        if abstract_names.length() > 0 ||
+                          has_abstractmethods_attr {
+                          set_named_value(
+                            klass.dict,
+                            "__abstractmethods__",
+                            Value::Set(abstract_names),
+                          )
+                        }
+                        let inherited_init_subclass : Value? = match
+                          class_mro(klass) {
+                          Ok(mro) => {
+                            let mut found : Value? = None
+                            for i = 1; i < mro.length(); i = i + 1 {
+                              match
+                                get_named_value(
+                                  mro[i].dict,
+                                  "__init_subclass__",
+                                ) {
+                                Some(Value::Function(func)) => {
+                                  found = Some(
+                                    Value::BoundMethod(BoundMethodValue::{
+                                      function: func,
+                                      self: Value::Class(klass),
+                                    }),
+                                  )
+                                  break
+                                }
+                                _ => ()
+                              }
+                            }
+                            found
+                          }
+                          Err(_) => None
+                        }
+                        match inherited_init_subclass {
+                          Some(hook) => {
+                            let _ = match
+                              call_callable_with_env(
+                                hook,
+                                [],
+                                class_kwargs,
+                                globals,
+                                builtins,
+                                io,
+                              ) {
+                              Ok(value) => value
+                              Err(err) => return Err(err)
+                            }
+
+                          }
+                          None => ()
+                        }
+                        let defined = match
+                          apply_decorators(
+                            Value::Class(klass),
+                            decorator_values,
+                            locals,
+                            globals,
+                            builtins,
+                            io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        stack.push(defined)
+                        Ok(())
+                      }
+                      other => {
+                        let defined = match
+                          apply_decorators(
+                            other, decorator_values, locals, globals, builtins, io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        stack.push(defined)
+                        Ok(())
+                      }
+                    }
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::StoreAnnotation(i) =>
+        match pop_stack(stack) {
+          Ok(ann_value) => {
+            let name = code.names[i]
+            let pairs = match
+              get_scoped_value(locals, globals, "__annotations__") {
+              Some(Value::Dict(pairs)) => pairs
+              Some(_) =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "__annotations__ must be a dict".to_string(),
+                  ),
+                )
+              None => {
+                let pairs : Array[(Value, Value)] = []
+                set_scoped_value(
+                  locals,
+                  globals,
+                  "__annotations__",
+                  Value::Dict(pairs),
+                )
+                pairs
+              }
+            }
+            let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            Ok(())
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::AugAssignName(i, op) =>
+        match pop_stack(stack) {
+          Ok(rhs) => {
+            let name = code.names[i]
+            let current = match
+              lookup_name_value(name, locals, globals, builtins) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let next = match
+              eval_augassign_op_values(op, current, rhs, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            set_scoped_value(locals, globals, name, next)
+            Ok(())
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::AugAssignAttr(i, op) =>
+        match pop_stack(stack) {
+          Ok(target) =>
+            match pop_stack(stack) {
+              Ok(rhs) => {
+                let attr = code.names[i]
+                let current = match
+                  get_attr_from_value(target, attr, globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let next = match
+                  eval_augassign_op_values(
+                    op, current, rhs, globals, builtins, io,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let _ = match
+                  set_attr_on_value(target, attr, next, globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::AugAssignSubscr(op) =>
+        match pop_stack(stack) {
+          Ok(index) =>
+            match pop_stack(stack) {
+              Ok(target) =>
+                match pop_stack(stack) {
+                  Ok(rhs) => {
+                    let current = match
+                      get_subscr_value(target, index, globals, builtins, io) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let next = match
+                      eval_augassign_op_values(
+                        op, current, rhs, globals, builtins, io,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    let _ = match
+                      set_subscr_value(
+                        target, index, next, globals, builtins, io,
+                      ) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
+        }
+      BcOp::ImportName(mod_idx, alias_idx) => {
+        let mod_value = code.consts[mod_idx]
+        let module_name = match mod_value {
+          Value::Str(text) => text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: ImportName expects module name str".to_string(),
+              ),
+            )
+        }
+        let module_value = match
+          import_module(module_name, globals, builtins, io, current_config()) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let binding = if alias_idx >= 0 {
+          code.names[alias_idx]
+        } else {
+          module_top_name(module_name)
+        }
+        let binding_value = if alias_idx >= 0 {
+          module_value
+        } else if module_name.contains(".") {
+          match module_cache_get(binding) {
+            Some(value) => value
+            None => module_value
+          }
+        } else {
+          module_value
+        }
+        set_scoped_value(locals, globals, binding, binding_value)
+        Ok(())
+      }
+      BcOp::FromImport(mod_idx, names_idx, aliases_idx) => {
+        let mod_value = code.consts[mod_idx]
+        let module_name = match mod_value {
+          Value::Str(text) => text
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: FromImport expects module name str".to_string(),
+              ),
+            )
+        }
+        let names_value = code.consts[names_idx]
+        let aliases_value = code.consts[aliases_idx]
+        let names = match names_value {
+          Value::Tuple(values) => values
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: FromImport expects tuple of names".to_string(),
+              ),
+            )
+        }
+        let aliases = match aliases_value {
+          Value::Tuple(values) => values
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: FromImport expects tuple of aliases".to_string(),
+              ),
+            )
+        }
+        if names.length() != aliases.length() {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "bytecode vm: FromImport expects equal names/aliases".to_string(),
+            ),
+          )
+        }
+        let resolved_name = match
+          resolve_relative_module_name(module_name, globals) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        let module_value = match
+          import_module(resolved_name, globals, builtins, io, current_config()) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        for i = 0; i < names.length(); i = i + 1 {
+          let name = match names[i] {
+            Value::Str(s) => s
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: FromImport name must be str".to_string(),
+                ),
+              )
+          }
+          let alias_opt : String? = match aliases[i] {
+            Value::None => None
+            Value::Str(s) => Some(s)
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "bytecode vm: FromImport alias must be str/None".to_string(),
+                ),
+              )
+          }
+          if name == "*" {
+            match module_value {
+              Value::Instance(inst) => {
+                let mut imported_any = false
+                match get_named_value(inst.dict, "__all__") {
+                  Some(Value::List(items)) | Some(Value::Tuple(items)) =>
+                    for item in items {
+                      match item {
+                        Value::Str(sym) => {
+                          let value = match
+                            get_attr_from_value(
+                              module_value, sym, globals, builtins, io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          set_scoped_value(locals, globals, sym, value)
+                          imported_any = true
+                        }
+                        _ => ()
+                      }
+                    }
+                  _ => ()
+                }
+                if !imported_any {
+                  for pair in inst.dict {
+                    if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                      set_scoped_value(locals, globals, pair.0, pair.1)
+                    }
+                  }
+                }
+              }
+              _ => ()
+            }
+            continue
+          }
+          let imported = match
+            get_attr_from_value(module_value, name, globals, builtins, io) {
+            Ok(value) => value
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute => {
+                  let submodule = resolved_name + "." + name
+                  match
+                    import_module(
+                      submodule,
+                      globals,
+                      builtins,
+                      io,
+                      current_config(),
+                    ) {
+                    Ok(value) => value
+                    Err(err) => {
+                      let missing_submodule_message = "ModuleNotFoundError: No module named '" +
+                        submodule +
+                        "'"
+                      if err.exc_type == "ModuleNotFoundError" &&
+                        err.message == missing_submodule_message {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "ImportError: cannot import name '" +
+                            name +
+                            "' from '" +
+                            resolved_name +
+                            "'",
+                          ),
+                        )
+                      }
+                      return Err(err)
+                    }
+                  }
+                }
+                _ => return Err(err)
+              }
+          }
+          let binding = match alias_opt {
+            Some(alias_name) => alias_name
+            None => name
+          }
+          set_scoped_value(locals, globals, binding, imported)
+        }
+        Ok(())
+      }
+      BcOp::CheckInFunctionScope(msg) =>
+        if !in_function_scope() {
+          Err(make_runtime_error(RuntimeErrorKind::Runtime, msg))
+        } else {
+          Ok(())
+        }
+      BcOp::CheckInCoroutineScope(msg) =>
+        if !coroutine_is_active() {
+          Err(make_runtime_error(RuntimeErrorKind::Runtime, msg))
+        } else {
+          Ok(())
+        }
       BcOp::ReturnValue =>
         match pop_stack(stack) {
           Ok(v) =>
@@ -1312,13 +3661,6 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
-      _ =>
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "bytecode vm: opcode not implemented".to_string(),
-          ),
-        )
     }
     match span {
       Some(_) => pop_active_span()

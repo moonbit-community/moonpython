@@ -94,14 +94,18 @@ fn eval_function_with_kwargs(
     Err(err) =>
       match err.kind {
         RuntimeErrorKind::NotImplemented =>
-          eval_block(
-            func.body,
-            locals,
-            active_globals,
-            builtins,
-            io,
-            current_config(),
-          )
+          if current_config().bytecode_strict {
+            Err(err)
+          } else {
+            eval_block(
+              func.body,
+              locals,
+              active_globals,
+              builtins,
+              io,
+              current_config(),
+            )
+          }
         _ => Err(err)
       }
   }

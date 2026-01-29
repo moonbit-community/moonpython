@@ -348,7 +348,9 @@ fn builtin_str_join(
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "join() expects a str separator, not '" + type_name_from_value(other) + "'",
+          "join() expects a str separator, not '" +
+          type_name_from_value(other) +
+          "'",
         ),
       )
   }
@@ -581,6 +583,7 @@ fn builtin_sys_setrecursionlimit(
     max_recursion: limit,
     traceback_limit: cfg.traceback_limit,
     track_spans: cfg.track_spans,
+    bytecode_strict: cfg.bytecode_strict,
     allow_filesystem_imports: cfg.allow_filesystem_imports,
     import_paths: cfg.import_paths,
     argv: cfg.argv,

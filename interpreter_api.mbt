@@ -20,6 +20,7 @@ pub fn Config::default() -> Config {
     max_recursion: 1000,
     traceback_limit: 20,
     track_spans: true,
+    bytecode_strict: false,
     allow_filesystem_imports: false,
     import_paths: [],
     argv: [],
@@ -38,10 +39,25 @@ pub fn Config::for_cli(
     max_recursion: base.max_recursion,
     traceback_limit: base.traceback_limit,
     track_spans: base.track_spans,
+    bytecode_strict: base.bytecode_strict,
     allow_filesystem_imports: true,
     import_paths,
     argv,
     main_path,
+  }
+}
+
+///|
+pub fn Config::with_bytecode_strict(self : Config, strict : Bool) -> Config {
+  Config::{
+    max_recursion: self.max_recursion,
+    traceback_limit: self.traceback_limit,
+    track_spans: self.track_spans,
+    bytecode_strict: strict,
+    allow_filesystem_imports: self.allow_filesystem_imports,
+    import_paths: self.import_paths,
+    argv: self.argv,
+    main_path: self.main_path,
   }
 }
 
@@ -92,6 +108,7 @@ pub fn Interpreter::new() -> Interpreter {
     max_recursion: 1000,
     traceback_limit: 20,
     track_spans: true,
+    bytecode_strict: false,
     allow_filesystem_imports: true,
     import_paths: [],
     argv: [],
@@ -1368,14 +1385,18 @@ pub fn Interpreter::exec(
     Err(err) =>
       match err.kind {
         RuntimeErrorKind::NotImplemented =>
-          eval_block(
-            program.body,
-            self.globals,
-            self.globals,
-            self.builtins,
-            self.io,
-            self.config,
-          )
+          if self.config.bytecode_strict {
+            Err(err)
+          } else {
+            eval_block(
+              program.body,
+              self.globals,
+              self.globals,
+              self.builtins,
+              self.io,
+              self.config,
+            )
+          }
         _ => Err(err)
       }
   }

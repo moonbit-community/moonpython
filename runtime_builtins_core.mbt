@@ -977,7 +977,8 @@ fn builtin_reversed(
     }
     other => {
       // Fallback: consume any iterable and return a reversed list.
-      let iterator_value = match iter_value_to_iterator(other, globals, builtins, io) {
+      let iterator_value = match
+        iter_value_to_iterator(other, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }

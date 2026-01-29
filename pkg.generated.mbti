@@ -6,6 +6,16 @@ import {
 }
 
 // Values
+pub fn bc_disassemble(BcCode) -> String
+
+pub fn bc_exec(BcCode, Array[(String, Value)], Array[(String, Value)], Array[(String, Value)], MockIO) -> Result[Value, RuntimeError]
+
+pub fn bc_patch_jump(BcCode, Int, Int) -> Unit
+
+pub fn compile_module_to_bc(Module, String) -> Result[BcCode, RuntimeError]
+
+pub fn compile_stmts_to_bc(Array[Stmt], String, String) -> Result[BcCode, RuntimeError]
+
 pub fn coroutine_await(Value) -> Result[Value, RuntimeError]
 
 pub fn coroutine_is_active() -> Bool
@@ -26,6 +36,110 @@ pub suberror MpythonError {
 }
 
 // Types and methods
+pub(all) struct BcBuilder {
+  code : BcCode
+}
+pub fn BcBuilder::add_const(Self, Value) -> Int
+pub fn BcBuilder::add_genexp(Self, GenExpSpec) -> Int
+pub fn BcBuilder::add_pattern(Self, Pattern) -> Int
+pub fn BcBuilder::emit(Self, BcOp, Span?) -> Int
+pub fn BcBuilder::intern_name(Self, String) -> Int
+pub fn BcBuilder::new(String, String) -> Self
+
+pub(all) struct BcCode {
+  name : String
+  filename : String
+  consts : Array[Value]
+  names : Array[String]
+  patterns : Array[Pattern]
+  genexps : Array[GenExpSpec]
+  ops : Array[BcOp]
+  spans : Array[Span?]
+}
+pub fn BcCode::empty(String, String) -> Self
+
+pub(all) enum BcOp {
+  Nop
+  PopTop
+  DupTop
+  RotTwo
+  RotThree
+  LoadConst(Int)
+  LoadName(Int)
+  StoreName(Int)
+  DeleteName(Int)
+  LoadAttr(Int)
+  StoreAttr(Int)
+  DeleteAttr(Int)
+  LoadSubscr
+  StoreSubscr
+  DeleteSubscr
+  BuildTuple(Int)
+  BuildList(Int)
+  BuildMap(Int)
+  BuildSet(Int)
+  BuildSlice
+  ListAppend
+  ListExtend
+  SetAdd
+  SetUpdate
+  DictSetItem
+  DictUpdate
+  KwListExtendFromDict
+  ListToTuple
+  EvalFString
+  UnpackSequence(Int)
+  GetIter
+  ForIter(Int)
+  Unary(UnaryOp)
+  Binary(BinaryOp)
+  Compare(CompareOp)
+  Jump(Int)
+  JumpIfFalse(Int)
+  JumpIfTrue(Int)
+  JumpIfFalseOrPop(Int)
+  JumpIfTrueOrPop(Int)
+  UnwindJump(Int, Int)
+  SetupExcept(Int)
+  SetupFinally(Int)
+  PopExcept
+  EnterFinally(Int)
+  EndExcept
+  EndFinally
+  CheckExceptionMatch
+  LoadException
+  LoadExceptionType
+  LoadExceptionTypeName
+  LoadExceptionTraceback
+  HasPendingException
+  ClearPendingException
+  Raise
+  RaiseFrom
+  Reraise
+  AssertFail
+  AssertFailNone
+  Await
+  MatchPattern(Int)
+  MatchBind
+  MatchRestore
+  GenExpNew(Int, Int, Int)
+  AsyncGenExpNew(Int, Int, Int)
+  CallFunction(Int)
+  CallFunctionKw(Int)
+  CallFunctionVar
+  MakeFunction(Int, Int, Int)
+  MakeClass(Int, Int, Int)
+  StoreAnnotation(Int)
+  AugAssignName(Int, BinaryOp)
+  AugAssignAttr(Int, BinaryOp)
+  AugAssignSubscr(BinaryOp)
+  ImportName(Int, Int)
+  FromImport(Int, Int, Int)
+  CheckInFunctionScope(String)
+  CheckInCoroutineScope(String)
+  ReturnValue
+}
+
 pub enum BinaryOp {
   Add
   Sub
@@ -87,6 +201,7 @@ pub struct Config {
   max_recursion : Int
   traceback_limit : Int
   track_spans : Bool
+  bytecode_strict : Bool
   allow_filesystem_imports : Bool
   import_paths : Array[String]
   argv : Array[String]
@@ -94,6 +209,7 @@ pub struct Config {
 }
 pub fn Config::default() -> Self
 pub fn Config::for_cli(Array[String], String?, Array[String]) -> Self
+pub fn Config::with_bytecode_strict(Self, Bool) -> Self
 pub impl ToJson for Config
 
 pub struct ExceptHandler {
@@ -146,6 +262,12 @@ pub struct FunctionValue {
   closure : Array[(String, Value)]
 }
 pub impl ToJson for FunctionValue
+
+pub(all) struct GenExpSpec {
+  elt : Expr
+  clauses : Array[CompClause]
+  filters : Array[Expr]
+}
 
 pub struct InstanceValue {
   class : ClassValue
@@ -271,6 +393,7 @@ pub impl ToJson for Span
 pub enum Stmt {
   ExprStmt(Expr)
   Assign(target~ : Target, value~ : Expr)
+  AnnAssign(target~ : Target, annotation~ : Expr, value~ : Expr?)
   AugAssign(target~ : Target, op~ : BinaryOp, value~ : Expr)
   TypeAlias(name~ : String, type_params~ : Array[String], value~ : Expr)
   Return(Expr?)

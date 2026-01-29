@@ -32,6 +32,20 @@ pub fn BcBuilder::intern_name(self : BcBuilder, name : String) -> Int {
 }
 
 ///|
+pub fn BcBuilder::add_pattern(self : BcBuilder, pattern : Pattern) -> Int {
+  let idx = self.code.patterns.length()
+  self.code.patterns.push(pattern)
+  idx
+}
+
+///|
+pub fn BcBuilder::add_genexp(self : BcBuilder, spec : GenExpSpec) -> Int {
+  let idx = self.code.genexps.length()
+  self.code.genexps.push(spec)
+  idx
+}
+
+///|
 pub fn BcBuilder::add_const(self : BcBuilder, value : Value) -> Int {
   let idx = self.code.consts.length()
   self.code.consts.push(value)
