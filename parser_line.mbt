@@ -125,6 +125,15 @@ fn LineParser::parse_block(
         }
       }
     }
+    while has_unclosed_string_line_continuation(line_text) &&
+          next_index < self.lines.length() {
+      // Backslash-newline inside a non-triple-quoted string literal (e.g.
+      // `"foo\\\nbar"`). Join physical lines so the lexer can treat the
+      // `\\\n` pair as a line continuation inside the string.
+      let next_line = self.lines[next_index]
+      line_text = line_text + "\n" + next_line
+      next_index += 1
+    }
     while has_trailing_line_continuation(line_text) &&
           next_index < self.lines.length() {
       line_text = substring(line_text, 0, line_text.length() - 1)
@@ -1673,11 +1682,30 @@ fn LineParser::parse_block(
       self.index = next_index
       continue
     }
-    if line_text.has_prefix("try:") {
+    if has_keyword_prefix(line_text, "try") {
+      let colon_pos = find_top_level_colon(line_text)
+      if colon_pos is None ||
+        substring(line_text, 3, colon_pos.unwrap()).trim(chars=" \t").length() >
+        0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
       let try_start_index = self.index
       let try_body : Array[Stmt] = []
       let body_text = strip_inline_comment(
-          substring(line_text, 4, line_text.length()).to_string(),
+          substring(line_text, colon_pos.unwrap() + 1, line_text.length()).to_string(),
         )
         .trim(chars=" \t")
         .to_string()
@@ -1691,7 +1719,8 @@ fn LineParser::parse_block(
           }
           let base_offset = self.offsets[self.index] +
             current_indent +
-            4 +
+            colon_pos.unwrap() +
+            1 +
             offset
           let parsed = match
             parse_simple_statement(
@@ -1792,7 +1821,49 @@ fn LineParser::parse_block(
           )
         }
         if next_trimmed.has_prefix("except") {
-          let is_star = next_trimmed.has_prefix("except*")
+          let header_start_index = self.index
+          let mut full_header = next_trimmed
+          let mut header_end_index = self.index + 1
+          let mut balance = bracket_balance(full_header)
+          while balance > 0 && header_end_index < self.lines.length() {
+            let part = self.lines[header_end_index]
+              .trim(chars=" \t")
+              .to_string()
+            full_header = full_header + "\n" + part
+            header_end_index += 1
+            balance = bracket_balance(full_header)
+          }
+          let next_trimmed = full_header
+          fn is_space_char(c : Char) -> Bool {
+            c == ' ' || c == '\t' || c == '\n' || c == '\r'
+          }
+
+          let header_chars = next_trimmed.to_array()
+          let mut is_star = false
+          // Offset where the exception expression (if any) begins.
+          // This must account for `except*`, and also for `except *T` where `*`
+          // is separated by whitespace/newlines.
+          let mut header_offset = 6
+          if next_trimmed.has_prefix("except*") {
+            is_star = true
+            header_offset = 7
+          }
+          // Also accept `except *TypeError` (PEP 654) where the `*` is separated.
+          let mut idx = header_offset
+          while idx < header_chars.length() && is_space_char(header_chars[idx]) {
+            idx += 1
+          }
+          if idx < header_chars.length() && header_chars[idx] == '*' {
+            is_star = true
+            idx += 1
+            while idx < header_chars.length() &&
+                  is_space_char(header_chars[idx]) {
+              idx += 1
+            }
+            header_offset = idx
+          } else {
+            header_offset = idx
+          }
           if is_star {
             saw_star_except = true
             if saw_plain_except {
@@ -1834,9 +1905,9 @@ fn LineParser::parse_block(
           if colon_pos is None {
             let token = {
               kind: Eof,
-              start: self.offsets[self.index] + current_indent,
-              end: self.offsets[self.index] + current_indent + 1,
-              line: self.index + 1,
+              start: self.offsets[header_start_index] + current_indent,
+              end: self.offsets[header_start_index] + current_indent + 1,
+              line: header_start_index + 1,
               column: 1,
             }
             return Err(
@@ -1848,7 +1919,6 @@ fn LineParser::parse_block(
             )
           }
           saw_except = true
-          let header_offset = if is_star { 7 } else { 6 }
           let header_text = match colon_pos {
             Some(pos) =>
               substring(next_trimmed, header_offset, pos)
@@ -1859,9 +1929,9 @@ fn LineParser::parse_block(
           if is_star && header_text.length() == 0 {
             let token = {
               kind: Eof,
-              start: self.offsets[self.index] + current_indent,
-              end: self.offsets[self.index] + current_indent + 1,
-              line: self.index + 1,
+              start: self.offsets[header_start_index] + current_indent,
+              end: self.offsets[header_start_index] + current_indent + 1,
+              line: header_start_index + 1,
               column: 1,
             }
             return Err(
@@ -1876,9 +1946,9 @@ fn LineParser::parse_block(
             !header_text.trim(chars=" \t").to_string().has_prefix("(") {
             let token = {
               kind: Eof,
-              start: self.offsets[self.index] + current_indent,
-              end: self.offsets[self.index] + current_indent + 1,
-              line: self.index + 1,
+              start: self.offsets[header_start_index] + current_indent,
+              end: self.offsets[header_start_index] + current_indent + 1,
+              line: header_start_index + 1,
               column: 1,
             }
             return Err(
@@ -1898,11 +1968,11 @@ fn LineParser::parse_block(
             }
             let expr_text = parts[0].trim(chars=" \t").to_string()
             if expr_text.length() > 0 {
-              let base_offset = self.offsets[self.index] +
+              let base_offset = self.offsets[header_start_index] +
                 current_indent +
                 header_offset
               let tokens = match
-                tokenize_expr(expr_text, self.index + 1, base_offset) {
+                tokenize_expr(expr_text, header_start_index + 1, base_offset) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -1928,7 +1998,7 @@ fn LineParser::parse_block(
               .to_string()
             None => ""
           }
-          self.index += 1
+          self.index = header_end_index
           let handler_body : Array[Stmt] = []
           if inline_text.length() > 0 {
             let segments = split_statements(inline_text)
@@ -1938,7 +2008,7 @@ fn LineParser::parse_block(
               if segment.length() == 0 {
                 continue
               }
-              let base_offset = self.offsets[self.index - 1] +
+              let base_offset = self.offsets[header_start_index] +
                 current_indent +
                 colon_pos.unwrap_or(6) +
                 1 +
@@ -1946,8 +2016,8 @@ fn LineParser::parse_block(
               let parsed = match
                 parse_simple_statement(
                   segment,
-                  self.index - 1,
-                  self.offsets[self.index - 1],
+                  header_start_index,
+                  self.offsets[header_start_index],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -1996,6 +2066,7 @@ fn LineParser::parse_block(
           continue
         }
         if next_trimmed.has_prefix("else") {
+          let else_header_index = self.index
           if !saw_except || saw_else {
             let token = {
               kind: Eof,
@@ -2041,14 +2112,29 @@ fn LineParser::parse_block(
           }
           self.index += 1
           if inline_text.length() > 0 {
-            let segments = split_statements(inline_text)
+            let mut suite_text = inline_text
+            let mut suite_end_index = self.index
+            let mut balance = bracket_balance(suite_text)
+            while balance > 0 && suite_end_index < self.lines.length() {
+              let next_line = self.lines[suite_end_index]
+              let appended = if find_triple_quote(next_line) is Some(_) {
+                next_line
+              } else {
+                strip_inline_comment(next_line)
+              }
+              suite_text = suite_text + "\n" + appended
+              suite_end_index += 1
+              balance = bracket_balance(suite_text)
+            }
+            self.index = suite_end_index
+            let segments = split_statements(suite_text)
             for segment_pair in segments {
               let segment = segment_pair.0
               let offset = segment_pair.1
               if segment.length() == 0 {
                 continue
               }
-              let base_offset = self.offsets[self.index - 1] +
+              let base_offset = self.offsets[else_header_index] +
                 current_indent +
                 colon_pos.unwrap_or(4) +
                 1 +
@@ -2056,8 +2142,8 @@ fn LineParser::parse_block(
               let parsed = match
                 parse_simple_statement(
                   segment,
-                  self.index - 1,
-                  self.offsets[self.index - 1],
+                  else_header_index,
+                  self.offsets[else_header_index],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -2100,6 +2186,7 @@ fn LineParser::parse_block(
           continue
         }
         if next_trimmed.has_prefix("finally") {
+          let finally_header_index = self.index
           if saw_finally {
             let token = {
               kind: Eof,
@@ -2145,14 +2232,29 @@ fn LineParser::parse_block(
           }
           self.index += 1
           if inline_text.length() > 0 {
-            let segments = split_statements(inline_text)
+            let mut suite_text = inline_text
+            let mut suite_end_index = self.index
+            let mut balance = bracket_balance(suite_text)
+            while balance > 0 && suite_end_index < self.lines.length() {
+              let next_line = self.lines[suite_end_index]
+              let appended = if find_triple_quote(next_line) is Some(_) {
+                next_line
+              } else {
+                strip_inline_comment(next_line)
+              }
+              suite_text = suite_text + "\n" + appended
+              suite_end_index += 1
+              balance = bracket_balance(suite_text)
+            }
+            self.index = suite_end_index
+            let segments = split_statements(suite_text)
             for segment_pair in segments {
               let segment = segment_pair.0
               let offset = segment_pair.1
               if segment.length() == 0 {
                 continue
               }
-              let base_offset = self.offsets[self.index - 1] +
+              let base_offset = self.offsets[finally_header_index] +
                 current_indent +
                 colon_pos.unwrap_or(7) +
                 1 +
@@ -2160,8 +2262,8 @@ fn LineParser::parse_block(
               let parsed = match
                 parse_simple_statement(
                   segment,
-                  self.index - 1,
-                  self.offsets[self.index - 1],
+                  finally_header_index,
+                  self.offsets[finally_header_index],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -2271,8 +2373,12 @@ fn LineParser::parse_block(
       // Parse just the first context manager expression, so we can reach
       // expected runtime errors (e.g. NameError for `A()` in spec tests).
       let mut item_text = header_text
-      if item_text.has_prefix("(") && item_text.has_suffix(")") {
-        item_text = substring(item_text, 1, item_text.length() - 1).to_string()
+      match find_top_level_paren_span(item_text) {
+        Some(span) =>
+          if span.0 == 0 && span.1 == item_text.length() - 1 {
+            item_text = substring(item_text, 1, item_text.length() - 1).to_string()
+          }
+        None => ()
       }
       let mut first_item = item_text.trim(chars=" \t\n\r").to_string()
       match first_top_level_comma_pos(first_item) {

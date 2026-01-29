@@ -662,7 +662,18 @@ fn ExprParser::parse_comprehension_tail(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        collect_named_expr_targets(iter, walrus_targets)
+        // PEP 572: forbid assignment expressions in comprehension iterables.
+        let iter_walrus_targets : Array[String] = []
+        collect_named_expr_targets(iter, iter_walrus_targets)
+        if iter_walrus_targets.length() > 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              open,
+            ),
+          )
+        }
         clauses.push(CompClause::{ is_async: true, targets, iter })
         continue
       }
@@ -715,7 +726,18 @@ fn ExprParser::parse_comprehension_tail(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        collect_named_expr_targets(iter, walrus_targets)
+        // PEP 572: forbid assignment expressions in comprehension iterables.
+        let iter_walrus_targets : Array[String] = []
+        collect_named_expr_targets(iter, iter_walrus_targets)
+        if iter_walrus_targets.length() > 0 {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              open,
+            ),
+          )
+        }
         clauses.push(CompClause::{ is_async: false, targets, iter })
         continue
       }
@@ -829,6 +851,25 @@ fn ExprParser::parse_comp_target_group(
             }
             _ => targets.push("_")
           }
+        } else if element_end == element_start + 2 &&
+          self.tokens[element_start].kind == Star &&
+          self.tokens[element_start + 1].kind is Ident(name) {
+          if has_previous_clause {
+            for existing in walrus_targets {
+              if existing == name {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "comprehension inner loop cannot rebind assignment expression target '" +
+                    name +
+                    "'",
+                    self.tokens[element_start + 1],
+                  ),
+                )
+              }
+            }
+          }
+          targets.push(name)
         } else {
           targets.push("_")
         }
@@ -924,6 +965,22 @@ fn ExprParser::parse_comp_targets(
       }
       targets.push(name)
       let _ = self.advance()
+      if self.current().kind != Comma && self.current().kind != In {
+        // Comprehension targets can be general assignment targets (e.g. `x[0]`),
+        // but moonpython currently only tracks bound names. Skip unsupported
+        // target shapes and use a placeholder binding.
+        let _ = match
+          self.skip_comp_target_until(
+            Comma,
+            In,
+            open,
+            unclosed_message.to_string(),
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        return Ok(["_"])
+      }
       while self.current().kind == Comma {
         let _ = self.advance()
         if self.current().kind == In {
@@ -960,6 +1017,53 @@ fn ExprParser::parse_comp_targets(
             let _ = self.advance()
 
           }
+          LParen => {
+            let open_target = self.advance()
+            let group_targets = match
+              self.parse_comp_target_group(
+                RParen,
+                open_target,
+                "'(' was never closed".to_string(),
+                walrus_targets,
+                has_previous_clause,
+              ) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            for t in group_targets {
+              targets.push(t)
+            }
+          }
+          LBracket =>
+            if self.looks_like_destructuring_list() {
+              let open_target = self.advance()
+              let group_targets = match
+                self.parse_comp_target_group(
+                  RBracket,
+                  open_target,
+                  "'[' was never closed".to_string(),
+                  walrus_targets,
+                  has_previous_clause,
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              for t in group_targets {
+                targets.push(t)
+              }
+            } else {
+              let _ = match
+                self.skip_comp_target_until(
+                  Comma,
+                  In,
+                  open,
+                  unclosed_message.to_string(),
+                ) {
+                Ok(value) => value
+                Err(err) => return Err(err)
+              }
+              targets.push("_")
+            }
           _ => {
             let _ = match
               self.skip_comp_target_until(
@@ -1164,6 +1268,61 @@ fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
 }
 
 ///|
+fn collect_comprehension_bound_names(
+  clauses : Array[CompClause],
+  out : Array[String],
+) -> Unit {
+  for clause in clauses {
+    for name in clause.targets {
+      if name == "_" {
+        continue
+      }
+      let mut seen = false
+      for existing in out {
+        if existing == name {
+          seen = true
+          break
+        }
+      }
+      if !seen {
+        out.push(name)
+      }
+    }
+  }
+}
+
+///|
+fn validate_comprehension_walrus(
+  open : Token,
+  clauses : Array[CompClause],
+  exprs : Array[Expr],
+) -> Result[Unit, ParseError] {
+  let bound : Array[String] = []
+  collect_comprehension_bound_names(clauses, bound)
+  if bound.length() == 0 {
+    return Ok(())
+  }
+  let walrus_targets : Array[String] = []
+  for expr in exprs {
+    collect_named_expr_targets(expr, walrus_targets)
+  }
+  for name in walrus_targets {
+    for b in bound {
+      if name == b {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            open,
+          ),
+        )
+      }
+    }
+  }
+  Ok(())
+}
+
+///|
 fn bytes_from_string_literal(
   value : String,
   token : Token,
@@ -1353,6 +1512,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       let seen : Array[String] = []
       let mut default_seen = false
       let mut kw_only = false
+      let mut saw_slash = false
       if self.current().kind != Colon {
         while true {
           let current = self.current()
@@ -1462,6 +1622,17 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               kw_only = true
             }
             Slash => {
+              if saw_slash || kw_only || params.length() == 0 {
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    current,
+                  ),
+                )
+              }
+              saw_slash = true
+              params.push("/")
               let _ = self.advance()
 
             }
@@ -1481,9 +1652,23 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
+      let body_started_paren = self.current().kind == LParen
       let body = match self.parse_conditional() {
         Ok(value) => value
         Err(err) => return Err(err)
+      }
+      match body {
+        Expr::NamedExpr(..) =>
+          if !body_started_paren {
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Syntax,
+                "invalid syntax".to_string(),
+                token,
+              ),
+            )
+          }
+        _ => ()
       }
       Expr::Lambda(params~, defaults~, body~)
     }
@@ -1549,6 +1734,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
             )
           }
           match self.expect(RParen) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let exprs : Array[Expr] = [first]
+          for f in filters {
+            exprs.push(f)
+          }
+          match validate_comprehension_walrus(open, clauses, exprs) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -1674,6 +1867,9 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 ),
               )
             }
+            match first {
+              _ => ()
+            }
             let (clauses, filters) = match
               self.parse_comprehension_tail(RBracket, open) {
               Ok(value) => value
@@ -1707,6 +1903,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               )
             }
             match self.expect(RBracket) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            let exprs : Array[Expr] = [first]
+            for f in filters {
+              exprs.push(f)
+            }
+            match validate_comprehension_walrus(open, clauses, exprs) {
               Ok(_) => ()
               Err(err) => return Err(err)
             }
@@ -1871,6 +2075,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 Ok(_) => ()
                 Err(err) => return Err(err)
               }
+              let exprs : Array[Expr] = [first, value]
+              for f in filters {
+                exprs.push(f)
+              }
+              match validate_comprehension_walrus(open, clauses, exprs) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
               return Ok(Expr::DictComp(key=first, value~, clauses~, filters~))
             }
             items.push((first, value))
@@ -1948,6 +2160,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 )
               }
               match self.expect(RBrace) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+              let exprs : Array[Expr] = [first]
+              for f in filters {
+                exprs.push(f)
+              }
+              match validate_comprehension_walrus(open, clauses, exprs) {
                 Ok(_) => ()
                 Err(err) => return Err(err)
               }
@@ -2103,6 +2323,14 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                       ),
                     )
                   }
+                  let exprs : Array[Expr] = [first]
+                  for f in filters {
+                    exprs.push(f)
+                  }
+                  match validate_comprehension_walrus(open, clauses, exprs) {
+                    Ok(_) => ()
+                    Err(err) => return Err(err)
+                  }
                   args.push(Expr::GenExp(elt=first, clauses~, filters~))
                 } else {
                   args.push(first)
@@ -2146,11 +2374,20 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         if self.current().kind != Colon &&
           self.current().kind != Comma &&
           self.current().kind != RBracket {
-          let start_value = match self.parse_conditional() {
-            Ok(value) => value
-            Err(err) => return Err(err)
+          if self.current().kind == Star {
+            let _ = self.advance()
+            let start_value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            start_expr = Some(Expr::Starred(value=start_value))
+          } else {
+            let start_value = match self.parse_conditional() {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            start_expr = Some(start_value)
           }
-          start_expr = Some(start_value)
         }
         if self.current().kind == Colon {
           let _ = self.advance()

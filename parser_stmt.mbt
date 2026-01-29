@@ -170,6 +170,148 @@ fn expr_has_async_comprehension(expr : Expr) -> Bool {
 }
 
 ///|
+fn expr_has_yield_or_await(expr : Expr) -> Bool {
+  match expr {
+    Expr::Yield(_) | Expr::YieldFrom(_) | Expr::Await(_) => true
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~) => {
+      if expr_has_yield_or_await(elt) {
+        return true
+      }
+      for clause in clauses {
+        if expr_has_yield_or_await(clause.iter) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_yield_or_await(filter) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      if expr_has_yield_or_await(key) || expr_has_yield_or_await(value) {
+        return true
+      }
+      for clause in clauses {
+        if expr_has_yield_or_await(clause.iter) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_has_yield_or_await(filter) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_yield_or_await(item) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for pair in items {
+        if expr_has_yield_or_await(pair.0) || expr_has_yield_or_await(pair.1) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params~, defaults~, body~) => {
+      let _ = params
+      for d in defaults {
+        if expr_has_yield_or_await(d) {
+          return true
+        }
+      }
+      expr_has_yield_or_await(body)
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_yield_or_await(condition) ||
+      expr_has_yield_or_await(then_expr) ||
+      expr_has_yield_or_await(else_expr)
+    Expr::NamedExpr(name~, value~) => {
+      let _ = name
+      expr_has_yield_or_await(value)
+    }
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(v) => if expr_has_yield_or_await(v) { return true }
+        None => ()
+      }
+      match end {
+        Some(v) => if expr_has_yield_or_await(v) { return true }
+        None => ()
+      }
+      match step {
+        Some(v) => if expr_has_yield_or_await(v) { return true }
+        None => ()
+      }
+      false
+    }
+    Expr::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_has_yield_or_await(value)
+    }
+    Expr::Subscript(value~, index~) =>
+      expr_has_yield_or_await(value) || expr_has_yield_or_await(index)
+    Expr::Call(callee~, args~) => {
+      if expr_has_yield_or_await(callee) {
+        return true
+      }
+      for arg in args {
+        if expr_has_yield_or_await(arg) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name~, value~) => {
+      let _ = name
+      expr_has_yield_or_await(value)
+    }
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_yield_or_await(value)
+    Expr::Unary(op~, expr~) => {
+      let _ = op
+      expr_has_yield_or_await(expr)
+    }
+    Expr::Binary(op~, left~, right~) => {
+      let _ = op
+      expr_has_yield_or_await(left) || expr_has_yield_or_await(right)
+    }
+    Expr::BoolOp(op~, values~) => {
+      let _ = op
+      for v in values {
+        if expr_has_yield_or_await(v) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops~, comparators~) => {
+      let _ = ops
+      if expr_has_yield_or_await(left) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_has_yield_or_await(cmp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Literal(_) | Expr::Name(_) | Expr::FString(_) => false
+  }
+}
+
+///|
 fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
   match expr {
     Expr::Await(_) => !in_genexp
@@ -1431,27 +1573,10 @@ fn parse_simple_statement(
       module_name = ""
     }
     if module_name == "__future__" {
-      if parts.length() >= 4 {
-        let feature = parts[3]
-        if feature == "annotations" {
-          return finalize_simple_statement(
-            stmts, allow_async_comprehensions, span, base_offset,
-          )
-        }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "ImportError: module __future__ is not allowed".to_string(),
-            token,
-          ),
-        )
-      }
-      return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          token,
-        ),
+      // Treat future imports as no-ops so CPython's stdlib/tests can parse.
+      // (We currently do not implement future feature toggles.)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, span, base_offset,
       )
     }
     if module_name == ".__future__" {
@@ -1905,6 +2030,15 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
+  if has_keyword_prefix(trimmed, "type") &&
+    (trimmed.has_prefix("type ") || trimmed.has_prefix("type\t")) &&
+    trimmed.contains("=") {
+    // PEP 695 `type` statements are currently parsed as no-ops.
+    stmts.push(Stmt::Pass)
+    return finalize_simple_statement(
+      stmts, allow_async_comprehensions, span, base_offset,
+    )
+  }
   if has_keyword_prefix(trimmed, "return") {
     let expr_text = substring(trimmed, 6, trimmed.length())
       .trim(chars=" \t")
@@ -1925,24 +2059,6 @@ fn parse_simple_statement(
     }
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
-    )
-  }
-  if trimmed.contains(":") &&
-    trimmed.contains("__debug__") &&
-    !trimmed.contains("=") {
-    let token = {
-      kind: Eof,
-      start: base_offset,
-      end: base_offset + 1,
-      line: line_index + 1,
-      column: 1,
-    }
-    return Err(
-      make_parse_error(
-        ParseErrorKind::Syntax,
-        "cannot assign to __debug__".to_string(),
-        token,
-      ),
     )
   }
   // PEP 526 annotated assignment.
@@ -1979,6 +2095,24 @@ fn parse_simple_statement(
         }
         match left_target {
           Some(target) => {
+            match target {
+              Target::Name("__debug__")
+              | Target::Attribute(attr="__debug__", ..) =>
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "cannot assign to __debug__".to_string(),
+                    {
+                      kind: Eof,
+                      start: base_offset,
+                      end: base_offset + 1,
+                      line: line_index + 1,
+                      column: 1,
+                    },
+                  ),
+                )
+              _ => ()
+            }
             let annotation_text = substring(
                 trimmed,
                 colon_pos + 1,
@@ -2077,6 +2211,24 @@ fn parse_simple_statement(
               }
               match target_opt {
                 Some(target) => {
+                  match target {
+                    Target::Name("__debug__")
+                    | Target::Attribute(attr="__debug__", ..) =>
+                      return Err(
+                        make_parse_error(
+                          ParseErrorKind::Syntax,
+                          "cannot assign to __debug__".to_string(),
+                          {
+                            kind: Eof,
+                            start: base_offset,
+                            end: base_offset + 1,
+                            line: line_index + 1,
+                            column: 1,
+                          },
+                        ),
+                      )
+                    _ => ()
+                  }
                   let annotation_text = substring(
                       trimmed,
                       colon_pos + 1,
@@ -2277,6 +2429,7 @@ fn parse_simple_statement(
   }
   let assign_positions : Array[Int] = []
   let mut depth = 0
+  let mut lambda_depth = 0
   for idx = 0; idx < tokens.length(); idx = idx + 1 {
     let kind = tokens[idx].kind
     if kind == LParen || kind == LBracket || kind == LBrace {
@@ -2285,7 +2438,13 @@ fn parse_simple_statement(
       if depth > 0 {
         depth -= 1
       }
-    } else if kind == Assign && depth == 0 {
+    } else if kind == Lambda && depth == 0 {
+      // `=` inside lambda parameter defaults must not be treated as assignment.
+      lambda_depth += 1
+    } else if kind == Colon && depth == 0 && lambda_depth > 0 {
+      // End of lambda header; the lambda body is a normal expression again.
+      lambda_depth -= 1
+    } else if kind == Assign && depth == 0 && lambda_depth == 0 {
       assign_positions.push(idx)
     }
   }

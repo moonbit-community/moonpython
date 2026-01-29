@@ -299,7 +299,140 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
 
 ///|
 pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
-  let tokens = match tokenize_expr(source, 1, 0) {
+  // `eval()`-style expression parsing: allow multi-line expressions only when
+  // they are continued via brackets, backslash-newlines, or f-string braces.
+  let mut expr_source = source
+  if expr_source.contains("\n") {
+    let lines : Array[String] = []
+    for part in expr_source.split("\n") {
+      lines.push(part.to_string())
+    }
+    // Skip leading blank/comment-only lines.
+    let mut start_index = 0
+    while start_index < lines.length() &&
+          strip_inline_comment(lines[start_index]).trim(chars=" \t\r").length() ==
+          0 {
+      start_index += 1
+    }
+    if start_index >= lines.length() {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: 0,
+          end: 1,
+          line: 1,
+          column: 1,
+        }),
+      )
+    }
+    let raw_line = lines[start_index]
+    let mut line_text = raw_line.trim(chars=" \t").to_string()
+    if find_triple_quote(raw_line) is None {
+      line_text = strip_inline_comment(line_text).trim(chars=" \t").to_string()
+    }
+    let mut next_index = start_index + 1
+    match unclosed_triple_quote(raw_line) {
+      None => ()
+      Some(_) => {
+        let mut combined = raw_line
+        let mut idx = start_index + 1
+        while idx < lines.length() {
+          let next_line = lines[idx]
+          combined = combined + "\n" + next_line
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
+            line_text = combined
+            break
+          }
+        }
+        if idx == lines.length() && unclosed_triple_quote(combined) is Some(_) {
+          line_text = combined
+          next_index = idx
+        }
+      }
+    }
+    while has_unclosed_string_line_continuation(line_text) &&
+          next_index < lines.length() {
+      let next_line = lines[next_index]
+      line_text = line_text + "\n" + next_line
+      next_index += 1
+    }
+    while has_trailing_line_continuation(line_text) &&
+          next_index < lines.length() {
+      line_text = substring(line_text, 0, line_text.length() - 1)
+        .trim(chars=" \t")
+        .to_string()
+      let next_line = lines[next_index]
+      let appended = if find_triple_quote(next_line) is Some(_) {
+        next_line
+      } else {
+        strip_inline_comment(next_line)
+      }
+      line_text = line_text + "\n" + appended
+      next_index += 1
+      line_text = line_text.trim(chars=" \t").to_string()
+    }
+    match unclosed_triple_quote(line_text) {
+      None => ()
+      Some(_) => {
+        let mut combined = line_text
+        let mut idx = next_index
+        while idx < lines.length() {
+          let next_line = lines[idx]
+          combined = combined + "\n" + next_line
+          idx += 1
+          if unclosed_triple_quote(combined) is None {
+            next_index = idx
+            line_text = combined
+            break
+          }
+        }
+        if idx == lines.length() && unclosed_triple_quote(combined) is Some(_) {
+          line_text = combined
+          next_index = idx
+        }
+      }
+    }
+    let mut balance = bracket_balance(line_text)
+    while balance > 0 && next_index < lines.length() {
+      let next_line = lines[next_index]
+      let appended = if find_triple_quote(next_line) is Some(_) {
+        next_line
+      } else {
+        strip_inline_comment(next_line)
+      }
+      line_text = line_text + "\n" + appended
+      next_index += 1
+      balance = bracket_balance(line_text)
+    }
+    if find_triple_quote(line_text) is None {
+      line_text = replace_newlines_with_spaces(line_text)
+        .trim(chars=" \t")
+        .to_string()
+    }
+    // Reject additional non-empty lines that are not part of a continued
+    // expression (eval-mode).
+    let mut extra_index = next_index
+    while extra_index < lines.length() &&
+          strip_inline_comment(lines[extra_index]).trim(chars=" \t\r").length() ==
+          0 {
+      extra_index += 1
+    }
+    if extra_index < lines.length() {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: 0,
+          end: 1,
+          line: extra_index + 1,
+          column: 1,
+        }),
+      )
+    }
+    expr_source = line_text
+  }
+  let tokens = match tokenize_expr(expr_source, 1, 0) {
     Ok(value) => value
     Err(err) => return Err(err)
   }
@@ -308,6 +441,18 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
     Err(err) => return Err(err)
   }
   if expr_has_async_comprehension(expr) {
+    return Err(
+      make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+        kind: Eof,
+        start: 0,
+        end: 1,
+        line: 1,
+        column: 1,
+      }),
+    )
+  }
+  // `eval()` mode: `yield` / `await` are not allowed outside (async) functions.
+  if expr_has_yield_or_await(expr) {
     return Err(
       make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
         kind: Eof,

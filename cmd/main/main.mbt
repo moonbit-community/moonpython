@@ -141,7 +141,7 @@ fn print_run(run : @mpython.RunResult) -> Unit {
 ///|
 fn print_usage() -> Unit {
   println(
-    "usage: moon run cmd/main -- [--stdlib PATH] (-m MODULE | program.py) [args...]",
+    "usage: moon run cmd/main -- [--parse-only] [--stdlib PATH] (-m MODULE | program.py) [args...]",
   )
 }
 
@@ -222,6 +222,7 @@ fn main {
   let args = @sys.get_cli_args()
   let mut script_path : String? = None
   let mut module_name : String? = None
+  let mut parse_only = false
   let stdlib_paths : Array[String] = []
   let program_args : Array[String] = []
   let mut i = 1
@@ -231,6 +232,11 @@ fn main {
       if arg == "-h" || arg == "--help" {
         print_usage()
         @sys.exit(0)
+      }
+      if arg == "--parse-only" {
+        parse_only = true
+        i += 1
+        continue
       }
       if arg == "--stdlib" || arg == "--stdlib-path" {
         if i + 1 >= args.length() {
@@ -300,6 +306,15 @@ fn main {
       println("cannot read file: " + entry_path)
       @sys.exit(1)
       ""
+    }
+  }
+  if parse_only {
+    match @mpython.parse(source) {
+      Ok(_) => @sys.exit(0)
+      Err(err) => {
+        println(@mpython.format_parse_error(err))
+        @sys.exit(1)
+      }
     }
   }
   let config = @mpython.Config::for_cli(stdlib_paths, Some(entry_path), argv)

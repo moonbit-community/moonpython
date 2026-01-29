@@ -401,6 +401,7 @@ fn bracket_balance(line : String) -> Int {
   let mut quote : Char? = None
   let mut triple : Char? = None
   let mut escaped = false
+  let mut in_fstring = false
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
@@ -425,8 +426,27 @@ fn bracket_balance(line : String) -> Int {
           escaped = false
         } else if c == '\\' {
           escaped = true
+        } else if in_fstring && c == '{' {
+          // In f-strings, braces can open an expression even though we're
+          // lexically inside a quoted literal. Treat them as bracket balance
+          // so we can join physical lines like:
+          //   f"abc{a # comment }\n+ 3}"
+          if i + 1 < chars.length() && chars[i + 1] == '{' {
+            i += 2
+            continue
+          }
+          balance += 1
+        } else if in_fstring && c == '}' {
+          if i + 1 < chars.length() && chars[i + 1] == '}' {
+            i += 2
+            continue
+          }
+          if balance > 0 {
+            balance -= 1
+          }
         } else if c == q {
           quote = None
+          in_fstring = false
         }
       None =>
         if i + 2 < chars.length() &&
@@ -438,6 +458,32 @@ fn bracket_balance(line : String) -> Int {
           continue
         } else if c == '\'' || c == '"' {
           quote = Some(c)
+          // Detect a (best-effort) string prefix that contains `f`/`F`.
+          // Valid prefixes are a short sequence of [rRuUbBfF] directly before
+          // the opening quote.
+          let mut j = i - 1
+          let mut seen = 0
+          let mut has_f = false
+          while j >= 0 && seen < 3 {
+            let p = chars[j]
+            if p == 'f' ||
+              p == 'F' ||
+              p == 'r' ||
+              p == 'R' ||
+              p == 'b' ||
+              p == 'B' ||
+              p == 'u' ||
+              p == 'U' {
+              if p == 'f' || p == 'F' {
+                has_f = true
+              }
+              seen += 1
+              j -= 1
+            } else {
+              break
+            }
+          }
+          in_fstring = has_f
         } else if c == '(' || c == '[' || c == '{' {
           balance += 1
         } else if c == ')' || c == ']' || c == '}' {
@@ -688,13 +734,14 @@ fn find_top_level_as_pos(text : String) -> Int? {
           if depth > 0 {
             depth -= 1
           }
-        } else if depth == 0 &&
-          c == 'a' &&
-          chars[i + 1] == 's' &&
-          i > 0 &&
-          (chars[i - 1] == ' ' || chars[i - 1] == '\t') &&
-          (chars[i + 2] == ' ' || chars[i + 2] == '\t') {
-          return Some(i)
+        } else if depth == 0 && c == 'a' && chars[i + 1] == 's' {
+          let prev = if i > 0 { chars[i - 1] } else { '\u{0}' }
+          let next = if i + 2 < chars.length() { chars[i + 2] } else { '\u{0}' }
+          // `as` keyword can appear next to brackets/parentheses (e.g. `)as x`).
+          if (i == 0 || !is_ascii_ident_char(prev)) &&
+            (i + 2 >= chars.length() || !is_ascii_ident_char(next)) {
+            return Some(i)
+          }
         }
     }
     i += 1
@@ -932,10 +979,20 @@ fn find_top_level_char(text : String, target : Char) -> Int? {
 ///|
 fn strip_inline_comment(text : String) -> String {
   let chars = text.to_array()
+  let buf = StringBuilder::new()
   let mut i = 0
   let mut quote : Char? = None
   let mut triple : Char? = None
   let mut escape = false
+  // Best-effort handling for comments inside f-string expressions:
+  //   f"abc{a # comment }\n+ 3}"
+  // Here the `# ...` is part of the expression inside `{...}`, even though we
+  // are lexically inside the surrounding quoted literal.
+  let mut in_fstring = false
+  let mut fexpr_depth = 0
+  let mut expr_quote : Char? = None
+  let mut expr_triple : Char? = None
+  let mut expr_escape = false
   while i < chars.length() {
     let c = chars[i]
     match triple {
@@ -945,41 +1002,180 @@ fn strip_inline_comment(text : String) -> String {
           chars[i + 1] == q &&
           chars[i + 2] == q {
           triple = None
+          buf.write_char(q)
+          buf.write_char(q)
+          buf.write_char(q)
           i += 3
           continue
         }
+        buf.write_char(c)
         i += 1
         continue
       }
       None => ()
     }
     match quote {
-      Some(q) =>
+      Some(q) => {
+        if in_fstring {
+          // f-string literal mode (outside `{...}`): treat doubled braces as
+          // escapes; a single `{` enters expression mode.
+          if fexpr_depth == 0 {
+            if c == '{' && i + 1 < chars.length() && chars[i + 1] == '{' {
+              buf.write_char('{')
+              buf.write_char('{')
+              i += 2
+              continue
+            }
+            if c == '}' && i + 1 < chars.length() && chars[i + 1] == '}' {
+              buf.write_char('}')
+              buf.write_char('}')
+              i += 2
+              continue
+            }
+            if c == '{' {
+              fexpr_depth = 1
+              expr_quote = None
+              expr_triple = None
+              expr_escape = false
+            }
+          } else {
+            // f-string expression mode: parse enough structure to recognize
+            // whether `#` starts a comment (i.e. not inside an expression
+            // string literal).
+            match expr_triple {
+              Some(tq) => {
+                if i + 2 < chars.length() &&
+                  chars[i] == tq &&
+                  chars[i + 1] == tq &&
+                  chars[i + 2] == tq {
+                  expr_triple = None
+                  buf.write_char(tq)
+                  buf.write_char(tq)
+                  buf.write_char(tq)
+                  i += 3
+                  continue
+                }
+                buf.write_char(c)
+                i += 1
+                continue
+              }
+              None => ()
+            }
+            match expr_quote {
+              Some(eq) =>
+                if expr_escape {
+                  expr_escape = false
+                } else if c == '\\' {
+                  expr_escape = true
+                } else if c == eq {
+                  expr_quote = None
+                }
+              None =>
+                if i + 2 < chars.length() &&
+                  (c == '\'' || c == '"') &&
+                  chars[i + 1] == c &&
+                  chars[i + 2] == c {
+                  expr_triple = Some(c)
+                  buf.write_char(c)
+                  buf.write_char(c)
+                  buf.write_char(c)
+                  i += 3
+                  continue
+                } else if c == '\'' || c == '"' {
+                  expr_quote = Some(c)
+                  expr_escape = false
+                } else if c == '#' {
+                  // Strip until end of the current physical line, but keep the
+                  // newline so multi-line statements remain parseable.
+                  i += 1
+                  while i < chars.length() && chars[i] != '\n' {
+                    i += 1
+                  }
+                  continue
+                } else if c == '{' {
+                  fexpr_depth += 1
+                } else if c == '}' {
+                  if fexpr_depth > 0 {
+                    fexpr_depth -= 1
+                    if fexpr_depth == 0 {
+                      expr_quote = None
+                      expr_triple = None
+                      expr_escape = false
+                    }
+                  }
+                }
+            }
+          }
+        }
         if escape {
           escape = false
         } else if c == '\\' {
           escape = true
         } else if c == q {
           quote = None
+          in_fstring = false
+          fexpr_depth = 0
+          expr_quote = None
+          expr_triple = None
+          expr_escape = false
         }
+      }
       None =>
         if i + 2 < chars.length() &&
           (c == '\'' || c == '"') &&
           chars[i + 1] == c &&
           chars[i + 2] == c {
           triple = Some(c)
+          buf.write_char(c)
+          buf.write_char(c)
+          buf.write_char(c)
           i += 3
           continue
         } else if c == '\'' || c == '"' {
           quote = Some(c)
           escape = false
+          // Detect a (best-effort) string prefix that contains `f`/`F`.
+          let mut j = i - 1
+          let mut seen = 0
+          let mut has_f = false
+          while j >= 0 && seen < 3 {
+            let p = chars[j]
+            if p == 'f' ||
+              p == 'F' ||
+              p == 'r' ||
+              p == 'R' ||
+              p == 'b' ||
+              p == 'B' ||
+              p == 'u' ||
+              p == 'U' {
+              if p == 'f' || p == 'F' {
+                has_f = true
+              }
+              seen += 1
+              j -= 1
+            } else {
+              break
+            }
+          }
+          in_fstring = has_f
+          fexpr_depth = 0
+          expr_quote = None
+          expr_triple = None
+          expr_escape = false
         } else if c == '#' {
-          return substring(text, 0, i).to_string()
+          // Strip until end of the current physical line, but keep the newline
+          // so multi-line statements remain parseable.
+          i += 1
+          while i < chars.length() && chars[i] != '\n' {
+            i += 1
+          }
+          continue
         }
     }
+    buf.write_char(c)
     i += 1
   }
-  text
+  buf.to_string()
 }
 
 ///|
@@ -994,6 +1190,8 @@ fn replace_newlines_with_spaces(text : String) -> String {
   let mut i = 0
   let mut quote : Char? = None
   let mut escape = false
+  let mut in_fstring = false
+  let mut fexpr_depth = 0
   while i < chars.length() {
     let c = chars[i]
     match quote {
@@ -1012,20 +1210,75 @@ fn replace_newlines_with_spaces(text : String) -> String {
           escape = false
         } else if c == '\\' {
           escape = true
+        } else if in_fstring && c == '{' {
+          if i + 1 < chars.length() && chars[i + 1] == '{' {
+            out.push('{')
+            out.push('{')
+            i += 2
+            continue
+          }
+          fexpr_depth += 1
+        } else if in_fstring && c == '}' {
+          if fexpr_depth == 0 && i + 1 < chars.length() && chars[i + 1] == '}' {
+            out.push('}')
+            out.push('}')
+            i += 2
+            continue
+          }
+          if fexpr_depth > 0 {
+            fexpr_depth -= 1
+          }
         } else if c == q {
           quote = None
+          in_fstring = false
+          fexpr_depth = 0
         }
-        // Keep newlines inside non-triple-quoted strings so the lexer can
-        // correctly report unterminated string errors.
-        out.push(c)
+        if c == '\n' && in_fstring && fexpr_depth > 0 {
+          // Newlines inside an f-string expression behave like whitespace.
+          out.push(' ')
+        } else {
+          // Keep newlines inside non-triple-quoted strings so the lexer can
+          // correctly report unterminated string errors.
+          out.push(c)
+        }
       }
       None => {
         if c == '\'' || c == '"' {
           quote = Some(c)
           escape = false
+          let mut j = i - 1
+          let mut seen = 0
+          let mut has_f = false
+          while j >= 0 && seen < 3 {
+            let p = chars[j]
+            if p == 'f' ||
+              p == 'F' ||
+              p == 'r' ||
+              p == 'R' ||
+              p == 'b' ||
+              p == 'B' ||
+              p == 'u' ||
+              p == 'U' {
+              if p == 'f' || p == 'F' {
+                has_f = true
+              }
+              seen += 1
+              j -= 1
+            } else {
+              break
+            }
+          }
+          in_fstring = has_f
+          fexpr_depth = 0
         }
         if c == '\n' {
-          out.push(' ')
+          // Explicit line continuation outside strings: `\\\n` disappears.
+          if out.length() > 0 && out[out.length() - 1] == '\\' {
+            let _ = out.pop()
+
+          } else {
+            out.push(' ')
+          }
         } else {
           out.push(c)
         }
@@ -1075,6 +1328,44 @@ fn has_trailing_line_continuation(text : String) -> Bool {
     Some(c) => c == '\\'
     None => false
   }
+}
+
+///|
+/// Return whether `text` ends inside a non-triple-quoted string literal and the
+/// last character is a backslash (i.e. `\\` followed by a physical newline in
+/// source, used as a line continuation inside the string literal).
+fn has_unclosed_string_line_continuation(text : String) -> Bool {
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          // Ignore triple-quoted strings: those are handled separately.
+          if i + 2 < chars.length() && chars[i + 1] == c && chars[i + 2] == c {
+            i += 3
+            continue
+          }
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        }
+    }
+    i += 1
+  }
+  quote is Some(_) && escape
 }
 
 ///|
@@ -1142,6 +1433,16 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
           open_quote = Some(quote)
         }
       }
+    }
+    while has_unclosed_string_line_continuation(line_text) &&
+          next_index < lines.length() {
+      let next_line = substring(
+        lines[next_index],
+        0,
+        lines[next_index].length(),
+      ).to_string()
+      line_text = line_text + "\n" + next_line
+      next_index += 1
     }
     while has_trailing_line_continuation(line_text) &&
           next_index < lines.length() {

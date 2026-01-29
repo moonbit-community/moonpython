@@ -92,7 +92,7 @@ fn parse_match_stmt(
       case_next_index += 1
       balance = bracket_balance(case_text)
     }
-    if !case_text.has_prefix("case ") {
+    if !case_text.has_prefix("case ") && !case_text.has_prefix("case(") {
       let token = {
         kind: Eof,
         start: parser.offsets[parser.index] + case_indent,
@@ -126,7 +126,7 @@ fn parse_match_stmt(
         ),
       )
     }
-    let header = substring(case_no_comment, 5, colon_pos.unwrap())
+    let header = substring(case_no_comment, 4, colon_pos.unwrap())
       .trim(chars=" \t")
       .to_string()
     let mut pattern_text = header
@@ -141,7 +141,7 @@ fn parse_match_stmt(
         guard_text = Some(parts[1].trim(chars=" \t").to_string())
       }
     }
-    let base_offset = parser.offsets[parser.index] + case_indent + 5
+    let base_offset = parser.offsets[parser.index] + case_indent + 4
     let pattern = match parse_pattern(pattern_text, parser.index, base_offset) {
       Ok(value) => value
       Err(err) => return Err(err)
