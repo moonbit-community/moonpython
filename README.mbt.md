@@ -16,6 +16,50 @@ Notes:
 
 See `ROADMAP.md` for the current checklist and milestone status.
 
+## Testing
+
+This repo has two test layers:
+
+1) MoonBit tests in this repo (fast feedback for parser/runtime/bytecode)
+2) A pragmatic CPython `Lib/test` smoke runner (compatibility tracking)
+
+### Quick checks
+
+```bash
+moon check --target native
+moon fmt
+```
+
+### Run MoonBit tests
+
+Note: the generated spec suite (`spec_generated_test.mbt`) is large, so the first
+compile/run can take a while. Prefer `--target native` for speed.
+
+```bash
+moon test --target native
+```
+
+Useful variants:
+
+```bash
+# Run a single test file
+moon test --target native -p moonbit-community/moonpython -f parser_line_test.mbt
+
+# Run a subset by name (glob)
+moon test --target native -F 'generated/expr/1454'
+
+# Update snapshots when behavior intentionally changes
+moon test --target native --update
+```
+
+### Parse-only smoke check
+
+`cmd/main` supports `--parse-only` to validate parsing without execution:
+
+```bash
+moon run cmd/main -- --parse-only path/to/file.py
+```
+
 ## Run a Python program (file)
 
 From the `moonpython/` directory:
@@ -57,7 +101,13 @@ There's a pragmatic runner in `scripts/run_libtests.py` that executes
 `Lib/test/test_*.py` modules via `-m` and reports pass/fail/timeout status:
 
 ```bash
-python3 scripts/run_libtests.py --target-dir _build2
+python3 scripts/run_libtests.py --target native --target-dir _build
+```
+
+You can also run a single `Lib/test` module directly:
+
+```bash
+moon run cmd/main --target native -- --stdlib Lib -m test.test_unittest.test_case
 ```
 
 Useful flags:
@@ -65,6 +115,37 @@ Useful flags:
 - `--timeout SECONDS`: per-module timeout (default: 20)
 - `--slow-timeout SECONDS`: timeout for known slow modules (default: 600)
 - `--target-dir DIR`: pass through to `moon --target-dir` to avoid build locks
+- `--native-release`: build the native runner in release mode
+
+Example: focus on unittest-related modules:
+
+```bash
+python3 scripts/run_libtests.py --target native --target-dir _build \
+  --pattern '^test\\.test_unittest($|\\.)' --timeout 120
+```
+
+## Compatibility checklist
+
+This is a coarse, user-facing checklist (not a full spec).
+
+- [x] Parser + AST for a large subset of Python 3 syntax
+- [x] PEP 701 f-strings (basic escaped braces, nested format specs, debug `=`)
+- [x] PEP 654 `except*` syntax (parse + basic handling)
+- [x] `match` / `case` parsing (pattern matching syntax)
+- [x] PEP 695 type parameter / `type` statement syntax (parse/AST only; runtime no-op)
+- [x] Bytecode compiler + VM for module execution (default execution path)
+- [x] Bytecode execution for normal functions (function bodies compile to bytecode)
+- [x] Compilation failures are surfaced (no silent fallback to the legacy AST evaluator)
+- [x] `scripts/run_libtests.py` runner for CPython `Lib/test` smoke runs
+- [x] `Lib/test`: `test.test_unittest.*` passes on `--target native` (some modules may be skipped)
+
+Not implemented / incomplete (selected highlights):
+
+- [ ] Full CPython `Lib/test` compatibility (many modules still fail)
+- [ ] CPython C extension modules (e.g. `_socket`, `_ctypes`, `_locale`)
+- [ ] Full `threading` / `multiprocessing` semantics (many tests rely on OS threads/sockets)
+- [ ] Bytecode compiler parity for all statements/expressions (some constructs still raise `NotImplementedError`)
+- [ ] Full `unittest.mock` behavior parity (work in progress)
 
 ## REPL / stdin runner
 
