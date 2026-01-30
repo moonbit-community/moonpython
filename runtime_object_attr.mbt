@@ -120,8 +120,7 @@ fn get_attr_raw_from_value(
 ) -> Result[Value, RuntimeError] {
   if attr == "__call__" {
     match target {
-      Value::Function(_) | Value::BoundMethod(_) | Value::Class(_) =>
-        return Ok(target)
+      Value::Function(_) | Value::BoundMethod(_) => return Ok(target)
       _ => ()
     }
   }
@@ -621,7 +620,7 @@ fn get_attr_raw_from_value(
               }
             }
           }
-          if cls.name == thisclass.name {
+          if class_identity_equal(cls, thisclass) {
             after = true
           }
         }
@@ -781,6 +780,51 @@ fn get_attr_raw_from_value(
               Err(err) => return Err(err)
             }) {
             ()
+          } else if attr == "__getitem__" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "__getitem__",
+                  params: ["self", "index"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "__setitem__" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "__setitem__",
+                  params: ["self", "index", "value"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "__delitem__" {
+            return Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "__delitem__",
+                  params: ["self", "index"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
           } else if attr == "append" {
             return Ok(
               Value::BoundMethod(BoundMethodValue::{
@@ -951,12 +995,40 @@ fn get_attr_raw_from_value(
             Err(err) => Err(err)
           }
         None =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Attribute,
-              "'" + inst.class.name + "' object has no attribute '" + attr + "'",
-            ),
-          )
+          if attr == "__reduce_ex__" {
+            // `pickle` relies on this existing on all heap objects. Implement it
+            // as a builtin intrinsic that returns a proper reduce tuple.
+            Ok(
+              Value::BoundMethod(BoundMethodValue::{
+                function: FunctionValue::{
+                  name: "__reduce_ex__",
+                  params: ["self", "proto"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                },
+                self: Value::Instance(inst),
+              }),
+            )
+          } else if attr == "__doc__" {
+            // Many built-in objects expose `__doc__` via their type. If a type
+            // doesn't provide one in moonpython yet, return a stub string so
+            // stdlib helpers can proceed.
+            Ok(Value::Str("".to_string()))
+          } else {
+            let msg = if inst.class.name == "module" {
+              let module_name = match get_named_value(inst.dict, "__name__") {
+                Some(Value::Str(text)) => text
+                _ => "<module>".to_string()
+              }
+              "module '" + module_name + "' has no attribute '" + attr + "'"
+            } else {
+              "'" + inst.class.name + "' object has no attribute '" + attr + "'"
+            }
+            Err(make_runtime_error(RuntimeErrorKind::Attribute, msg))
+          }
       }
     }
     Value::BoundMethod(bound_method) => {
@@ -1003,6 +1075,9 @@ fn get_attr_raw_from_value(
       get_attr_raw_from_value(as_int, attr, globals, builtins, io)
     }
     Value::Int(_) => {
+      if attr == "__doc__" {
+        return Ok(Value::Str("".to_string()))
+      }
       match attr {
         "real" | "numerator" => return Ok(target)
         "imag" => return Ok(Value::Int(0N))
@@ -1098,6 +1173,7 @@ fn get_attr_raw_from_value(
     }
     Value::Float(value) =>
       match attr {
+        "__doc__" => Ok(Value::Str("".to_string()))
         "real" => Ok(Value::Float(value))
         // CPython returns `0.0`; equality with `0` still holds in stdlib tests.
         "imag" => Ok(Value::Float(0.0))
@@ -1221,6 +1297,12 @@ fn get_attr_raw_from_value(
       )
     }
     Value::Str(_) => {
+      if attr == "__doc__" {
+        // CPython exposes `__doc__` on many built-in instances (it resolves to the
+        // type's docstring). A stub string is sufficient for stdlib modules that
+        // only probe for the attribute's existence.
+        return Ok(Value::Str("".to_string()))
+      }
       if attr == "startswith" {
         return Ok(
           Value::BoundMethod(BoundMethodValue::{
@@ -2187,6 +2269,22 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "__setitem__" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__setitem__",
+              params: ["self", "index", "value"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -2700,6 +2798,38 @@ fn get_attr_raw_from_value(
           }),
         )
       }
+      if attr == "intersection" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "intersection",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "intersection_update" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "intersection_update",
+              params: ["self", "other"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
       Err(
         make_runtime_error(
           RuntimeErrorKind::Attribute,
@@ -2880,7 +3010,23 @@ fn get_attr_raw_from_value(
         if index is Some(i) {
           return Ok(pairs[i].1)
         }
-        if attr == "__code__" {
+        if attr == "__defaults__" {
+          if func.defaults.length() == 0 {
+            Ok(Value::None)
+          } else {
+            let values : Array[Value] = []
+            for v in func.defaults {
+              values.push(v)
+            }
+            Ok(Value::Tuple(values))
+          }
+        } else if attr == "__kwdefaults__" {
+          // Keyword-only defaults are not modeled yet.
+          Ok(Value::None)
+        } else if attr == "__annotations__" {
+          // Default to an empty annotations dict for introspection helpers.
+          Ok(Value::Dict([]))
+        } else if attr == "__code__" {
           let mut co_filename = "<module>".to_string()
           if func.body.length() == 0 {
             co_filename = "<builtins>".to_string()
@@ -2910,7 +3056,24 @@ fn get_attr_raw_from_value(
           } else if func.is_async {
             flags = flags + 128N // CO_COROUTINE
           }
-          Ok(make_code_instance_with_meta(flags, co_filename, func.name, 1N))
+          let firstlineno = match
+            get_named_value(func.closure, firstlineno_capture_name) {
+            Some(Value::Int(v)) => v
+            _ => 1N
+          }
+          let argcount = func.params.length()
+          Ok(
+            make_code_instance_with_meta(
+              flags,
+              co_filename,
+              func.name,
+              firstlineno,
+              argcount,
+              0,
+              0,
+              func.params,
+            ),
+          )
         } else if attr == "__closure__" {
           let cells : Array[Value] = []
           for pair in func.closure {
@@ -3242,7 +3405,7 @@ fn get_attr_raw_from_value(
         ) {
         Ok(
           Value::Function(FunctionValue::{
-            name: attr,
+            name: "object." + attr,
             params: ["self"],
             defaults: [],
             body: [],
@@ -3325,6 +3488,59 @@ fn get_attr_raw_from_value(
               Err(err) => Err(err)
             }
           Ok(None) => {
+            // Metaclass attributes (including descriptors like `@property`) are
+            // looked up if the attribute is not found on the class itself.
+            let mut meta = builtin_class_from_name("type", builtins)
+            match get_named_value(klass.dict, "__mpython_metaclass__") {
+              Some(Value::Class(m)) => meta = m
+              _ => ()
+            }
+            match lookup_class_attr(meta, attr) {
+              Ok(Some(Value::Function(func))) =>
+                // Method binding for metaclass functions (e.g. EnumMeta.__members__,
+                // ABCMeta.register). Mirror the instance binding behavior.
+                if func.body.length() == 0 &&
+                  !func.name.has_prefix("__") &&
+                  !func.name.contains(".") {
+                  return Ok(Value::Function(func))
+                } else {
+                  return Ok(
+                    Value::BoundMethod(BoundMethodValue::{
+                      function: func,
+                      self: Value::Class(klass),
+                    }),
+                  )
+                }
+              Ok(Some(value)) =>
+                match
+                  apply_descriptor(
+                    value,
+                    Value::Class(klass),
+                    Value::Class(meta),
+                  ) {
+                  Ok(Some(v)) => return Ok(v)
+                  Ok(None) => return Ok(value)
+                  Err(err) => return Err(err)
+                }
+              Ok(None) => ()
+              Err(err) => return Err(err)
+            }
+            if attr == "__repr__" && is_builtin_class_name(klass.name) {
+              // Provide distinct intrinsic `__repr__` descriptors for built-in
+              // types so stdlib dispatch tables keyed by `type(x).__repr__`
+              // (e.g. pprint) don't collapse to a single function object.
+              return Ok(
+                Value::Function(FunctionValue::{
+                  name: klass.name + ".__repr__",
+                  params: ["self"],
+                  defaults: [],
+                  body: [],
+                  is_generator: false,
+                  is_async: false,
+                  closure: [],
+                }),
+              )
+            }
             let mut is_enum = false
             let mut member_type_value = Value::Class(
               builtin_class_from_name("object", builtins),
@@ -3420,6 +3636,22 @@ fn get_attr_raw_from_value(
                 }),
               )
             }
+            if attr == "mro" {
+              return Ok(
+                Value::BoundMethod(BoundMethodValue::{
+                  function: FunctionValue::{
+                    name: "mro",
+                    params: ["cls"],
+                    defaults: [],
+                    body: [],
+                    is_generator: false,
+                    is_async: false,
+                    closure: [],
+                  },
+                  self: Value::Class(klass),
+                }),
+              )
+            }
             if attr == "register" {
               Ok(
                 Value::BoundMethod(BoundMethodValue::{
@@ -3439,7 +3671,11 @@ fn get_attr_raw_from_value(
               Err(
                 make_runtime_error(
                   RuntimeErrorKind::Attribute,
-                  "'" + klass.name + "' object has no attribute '" + attr + "'",
+                  "type object '" +
+                  klass.name +
+                  "' has no attribute '" +
+                  attr +
+                  "'",
                 ),
               )
             }

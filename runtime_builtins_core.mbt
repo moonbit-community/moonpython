@@ -228,6 +228,11 @@ fn builtin_len(
           return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
         _ => ()
       }
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(values)) =>
+          return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+        _ => ()
+      }
       match get_named_value(inst.dict, dict_storage_name) {
         Some(Value::Dict(pairs)) =>
           return Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
@@ -1178,14 +1183,67 @@ fn builtin_sys_exit(
       ),
     )
   }
-  let status = if positional.length() == 0 {
-    Value::None
-  } else {
-    positional[0]
+  let args : Array[Value] = []
+  if positional.length() == 1 {
+    args.push(positional[0])
   }
-  let msg = match status {
-    Value::None => "SystemExit".to_string()
-    _ => "SystemExit: " + value_to_string(status)
+  let klass = match get_named_value(builtins, "SystemExit") {
+    Some(Value::Class(klass)) => klass
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: SystemExit is not available".to_string(),
+        ),
+      )
   }
-  Err(make_runtime_error(RuntimeErrorKind::Runtime, msg))
+  let inst_value = match
+    call_callable_with_env(Value::Class(klass), args, [], globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  match inst_value {
+    Value::Instance(inst) => Err(runtime_error_from_exception_instance(inst))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: invalid SystemExit".to_string(),
+        ),
+      )
+  }
+}
+
+///|
+fn builtin_sys_audit(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.audit", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() < 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "sys.audit() missing required argument".to_string(),
+      ),
+    )
+  }
+  match positional[0] {
+    Value::Str(_) => Ok(Value::None)
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "sys.audit() event must be str".to_string(),
+        ),
+      )
+  }
 }

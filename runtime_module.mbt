@@ -320,6 +320,7 @@ fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
   let spec_value = Value::Instance(InstanceValue::{
     class: spec_class,
     dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("name", Value::Str(name)),
       ("origin", Value::Str("<builtin>")),
       ("loader", Value::None),
@@ -336,6 +337,7 @@ fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
     // Keep a minimum set of attributes expected by CPython's importlib and
     // stdlib test harness. These are intentionally shallow shims.
     dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("__name__", Value::Str(name)),
       ("__package__", Value::Str("")),
       ("__loader__", Value::None),
@@ -360,6 +362,7 @@ fn make_math_module() -> Value {
     ("ceil", module_function_stub("math.ceil")),
     ("floor", module_function_stub("math.floor")),
     ("trunc", module_function_stub("math.trunc")),
+    ("modf", module_function_stub("math.modf")),
     ("frexp", module_function_stub("math.frexp")),
     ("ldexp", module_function_stub("math.ldexp")),
     ("acos", module_function_stub("math.acos")),
@@ -374,6 +377,7 @@ fn make_math_module() -> Value {
     ("isfinite", module_function_stub("math.isfinite")),
     ("isnan", module_function_stub("math.isnan")),
     ("isinf", module_function_stub("math.isinf")),
+    ("isclose", module_function_stub("math.isclose")),
     ("gcd", module_function_stub("math.gcd")),
     ("isqrt", module_function_stub("math.isqrt")),
   ])
@@ -1298,6 +1302,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   let stdin_value = Value::Instance(InstanceValue::{
     class: stdin_class,
     dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("encoding", Value::Str("utf-8")),
       ("errors", Value::Str("strict")),
       ("newline", Value::None),
@@ -1306,6 +1311,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   let stdout_value = Value::Instance(InstanceValue::{
     class: stdout_class,
     dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("encoding", Value::Str("utf-8")),
       ("errors", Value::Str("strict")),
       ("newline", Value::None),
@@ -1314,6 +1320,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   let stderr_value = Value::Instance(InstanceValue::{
     class: stderr_class,
     dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("encoding", Value::Str("utf-8")),
       ("errors", Value::Str("strict")),
       ("newline", Value::None),
@@ -1406,6 +1413,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
         closure: [],
       }),
     ),
+    ("audit", module_function_stub("sys.audit")),
     (
       "exit",
       Value::Function(FunctionValue::{
@@ -1423,6 +1431,18 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       Value::Function(FunctionValue::{
         name: "sys.exc_info",
         params: [],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+    (
+      "getrefcount",
+      Value::Function(FunctionValue::{
+        name: "sys.getrefcount",
+        params: ["object"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -1694,6 +1714,10 @@ fn make_python_module(
   let saved_scope_decls_stack = scope_decls_stack.val
   closure_env_stack.val = []
   scope_decls_stack.val = []
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
   push_traceback_frame("<module>".to_string(), filename)
   let _ = match
     eval_block(

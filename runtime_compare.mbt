@@ -161,6 +161,62 @@ fn eq_bool(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Bool, RuntimeError] {
+  fn as_list(value : Value) -> Array[Value]? {
+    match value {
+      Value::List(values) => Some(values)
+      Value::Instance(inst) =>
+        match get_named_value(inst.dict, list_storage_name) {
+          Some(Value::List(values)) => Some(values)
+          _ => None
+        }
+      _ => None
+    }
+  }
+
+  fn as_tuple(value : Value) -> Array[Value]? {
+    match value {
+      Value::Tuple(values) => Some(values)
+      Value::Instance(inst) =>
+        match get_named_value(inst.dict, tuple_storage_name) {
+          Some(Value::Tuple(values)) => Some(values)
+          _ => None
+        }
+      _ => None
+    }
+  }
+
+  match (as_list(left), as_list(right)) {
+    (Some(xs), Some(ys)) =>
+      if xs.length() != ys.length() {
+        return Ok(false)
+      } else {
+        for i = 0; i < xs.length(); i = i + 1 {
+          match eq_bool(xs[i], ys[i], globals, builtins, io) {
+            Ok(true) => ()
+            Ok(false) => return Ok(false)
+            Err(err) => return Err(err)
+          }
+        }
+        return Ok(true)
+      }
+    _ => ()
+  }
+  match (as_tuple(left), as_tuple(right)) {
+    (Some(xs), Some(ys)) =>
+      if xs.length() != ys.length() {
+        return Ok(false)
+      } else {
+        for i = 0; i < xs.length(); i = i + 1 {
+          match eq_bool(xs[i], ys[i], globals, builtins, io) {
+            Ok(true) => ()
+            Ok(false) => return Ok(false)
+            Err(err) => return Err(err)
+          }
+        }
+        return Ok(true)
+      }
+    _ => ()
+  }
   let swapped = is_strict_subclass(left, right)
   let first = if swapped { right } else { left }
   let second = if swapped { left } else { right }
@@ -515,256 +571,300 @@ fn compare_values_with_env(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Bool, RuntimeError] {
+  fn tuple_items_for_compare(v : Value) -> Array[Value]? {
+    match v {
+      Value::Tuple(values) => Some(values)
+      Value::Instance(inst) =>
+        match get_named_value(inst.dict, tuple_storage_name) {
+          Some(Value::Tuple(values)) => Some(values)
+          _ => None
+        }
+      _ => None
+    }
+  }
+
   match op {
     CompareOp::Eq => eq_bool(left, right, globals, builtins, io)
     CompareOp::NotEq => ne_bool(left, right, globals, builtins, io)
     CompareOp::Lt =>
-      match (left, right) {
-        (Value::Tuple(left), Value::Tuple(right)) =>
+      match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
+        (Some(left), Some(right)) =>
           match compare_sequence_values(left, right) {
             Ok(cmp) => Ok(cmp < 0)
             Err(err) => Err(err)
           }
-        (Value::List(left), Value::List(right)) =>
-          match compare_sequence_values(left, right) {
-            Ok(cmp) => Ok(cmp < 0)
-            Err(err) => Err(err)
-          }
-        (Value::Set(left), Value::Set(right)) => {
-          let mut ok = true
-          for item in left {
-            let hit = match set_find_index(right, item) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            if hit is None {
-              ok = false
-              break
-            }
-          }
-          Ok(ok && left.length() < right.length())
-        }
-        (Value::Int(left), Value::Int(right)) => Ok(left < right)
-        (Value::Bool(left), Value::Bool(right)) =>
-          Ok((if left { 1N } else { 0N }) < (if right { 1N } else { 0N }))
-        (Value::Bool(left), Value::Int(right)) =>
-          Ok((if left { 1N } else { 0N }) < right)
-        (Value::Int(left), Value::Bool(right)) =>
-          Ok(left < (if right { 1N } else { 0N }))
-        (Value::Float(left), Value::Float(right)) => Ok(left < right)
-        (Value::Float(left), Value::Int(right)) =>
-          match bigint_to_double_checked(right) {
-            Ok(v) => Ok(left < v)
-            Err(err) => Err(err)
-          }
-        (Value::Int(left), Value::Float(right)) =>
-          match bigint_to_double_checked(left) {
-            Ok(v) => Ok(v < right)
-            Err(err) => Err(err)
-          }
-        (Value::Float(left), Value::Bool(right)) =>
-          Ok(left < (if right { 1.0 } else { 0.0 }))
-        (Value::Bool(left), Value::Float(right)) =>
-          Ok((if left { 1.0 } else { 0.0 }) < right)
-        (Value::Str(left), Value::Str(right)) => Ok(left < right)
-        (
-          Value::Bytes(left)
-          | Value::ByteArray(left)
-          | Value::MemoryView(left),
-          Value::Bytes(right)
-          | Value::ByteArray(right)
-          | Value::MemoryView(right),
-        ) => Ok(compare_bytes_like(left, right) < 0)
         _ =>
-          ordering_bool(
-            left, right, "__lt__", "__gt__", "<", globals, builtins, io,
-          )
+          match (left, right) {
+            (Value::Tuple(left), Value::Tuple(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp < 0)
+                Err(err) => Err(err)
+              }
+            (Value::List(left), Value::List(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp < 0)
+                Err(err) => Err(err)
+              }
+            (Value::Set(left), Value::Set(right)) => {
+              let mut ok = true
+              for item in left {
+                let hit = match set_find_index(right, item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if hit is None {
+                  ok = false
+                  break
+                }
+              }
+              Ok(ok && left.length() < right.length())
+            }
+            (Value::Int(left), Value::Int(right)) => Ok(left < right)
+            (Value::Bool(left), Value::Bool(right)) =>
+              Ok((if left { 1N } else { 0N }) < (if right { 1N } else { 0N }))
+            (Value::Bool(left), Value::Int(right)) =>
+              Ok((if left { 1N } else { 0N }) < right)
+            (Value::Int(left), Value::Bool(right)) =>
+              Ok(left < (if right { 1N } else { 0N }))
+            (Value::Float(left), Value::Float(right)) => Ok(left < right)
+            (Value::Float(left), Value::Int(right)) =>
+              match bigint_to_double_checked(right) {
+                Ok(v) => Ok(left < v)
+                Err(err) => Err(err)
+              }
+            (Value::Int(left), Value::Float(right)) =>
+              match bigint_to_double_checked(left) {
+                Ok(v) => Ok(v < right)
+                Err(err) => Err(err)
+              }
+            (Value::Float(left), Value::Bool(right)) =>
+              Ok(left < (if right { 1.0 } else { 0.0 }))
+            (Value::Bool(left), Value::Float(right)) =>
+              Ok((if left { 1.0 } else { 0.0 }) < right)
+            (Value::Str(left), Value::Str(right)) => Ok(left < right)
+            (
+              Value::Bytes(left)
+              | Value::ByteArray(left)
+              | Value::MemoryView(left),
+              Value::Bytes(right)
+              | Value::ByteArray(right)
+              | Value::MemoryView(right),
+            ) => Ok(compare_bytes_like(left, right) < 0)
+            _ =>
+              ordering_bool(
+                left, right, "__lt__", "__gt__", "<", globals, builtins, io,
+              )
+          }
       }
     CompareOp::Lte =>
-      match (left, right) {
-        (Value::Tuple(left), Value::Tuple(right)) =>
+      match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
+        (Some(left), Some(right)) =>
           match compare_sequence_values(left, right) {
             Ok(cmp) => Ok(cmp <= 0)
             Err(err) => Err(err)
           }
-        (Value::List(left), Value::List(right)) =>
-          match compare_sequence_values(left, right) {
-            Ok(cmp) => Ok(cmp <= 0)
-            Err(err) => Err(err)
-          }
-        (Value::Set(left), Value::Set(right)) => {
-          let mut ok = true
-          for item in left {
-            let hit = match set_find_index(right, item) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            if hit is None {
-              ok = false
-              break
-            }
-          }
-          Ok(ok)
-        }
-        (Value::Int(left), Value::Int(right)) => Ok(left <= right)
-        (Value::Bool(left), Value::Bool(right)) =>
-          Ok((if left { 1N } else { 0N }) <= (if right { 1N } else { 0N }))
-        (Value::Bool(left), Value::Int(right)) =>
-          Ok((if left { 1N } else { 0N }) <= right)
-        (Value::Int(left), Value::Bool(right)) =>
-          Ok(left <= (if right { 1N } else { 0N }))
-        (Value::Float(left), Value::Float(right)) => Ok(left <= right)
-        (Value::Float(left), Value::Int(right)) =>
-          match bigint_to_double_checked(right) {
-            Ok(v) => Ok(left <= v)
-            Err(err) => Err(err)
-          }
-        (Value::Int(left), Value::Float(right)) =>
-          match bigint_to_double_checked(left) {
-            Ok(v) => Ok(v <= right)
-            Err(err) => Err(err)
-          }
-        (Value::Float(left), Value::Bool(right)) =>
-          Ok(left <= (if right { 1.0 } else { 0.0 }))
-        (Value::Bool(left), Value::Float(right)) =>
-          Ok((if left { 1.0 } else { 0.0 }) <= right)
-        (Value::Str(left), Value::Str(right)) => Ok(left <= right)
-        (
-          Value::Bytes(left)
-          | Value::ByteArray(left)
-          | Value::MemoryView(left),
-          Value::Bytes(right)
-          | Value::ByteArray(right)
-          | Value::MemoryView(right),
-        ) => Ok(compare_bytes_like(left, right) <= 0)
         _ =>
-          ordering_bool(
-            left, right, "__le__", "__ge__", "<=", globals, builtins, io,
-          )
+          match (left, right) {
+            (Value::Tuple(left), Value::Tuple(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp <= 0)
+                Err(err) => Err(err)
+              }
+            (Value::List(left), Value::List(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp <= 0)
+                Err(err) => Err(err)
+              }
+            (Value::Set(left), Value::Set(right)) => {
+              let mut ok = true
+              for item in left {
+                let hit = match set_find_index(right, item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if hit is None {
+                  ok = false
+                  break
+                }
+              }
+              Ok(ok)
+            }
+            (Value::Int(left), Value::Int(right)) => Ok(left <= right)
+            (Value::Bool(left), Value::Bool(right)) =>
+              Ok((if left { 1N } else { 0N }) <= (if right { 1N } else { 0N }))
+            (Value::Bool(left), Value::Int(right)) =>
+              Ok((if left { 1N } else { 0N }) <= right)
+            (Value::Int(left), Value::Bool(right)) =>
+              Ok(left <= (if right { 1N } else { 0N }))
+            (Value::Float(left), Value::Float(right)) => Ok(left <= right)
+            (Value::Float(left), Value::Int(right)) =>
+              match bigint_to_double_checked(right) {
+                Ok(v) => Ok(left <= v)
+                Err(err) => Err(err)
+              }
+            (Value::Int(left), Value::Float(right)) =>
+              match bigint_to_double_checked(left) {
+                Ok(v) => Ok(v <= right)
+                Err(err) => Err(err)
+              }
+            (Value::Float(left), Value::Bool(right)) =>
+              Ok(left <= (if right { 1.0 } else { 0.0 }))
+            (Value::Bool(left), Value::Float(right)) =>
+              Ok((if left { 1.0 } else { 0.0 }) <= right)
+            (Value::Str(left), Value::Str(right)) => Ok(left <= right)
+            (
+              Value::Bytes(left)
+              | Value::ByteArray(left)
+              | Value::MemoryView(left),
+              Value::Bytes(right)
+              | Value::ByteArray(right)
+              | Value::MemoryView(right),
+            ) => Ok(compare_bytes_like(left, right) <= 0)
+            _ =>
+              ordering_bool(
+                left, right, "__le__", "__ge__", "<=", globals, builtins, io,
+              )
+          }
       }
     CompareOp::Gt =>
-      match (left, right) {
-        (Value::Tuple(left), Value::Tuple(right)) =>
+      match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
+        (Some(left), Some(right)) =>
           match compare_sequence_values(left, right) {
             Ok(cmp) => Ok(cmp > 0)
             Err(err) => Err(err)
           }
-        (Value::List(left), Value::List(right)) =>
-          match compare_sequence_values(left, right) {
-            Ok(cmp) => Ok(cmp > 0)
-            Err(err) => Err(err)
-          }
-        (Value::Set(left), Value::Set(right)) => {
-          let mut ok = true
-          for item in right {
-            let hit = match set_find_index(left, item) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            if hit is None {
-              ok = false
-              break
-            }
-          }
-          Ok(ok && left.length() > right.length())
-        }
-        (Value::Int(left), Value::Int(right)) => Ok(left > right)
-        (Value::Bool(left), Value::Bool(right)) =>
-          Ok((if left { 1N } else { 0N }) > (if right { 1N } else { 0N }))
-        (Value::Bool(left), Value::Int(right)) =>
-          Ok((if left { 1N } else { 0N }) > right)
-        (Value::Int(left), Value::Bool(right)) =>
-          Ok(left > (if right { 1N } else { 0N }))
-        (Value::Float(left), Value::Float(right)) => Ok(left > right)
-        (Value::Float(left), Value::Int(right)) =>
-          match bigint_to_double_checked(right) {
-            Ok(v) => Ok(left > v)
-            Err(err) => Err(err)
-          }
-        (Value::Int(left), Value::Float(right)) =>
-          match bigint_to_double_checked(left) {
-            Ok(v) => Ok(v > right)
-            Err(err) => Err(err)
-          }
-        (Value::Float(left), Value::Bool(right)) =>
-          Ok(left > (if right { 1.0 } else { 0.0 }))
-        (Value::Bool(left), Value::Float(right)) =>
-          Ok((if left { 1.0 } else { 0.0 }) > right)
-        (Value::Str(left), Value::Str(right)) => Ok(left > right)
-        (
-          Value::Bytes(left)
-          | Value::ByteArray(left)
-          | Value::MemoryView(left),
-          Value::Bytes(right)
-          | Value::ByteArray(right)
-          | Value::MemoryView(right),
-        ) => Ok(compare_bytes_like(left, right) > 0)
         _ =>
-          ordering_bool(
-            left, right, "__gt__", "__lt__", ">", globals, builtins, io,
-          )
+          match (left, right) {
+            (Value::Tuple(left), Value::Tuple(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp > 0)
+                Err(err) => Err(err)
+              }
+            (Value::List(left), Value::List(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp > 0)
+                Err(err) => Err(err)
+              }
+            (Value::Set(left), Value::Set(right)) => {
+              let mut ok = true
+              for item in right {
+                let hit = match set_find_index(left, item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if hit is None {
+                  ok = false
+                  break
+                }
+              }
+              Ok(ok && left.length() > right.length())
+            }
+            (Value::Int(left), Value::Int(right)) => Ok(left > right)
+            (Value::Bool(left), Value::Bool(right)) =>
+              Ok((if left { 1N } else { 0N }) > (if right { 1N } else { 0N }))
+            (Value::Bool(left), Value::Int(right)) =>
+              Ok((if left { 1N } else { 0N }) > right)
+            (Value::Int(left), Value::Bool(right)) =>
+              Ok(left > (if right { 1N } else { 0N }))
+            (Value::Float(left), Value::Float(right)) => Ok(left > right)
+            (Value::Float(left), Value::Int(right)) =>
+              match bigint_to_double_checked(right) {
+                Ok(v) => Ok(left > v)
+                Err(err) => Err(err)
+              }
+            (Value::Int(left), Value::Float(right)) =>
+              match bigint_to_double_checked(left) {
+                Ok(v) => Ok(v > right)
+                Err(err) => Err(err)
+              }
+            (Value::Float(left), Value::Bool(right)) =>
+              Ok(left > (if right { 1.0 } else { 0.0 }))
+            (Value::Bool(left), Value::Float(right)) =>
+              Ok((if left { 1.0 } else { 0.0 }) > right)
+            (Value::Str(left), Value::Str(right)) => Ok(left > right)
+            (
+              Value::Bytes(left)
+              | Value::ByteArray(left)
+              | Value::MemoryView(left),
+              Value::Bytes(right)
+              | Value::ByteArray(right)
+              | Value::MemoryView(right),
+            ) => Ok(compare_bytes_like(left, right) > 0)
+            _ =>
+              ordering_bool(
+                left, right, "__gt__", "__lt__", ">", globals, builtins, io,
+              )
+          }
       }
     CompareOp::Gte =>
-      match (left, right) {
-        (Value::Tuple(left), Value::Tuple(right)) =>
+      match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
+        (Some(left), Some(right)) =>
           match compare_sequence_values(left, right) {
             Ok(cmp) => Ok(cmp >= 0)
             Err(err) => Err(err)
           }
-        (Value::List(left), Value::List(right)) =>
-          match compare_sequence_values(left, right) {
-            Ok(cmp) => Ok(cmp >= 0)
-            Err(err) => Err(err)
-          }
-        (Value::Set(left), Value::Set(right)) => {
-          let mut ok = true
-          for item in right {
-            let hit = match set_find_index(left, item) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            if hit is None {
-              ok = false
-              break
-            }
-          }
-          Ok(ok)
-        }
-        (Value::Int(left), Value::Int(right)) => Ok(left >= right)
-        (Value::Bool(left), Value::Bool(right)) =>
-          Ok((if left { 1N } else { 0N }) >= (if right { 1N } else { 0N }))
-        (Value::Bool(left), Value::Int(right)) =>
-          Ok((if left { 1N } else { 0N }) >= right)
-        (Value::Int(left), Value::Bool(right)) =>
-          Ok(left >= (if right { 1N } else { 0N }))
-        (Value::Float(left), Value::Float(right)) => Ok(left >= right)
-        (Value::Float(left), Value::Int(right)) =>
-          match bigint_to_double_checked(right) {
-            Ok(v) => Ok(left >= v)
-            Err(err) => Err(err)
-          }
-        (Value::Int(left), Value::Float(right)) =>
-          match bigint_to_double_checked(left) {
-            Ok(v) => Ok(v >= right)
-            Err(err) => Err(err)
-          }
-        (Value::Float(left), Value::Bool(right)) =>
-          Ok(left >= (if right { 1.0 } else { 0.0 }))
-        (Value::Bool(left), Value::Float(right)) =>
-          Ok((if left { 1.0 } else { 0.0 }) >= right)
-        (Value::Str(left), Value::Str(right)) => Ok(left >= right)
-        (
-          Value::Bytes(left)
-          | Value::ByteArray(left)
-          | Value::MemoryView(left),
-          Value::Bytes(right)
-          | Value::ByteArray(right)
-          | Value::MemoryView(right),
-        ) => Ok(compare_bytes_like(left, right) >= 0)
         _ =>
-          ordering_bool(
-            left, right, "__ge__", "__le__", ">=", globals, builtins, io,
-          )
+          match (left, right) {
+            (Value::Tuple(left), Value::Tuple(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp >= 0)
+                Err(err) => Err(err)
+              }
+            (Value::List(left), Value::List(right)) =>
+              match compare_sequence_values(left, right) {
+                Ok(cmp) => Ok(cmp >= 0)
+                Err(err) => Err(err)
+              }
+            (Value::Set(left), Value::Set(right)) => {
+              let mut ok = true
+              for item in right {
+                let hit = match set_find_index(left, item) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                if hit is None {
+                  ok = false
+                  break
+                }
+              }
+              Ok(ok)
+            }
+            (Value::Int(left), Value::Int(right)) => Ok(left >= right)
+            (Value::Bool(left), Value::Bool(right)) =>
+              Ok((if left { 1N } else { 0N }) >= (if right { 1N } else { 0N }))
+            (Value::Bool(left), Value::Int(right)) =>
+              Ok((if left { 1N } else { 0N }) >= right)
+            (Value::Int(left), Value::Bool(right)) =>
+              Ok(left >= (if right { 1N } else { 0N }))
+            (Value::Float(left), Value::Float(right)) => Ok(left >= right)
+            (Value::Float(left), Value::Int(right)) =>
+              match bigint_to_double_checked(right) {
+                Ok(v) => Ok(left >= v)
+                Err(err) => Err(err)
+              }
+            (Value::Int(left), Value::Float(right)) =>
+              match bigint_to_double_checked(left) {
+                Ok(v) => Ok(v >= right)
+                Err(err) => Err(err)
+              }
+            (Value::Float(left), Value::Bool(right)) =>
+              Ok(left >= (if right { 1.0 } else { 0.0 }))
+            (Value::Bool(left), Value::Float(right)) =>
+              Ok((if left { 1.0 } else { 0.0 }) >= right)
+            (Value::Str(left), Value::Str(right)) => Ok(left >= right)
+            (
+              Value::Bytes(left)
+              | Value::ByteArray(left)
+              | Value::MemoryView(left),
+              Value::Bytes(right)
+              | Value::ByteArray(right)
+              | Value::MemoryView(right),
+            ) => Ok(compare_bytes_like(left, right) >= 0)
+            _ =>
+              ordering_bool(
+                left, right, "__ge__", "__le__", ">=", globals, builtins, io,
+              )
+          }
       }
     CompareOp::Is => Ok(is_value_identity(left, right))
     CompareOp::IsNot => Ok(!is_value_identity(left, right))

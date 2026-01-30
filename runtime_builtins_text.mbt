@@ -710,7 +710,9 @@ fn encode_string_ascii_with_errors(
   if errors == "strict" {
     return encode_string_ascii(text)
   }
-  if errors != "surrogateescape" && errors != "xmlcharrefreplace" {
+  if errors != "surrogateescape" &&
+    errors != "surrogatepass" &&
+    errors != "xmlcharrefreplace" {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
@@ -782,6 +784,7 @@ fn encode_string_with_encoding(
   if encoding == "utf-8" || encoding == "utf8" {
     if errors != "strict" &&
       errors != "surrogateescape" &&
+      errors != "surrogatepass" &&
       errors != "xmlcharrefreplace" {
       return Err(
         make_runtime_error(
@@ -971,7 +974,9 @@ fn decode_bytes_with_encoding(
     None => "strict"
   }
   if encoding == "utf-8" || encoding == "utf8" {
-    if errors != "strict" && errors != "surrogateescape" {
+    if errors != "strict" &&
+      errors != "surrogateescape" &&
+      errors != "surrogatepass" {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -981,7 +986,9 @@ fn decode_bytes_with_encoding(
     }
     decode_bytes_utf8(name, bytes, errors)
   } else if encoding == "ascii" {
-    if errors != "strict" && errors != "surrogateescape" {
+    if errors != "strict" &&
+      errors != "surrogateescape" &&
+      errors != "surrogatepass" {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,

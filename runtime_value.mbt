@@ -65,6 +65,28 @@ fn fresh_object_hashvalue() -> @bigint.BigInt {
 ///|
 
 ///|
+let function_hash_name = "$__mpython_function_hash__"
+
+///|
+fn is_intrinsic_function(func : FunctionValue) -> Bool {
+  func.body.length() == 0
+}
+
+///|
+fn function_identity_hash(func : FunctionValue) -> @bigint.BigInt {
+  match get_named_value(func.closure, function_hash_name) {
+    Some(Value::Int(v)) => v
+    _ => {
+      let id = fresh_object_hashvalue()
+      func.closure.push((function_hash_name, Value::Int(id)))
+      id
+    }
+  }
+}
+
+///|
+
+///|
 fn lookup_instance_field(
   dict : Array[(String, Value)],
   name : String,
@@ -180,6 +202,13 @@ fn is_base_exception_class_value(klass : ClassValue) -> Bool {
 
 ///|
 fn value_to_string(value : Value) -> String {
+  fn repr_in_container(value : Value) -> String {
+    match value {
+      Value::Str(text) => "'" + escape_string_for_repr(text) + "'"
+      other => value_to_string(other)
+    }
+  }
+
   match value {
     Value::None => "None"
     Value::Bool(v) => if v { "True" } else { "False" }
@@ -197,7 +226,7 @@ fn value_to_string(value : Value) -> String {
         if i > 0 {
           buf.write_string(", ")
         }
-        buf.write_string(value_to_string(values[i]))
+        buf.write_string(repr_in_container(values[i]))
       }
       buf.write_char(']')
       buf.to_string()
@@ -209,7 +238,7 @@ fn value_to_string(value : Value) -> String {
         if i > 0 {
           buf.write_string(", ")
         }
-        buf.write_string(value_to_string(values[i]))
+        buf.write_string(repr_in_container(values[i]))
       }
       if values.length() == 1 {
         buf.write_string(",")
@@ -224,21 +253,24 @@ fn value_to_string(value : Value) -> String {
         if i > 0 {
           buf.write_string(", ")
         }
-        buf.write_string(value_to_string(pairs[i].0))
+        buf.write_string(repr_in_container(pairs[i].0))
         buf.write_string(": ")
-        buf.write_string(value_to_string(pairs[i].1))
+        buf.write_string(repr_in_container(pairs[i].1))
       }
       buf.write_char('}')
       buf.to_string()
     }
     Value::Set(values) => {
+      if values.length() == 0 {
+        return "set()"
+      }
       let buf = StringBuilder::new()
       buf.write_char('{')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
           buf.write_string(", ")
         }
-        buf.write_string(value_to_string(values[i]))
+        buf.write_string(repr_in_container(values[i]))
       }
       buf.write_char('}')
       buf.to_string()
@@ -594,6 +626,27 @@ fn eq_value(a : Value, b : Value) -> Bool {
     }
   }
 
+  fn instance_tuple_values(inst : InstanceValue) -> Array[Value]? {
+    match get_named_value(inst.dict, tuple_storage_name) {
+      Some(Value::Tuple(values)) => Some(values)
+      _ => None
+    }
+  }
+
+  fn tuple_values_equal(a : Array[Value], b : Array[Value]) -> Bool {
+    if a.length() != b.length() {
+      return false
+    }
+    let mut equal = true
+    for i = 0; i < a.length(); i = i + 1 {
+      if !(is_value_identity(a[i], b[i]) || eq_value(a[i], b[i])) {
+        equal = false
+        break
+      }
+    }
+    equal
+  }
+
   match (a, b) {
     (Value::None, Value::None) => true
     (Value::Bool(a), Value::Bool(b)) => a == b
@@ -671,19 +724,17 @@ fn eq_value(a : Value, b : Value) -> Bool {
         Some(values) => list_values_equal(values, b)
         None => false
       }
-    (Value::Tuple(a), Value::Tuple(b)) =>
-      if a.length() != b.length() {
-        false
-      } else {
-        let mut equal = true
-        for i = 0; i < a.length(); i = i + 1 {
-          if !(is_value_identity(a[i], b[i]) || eq_value(a[i], b[i])) {
-            equal = false
-            break
-          }
-        }
-        equal
+    (Value::Tuple(a), Value::Instance(b)) =>
+      match instance_tuple_values(b) {
+        Some(values) => tuple_values_equal(a, values)
+        None => false
       }
+    (Value::Instance(a), Value::Tuple(b)) =>
+      match instance_tuple_values(a) {
+        Some(values) => tuple_values_equal(values, b)
+        None => false
+      }
+    (Value::Tuple(a), Value::Tuple(b)) => tuple_values_equal(a, b)
     (Value::Set(a), Value::Set(b)) =>
       if a.length() != b.length() {
         false
@@ -704,7 +755,14 @@ fn eq_value(a : Value, b : Value) -> Bool {
         }
         equal
       }
-    (Value::Function(a), Value::Function(b)) => a.name == b.name
+    (Value::Function(a), Value::Function(b)) =>
+      if is_intrinsic_function(a) && is_intrinsic_function(b) {
+        a.name == b.name
+      } else if is_intrinsic_function(a) || is_intrinsic_function(b) {
+        false
+      } else {
+        function_identity_hash(a) == function_identity_hash(b)
+      }
     (Value::BoundMethod(a), Value::BoundMethod(b)) =>
       a.function.name == b.function.name && eq_value(a.self, b.self)
     (Value::Dict(a), Value::Dict(b)) =>
@@ -743,20 +801,26 @@ fn eq_value(a : Value, b : Value) -> Bool {
       } else {
         match (instance_list_values(a), instance_list_values(b)) {
           (Some(values_a), Some(values_b)) =>
-            list_values_equal(values_a, values_b)
-          (Some(_), None) | (None, Some(_)) => false
-          (None, None) =>
-            // Default instance equality should behave like `object`: identity
-            // by default. Most instances created through `object.__new__`
-            // already carry a unique `hashvalue`.
-            match
-              (
-                get_named_value(a.dict, "hashvalue"),
-                get_named_value(b.dict, "hashvalue"),
-              ) {
-              (Some(Value::Int(ha)), Some(Value::Int(hb))) => ha == hb
-              _ => a.class.name == b.class.name
-            }
+            return list_values_equal(values_a, values_b)
+          (Some(_), None) | (None, Some(_)) => return false
+          (None, None) => ()
+        }
+        match (instance_tuple_values(a), instance_tuple_values(b)) {
+          (Some(values_a), Some(values_b)) =>
+            return tuple_values_equal(values_a, values_b)
+          (Some(_), None) | (None, Some(_)) => return false
+          (None, None) => ()
+        }
+        // Default instance equality should behave like `object`: identity
+        // by default. Most instances created through `object.__new__`
+        // already carry a unique `hashvalue`.
+        match
+          (
+            get_named_value(a.dict, "hashvalue"),
+            get_named_value(b.dict, "hashvalue"),
+          ) {
+          (Some(Value::Int(ha)), Some(Value::Int(hb))) => ha == hb
+          _ => a.class.name == b.class.name
         }
       }
     _ => false
@@ -797,7 +861,14 @@ fn is_value_identity(a : Value, b : Value) -> Bool {
     (Value::List(a), Value::List(b)) => eq_value(Value::List(a), Value::List(b))
     (Value::Set(a), Value::Set(b)) => eq_value(Value::Set(a), Value::Set(b))
     (Value::Dict(a), Value::Dict(b)) => eq_value(Value::Dict(a), Value::Dict(b))
-    (Value::Function(a), Value::Function(b)) => a.name == b.name
+    (Value::Function(a), Value::Function(b)) =>
+      if is_intrinsic_function(a) && is_intrinsic_function(b) {
+        a.name == b.name
+      } else if is_intrinsic_function(a) || is_intrinsic_function(b) {
+        false
+      } else {
+        function_identity_hash(a) == function_identity_hash(b)
+      }
     (Value::Class(a), Value::Class(b)) => a.name == b.name
     (Value::BoundMethod(a), Value::BoundMethod(b)) =>
       a.function.name == b.function.name && is_value_identity(a.self, b.self)
@@ -811,6 +882,22 @@ fn is_value_identity(a : Value, b : Value) -> Bool {
         _ => false
       }
     _ => false
+  }
+}
+
+///|
+fn class_identity_hash(klass : ClassValue) -> @bigint.BigInt? {
+  match get_named_value(klass.dict, "hashvalue") {
+    Some(Value::Int(v)) => Some(v)
+    _ => None
+  }
+}
+
+///|
+fn class_identity_equal(a : ClassValue, b : ClassValue) -> Bool {
+  match (class_identity_hash(a), class_identity_hash(b)) {
+    (Some(ha), Some(hb)) => ha == hb
+    _ => a.name == b.name
   }
 }
 
@@ -837,23 +924,33 @@ fn hash_value(value : Value) -> Result[@bigint.BigInt, RuntimeError] {
       Ok(h)
     }
     Value::Function(func) =>
-      Ok(@bigint.BigInt::from_int64(hash_string(func.name)))
+      if is_intrinsic_function(func) {
+        Ok(@bigint.BigInt::from_int64(hash_string(func.name)))
+      } else {
+        Ok(function_identity_hash(func))
+      }
     Value::Class(klass) =>
       Ok(@bigint.BigInt::from_int64(hash_string(klass.name)))
     Value::BoundMethod(bound) =>
       Ok(@bigint.BigInt::from_int64(hash_string(bound.function.name)))
     Value::Instance(inst) =>
-      match get_named_value(inst.dict, "hashvalue") {
-        Some(Value::Int(v)) => Ok(v)
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(values)) =>
+          // Tuple subclasses (e.g. namedtuple) hash like tuples.
+          hash_value(Value::Tuple(values))
         _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "unhashable type: '" +
-              type_name_from_value(Value::Instance(inst)) +
-              "'",
-            ),
-          )
+          match get_named_value(inst.dict, "hashvalue") {
+            Some(Value::Int(v)) => Ok(v)
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "unhashable type: '" +
+                  type_name_from_value(Value::Instance(inst)) +
+                  "'",
+                ),
+              )
+          }
       }
     other =>
       Err(

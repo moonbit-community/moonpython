@@ -43,6 +43,18 @@ fn make_function_from_template_with_env(
     dict: globals,
   })
   closure.push(("$__mpython_globals__", globals_marker))
+  let firstlineno = match current_span() {
+    Some(span) => @bigint.BigInt::from_int(span.line)
+    None => {
+      let frames = snapshot_traceback()
+      if frames.length() > 0 {
+        @bigint.BigInt::from_int(frames[frames.length() - 1].line)
+      } else {
+        1N
+      }
+    }
+  }
+  closure.push((firstlineno_capture_name, Value::Int(firstlineno)))
   let func = FunctionValue::{
     name: template.name,
     params: template.params,

@@ -160,6 +160,10 @@ pub fn coroutine_await(coroutine_value : Value) -> Result[Value, RuntimeError] {
       ),
     )
   }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
   push_traceback_frame(state.val.name, state.val.filename)
   push_closure_env(state.val.closure)
   push_scope_decls_with_nonlocals(

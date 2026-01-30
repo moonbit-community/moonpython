@@ -236,3 +236,17 @@ fn class_includes_dict(klass : ClassValue) -> Bool {
   }
   false
 }
+
+///|
+fn class_includes_tuple(klass : ClassValue) -> Bool {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(_) => return false
+  }
+  for cls in mro {
+    if cls.name == "tuple" {
+      return true
+    }
+  }
+  false
+}

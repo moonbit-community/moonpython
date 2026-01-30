@@ -7,6 +7,14 @@ _error_handlers = {}
 def register(search_function):
     _search_functions.append(search_function)
 
+def unregister(search_function):
+    # Mirror CPython's registry behavior: remove the first matching entry.
+    # This is enough for stdlib tests that register temporary codecs.
+    try:
+        _search_functions.remove(search_function)
+    except ValueError:
+        pass
+
 
 def lookup(encoding):
     for func in _search_functions:

@@ -300,6 +300,28 @@ class StringIO(_TextIOBase):
         self._pos = newpos
         return self._pos
 
+    def truncate(self, size=None):
+        if self.closed:
+            raise ValueError("truncate on closed file")
+        if size is None:
+            size = self._pos
+        else:
+            try:
+                size_index = size.__index__
+            except AttributeError:
+                raise TypeError(f"{size!r} is not an integer")
+            else:
+                size = size_index()
+        if size < 0:
+            raise ValueError("negative size value")
+        if size < len(self._buffer):
+            self._buffer = self._buffer[:size]
+        elif size > len(self._buffer):
+            self._buffer = self._buffer + ("\x00" * (size - len(self._buffer)))
+        if self._pos > size:
+            self._pos = size
+        return size
+
     def getvalue(self):
         return self._buffer
 

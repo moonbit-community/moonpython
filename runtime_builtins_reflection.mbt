@@ -244,6 +244,8 @@ fn escape_string_for_repr(text : String) -> String {
   for ch in text.to_array() {
     if ch == '\\' {
       buf.write_string("\\\\")
+    } else if ch == '\'' {
+      buf.write_string("\\'")
     } else if ch == '"' {
       buf.write_string("\\\"")
     } else if ch == '\n' {
@@ -257,6 +259,78 @@ fn escape_string_for_repr(text : String) -> String {
     }
   }
   buf.to_string()
+}
+
+///|
+fn repr_fallback(value : Value) -> String {
+  fn write_joined(
+    buf : StringBuilder,
+    values : Array[Value],
+    prefix : String,
+    suffix : String,
+    comma_for_single : Bool,
+  ) -> Unit {
+    buf.write_string(prefix)
+    for i = 0; i < values.length(); i = i + 1 {
+      if i > 0 {
+        buf.write_string(", ")
+      }
+      buf.write_string(repr_fallback(values[i]))
+    }
+    if comma_for_single && values.length() == 1 {
+      buf.write_char(',')
+    }
+    buf.write_string(suffix)
+  }
+
+  match value {
+    Value::Str(text) => "'" + escape_string_for_repr(text) + "'"
+    Value::Bytes(values) => bytes_repr(values)
+    Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
+    Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
+    Value::List(values) => {
+      let buf = StringBuilder::new()
+      write_joined(buf, values, "[", "]", false)
+      buf.to_string()
+    }
+    Value::Tuple(values) => {
+      let buf = StringBuilder::new()
+      write_joined(buf, values, "(", ")", true)
+      buf.to_string()
+    }
+    Value::Dict(pairs) => {
+      let buf = StringBuilder::new()
+      buf.write_char('{')
+      for i = 0; i < pairs.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        buf.write_string(repr_fallback(pairs[i].0))
+        buf.write_string(": ")
+        buf.write_string(repr_fallback(pairs[i].1))
+      }
+      buf.write_char('}')
+      buf.to_string()
+    }
+    Value::Set(values) =>
+      if values.length() == 0 {
+        "set()"
+      } else {
+        let buf = StringBuilder::new()
+        write_joined(buf, values, "{", "}", false)
+        buf.to_string()
+      }
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(values)) => repr_fallback(Value::List(values))
+        _ =>
+          match get_named_value(inst.dict, tuple_storage_name) {
+            Some(Value::Tuple(values)) => repr_fallback(Value::Tuple(values))
+            _ => value_to_string(value)
+          }
+      }
+    _ => value_to_string(value)
+  }
 }
 
 ///|
@@ -1095,8 +1169,7 @@ fn builtin_repr(
   }
   let value = positional[0]
   match value {
-    Value::Str(text) =>
-      Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
+    Value::Str(text) => Ok(Value::Str("'" + escape_string_for_repr(text) + "'"))
     Value::Instance(inst) =>
       if is_base_exception_class_value(inst.class) {
         fn repr_arg(
@@ -1171,7 +1244,7 @@ fn builtin_repr(
                     Err(err) => Err(err)
                   }
                 } else {
-                  Ok(Value::Str(value_to_string(value)))
+                  Ok(Value::Str(repr_fallback(value)))
                 }
               Value::Function(func) =>
                 if func.body.length() > 0 {
@@ -1195,19 +1268,19 @@ fn builtin_repr(
                     Err(err) => Err(err)
                   }
                 } else {
-                  Ok(Value::Str(value_to_string(value)))
+                  Ok(Value::Str(repr_fallback(value)))
                 }
-              _ => Ok(Value::Str(value_to_string(value)))
+              _ => Ok(Value::Str(repr_fallback(value)))
             }
           Err(err) =>
             match err.kind {
               RuntimeErrorKind::Attribute =>
-                Ok(Value::Str(value_to_string(value)))
+                Ok(Value::Str(repr_fallback(value)))
               _ => Err(err)
             }
         }
       }
-    _ => Ok(Value::Str(value_to_string(value)))
+    _ => Ok(Value::Str(repr_fallback(value)))
   }
 }
 
@@ -1234,8 +1307,7 @@ fn builtin_ascii(
     )
   }
   match positional[0] {
-    Value::Str(text) =>
-      Ok(Value::Str("\"" + escape_string_for_repr(text) + "\""))
+    Value::Str(text) => Ok(Value::Str("'" + escape_string_for_repr(text) + "'"))
     other => Ok(Value::Str(value_to_string(other)))
   }
 }
@@ -1278,6 +1350,16 @@ fn builtin_callable(
 ///|
 fn value_matches_builtin_class(obj : Value, name : String) -> Bool {
   match name {
+    "function" =>
+      match obj {
+        Value::Function(_) => true
+        _ => false
+      }
+    "method" =>
+      match obj {
+        Value::BoundMethod(_) => true
+        _ => false
+      }
     "int" =>
       match obj {
         Value::Int(_) | Value::Bool(_) => true
@@ -1585,8 +1667,21 @@ fn issubclass_pair(
       }
       if base_class.name == "type" {
         match cls {
-          Value::Class(_) => Ok(true)
-          Value::Function(func) => Ok(func.body.length() == 0)
+          Value::Class(klass) => {
+            let mro = match class_mro(klass) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            for c in mro {
+              if c.name == "type" {
+                return Ok(true)
+              }
+            }
+            Ok(false)
+          }
+          Value::Function(func) =>
+            // Builtin stubs: only `type` itself should be a subclass of `type`.
+            Ok(func.body.length() == 0 && func.name == "type")
           _ => Ok(false)
         }
       } else {
@@ -1668,8 +1763,20 @@ fn issubclass_pair(
       if base_func.body.length() == 0 {
         if base_func.name == "type" {
           match cls {
-            Value::Class(_) => Ok(true)
-            Value::Function(func) => Ok(func.body.length() == 0)
+            Value::Class(klass) => {
+              let mro = match class_mro(klass) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              for c in mro {
+                if c.name == "type" {
+                  return Ok(true)
+                }
+              }
+              Ok(false)
+            }
+            Value::Function(func) =>
+              Ok(func.body.length() == 0 && func.name == "type")
             _ => Ok(false)
           }
         } else {
@@ -1834,6 +1941,9 @@ fn builtin_type_new(
       _ => ()
     }
   }
+  if get_named_value(class_dict, "hashvalue") is None {
+    class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+  }
   let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
   // Track the metaclass used to construct this class (`type.__new__(mcls, ...)`)
   // so `type(C)` and `isinstance(C, mcls)` behave like CPython.
@@ -1847,6 +1957,32 @@ fn builtin_type_new(
     Err(err) => return Err(err)
   }
   Ok(Value::Class(klass))
+}
+
+///|
+fn builtin_sys_getrefcount(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("sys.getrefcount", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "getrefcount() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  // Moonpython doesn't expose real refcounts; return a stable placeholder.
+  Ok(Value::Int(3N))
 }
 
 ///|
@@ -1975,6 +2111,9 @@ fn builtin_type(
       _ => ()
     }
   }
+  if get_named_value(class_dict, "hashvalue") is None {
+    class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+  }
   let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
   let _ = match class_mro(klass) {
     Ok(v) => v
@@ -2011,10 +2150,40 @@ fn builtin_id(
     Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
     Value::Str(text) =>
       Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
+    Value::Function(func) => Ok(Value::Int(function_identity_hash(func)))
+    Value::Class(klass) =>
+      match class_identity_hash(klass) {
+        Some(v) => Ok(Value::Int(v))
+        None => {
+          let id = fresh_object_hashvalue()
+          // Give each class a stable identity so tools like `pickle` can
+          // memoize them without collisions.
+          klass.dict.push(("hashvalue", Value::Int(id)))
+          Ok(Value::Int(id))
+        }
+      }
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, "hashvalue") {
+        Some(Value::Int(id)) => Ok(Value::Int(id))
+        _ =>
+          Ok(
+            Value::Int(
+              @bigint.BigInt::from_int64(
+                hash_string(
+                  type_name_from_value(value) + ":" + value_to_string(value),
+                ),
+              ),
+            ),
+          )
+      }
     _ =>
       Ok(
         Value::Int(
-          @bigint.BigInt::from_int64(hash_string(value_to_string(value))),
+          @bigint.BigInt::from_int64(
+            hash_string(
+              type_name_from_value(value) + ":" + value_to_string(value),
+            ),
+          ),
         ),
       )
   }
@@ -2042,7 +2211,44 @@ fn builtin_hash(
       ),
     )
   }
-  match hash_value(positional[0]) {
+  let value = positional[0]
+  // Prefer an explicit `__hash__` implementation when present (e.g. unittest.TestCase).
+  if value is Value::Instance(_) || value is Value::Class(_) {
+    match get_attr_from_value(value, "__hash__", globals, builtins, io) {
+      Ok(hash_fn) =>
+        if hash_fn is Value::None {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "unhashable type: '" + type_name_from_value(value) + "'",
+            ),
+          )
+        } else {
+          let result = match
+            call_callable_with_env(hash_fn, [], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match result {
+            Value::Int(v) => return Ok(Value::Int(v))
+            Value::Bool(v) => return Ok(Value::Int(if v { 1N } else { 0N }))
+            _ =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__hash__() should return an int".to_string(),
+                ),
+              )
+          }
+        }
+      Err(err) =>
+        match err.kind {
+          RuntimeErrorKind::Attribute => ()
+          _ => return Err(err)
+        }
+    }
+  }
+  match hash_value(value) {
     Ok(hash) => Ok(Value::Int(hash))
     Err(err) => Err(err)
   }
@@ -2869,6 +3075,10 @@ fn builtin_eval(
     Ok(v) => v
     Err(err) => return Err(make_parse_runtime_error(err))
   }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
   push_traceback_frame("<eval>".to_string(), "<eval>".to_string())
   let result = eval_expr_with_env(expr, locals_env, globals_env, builtins, io)
   pop_traceback_frame()
@@ -2916,6 +3126,10 @@ fn builtin_exec(
   let program = match parse(source_text) {
     Ok(v) => v
     Err(err) => return Err(make_parse_runtime_error(err))
+  }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
   }
   push_traceback_frame("<exec>".to_string(), "<exec>".to_string())
   let result = eval_block(
@@ -3149,6 +3363,14 @@ fn builtin_import(
         ),
       )
     None => return Err(missing_required_argument_error("__import__", "name"))
+  }
+  if name == "" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: Empty module name".to_string(),
+      ),
+    )
   }
   match level_value {
     Value::None => ()
@@ -3601,7 +3823,7 @@ fn builtin_super(
   }
   let mut found = false
   for c in mro {
-    if c.name == thisclass.name {
+    if class_identity_equal(c, thisclass) {
       found = true
       break
     }

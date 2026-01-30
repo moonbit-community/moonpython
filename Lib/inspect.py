@@ -1123,13 +1123,21 @@ def findsource(object):
         if not hasattr(object, 'co_firstlineno'):
             raise OSError('could not find function definition')
         lnum = object.co_firstlineno - 1
-        pat = re.compile(r'^(\s*def\s)|(\s*async\s+def\s)|(.*(?<!\w)lambda(:|\s))|^(\s*@)')
+        # moonpython: don't depend on `re` for function boundary detection.
+        def is_def_line(line):
+            s = line.lstrip()
+            return (
+                s.startswith("def ")
+                or s.startswith("async def ")
+                or s.startswith("@")
+                or "lambda" in s
+            )
         while lnum > 0:
             try:
                 line = lines[lnum]
             except IndexError:
                 raise OSError('lineno is out of bounds')
-            if pat.match(line):
+            if is_def_line(line):
                 break
             lnum = lnum - 1
         return lines, lnum
@@ -2690,22 +2698,52 @@ class _empty:
     """Marker object for Signature.empty and Parameter.empty."""
 
 
-class _ParameterKind(enum.IntEnum):
-    POSITIONAL_ONLY = 'positional-only'
-    POSITIONAL_OR_KEYWORD = 'positional or keyword'
-    VAR_POSITIONAL = 'variadic positional'
-    KEYWORD_ONLY = 'keyword-only'
-    VAR_KEYWORD = 'variadic keyword'
+class _ParameterKindMember:
+    __slots__ = ("name", "description")
 
-    def __new__(cls, description):
-        value = len(cls.__members__)
-        member = int.__new__(cls, value)
-        member._value_ = value
-        member.description = description
-        return member
+    def __init__(self, name, description):
+        self.name = name
+        self.description = description
+
+    def __repr__(self):
+        return f"_ParameterKind.{self.name}"
 
     def __str__(self):
         return self.name
+
+
+class _ParameterKind:
+    """
+    Lightweight stand-in for enum.IntEnum used by CPython.
+
+    MoonPython does not fully support EnumMeta/class namespace customisation
+    yet; keep inspect.signature usable by providing a small, compatible subset.
+    """
+
+    __members__ = {}
+
+    def __new__(cls, kind):
+        # Accept either our member objects (fast path) or their description
+        # strings for lenient compatibility.
+        if isinstance(kind, _ParameterKindMember):
+            return kind
+        if isinstance(kind, str):
+            for member in cls.__members__.values():
+                if kind == member.description or kind == member.name:
+                    return member
+        raise ValueError(f"value {kind!r} is not a valid Parameter.kind")
+
+
+for _name, _desc in (
+    ("POSITIONAL_ONLY", "positional-only"),
+    ("POSITIONAL_OR_KEYWORD", "positional or keyword"),
+    ("VAR_POSITIONAL", "variadic positional"),
+    ("KEYWORD_ONLY", "keyword-only"),
+    ("VAR_KEYWORD", "variadic keyword"),
+):
+    _m = _ParameterKindMember(_name, _desc)
+    setattr(_ParameterKind, _name, _m)
+    _ParameterKind.__members__[_name] = _m
 
 _POSITIONAL_ONLY         = _ParameterKind.POSITIONAL_ONLY
 _POSITIONAL_OR_KEYWORD   = _ParameterKind.POSITIONAL_OR_KEYWORD

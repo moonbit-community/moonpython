@@ -269,7 +269,15 @@ fn make_code_instance_with_meta(
   filename : String,
   name : String,
   firstlineno : @bigint.BigInt,
+  argcount : Int,
+  posonlyargcount : Int,
+  kwonlyargcount : Int,
+  varnames : Array[String],
 ) -> Value {
+  let var_tuple : Array[Value] = []
+  for v in varnames {
+    var_tuple.push(Value::Str(v))
+  }
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "code", bases: [], dict: [] },
     dict: [
@@ -278,6 +286,19 @@ fn make_code_instance_with_meta(
       ("co_name", Value::Str(name)),
       ("co_qualname", Value::Str(name)),
       ("co_firstlineno", Value::Int(firstlineno)),
+      ("co_argcount", Value::Int(@bigint.BigInt::from_int(argcount))),
+      (
+        "co_posonlyargcount",
+        Value::Int(@bigint.BigInt::from_int(posonlyargcount)),
+      ),
+      (
+        "co_kwonlyargcount",
+        Value::Int(@bigint.BigInt::from_int(kwonlyargcount)),
+      ),
+      ("co_nlocals", Value::Int(@bigint.BigInt::from_int(varnames.length()))),
+      ("co_varnames", Value::Tuple(var_tuple)),
+      ("co_freevars", Value::Tuple([])),
+      ("co_cellvars", Value::Tuple([])),
     ],
   })
 }
@@ -289,6 +310,10 @@ fn make_code_instance(flags : @bigint.BigInt) -> Value {
     "<code>".to_string(),
     "<code>".to_string(),
     1N,
+    0,
+    0,
+    0,
+    [],
   )
 }
 

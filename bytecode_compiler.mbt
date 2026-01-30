@@ -1292,45 +1292,93 @@ fn compile_target_store(
   b : BcBuilder,
   span : Span?,
 ) -> Result[Unit, RuntimeError] {
-  fn is_name_unpack_tree(target : Target) -> Bool {
-    match target {
-      Target::Name(_) => true
-      Target::Tuple(items) | Target::List(items) => {
-        for item in items {
-          if !is_name_unpack_tree(item) {
-            return false
-          }
-        }
-        true
-      }
-      _ => false
-    }
-  }
-
   match target {
     Target::Name(name) => {
       let idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(idx), span)
       Ok(())
     }
-    Target::Tuple(items) | Target::List(items) =>
-      if !is_name_unpack_tree(target) {
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::NotImplemented,
-            "bytecode compiler: for/assign unpack target not implemented".to_string(),
-          ),
-        )
-      } else {
-        let _ = b.emit(BcOp::UnpackSequence(items.length()), span)
-        for item in items {
-          match compile_target_store(item, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-        }
-        Ok(())
+    Target::Attribute(value~, attr~) => {
+      // Assignment target where the assigned value is already on the stack.
+      // Emit:
+      //   <value> <obj> -> <obj> <value> -> STORE_ATTR
+      match compile_expr(value, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
       }
+      let _ = b.emit(BcOp::RotTwo, span)
+      let idx = b.intern_name(attr)
+      let _ = b.emit(BcOp::StoreAttr(idx), span)
+      Ok(())
+    }
+    Target::Subscript(value~, index~) => {
+      // Assignment target where the assigned value is already on the stack.
+      // Emit:
+      //   <value> <obj> <idx> -> <obj> <idx> <value> -> STORE_SUBSCR
+      match compile_expr(value, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      match compile_expr(index, b, span) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
+      let _ = b.emit(BcOp::RotThree, span)
+      let _ = b.emit(BcOp::RotThree, span)
+      let _ = b.emit(BcOp::StoreSubscr, span)
+      Ok(())
+    }
+    Target::Tuple(items) | Target::List(items) => {
+      let mut star_idx : Int? = None
+      for i = 0; i < items.length(); i = i + 1 {
+        match items[i] {
+          Target::Starred(_) =>
+            match star_idx {
+              Some(_) =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "SyntaxError: two starred expressions in assignment".to_string(),
+                  ),
+                )
+              None => star_idx = Some(i)
+            }
+          _ => ()
+        }
+      }
+      match star_idx {
+        Some(si) => {
+          let before = si
+          let after = items.length() - si - 1
+          let _ = b.emit(BcOp::UnpackEx(before, after), span)
+          for item in items {
+            match item {
+              Target::Starred(inner) =>
+                match compile_target_store(inner, b, span) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+              _ =>
+                match compile_target_store(item, b, span) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+            }
+          }
+          Ok(())
+        }
+        None => {
+          let _ = b.emit(BcOp::UnpackSequence(items.length()), span)
+          for item in items {
+            match compile_target_store(item, b, span) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+          }
+          Ok(())
+        }
+      }
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -1453,6 +1501,11 @@ fn compile_try_except_else(
       }
       None => ()
     }
+    // Once we're executing a handler, the exception is no longer "pending"
+    // for unwind through nested finally/with blocks. Keep it available via
+    // `active_exception_stack` (for sys.exc_info / bare raise), but clear the
+    // VM's unwind flag so normal finally blocks don't re-raise it.
+    let _ = b.emit(BcOp::ClearPendingException, span)
     for s in handler.body {
       match compile_stmt(s, b, span, loop_stack, finally_depth) {
         Ok(_) => ()

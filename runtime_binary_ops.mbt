@@ -679,7 +679,8 @@ fn eval_binary_op_values(
       }
       match (left_val, right_val) {
         (Value::Str(format), value) => {
-          let formatted = match format_percent_string(format, value) {
+          let formatted = match
+            format_percent_string(format, value, globals, builtins, io) {
             Ok(v) => v
             Err(err) => return Err(err)
           }

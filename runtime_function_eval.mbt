@@ -45,7 +45,12 @@ fn eval_function_with_kwargs(
     global_names,
     nonlocal_names,
   )
-  let filename = current_traceback_filename()
+  // Prefer the function's module filename (via its resolved globals) so that
+  // tracebacks for stdlib functions don't get mislabeled with the caller file.
+  let filename = match lookup_instance_field(active_globals, "__file__") {
+    Some(Value::Str(text)) => text
+    _ => current_traceback_filename()
+  }
   if func.is_async {
     if func.is_generator {
       return Ok(
@@ -78,6 +83,10 @@ fn eval_function_with_kwargs(
         current_config(),
       ),
     )
+  }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
   }
   push_traceback_frame(func.name, filename)
   push_closure_env(func.closure)

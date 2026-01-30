@@ -162,10 +162,6 @@ fn builtin_int(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("int", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
   if positional.length() > 2 {
     return Err(
       make_runtime_error(
@@ -174,105 +170,139 @@ fn builtin_int(
       ),
     )
   }
-  let base_value = if positional.length() > 1 {
-    Some(positional[1])
-  } else {
-    None
-  }
-  if positional.length() == 0 {
-    Ok(Value::Int(0N))
-  } else {
-    if base_value is Some(base_arg) {
-      let base_int = match base_arg {
-        Value::Int(v) =>
-          match bigint_to_int_checked(v) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-        Value::Bool(v) => if v { 1 } else { 0 }
-        _ =>
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "int() base must be an integer".to_string(),
-            ),
-          )
-      }
-      let text = match int_text_from_value(positional[0]) {
-        Ok(v) => v
-        Err(_) =>
-          return Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "int() can't convert non-string with explicit base".to_string(),
-            ),
-          )
-      }
-      let parsed = match parse_bigint_from_string(text, base_int) {
-        Ok(v) => v
-        Err(err) => return Err(err)
-      }
-      return Ok(Value::Int(parsed))
+  let mut x_value : Value? = None
+  let mut base_value : Value? = None
+  for pair in keywords {
+    if pair.0 == "x" {
+      x_value = Some(pair.1)
+    } else if pair.0 == "base" {
+      base_value = Some(pair.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int() got unexpected keyword argument".to_string(),
+        ),
+      )
     }
-    match positional[0] {
-      Value::Instance(_) => {
-        let int_method = match
-          get_attr_from_value(positional[0], "__int__", globals, builtins, io) {
+  }
+  if positional.length() >= 1 {
+    if x_value is Some(_) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int() got multiple values for argument 'x'".to_string(),
+        ),
+      )
+    }
+    x_value = Some(positional[0])
+  }
+  if positional.length() >= 2 {
+    if base_value is Some(_) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "int() got multiple values for argument 'base'".to_string(),
+        ),
+      )
+    }
+    base_value = Some(positional[1])
+  }
+  match x_value {
+    None => Ok(Value::Int(0N))
+    Some(x) => {
+      if base_value is Some(base_arg) {
+        let base_int = match base_arg {
+          Value::Int(v) =>
+            match bigint_to_int_checked(v) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+          Value::Bool(v) => if v { 1 } else { 0 }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "int() base must be an integer".to_string(),
+              ),
+            )
+        }
+        let text = match int_text_from_value(positional[0]) {
           Ok(v) => v
           Err(_) =>
             return Err(
               make_runtime_error(
                 RuntimeErrorKind::Type,
-                "int() argument must be a string or a number".to_string(),
+                "int() can't convert non-string with explicit base".to_string(),
               ),
             )
         }
-        let value = match
-          call_callable_with_env(int_method, [], [], globals, builtins, io) {
+        let parsed = match parse_bigint_from_string(text, base_int) {
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        match value {
-          Value::Int(v) => Ok(Value::Int(v))
-          Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-          _ =>
-            Err(
-              make_runtime_error(
-                RuntimeErrorKind::Type,
-                "int() argument must be a string or a number".to_string(),
-              ),
-            )
-        }
+        return Ok(Value::Int(parsed))
       }
-      Value::Int(v) => Ok(Value::Int(v))
-      Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-      Value::Float(v) =>
-        Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
-      Value::Str(text) => {
-        let parsed = match parse_bigint_from_string(text, 10) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+      match x {
+        Value::Instance(_) => {
+          let int_method = match
+            get_attr_from_value(x, "__int__", globals, builtins, io) {
+            Ok(v) => v
+            Err(_) =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "int() argument must be a string or a number".to_string(),
+                ),
+              )
+          }
+          let value = match
+            call_callable_with_env(int_method, [], [], globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match value {
+            Value::Int(v) => Ok(Value::Int(v))
+            Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "int() argument must be a string or a number".to_string(),
+                ),
+              )
+          }
         }
-        Ok(Value::Int(parsed))
+        Value::Int(v) => Ok(Value::Int(v))
+        Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+        Value::Float(v) =>
+          Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64())))
+        Value::Str(text) => {
+          let parsed = match parse_bigint_from_string(text, 10) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int(parsed))
+        }
+        Value::Bytes(_) | Value::ByteArray(_) | Value::MemoryView(_) => {
+          let text = match int_text_from_value(x) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let parsed = match parse_bigint_from_string(text, 10) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int(parsed))
+        }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "int() argument must be a string or a number".to_string(),
+            ),
+          )
       }
-      Value::Bytes(_) | Value::ByteArray(_) | Value::MemoryView(_) => {
-        let text = match int_text_from_value(positional[0]) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let parsed = match parse_bigint_from_string(text, 10) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        Ok(Value::Int(parsed))
-      }
-      _ =>
-        Err(
-          make_runtime_error(
-            RuntimeErrorKind::Type,
-            "int() argument must be a string or a number".to_string(),
-          ),
-        )
     }
   }
 }
@@ -1473,23 +1503,55 @@ fn builtin_abs(
     Value::Float(v) => Ok(Value::Float(if v < 0.0 { -v } else { v }))
     Value::Complex(real, imag) =>
       Ok(Value::Float(@math.pow(real * real + imag * imag, 0.5)))
-    _ =>
-      Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "bad operand type for abs()".to_string(),
-        ),
-      )
+    other =>
+      match get_attr_from_value(other, "__abs__", globals, builtins, io) {
+        Ok(callable) =>
+          call_callable_with_env(callable, [], [], globals, builtins, io)
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "bad operand type for abs()".to_string(),
+                ),
+              )
+            _ => Err(err)
+          }
+      }
   }
 }
 
 ///|
 fn round_float_to_int(value : Double) -> Int64 {
-  if value >= 0.0 {
-    @math.floor(value + 0.5).to_int64()
-  } else {
-    @math.ceil(value - 0.5).to_int64()
+  // CPython uses bankers rounding (ties to even) for floats.
+  if value.is_nan() {
+    return 0L
   }
+  if value.is_inf() {
+    return 0L
+  }
+  let neg = value < 0.0
+  let x = if neg { -value } else { value }
+  let f = @math.floor(x)
+  let frac = x - f
+  let mut out = if frac > 0.5 {
+    f + 1.0
+  } else if frac < 0.5 {
+    f
+  } else {
+    // Exact 0.5: tie to even
+    let fi = f.to_int64()
+    if fi % 2L == 0L {
+      f
+    } else {
+      f + 1.0
+    }
+  }
+  if neg {
+    out = -out
+  }
+  out.to_int64()
 }
 
 ///|
@@ -1514,12 +1576,80 @@ fn builtin_round(
       ),
     )
   }
-  // `ndigits` is accepted but ignored for now.
-  match positional[0] {
-    Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    Value::Float(v) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(round_float_to_int(v))))
+  let mut ndigits_opt : Int? = None
+  if positional.length() == 2 {
+    ndigits_opt = match positional[1] {
+      Value::Int(v) => Some(v.to_int())
+      Value::Bool(v) => Some(if v { 1 } else { 0 })
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "round() ndigits must be an int".to_string(),
+          ),
+        )
+    }
+  }
+  match (positional[0], ndigits_opt) {
+    (Value::Int(v), None) => Ok(Value::Int(v))
+    (Value::Bool(v), None) => Ok(Value::Int(if v { 1N } else { 0N }))
+    (Value::Float(v), None) =>
+      if v.is_nan() || v.is_inf() {
+        Ok(Value::Float(v))
+      } else {
+        Ok(Value::Int(@bigint.BigInt::from_int64(round_float_to_int(v))))
+      }
+    (Value::Int(v), Some(ndigits)) =>
+      if ndigits >= 0 {
+        Ok(Value::Int(v))
+      } else {
+        // Round integer to negative ndigits (e.g. round(1234, -2) == 1200).
+        let base = @bigint.BigInt::from_int(10)
+        let exp = @bigint.BigInt::from_int(-ndigits)
+        let factor = base.pow(exp)
+        if factor == 0N {
+          Ok(Value::Int(v))
+        } else {
+          let q = v / factor
+          let r = v % factor
+          let abs_r = if r < 0N { -r } else { r }
+          let abs_factor = if factor < 0N { -factor } else { factor }
+          let twice = abs_r * 2N
+          let mut q_adj = q
+          if twice > abs_factor {
+            q_adj = if v < 0N { q - 1N } else { q + 1N }
+          } else if twice == abs_factor {
+            // tie to even on the quotient
+            let even = q % 2N == 0N
+            if !even {
+              q_adj = if v < 0N { q - 1N } else { q + 1N }
+            }
+          }
+          Ok(Value::Int(q_adj * factor))
+        }
+      }
+    (Value::Bool(v), Some(ndigits)) => {
+      // Treat bool as int for ndigits rounding.
+      let args : Array[Value] = [
+        Value::Int(if v { 1N } else { 0N }),
+        Value::Int(@bigint.BigInt::from_int(ndigits)),
+      ]
+      builtin_round(args, [], locals, globals, builtins, io)
+    }
+    (Value::Float(v), Some(ndigits)) =>
+      if v.is_nan() || v.is_inf() {
+        Ok(Value::Float(v))
+      } else if ndigits == 0 {
+        Ok(Value::Float(round_float_to_int(v).to_double()))
+      } else if ndigits > 0 {
+        let factor = @math.pow(10.0, ndigits.to_double())
+        let scaled = v * factor
+        Ok(Value::Float(round_float_to_int(scaled).to_double() / factor))
+      } else {
+        let factor = @math.pow(10.0, (-ndigits).to_double())
+        let scaled = v / factor
+        Ok(Value::Float(round_float_to_int(scaled).to_double() * factor))
+      }
     _ =>
       Err(
         make_runtime_error(

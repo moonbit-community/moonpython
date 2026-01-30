@@ -132,15 +132,29 @@ fn builtin_tuple_new(
       ),
     )
   }
-  if positional.length() == 1 {
-    Ok(Value::Tuple([]))
+  let cls_value = positional[0]
+  let items = if positional.length() == 1 {
+    ([] : Array[Value])
   } else {
-    let items = match
-      collect_items_from_iterable(positional[1], globals, builtins, io) {
+    match collect_items_from_iterable(positional[1], globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    Ok(Value::Tuple(items))
+  }
+  match cls_value {
+    Value::Class(klass) =>
+      if klass.name == "tuple" {
+        Ok(Value::Tuple(items))
+      } else if class_includes_tuple(klass) {
+        let dict : Array[(String, Value)] = [
+          ("hashvalue", Value::Int(fresh_object_hashvalue())),
+          (tuple_storage_name, Value::Tuple(items)),
+        ]
+        Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+      } else {
+        Ok(Value::Tuple(items))
+      }
+    _ => Ok(Value::Tuple(items))
   }
 }
 
@@ -988,9 +1002,55 @@ fn builtin_dict_getitem(
   match index {
     Some(i) => Ok(pairs[i].1)
     None =>
-      Err(
-        make_runtime_error(RuntimeErrorKind::Key, "key not found".to_string()),
-      )
+      match positional[0] {
+        // CPython: dict.__getitem__ consults `__missing__` on subclasses.
+        Value::Instance(inst) =>
+          if class_includes_dict(inst.class) && inst.class.name != "dict" {
+            match
+              get_attr_from_value(
+                positional[0],
+                "__missing__",
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(callable) =>
+                call_callable_with_env(
+                  callable,
+                  [key],
+                  [],
+                  globals,
+                  builtins,
+                  io,
+                )
+              Err(err) =>
+                match err.kind {
+                  RuntimeErrorKind::Attribute =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Key,
+                        "key not found".to_string(),
+                      ),
+                    )
+                  _ => Err(err)
+                }
+            }
+          } else {
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Key,
+                "key not found".to_string(),
+              ),
+            )
+          }
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Key,
+              "key not found".to_string(),
+            ),
+          )
+      }
   }
 }
 

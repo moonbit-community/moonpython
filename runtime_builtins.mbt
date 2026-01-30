@@ -604,6 +604,89 @@ fn stable_sort_pairs_by_key(
 }
 
 ///|
+fn builtin_reduce_ex(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__reduce_ex__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__reduce_ex__() takes exactly 2 arguments".to_string(),
+      ),
+    )
+  }
+  let target = positional[0]
+  let proto = positional[1]
+  match proto {
+    Value::Int(_) => ()
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__reduce_ex__() proto must be int".to_string(),
+        ),
+      )
+  }
+  let inst = match target {
+    Value::Instance(v) => v
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__reduce_ex__() expects an instance".to_string(),
+        ),
+      )
+  }
+  let copyreg_value = match
+    import_module("copyreg", globals, builtins, io, current_config()) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let newobj_value = match copyreg_value {
+    Value::Instance(mod_inst) =>
+      match get_named_value(mod_inst.dict, "__newobj__") {
+        Some(v) => v
+        None =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "RuntimeError: copyreg.__newobj__ is not available".to_string(),
+            ),
+          )
+      }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "RuntimeError: copyreg is not a module".to_string(),
+        ),
+      )
+  }
+  let args_tuple = Value::Tuple([Value::Class(inst.class)])
+  let state_pairs : Array[(Value, Value)] = []
+  for pair in inst.dict {
+    let key = pair.0
+    let value = pair.1
+    if key == "hashvalue" {
+      continue
+    }
+    state_pairs.push((Value::Str(key), value))
+  }
+  let state_dict = Value::Dict(state_pairs)
+  Ok(Value::Tuple([newobj_value, args_tuple, state_dict]))
+}
+
+///|
 priv struct BuiltinDef {
   name : String
   run : (
@@ -1100,6 +1183,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "math.floor", run: builtin_math_floor },
     BuiltinDef::{ name: "math.ceil", run: builtin_math_ceil },
     BuiltinDef::{ name: "math.trunc", run: builtin_math_trunc },
+    BuiltinDef::{ name: "math.modf", run: builtin_math_modf },
     BuiltinDef::{ name: "math.frexp", run: builtin_math_frexp },
     BuiltinDef::{ name: "math.ldexp", run: builtin_math_ldexp },
     BuiltinDef::{ name: "math.acos", run: builtin_math_acos },
@@ -1114,6 +1198,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "math.isfinite", run: builtin_math_isfinite },
     BuiltinDef::{ name: "math.isnan", run: builtin_math_isnan },
     BuiltinDef::{ name: "math.isinf", run: builtin_math_isinf },
+    BuiltinDef::{ name: "math.isclose", run: builtin_math_isclose },
     BuiltinDef::{ name: "math.gcd", run: builtin_math_gcd },
     BuiltinDef::{ name: "math.isqrt", run: builtin_math_isqrt },
     BuiltinDef::{ name: "divmod", run: builtin_divmod },
@@ -1185,6 +1270,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "sys.intern", run: builtin_sys_intern },
     BuiltinDef::{ name: "sys.exc_info", run: builtin_sys_exc_info },
     BuiltinDef::{ name: "sys.exception", run: builtin_sys_exception },
+    BuiltinDef::{ name: "sys.getrefcount", run: builtin_sys_getrefcount },
     BuiltinDef::{ name: "sys._getframe", run: builtin_sys_getframe },
     BuiltinDef::{ name: "sys.excepthook", run: builtin_sys_excepthook },
     BuiltinDef::{
@@ -1213,6 +1299,7 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_sys_setrecursionlimit,
     },
     BuiltinDef::{ name: "sys.exit", run: builtin_sys_exit },
+    BuiltinDef::{ name: "sys.audit", run: builtin_sys_audit },
     BuiltinDef::{ name: "sys.stdin.readline", run: builtin_sys_stdin_readline },
     BuiltinDef::{ name: "sys.stdin.isatty", run: builtin_sys_stdin_isatty },
     BuiltinDef::{ name: "sys.stdout.write", run: builtin_sys_stdout_write },
@@ -1234,6 +1321,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "hasattr", run: builtin_hasattr },
     BuiltinDef::{ name: "setattr", run: builtin_setattr },
     BuiltinDef::{ name: "delattr", run: builtin_delattr },
+    BuiltinDef::{ name: "__reduce_ex__", run: builtin_reduce_ex },
     BuiltinDef::{ name: "super", run: builtin_super },
     BuiltinDef::{ name: "staticmethod.__get__", run: builtin_staticmethod_get },
   ]

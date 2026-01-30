@@ -139,9 +139,81 @@ fn lookup_keyword_value(
 fn format_value_with_spec(
   value : Value,
   spec : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[String, RuntimeError] {
+  fn stringify_for_default_format(
+    value : Value,
+  ) -> Result[String, RuntimeError] {
+    match value {
+      Value::Str(text) => Ok(text)
+      Value::Instance(_) =>
+        match get_attr_from_value(value, "__str__", globals, builtins, io) {
+          Ok(callable) =>
+            match callable {
+              Value::BoundMethod(bound) =>
+                if bound.function.body.length() > 0 {
+                  match
+                    (eval_function_with_kwargs_ref.val)(
+                      bound.function,
+                      [bound.self],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(Value::Str(text)) => Ok(text)
+                    Ok(_) =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__str__ returned non-string".to_string(),
+                        ),
+                      )
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  Ok(value_to_string(value))
+                }
+              Value::Function(func) =>
+                if func.body.length() > 0 {
+                  match
+                    (eval_function_with_kwargs_ref.val)(
+                      func,
+                      [value],
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(Value::Str(text)) => Ok(text)
+                    Ok(_) =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__str__ returned non-string".to_string(),
+                        ),
+                      )
+                    Err(err) => Err(err)
+                  }
+                } else {
+                  Ok(value_to_string(value))
+                }
+              _ => Ok(value_to_string(value))
+            }
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => Ok(value_to_string(value))
+              _ => Err(err)
+            }
+        }
+      _ => Ok(value_to_string(value))
+    }
+  }
+
   if spec.length() == 0 {
-    return Ok(value_to_string(value))
+    return stringify_for_default_format(value)
   }
   let chars = spec.to_array()
   let mut type_char : Char? = None
@@ -171,7 +243,10 @@ fn format_value_with_spec(
   }
   match type_char {
     None | Some('s') => {
-      let out = value_to_string(value)
+      let out = match stringify_for_default_format(value) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
       Ok(pad_left(out, width, if zero_pad { '0' } else { ' ' }))
     }
     Some('d') | Some('i') => {
@@ -210,6 +285,9 @@ fn format_string_with_args(
   text : String,
   positional : Array[Value],
   keywords : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[String, RuntimeError] {
   let chars = text.to_array()
   let buf = StringBuilder::new()
@@ -335,8 +413,8 @@ fn format_string_with_args(
             for c in text.to_array() {
               if c == '\\' {
                 buf.write_string("\\\\")
-              } else if c == '"' {
-                buf.write_string("\\\"")
+              } else if c == '\'' {
+                buf.write_string("\\'")
               } else if c == '\n' {
                 buf.write_string("\\n")
               } else if c == '\r' {
@@ -347,7 +425,7 @@ fn format_string_with_args(
                 buf.write_char(c)
               }
             }
-            "\"" + buf.to_string() + "\""
+            "'" + buf.to_string() + "'"
           }
           _ => value_to_string(value)
         }
@@ -355,10 +433,16 @@ fn format_string_with_args(
 
       let value_for_format = match conv {
         Some('r') | Some('a') => Value::Str(repr_string(value))
-        Some('s') => Value::Str(value_to_string(value))
+        Some('s') =>
+          match
+            format_value_with_spec(value, "".to_string(), globals, builtins, io) {
+            Ok(v) => Value::Str(v)
+            Err(err) => return Err(err)
+          }
         _ => value
       }
-      let formatted = match format_value_with_spec(value_for_format, spec) {
+      let formatted = match
+        format_value_with_spec(value_for_format, spec, globals, builtins, io) {
         Ok(v) => v
         Err(err) => return Err(err)
       }

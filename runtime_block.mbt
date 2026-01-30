@@ -13,6 +13,50 @@ priv enum BlockFlow {
 let active_exception_stack : Ref[Array[RuntimeError]] = { val: [] }
 
 ///|
+fn trim_traceback_for_active_handler(
+  frames : Array[TracebackFrame],
+) -> Array[TracebackFrame] {
+  // When an exception is caught, CPython's traceback stops at the frame
+  // containing the except handler (it does not include callers above it).
+  // Our RuntimeError stores a snapshot captured at raise-time; trim it to the
+  // current handler depth for sys.exc_info() / traceback.format_exception.
+  let depth = active_frame_stack.val.length()
+  if depth == 0 || frames.length() == 0 {
+    return frames
+  }
+  let start = depth - 1
+  if start <= 0 || start >= frames.length() {
+    return frames
+  }
+  let out : Array[TracebackFrame] = []
+  for i = start; i < frames.length(); i = i + 1 {
+    out.push(frames[i])
+  }
+  out
+}
+
+///|
+fn trim_runtime_error_for_active_handler(err : RuntimeError) -> RuntimeError {
+  let trimmed = trim_traceback_for_active_handler(err.traceback)
+  if trimmed.length() == err.traceback.length() {
+    err
+  } else {
+    RuntimeError::{
+      kind: err.kind,
+      message: err.message,
+      span: err.span,
+      traceback: trimmed,
+      exc_type: err.exc_type,
+      exc_args: err.exc_args,
+      exc_value: err.exc_value,
+      exc_cause: err.exc_cause,
+      exc_context: err.exc_context,
+      exc_suppress_context: err.exc_suppress_context,
+    }
+  }
+}
+
+///|
 fn active_exception() -> RuntimeError? {
   if active_exception_stack.val.length() == 0 {
     None
@@ -414,6 +458,70 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     }
   }
 
+  fn traceback_from_exception_instance(
+    inst : InstanceValue,
+  ) -> Array[TracebackFrame]? {
+    let mut tb_value = match get_named_value(inst.dict, "__traceback__") {
+      Some(Value::None) => return None
+      Some(v) => v
+      None => return None
+    }
+    let frames : Array[TracebackFrame] = []
+    // Avoid infinite loops if user code mutates `__traceback__` into a cycle.
+    let mut steps = 0
+    while steps < 2048 {
+      steps = steps + 1
+      match tb_value {
+        Value::None => break
+        Value::Instance(tb_inst) => {
+          let (name, filename) = match
+            get_named_value(tb_inst.dict, "tb_frame") {
+            Some(Value::Instance(frame_inst)) => {
+              let name = match get_named_value(frame_inst.dict, "f_name") {
+                Some(Value::Str(v)) => v
+                _ => "<unknown>".to_string()
+              }
+              let filename = match
+                get_named_value(frame_inst.dict, "f_filename") {
+                Some(Value::Str(v)) => v
+                _ => "<module>".to_string()
+              }
+              (name, filename)
+            }
+            _ => ("<unknown>".to_string(), "<module>".to_string())
+          }
+          let line = match get_named_value(tb_inst.dict, "tb_lineno") {
+            Some(Value::Int(v)) =>
+              match bigint_to_int_checked(v) {
+                Ok(n) => n
+                Err(_) => 1
+              }
+            _ => 1
+          }
+          let column = match get_named_value(tb_inst.dict, "tb_colno") {
+            Some(Value::Int(v)) =>
+              match bigint_to_int_checked(v) {
+                Ok(n) => n
+                Err(_) => 1
+              }
+            _ => 1
+          }
+          frames.push(TracebackFrame::{ name, filename, line, column })
+          tb_value = match get_named_value(tb_inst.dict, "tb_next") {
+            Some(v) => v
+            None => Value::None
+          }
+        }
+        _ => return None
+      }
+    }
+    if frames.length() == 0 {
+      None
+    } else {
+      Some(frames)
+    }
+  }
+
   let mut message = "".to_string()
   match get_named_value(inst.dict, "message") {
     Some(Value::Str(text)) => message = text
@@ -450,11 +558,15 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     Some(Value::Bool(v)) => v
     _ => false
   }
+  let traceback = match traceback_from_exception_instance(inst) {
+    Some(frames) => frames
+    None => snapshot_traceback()
+  }
   RuntimeError::{
     kind,
     message: printed,
     span: current_span(),
-    traceback: snapshot_traceback(),
+    traceback,
     exc_type: inst.class.name,
     exc_args: args,
     exc_value,
@@ -466,6 +578,11 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
 
 ///|
 fn make_frame_value(frame : TracebackFrame) -> Value {
+  let globals_pairs : Array[(Value, Value)] = []
+  if frame.filename.contains("/Lib/unittest/") ||
+    frame.filename.contains("\\Lib\\unittest\\") {
+    globals_pairs.push((Value::Str("__unittest"), Value::Bool(true)))
+  }
   let code_value = Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "code", bases: [], dict: [] },
     dict: [
@@ -485,7 +602,7 @@ fn make_frame_value(frame : TracebackFrame) -> Value {
       ("f_back", Value::None),
       // Used by parts of the CPython stdlib (e.g. unittest) when cleaning tracebacks.
       // We don't currently model real frame globals/locals; keep them as empty dicts.
-      ("f_globals", Value::Dict([])),
+      ("f_globals", Value::Dict(globals_pairs)),
       ("f_locals", Value::Dict([])),
     ],
   })
@@ -1170,8 +1287,13 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
             let err0 = match inst_value {
-              Value::Instance(inst) =>
+              Value::Instance(inst) => {
+                // Treat `raise exc` as a fresh raise; any stale traceback on a
+                // reused exception instance must not "win" over the current
+                // call stack.
+                set_named_value(inst.dict, "__traceback__", Value::None)
                 runtime_error_from_exception_instance(inst)
+              }
               _ =>
                 return Err(
                   make_runtime_error(
@@ -1232,6 +1354,41 @@ fn eval_block_flow(
                   exc_suppress_context: true,
                 }
               }
+            }
+            // CPython updates the raised exception object's traceback eagerly,
+            // even when the exception instance was created ahead of time.
+            // Many stdlib helpers (e.g. contextlib/unittest) rely on
+            // `exc.__traceback__` being populated at raise-time.
+            match err2.exc_value {
+              Some(Value::Instance(inst)) => {
+                set_named_value(
+                  inst.dict,
+                  "__traceback__",
+                  make_traceback_value(err2.traceback),
+                )
+                set_named_value(
+                  inst.dict,
+                  "__cause__",
+                  match err2.exc_cause {
+                    Some(v) => v
+                    None => Value::None
+                  },
+                )
+                set_named_value(
+                  inst.dict,
+                  "__context__",
+                  match err2.exc_context {
+                    Some(v) => v
+                    None => Value::None
+                  },
+                )
+                set_named_value(
+                  inst.dict,
+                  "__suppress_context__",
+                  Value::Bool(err2.exc_suppress_context),
+                )
+              }
+              _ => ()
             }
             return Err(err2)
           }
@@ -1646,12 +1803,17 @@ fn eval_block_flow(
                       globals,
                       name,
                       exception_value_from_runtime_error(
-                        err, globals, builtins, io,
+                        trim_runtime_error_for_active_handler(err),
+                        globals,
+                        builtins,
+                        io,
                       ),
                     )
                   None => ()
                 }
-                active_exception_stack.val.push(err)
+                active_exception_stack.val.push(
+                  trim_runtime_error_for_active_handler(err),
+                )
                 let next_result = eval_block_flow(
                   handler_body, locals, globals, builtins, io, config, loop_depth,
                 )
@@ -2091,6 +2253,15 @@ fn eval_block_flow(
             match get_named_value(class_dict, "__class__") {
               Some(cell) => cell_set_value(cell, Value::Class(klass))
               None => ()
+            }
+            // Give each Python-defined class a stable identity so `super()` can
+            // disambiguate classes that share the same `__name__` (common in tests).
+            if get_named_value(klass.dict, "hashvalue") is None {
+              set_named_value(
+                klass.dict,
+                "hashvalue",
+                Value::Int(fresh_object_hashvalue()),
+              )
             }
             // Track the metaclass if the metaclass protocol didn't already.
             if get_named_value(klass.dict, "__mpython_metaclass__") is None {

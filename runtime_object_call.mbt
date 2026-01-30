@@ -246,9 +246,15 @@ fn call_callable_with_env(
             if class_includes_dict(klass) {
               inst_dict.push((dict_storage_name, Value::Dict([])))
             }
-            Ok(
-              Value::Instance(InstanceValue::{ class: klass, dict: inst_dict }),
-            )
+            if class_includes_tuple(klass) {
+              inst_dict.push((tuple_storage_name, Value::Tuple([])))
+            }
+            let inst_value = Value::Instance(InstanceValue::{
+              class: klass,
+              dict: inst_dict,
+            })
+            gc_register_instance(inst_value)
+            Ok(inst_value)
           }
           _ =>
             Err(
@@ -340,6 +346,40 @@ fn call_callable_with_env(
         )
       }
     Value::BoundMethod(bound_method) => {
+      // Intrinsic: type.mro(cls)
+      match bound_method.self {
+        Value::Class(klass) =>
+          if bound_method.function.name == "mro" &&
+            bound_method.function.body.length() == 0 {
+            if keywords.length() > 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "mro() got unexpected keyword arguments".to_string(),
+                ),
+              )
+            }
+            if positional.length() != 0 {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "mro() takes no arguments".to_string(),
+                ),
+              )
+            }
+            let mro = match class_mro(klass) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let out : Array[Value] = []
+            for cls in mro {
+              out.push(Value::Class(cls))
+            }
+            return Ok(Value::List(out))
+          }
+        _ => ()
+      }
+
       // Intrinsic: object.__getattribute__(self, name)
       if bound_method.function.name == "__getattribute__" &&
         bound_method.function.body.length() == 0 {
@@ -541,6 +581,113 @@ fn call_callable_with_env(
               make_runtime_error(
                 RuntimeErrorKind::Type,
                 "__setstate__() expects a dict".to_string(),
+              ),
+            )
+        }
+      }
+
+      // Intrinsic: BaseException.__reduce_ex__(self, protocol)
+      //
+      // CPython does not pickle the attached traceback by default. MoonPython
+      // stores `__traceback__` as a normal instance attribute, so we must
+      // explicitly exclude it from the serialized state to keep exceptions
+      // picklable (unittest discovery relies on this).
+      if bound_method.function.name == "__reduce_ex__" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__reduce_ex__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__reduce_ex__() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        match bound_method.self {
+          Value::Instance(inst) => {
+            let args_value = match get_named_value(inst.dict, "args") {
+              Some(Value::Tuple(values)) => Value::Tuple(values)
+              Some(v) => Value::Tuple([v])
+              None => Value::Tuple([])
+            }
+            let state_pairs : Array[(Value, Value)] = []
+            for pair in inst.dict {
+              if pair.0 == "__traceback__" {
+                continue
+              }
+              state_pairs.push((Value::Str(pair.0), pair.1))
+            }
+            return Ok(
+              Value::Tuple([
+                Value::Class(inst.class),
+                args_value,
+                Value::Dict(state_pairs),
+              ]),
+            )
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "__reduce_ex__() expects an exception instance".to_string(),
+              ),
+            )
+        }
+      }
+
+      // Intrinsic: BaseException.__reduce__(self)
+      if bound_method.function.name == "__reduce__" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__reduce__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__reduce__() takes no arguments".to_string(),
+            ),
+          )
+        }
+        match bound_method.self {
+          Value::Instance(inst) => {
+            let args_value = match get_named_value(inst.dict, "args") {
+              Some(Value::Tuple(values)) => Value::Tuple(values)
+              Some(v) => Value::Tuple([v])
+              None => Value::Tuple([])
+            }
+            let state_pairs : Array[(Value, Value)] = []
+            for pair in inst.dict {
+              if pair.0 == "__traceback__" {
+                continue
+              }
+              state_pairs.push((Value::Str(pair.0), pair.1))
+            }
+            return Ok(
+              Value::Tuple([
+                Value::Class(inst.class),
+                args_value,
+                Value::Dict(state_pairs),
+              ]),
+            )
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "__reduce__() expects an exception instance".to_string(),
               ),
             )
         }
@@ -854,20 +1001,30 @@ fn call_callable_with_env(
               ),
             )
         }
+        // Mirror CPython importlib behavior: a module should be present in
+        // `sys.modules` while its body executes so bootstrap helpers can
+        // reference it (e.g. importlib._bootstrap._setup).
+        register_module_hierarchy(name, module_value)
         let source = @fs.read_file_to_string(filename) catch {
-          _ =>
+          _ => {
+            module_cache_delete(name)
             return Err(
               make_runtime_error(
                 RuntimeErrorKind::Runtime,
                 "ImportError: cannot read file: " + filename,
               ),
             )
+          }
         }
         let config = current_config()
         let saved_closure_env_stack = closure_env_stack.val
         let saved_scope_decls_stack = scope_decls_stack.val
         closure_env_stack.val = []
         scope_decls_stack.val = []
+        let _ = match ensure_recursion_available() {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
         push_traceback_frame("<module>".to_string(), filename)
         let program = match parse(source) {
           Ok(v) => v
@@ -875,6 +1032,7 @@ fn call_callable_with_env(
             pop_traceback_frame()
             closure_env_stack.val = saved_closure_env_stack
             scope_decls_stack.val = saved_scope_decls_stack
+            module_cache_delete(name)
             return Err(make_parse_runtime_error(err))
           }
         }
@@ -900,6 +1058,7 @@ fn call_callable_with_env(
             pop_traceback_frame()
             closure_env_stack.val = saved_closure_env_stack
             scope_decls_stack.val = saved_scope_decls_stack
+            module_cache_delete(name)
             return Err(err)
           }
         }
@@ -1049,6 +1208,271 @@ fn call_callable_with_env(
                   )
                 }
                 match bound_method.function.name {
+                  "__getitem__" =>
+                    if positional.length() != 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__getitem__() takes exactly one argument".to_string(),
+                        ),
+                      )
+                    } else {
+                      let index_value = positional[0]
+                      match index_value {
+                        Value::Instance(slice_inst) =>
+                          if slice_inst.class.name == "slice" {
+                            let start_value = match
+                              get_named_value(slice_inst.dict, "start") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let end_value = match
+                              get_named_value(slice_inst.dict, "stop") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let step_value = match
+                              get_named_value(slice_inst.dict, "step") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let indices = match
+                              slice_indices_from_values(
+                                values.length(),
+                                start_value,
+                                end_value,
+                                step_value,
+                              ) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            return Ok(
+                              Value::List(
+                                slice_values_by_indices(values, indices),
+                              ),
+                            )
+                          } else {
+                            ()
+                          }
+                        _ => ()
+                      }
+                      let idx = match index_from_value(index_value, 0) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      let norm = normalize_index(idx, values.length())
+                      if norm < 0 || norm >= values.length() {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Index,
+                            "list index out of range".to_string(),
+                          ),
+                        )
+                      }
+                      return Ok(values[norm])
+                    }
+                  "__setitem__" =>
+                    if positional.length() != 2 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__setitem__() takes exactly two arguments".to_string(),
+                        ),
+                      )
+                    } else {
+                      let index_value = positional[0]
+                      let assigned = positional[1]
+                      match index_value {
+                        Value::Instance(slice_inst) =>
+                          if slice_inst.class.name == "slice" {
+                            let start_value = match
+                              get_named_value(slice_inst.dict, "start") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let end_value = match
+                              get_named_value(slice_inst.dict, "stop") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let step_value = match
+                              get_named_value(slice_inst.dict, "step") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let new_items = match iterable_values(assigned) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            let (start, end, step) = match
+                              slice_params_from_values(
+                                values.length(),
+                                start_value,
+                                end_value,
+                                step_value,
+                              ) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            if step == 1 {
+                              let merged : Array[Value] = []
+                              for i = 0; i < start; i = i + 1 {
+                                merged.push(values[i])
+                              }
+                              for item in new_items {
+                                merged.push(item)
+                              }
+                              for i = end; i < values.length(); i = i + 1 {
+                                merged.push(values[i])
+                              }
+                              replace_array_values(values, merged)
+                              return Ok(Value::None)
+                            } else {
+                              let indices = match
+                                slice_indices_from_values(
+                                  values.length(),
+                                  start_value,
+                                  end_value,
+                                  step_value,
+                                ) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              if new_items.length() != indices.length() {
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Runtime,
+                                    "ValueError: attempt to assign sequence of size " +
+                                    new_items.length().to_string() +
+                                    " to extended slice of size " +
+                                    indices.length().to_string(),
+                                  ),
+                                )
+                              }
+                              for i = 0; i < indices.length(); i = i + 1 {
+                                values[indices[i]] = new_items[i]
+                              }
+                              return Ok(Value::None)
+                            }
+                          } else {
+                            ()
+                          }
+                        _ => ()
+                      }
+                      let idx = match index_from_value(index_value, 0) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      let norm = normalize_index(idx, values.length())
+                      if norm < 0 || norm >= values.length() {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Index,
+                            "list assignment index out of range".to_string(),
+                          ),
+                        )
+                      }
+                      values[norm] = assigned
+                      return Ok(Value::None)
+                    }
+                  "__delitem__" =>
+                    if positional.length() != 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "__delitem__() takes exactly one argument".to_string(),
+                        ),
+                      )
+                    } else {
+                      let index_value = positional[0]
+                      match index_value {
+                        Value::Instance(slice_inst) =>
+                          if slice_inst.class.name == "slice" {
+                            let start_value = match
+                              get_named_value(slice_inst.dict, "start") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let end_value = match
+                              get_named_value(slice_inst.dict, "stop") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let step_value = match
+                              get_named_value(slice_inst.dict, "step") {
+                              Some(v) => v
+                              None => Value::None
+                            }
+                            let (_, _, step) = match
+                              slice_params_from_values(
+                                values.length(),
+                                start_value,
+                                end_value,
+                                step_value,
+                              ) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            if step == 1 {
+                              let (start, end, _) = match
+                                slice_params_from_values(
+                                  values.length(),
+                                  start_value,
+                                  end_value,
+                                  step_value,
+                                ) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              let merged : Array[Value] = []
+                              for i = 0; i < start; i = i + 1 {
+                                merged.push(values[i])
+                              }
+                              for i = end; i < values.length(); i = i + 1 {
+                                merged.push(values[i])
+                              }
+                              replace_array_values(values, merged)
+                              return Ok(Value::None)
+                            }
+                            let indices = match
+                              slice_indices_from_values(
+                                values.length(),
+                                start_value,
+                                end_value,
+                                step_value,
+                              ) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            // Remove from the end so indices stay valid.
+                            let mut i = indices.length()
+                            while i > 0 {
+                              i = i - 1
+                              let _ = values.remove(indices[i])
+
+                            }
+                            return Ok(Value::None)
+                          } else {
+                            ()
+                          }
+                        _ => ()
+                      }
+                      let idx = match index_from_value(index_value, 0) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      let norm = normalize_index(idx, values.length())
+                      if norm < 0 || norm >= values.length() {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Index,
+                            "list assignment index out of range".to_string(),
+                          ),
+                        )
+                      }
+                      let _ = values.remove(norm)
+                      return Ok(Value::None)
+                    }
                   "append" =>
                     if positional.length() != 1 {
                       return Err(
@@ -1303,52 +1727,92 @@ fn call_callable_with_env(
                       builtins : Array[(String, Value)],
                       io : MockIO,
                     ) -> Result[Bool, RuntimeError] {
+                      fn tuple_items_for_sort(v : Value) -> Array[Value]? {
+                        match v {
+                          Value::Tuple(items) => Some(items)
+                          Value::Instance(inst) =>
+                            match
+                              get_named_value(inst.dict, tuple_storage_name) {
+                              Some(Value::Tuple(items)) => Some(items)
+                              _ => None
+                            }
+                          _ => None
+                        }
+                      }
+
                       match (a, b) {
                         (Value::Str(x), Value::Str(y)) => Ok(x < y)
-                        (Value::Int(_) | Value::Float(_) | Value::Bool(_), _)
-                        | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
-                          let (_, left_num) = match number_value(a) {
-                            Ok(v) => v
-                            Err(err) => return Err(err)
-                          }
-                          let (_, right_num) = match number_value(b) {
-                            Ok(v) => v
-                            Err(err) => return Err(err)
-                          }
-                          Ok(left_num < right_num)
-                        }
-                        _ => {
-                          let lt = match
-                            get_attr_from_value(
-                              a, "__lt__", globals, builtins, io,
-                            ) {
-                            Ok(v) => v
-                            Err(err) =>
-                              match err.kind {
-                                RuntimeErrorKind::Attribute =>
-                                  return Err(
-                                    make_runtime_error(
-                                      RuntimeErrorKind::Type,
-                                      "sort() cannot compare values".to_string(),
-                                    ),
-                                  )
-                                _ => return Err(err)
+                        _ =>
+                          match
+                            (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
+                            (Some(xs), Some(ys)) =>
+                              match compare_sequence_values(xs, ys) {
+                                Ok(cmp) => Ok(cmp < 0)
+                                Err(err) => Err(err)
+                              }
+                            _ =>
+                              match (a, b) {
+                                (Value::List(xs), Value::List(ys)) =>
+                                  match compare_sequence_values(xs, ys) {
+                                    Ok(cmp) => Ok(cmp < 0)
+                                    Err(err) => Err(err)
+                                  }
+                                (
+                                  Value::Int(_)
+                                  | Value::Float(_)
+                                  | Value::Bool(_),
+                                  _,
+                                )
+                                | (
+                                  _,
+                                  Value::Int(_)
+                                  | Value::Float(_)
+                                  | Value::Bool(_),
+                                ) => {
+                                  let (_, left_num) = match number_value(a) {
+                                    Ok(v) => v
+                                    Err(err) => return Err(err)
+                                  }
+                                  let (_, right_num) = match number_value(b) {
+                                    Ok(v) => v
+                                    Err(err) => return Err(err)
+                                  }
+                                  Ok(left_num < right_num)
+                                }
+                                _ => {
+                                  let lt = match
+                                    get_attr_from_value(
+                                      a, "__lt__", globals, builtins, io,
+                                    ) {
+                                    Ok(v) => v
+                                    Err(err) =>
+                                      match err.kind {
+                                        RuntimeErrorKind::Attribute =>
+                                          return Err(
+                                            make_runtime_error(
+                                              RuntimeErrorKind::Type,
+                                              "sort() cannot compare values".to_string(),
+                                            ),
+                                          )
+                                        _ => return Err(err)
+                                      }
+                                  }
+                                  let result = match
+                                    call_callable_with_env(
+                                      lt,
+                                      [b],
+                                      [],
+                                      globals,
+                                      builtins,
+                                      io,
+                                    ) {
+                                    Ok(v) => v
+                                    Err(err) => return Err(err)
+                                  }
+                                  Ok(bool_from_value(result))
+                                }
                               }
                           }
-                          let result = match
-                            call_callable_with_env(
-                              lt,
-                              [b],
-                              [],
-                              globals,
-                              builtins,
-                              io,
-                            ) {
-                            Ok(v) => v
-                            Err(err) => return Err(err)
-                          }
-                          Ok(bool_from_value(result))
-                        }
                       }
                     }
 
@@ -3249,6 +3713,9 @@ fn call_callable_with_env(
                         ),
                       )
                     }
+                    if maxsplit == 0 {
+                      return Ok(Value::List([Value::Str(text)]))
+                    }
                     let raw_parts : Array[String] = []
                     for part in text.split(sep) {
                       raw_parts.push(part.to_string())
@@ -3261,12 +3728,14 @@ fn call_callable_with_env(
                       return Ok(Value::List(parts))
                     }
                     let parts : Array[Value] = []
-                    for i = 0; i <= maxsplit; i = i + 1 {
+                    // `maxsplit` is "maximum number of splits", so the result
+                    // should contain at most `maxsplit + 1` pieces.
+                    for i = 0; i < maxsplit; i = i + 1 {
                       parts.push(Value::Str(raw_parts[i]))
                     }
                     let builder = StringBuilder::new()
                     let mut first_tail = true
-                    for i = maxsplit + 1; i < raw_parts.length(); i = i + 1 {
+                    for i = maxsplit; i < raw_parts.length(); i = i + 1 {
                       if !first_tail {
                         builder.write_string(sep)
                       }
@@ -3538,7 +4007,9 @@ fn call_callable_with_env(
               }
               "format" => {
                 let formatted = match
-                  format_string_with_args(text, positional, keywords) {
+                  format_string_with_args(
+                    text, positional, keywords, globals, builtins, io,
+                  ) {
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
@@ -3720,6 +4191,110 @@ fn call_callable_with_env(
                 let item = values.remove(idx)
                 return Ok(item)
               }
+              "__setitem__" =>
+                if positional.length() != 2 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "__setitem__() takes exactly two arguments".to_string(),
+                    ),
+                  )
+                } else {
+                  let index_value = positional[0]
+                  let assigned = positional[1]
+                  match index_value {
+                    Value::Instance(slice_inst) =>
+                      if slice_inst.class.name == "slice" {
+                        let start_value = match
+                          get_named_value(slice_inst.dict, "start") {
+                          Some(v) => v
+                          None => Value::None
+                        }
+                        let end_value = match
+                          get_named_value(slice_inst.dict, "stop") {
+                          Some(v) => v
+                          None => Value::None
+                        }
+                        let step_value = match
+                          get_named_value(slice_inst.dict, "step") {
+                          Some(v) => v
+                          None => Value::None
+                        }
+                        let new_items = match iterable_values(assigned) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        let (start, end, step) = match
+                          slice_params_from_values(
+                            values.length(),
+                            start_value,
+                            end_value,
+                            step_value,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        if step == 1 {
+                          let merged : Array[Value] = []
+                          for i = 0; i < start; i = i + 1 {
+                            merged.push(values[i])
+                          }
+                          for item in new_items {
+                            merged.push(item)
+                          }
+                          for i = end; i < values.length(); i = i + 1 {
+                            merged.push(values[i])
+                          }
+                          replace_array_values(values, merged)
+                          return Ok(Value::None)
+                        } else {
+                          let indices = match
+                            slice_indices_from_values(
+                              values.length(),
+                              start_value,
+                              end_value,
+                              step_value,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          if new_items.length() != indices.length() {
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "ValueError: attempt to assign sequence of size " +
+                                new_items.length().to_string() +
+                                " to extended slice of size " +
+                                indices.length().to_string(),
+                              ),
+                            )
+                          }
+                          for i = 0; i < indices.length(); i = i + 1 {
+                            values[indices[i]] = new_items[i]
+                          }
+                          return Ok(Value::None)
+                        }
+                      } else {
+                        ()
+                      }
+                    _ => ()
+                  }
+                  let idx = match index_from_value(index_value, 0) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  let norm = normalize_index(idx, values.length())
+                  if norm < 0 || norm >= values.length() {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Index,
+                        "list assignment index out of range".to_string(),
+                      ),
+                    )
+                  }
+                  values[norm] = assigned
+                  return Ok(Value::None)
+                }
               "copy" =>
                 if positional.length() != 0 {
                   return Err(
@@ -3807,50 +4382,86 @@ fn call_callable_with_env(
                   builtins : Array[(String, Value)],
                   io : MockIO,
                 ) -> Result[Bool, RuntimeError] {
+                  fn tuple_items_for_sort(v : Value) -> Array[Value]? {
+                    match v {
+                      Value::Tuple(items) => Some(items)
+                      Value::Instance(inst) =>
+                        match get_named_value(inst.dict, tuple_storage_name) {
+                          Some(Value::Tuple(items)) => Some(items)
+                          _ => None
+                        }
+                      _ => None
+                    }
+                  }
+
                   match (a, b) {
                     (Value::Str(x), Value::Str(y)) => Ok(x < y)
-                    (Value::Int(_) | Value::Float(_) | Value::Bool(_), _)
-                    | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
-                      let (_, left_num) = match number_value(a) {
-                        Ok(v) => v
-                        Err(err) => return Err(err)
-                      }
-                      let (_, right_num) = match number_value(b) {
-                        Ok(v) => v
-                        Err(err) => return Err(err)
-                      }
-                      Ok(left_num < right_num)
-                    }
-                    _ => {
-                      let lt = match
-                        get_attr_from_value(a, "__lt__", globals, builtins, io) {
-                        Ok(v) => v
-                        Err(err) =>
-                          match err.kind {
-                            RuntimeErrorKind::Attribute =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Type,
-                                  "sort() cannot compare values".to_string(),
-                                ),
-                              )
-                            _ => return Err(err)
+                    _ =>
+                      match (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
+                        (Some(xs), Some(ys)) =>
+                          match compare_sequence_values(xs, ys) {
+                            Ok(cmp) => Ok(cmp < 0)
+                            Err(err) => Err(err)
+                          }
+                        _ =>
+                          match (a, b) {
+                            (Value::List(xs), Value::List(ys)) =>
+                              match compare_sequence_values(xs, ys) {
+                                Ok(cmp) => Ok(cmp < 0)
+                                Err(err) => Err(err)
+                              }
+                            (Value::Int(_) | Value::Float(_) | Value::Bool(_), _
+                            )
+                            | (
+                              _,
+                              Value::Int(_)
+                              | Value::Float(_)
+                              | Value::Bool(_),
+                            ) => {
+                              let (_, left_num) = match number_value(a) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              let (_, right_num) = match number_value(b) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              Ok(left_num < right_num)
+                            }
+                            _ => {
+                              let lt = match
+                                get_attr_from_value(
+                                  a, "__lt__", globals, builtins, io,
+                                ) {
+                                Ok(v) => v
+                                Err(err) =>
+                                  match err.kind {
+                                    RuntimeErrorKind::Attribute =>
+                                      return Err(
+                                        make_runtime_error(
+                                          RuntimeErrorKind::Type,
+                                          "sort() cannot compare values".to_string(),
+                                        ),
+                                      )
+                                    _ => return Err(err)
+                                  }
+                              }
+                              let result = match
+                                call_callable_with_env(
+                                  lt,
+                                  [b],
+                                  [],
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(v) => v
+                                Err(err) => return Err(err)
+                              }
+                              Ok(bool_from_value(result))
+                            }
                           }
                       }
-                      let result = match
-                        call_callable_with_env(
-                          lt,
-                          [b],
-                          [],
-                          globals,
-                          builtins,
-                          io,
-                        ) {
-                        Ok(v) => v
-                        Err(err) => return Err(err)
-                      }
-                      Ok(bool_from_value(result))
-                    }
                   }
                 }
 
@@ -4699,6 +5310,99 @@ fn call_callable_with_env(
 
                   }
                 }
+                return Ok(Value::None)
+              }
+              "intersection" =>
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "intersection() takes exactly one argument".to_string(),
+                    ),
+                  )
+                } else {
+                  let other_values : Array[Value] = []
+                  let iterator = match
+                    iter_value_to_iterator(positional[0], globals, builtins, io) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  while true {
+                    match iterator_next(iterator, None, globals, builtins, io) {
+                      Ok(item) =>
+                        match set_add_unique(other_values, item) {
+                          Ok(_) => ()
+                          Err(err) => return Err(err)
+                        }
+                      Err(err) =>
+                        if err.exc_type == "StopIteration" {
+                          break
+                        } else {
+                          return Err(err)
+                        }
+                    }
+                  }
+                  let out : Array[Value] = []
+                  for item in values {
+                    let index = match set_find_index(other_values, item) {
+                      Ok(v) => v
+                      Err(err) => return Err(err)
+                    }
+                    if index is Some(_) {
+                      let _ = match set_add_unique(out, item) {
+                        Ok(_) => ()
+                        Err(err) => return Err(err)
+                      }
+
+                    }
+                  }
+                  return Ok(Value::Set(out))
+                }
+              "intersection_update" => {
+                if positional.length() != 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "intersection_update() takes exactly one argument".to_string(),
+                    ),
+                  )
+                }
+                let other_values : Array[Value] = []
+                let iterator = match
+                  iter_value_to_iterator(positional[0], globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                while true {
+                  match iterator_next(iterator, None, globals, builtins, io) {
+                    Ok(item) =>
+                      match set_add_unique(other_values, item) {
+                        Ok(_) => ()
+                        Err(err) => return Err(err)
+                      }
+                    Err(err) =>
+                      if err.exc_type == "StopIteration" {
+                        break
+                      } else {
+                        return Err(err)
+                      }
+                  }
+                }
+                let next : Array[Value] = []
+                for item in values {
+                  let index = match set_find_index(other_values, item) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  if index is Some(_) {
+                    let _ = match set_add_unique(next, item) {
+                      Ok(_) => ()
+                      Err(err) => return Err(err)
+                    }
+
+                  }
+                }
+                replace_array_values(values, next)
                 return Ok(Value::None)
               }
               "issuperset" =>
@@ -5647,6 +6351,7 @@ fn call_callable_with_env(
           exception_tuple.push(item)
         }
         let dict : Array[(String, Value)] = []
+        dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
         dict.push(("__traceback__", Value::None))
         dict.push(
           ("args", Value::Tuple([message, Value::Tuple(exception_tuple)])),
@@ -5656,17 +6361,43 @@ fn call_callable_with_env(
         dict.push(("__suppress_context__", Value::Bool(false)))
         dict.push(("message", message))
         dict.push(("exceptions", Value::List(exceptions)))
-        return Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        gc_register_instance(inst_value)
+        return Ok(inst_value)
       }
       // Minimal exception instance payload for any BaseException subclass.
       // This is relied upon by the CPython stdlib (e.g. abc/unittest) for custom
       // exception classes like `class CustomError(Exception): ...`.
+      if klass.name == "module" {
+        // `types.ModuleType(name, doc=None)` expects a module object with at
+        // least `__name__` present.
+        let name = match positional {
+          [Value::Str(text), ..] => text
+          _ => "<module>".to_string()
+        }
+        let doc_value = match positional {
+          [_, Value::None, ..] => Value::None
+          [_, v, ..] => v
+          _ => Value::None
+        }
+        let dict : Array[(String, Value)] = []
+        dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+        dict.push(("__name__", Value::Str(name)))
+        dict.push(("__doc__", doc_value))
+        dict.push(("__package__", Value::Str("")))
+        dict.push(("__loader__", Value::None))
+        dict.push(("__spec__", Value::None))
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        gc_register_instance(inst_value)
+        return Ok(inst_value)
+      }
       let ok = match is_base_exception_class(klass) {
         Ok(v) => v
         Err(err) => return Err(err)
       }
       if ok {
         let dict : Array[(String, Value)] = []
+        dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
         dict.push(("__traceback__", Value::None))
         dict.push(("args", Value::Tuple(positional)))
         dict.push(("__cause__", Value::None))
@@ -5674,6 +6405,14 @@ fn call_callable_with_env(
         dict.push(("__suppress_context__", Value::Bool(false)))
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
+        }
+        if klass.name == "SystemExit" {
+          let code = if positional.length() > 0 {
+            positional[0]
+          } else {
+            Value::None
+          }
+          dict.push(("code", code))
         }
         if klass.name == "StopIteration" || klass.name == "StopAsyncIteration" {
           let value = if positional.length() > 0 {
@@ -5684,6 +6423,7 @@ fn call_callable_with_env(
           dict.push(("value", value))
         }
         let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        gc_register_instance(inst_value)
         // Respect custom exception __init__ implementations (e.g. regrtest's
         // TestFailedWithDetails sets extra fields like `.errors`).
         let init = match lookup_class_attr(klass, "__init__") {
@@ -5728,6 +6468,7 @@ fn call_callable_with_env(
             Ok(v) => v
             Err(err) => return Err(err)
           }
+          gc_register_instance(created)
           inst_value_opt = Some(created)
         }
         None => ()
@@ -5740,13 +6481,21 @@ fn call_callable_with_env(
         Some(value) => value
         None => {
           let inst_dict : Array[(String, Value)] = []
+          // Instances default to identity semantics (and are hashable) unless a
+          // custom __eq__/__hash__ is provided. Track a unique per-object id.
+          inst_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
           if class_includes_list(klass) {
             inst_dict.push((list_storage_name, Value::List([])))
           }
           if class_includes_dict(klass) {
             inst_dict.push((dict_storage_name, Value::Dict([])))
           }
-          Value::Instance(InstanceValue::{ class: klass, dict: inst_dict })
+          let inst_value = Value::Instance(InstanceValue::{
+            class: klass,
+            dict: inst_dict,
+          })
+          gc_register_instance(inst_value)
+          inst_value
         }
       }
       match inst_value {

@@ -61,6 +61,7 @@ pub(all) enum BcOp {
 
   // Unpacking.
   UnpackSequence(Int) // count; pops iterable and pushes items (reversed) for STORE
+  UnpackEx(Int, Int) // before, after; pops iterable and pushes items + list-rest (reversed) for STORE
 
   // Iteration (MicroPython-style).
   GetIter
@@ -284,6 +285,8 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::ListToTuple => "ListToTuple"
     BcOp::EvalFString => "EvalFString"
     BcOp::UnpackSequence(n) => "UnpackSequence(" + n.to_string() + ")"
+    BcOp::UnpackEx(before, after) =>
+      "UnpackEx(" + before.to_string() + ", " + after.to_string() + ")"
     BcOp::GetIter => "GetIter"
     BcOp::ForIter(pc) => "ForIter(" + pc.to_string() + ")"
     BcOp::Unary(u) => "Unary(" + unary_repr(u) + ")"

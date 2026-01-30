@@ -279,6 +279,54 @@ fn builtin_math_trunc(
 }
 
 ///|
+fn builtin_math_modf(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+  let _ = match ensure_no_keywords("math.modf", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.modf() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let (_, x) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if x.is_nan() {
+    return Ok(Value::Tuple([Value::Float(x), Value::Float(x)]))
+  }
+  if x.is_inf() {
+    let frac = if x < 0.0 { -0.0 } else { 0.0 }
+    return Ok(Value::Tuple([Value::Float(frac), Value::Float(x)]))
+  }
+  let int_part = @math.trunc(x)
+  let mut frac = x - int_part
+  // CPython preserves the sign of zero in the fractional part.
+  if frac == 0.0 {
+    let sign_is_neg = x < 0.0 ||
+      (x == 0.0 && (1.0 / x).is_inf() && 1.0 / x < 0.0)
+    frac = if sign_is_neg { -0.0 } else { 0.0 }
+  }
+  Ok(Value::Tuple([Value::Float(frac), Value::Float(int_part)]))
+}
+
+///|
 fn builtin_math_frexp(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -917,6 +965,130 @@ fn builtin_math_isinf(
         ),
       )
   }
+}
+
+///|
+fn builtin_math_isclose(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = locals
+  let _ = globals
+  let _ = builtins
+  let _ = io
+
+  // Signature: isclose(a, b, *, rel_tol=1e-09, abs_tol=0.0)
+  if positional.length() < 2 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "math.isclose() takes 2 positional arguments but " +
+        positional.length().to_string() +
+        " were given".to_string(),
+      ),
+    )
+  }
+  let (_, a) = match number_value(positional[0]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let (_, b) = match number_value(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let mut rel_tol : Double = 0.000000001
+  let mut abs_tol : Double = 0.0
+  let mut has_kw_rel = false
+  let mut has_kw_abs = false
+  if positional.length() >= 3 {
+    let (_, v) = match number_value(positional[2]) {
+      Ok(x) => x
+      Err(err) => return Err(err)
+    }
+    rel_tol = v
+  }
+  if positional.length() >= 4 {
+    let (_, v) = match number_value(positional[3]) {
+      Ok(x) => x
+      Err(err) => return Err(err)
+    }
+    abs_tol = v
+  }
+  for kv in keywords {
+    match kv.0 {
+      "rel_tol" => {
+        if positional.length() >= 3 || has_kw_rel {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "math.isclose() got multiple values for argument 'rel_tol'".to_string(),
+            ),
+          )
+        }
+        let (_, v) = match number_value(kv.1) {
+          Ok(x) => x
+          Err(err) => return Err(err)
+        }
+        rel_tol = v
+        has_kw_rel = true
+      }
+      "abs_tol" => {
+        if positional.length() >= 4 || has_kw_abs {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "math.isclose() got multiple values for argument 'abs_tol'".to_string(),
+            ),
+          )
+        }
+        let (_, v) = match number_value(kv.1) {
+          Ok(x) => x
+          Err(err) => return Err(err)
+        }
+        abs_tol = v
+        has_kw_abs = true
+      }
+      _ =>
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "math.isclose() got an unexpected keyword argument '" + kv.0 + "'",
+          ),
+        )
+    }
+  }
+  if rel_tol < 0.0 || abs_tol < 0.0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: tolerances must be non-negative".to_string(),
+      ),
+    )
+  }
+
+  // Per CPython semantics:
+  // - NaN is never close to anything (including itself).
+  // - infinities are only close if equal.
+  if a.is_nan() || b.is_nan() {
+    return Ok(Value::Bool(false))
+  }
+  if a == b {
+    return Ok(Value::Bool(true))
+  }
+  if a.is_inf() || b.is_inf() {
+    return Ok(Value::Bool(false))
+  }
+  let diff = if a > b { a - b } else { b - a }
+  let abs_a = if a < 0.0 { -a } else { a }
+  let abs_b = if b < 0.0 { -b } else { b }
+  let max_ab = if abs_a > abs_b { abs_a } else { abs_b }
+  let tol = if rel_tol * max_ab > abs_tol { rel_tol * max_ab } else { abs_tol }
+  Ok(Value::Bool(diff <= tol))
 }
 
 ///|

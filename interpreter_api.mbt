@@ -281,13 +281,17 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(object_class)],
     dict: [],
   }
+  let ellipsis_dict : Array[(String, Value)] = []
+  ellipsis_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+  let not_implemented_dict : Array[(String, Value)] = []
+  not_implemented_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   let ellipsis_value = Value::Instance(InstanceValue::{
     class: ellipsis_class,
-    dict: [],
+    dict: ellipsis_dict,
   })
   let not_implemented_value = Value::Instance(InstanceValue::{
     class: not_implemented_class,
-    dict: [],
+    dict: not_implemented_dict,
   })
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
@@ -310,6 +314,34 @@ pub fn Interpreter::new_spec() -> Interpreter {
       Value::Function(FunctionValue::{
         name: "__setstate__",
         params: ["self", "state"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "__reduce_ex__",
+      Value::Function(FunctionValue::{
+        name: "__reduce_ex__",
+        params: ["self", "protocol"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "__reduce__",
+      Value::Function(FunctionValue::{
+        name: "__reduce__",
+        params: ["self"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -775,13 +807,17 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     bases: [Value::Class(object_class)],
     dict: [],
   }
+  let ellipsis_dict : Array[(String, Value)] = []
+  ellipsis_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+  let not_implemented_dict : Array[(String, Value)] = []
+  not_implemented_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   let ellipsis_value = Value::Instance(InstanceValue::{
     class: ellipsis_class,
-    dict: [],
+    dict: ellipsis_dict,
   })
   let not_implemented_value = Value::Instance(InstanceValue::{
     class: not_implemented_class,
-    dict: [],
+    dict: not_implemented_dict,
   })
   let base_exception_dict : Array[(String, Value)] = []
   base_exception_dict.push(
@@ -1366,6 +1402,10 @@ pub fn Interpreter::exec(
     Some(path) => path
     None => "<module>".to_string()
   }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
   push_traceback_frame("<module>".to_string(), filename)
   // Execute via the bytecode pipeline. If compilation fails, surface the error
   // directly so we don't silently fall back and hide bytecode compiler gaps.
@@ -1459,6 +1499,10 @@ pub fn Interpreter::eval_source(
   let filename = match self.config.main_path {
     Some(path) => path
     None => "<expr>".to_string()
+  }
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
   }
   push_traceback_frame("<expr>".to_string(), filename)
   push_active_config(self.config)

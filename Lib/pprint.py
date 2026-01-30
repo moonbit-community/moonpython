@@ -292,7 +292,22 @@ class PrettyPrinter:
                 chunks.append(rep)
             else:
                 # A list of alternating (non-space, space) strings
-                parts = re.findall(r'\S*\s*', line)
+                try:
+                    parts = re.findall(r'\S*\s*', line)
+                except NotImplementedError:
+                    # moonpython: `re` may be unavailable. Fall back to a small
+                    # splitter equivalent to `re.findall(r'\\S*\\s*', line)`.
+                    parts = []
+                    n = len(line)
+                    pos = 0
+                    while pos < n:
+                        start = pos
+                        while pos < n and not line[pos].isspace():
+                            pos += 1
+                        while pos < n and line[pos].isspace():
+                            pos += 1
+                        parts.append(line[start:pos])
+                    parts.append('')
                 assert parts
                 assert not parts[-1]
                 parts.pop()  # drop empty last part

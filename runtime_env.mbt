@@ -11,6 +11,12 @@ let dict_storage_name = "$__mpython_dict__"
 let int_storage_name = "$__int__"
 
 ///|
+let tuple_storage_name = "$__tuple__"
+
+///|
+let firstlineno_capture_name = "$__mpython_firstlineno__"
+
+///|
 fn is_builtin_class_name(name : String) -> Bool {
   match name {
     "bool"
@@ -968,7 +974,10 @@ fn is_cell_value(value : Value) -> Bool {
 fn cell_new(value : Value) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "cell", bases: [], dict: [] },
-    dict: [("value", value)],
+    dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
+      ("value", value),
+    ],
   })
 }
 
@@ -976,7 +985,7 @@ fn cell_new(value : Value) -> Value {
 fn cell_new_unbound() -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "cell", bases: [], dict: [] },
-    dict: [],
+    dict: [("hashvalue", Value::Int(fresh_object_hashvalue()))],
   })
 }
 

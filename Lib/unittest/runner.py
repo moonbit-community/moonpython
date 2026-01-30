@@ -190,6 +190,22 @@ class TextTestRunner(object):
         if resultclass is not None:
             self.resultclass = resultclass
 
+    # Pickling support.
+    #
+    # MoonPython's default object pickling ends up trying to pickle the internal
+    # `_WritelnDecorator` wrapper (runner.stream), which isn't constructible
+    # without a `stream` argument. Provide an explicit reduce that reconstructs
+    # the runner from the underlying stream and then reapplies the remaining
+    # attributes.
+    def __reduce_ex__(self, protocol):
+        raw_stream = getattr(self.stream, "stream", self.stream)
+        state = dict(self.__dict__)
+        state.pop("stream", None)
+        return (self.__class__, (raw_stream,), state)
+
+    def __reduce__(self):
+        return self.__reduce_ex__(0)
+
     def _makeResult(self):
         try:
             return self.resultclass(self.stream, self.descriptions,

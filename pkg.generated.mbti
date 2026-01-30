@@ -89,6 +89,7 @@ pub(all) enum BcOp {
   ListToTuple
   EvalFString
   UnpackSequence(Int)
+  UnpackEx(Int, Int)
   GetIter
   ForIter(Int)
   Unary(UnaryOp)

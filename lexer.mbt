@@ -360,7 +360,9 @@ fn parse_hex_sequence(
 
 ///|
 fn is_valid_codepoint(value : Int) -> Bool {
-  value >= 0 && value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)
+  // CPython allows surrogate code points in string literals (e.g. "\uDC80"),
+  // but still rejects values outside the Unicode range.
+  value >= 0 && value <= 0x10FFFF
 }
 
 ///|

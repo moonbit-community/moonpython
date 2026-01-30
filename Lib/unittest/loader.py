@@ -1,5 +1,6 @@
 """Loading unittests."""
 
+import builtins
 import os
 import re
 import sys
@@ -25,6 +26,14 @@ class _FailedTest(case.TestCase):
     def __init__(self, method_name, exception):
         self._exception = exception
         super(_FailedTest, self).__init__(method_name)
+
+    # Include the stored exception when pickling so that unpickling can
+    # reconstruct the instance with the expected __init__ signature.
+    def __reduce__(self):
+        return (self.__class__, (self._testMethodName, self._exception))
+
+    def __reduce_ex__(self, protocol):
+        return self.__reduce__()
 
     def __getattr__(self, name):
         if name != self._testMethodName:
@@ -54,6 +63,14 @@ def _make_skipped_test(methodname, exception, suiteClass):
         pass
     attrs = {methodname: testSkipped}
     TestClass = type("ModuleSkipped", (case.TestCase,), attrs)
+    # MoonPython note:
+    # Dynamic class creation via `type(...)` doesn't currently trigger
+    # TestCase.__init_subclass__(), which normally sets these attributes.
+    # unittest expects them to exist (e.g. for suite cleanup bookkeeping).
+    if not hasattr(TestClass, '_classSetupFailed'):
+        TestClass._classSetupFailed = False
+    if not hasattr(TestClass, '_class_cleanups'):
+        TestClass._class_cleanups = []
     return suiteClass((TestClass(methodname),))
 
 def _splitext(path):
@@ -281,7 +298,7 @@ class TestLoader(object):
         else:
             # support for discovery from dotted module names
             try:
-                __import__(start_dir)
+                builtins.__import__(start_dir)
             except ImportError:
                 is_not_importable = True
             else:
@@ -336,7 +353,7 @@ class TestLoader(object):
         return name
 
     def _get_module_from_name(self, name):
-        __import__(name)
+        builtins.__import__(name)
         return sys.modules[name]
 
     def _match_path(self, path, full_path, pattern):

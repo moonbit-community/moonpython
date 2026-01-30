@@ -654,64 +654,75 @@ fn LineParser::parse_block(
       let header_text = substring(full_line_text, 10, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
-
-      // Parse just the first context manager expression.
       let mut item_text = header_text
       if item_text.has_prefix("(") && item_text.has_suffix(")") {
         item_text = substring(item_text, 1, item_text.length() - 1).to_string()
       }
-      let mut first_item = item_text.trim(chars=" \t\n\r").to_string()
-      match first_top_level_comma_pos(first_item) {
-        Some(pos) =>
-          first_item = substring(first_item, 0, pos)
-            .trim(chars=" \t\n\r")
-            .to_string()
-        None => ()
-      }
-      let mut context_text = first_item.trim(chars=" \t\n\r").to_string()
-      let mut target : String? = None
-      match find_top_level_as_pos(first_item) {
-        Some(pos) => {
-          context_text = substring(first_item, 0, pos)
-            .trim(chars=" \t\n\r")
-            .to_string()
-          let mut name_text = substring(
-              first_item,
-              pos + 2,
-              first_item.length(),
-            )
-            .trim(chars=" \t\n\r")
-            .to_string()
-          let comma_pos = find_char(name_text, ',')
-          if comma_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos)
-              .trim(chars=" \t")
-              .to_string()
-          }
-          let close_pos = find_char(name_text, ')')
-          if close_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos)
-              .trim(chars=" \t")
-              .to_string()
-          }
-          if name_text.length() > 0 {
-            target = Some(name_text)
-          }
+      let with_items : Array[(Expr, String?)] = []
+      for raw_item in split_top_level_commas(item_text) {
+        let item = raw_item.trim(chars=" \t\n\r").to_string()
+        if item.length() == 0 {
+          // Allow trailing commas inside `async with (...)`.
+          continue
         }
-        None => ()
+        let mut context_text = item
+        let mut target : String? = None
+        match find_top_level_as_pos(item) {
+          Some(pos) => {
+            context_text = substring(item, 0, pos)
+              .trim(chars=" \t\n\r")
+              .to_string()
+            let mut name_text = substring(item, pos + 2, item.length())
+              .trim(chars=" \t\n\r")
+              .to_string()
+            let comma_pos = find_char(name_text, ',')
+            if comma_pos is Some(pos) {
+              name_text = substring(name_text, 0, pos)
+                .trim(chars=" \t")
+                .to_string()
+            }
+            let close_pos = find_char(name_text, ')')
+            if close_pos is Some(pos) {
+              name_text = substring(name_text, 0, pos)
+                .trim(chars=" \t")
+                .to_string()
+            }
+            if name_text.length() > 0 {
+              target = Some(name_text)
+            }
+          }
+          None => ()
+        }
+        let context_tokens = match
+          tokenize_expr(
+            context_text,
+            self.index + 1,
+            self.offsets[self.index] + current_indent + 10,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let context = match parse_tokens_expr(context_tokens) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        with_items.push((context, target))
       }
-      let context_tokens = match
-        tokenize_expr(
-          context_text,
-          self.index + 1,
-          self.offsets[self.index] + current_indent + 10,
-        ) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let context = match parse_tokens_expr(context_tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      if with_items.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
       }
       let body_text = substring(
           full_line_text,
@@ -740,14 +751,19 @@ fn LineParser::parse_block(
         for stmt in parsed {
           body.push(stmt)
         }
-        stmts.push(
-          wrap_stmt_for_line(
-            self.offsets,
-            line_index,
-            current_indent,
-            Stmt::AsyncWith(context~, target~, body~),
-          ),
-        )
+        let mut nested_body = body
+        for i = with_items.length() - 1; i >= 0; i = i - 1 {
+          let (context, target) = with_items[i]
+          nested_body = [
+            wrap_stmt_for_line(
+              self.offsets,
+              line_index,
+              current_indent,
+              Stmt::AsyncWith(context~, target~, body=nested_body),
+            ),
+          ]
+        }
+        stmts.push(nested_body[0])
         self.index = header_end_index
         continue
       }
@@ -776,14 +792,19 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(
-        wrap_stmt_for_line(
-          self.offsets,
-          line_index,
-          current_indent,
-          Stmt::AsyncWith(context~, target~, body~),
-        ),
-      )
+      let mut nested_body = body
+      for i = with_items.length() - 1; i >= 0; i = i - 1 {
+        let (context, target) = with_items[i]
+        nested_body = [
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::AsyncWith(context~, target~, body=nested_body),
+          ),
+        ]
+      }
+      stmts.push(nested_body[0])
       continue
     }
     let (handled, next_pending, next_token) = match
@@ -2369,9 +2390,6 @@ fn LineParser::parse_block(
       let header_text = substring(full_line_text, 4, colon_pos.unwrap())
         .trim(chars=" \t")
         .to_string()
-
-      // Parse just the first context manager expression, so we can reach
-      // expected runtime errors (e.g. NameError for `A()` in spec tests).
       let mut item_text = header_text
       match find_top_level_paren_span(item_text) {
         Some(span) =>
@@ -2380,58 +2398,71 @@ fn LineParser::parse_block(
           }
         None => ()
       }
-      let mut first_item = item_text.trim(chars=" \t\n\r").to_string()
-      match first_top_level_comma_pos(first_item) {
-        Some(pos) =>
-          first_item = substring(first_item, 0, pos)
-            .trim(chars=" \t\n\r")
-            .to_string()
-        None => ()
-      }
-      let mut context_text = first_item.trim(chars=" \t\n\r").to_string()
-      let mut target : String? = None
-      match find_top_level_as_pos(first_item) {
-        Some(pos) => {
-          context_text = substring(first_item, 0, pos)
-            .trim(chars=" \t\n\r")
-            .to_string()
-          let mut name_text = substring(
-              first_item,
-              pos + 2,
-              first_item.length(),
-            )
-            .trim(chars=" \t\n\r")
-            .to_string()
-          let comma_pos = find_char(name_text, ',')
-          if comma_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos)
-              .trim(chars=" \t")
-              .to_string()
-          }
-          let close_pos = find_char(name_text, ')')
-          if close_pos is Some(pos) {
-            name_text = substring(name_text, 0, pos)
-              .trim(chars=" \t")
-              .to_string()
-          }
-          if name_text.length() > 0 {
-            target = Some(name_text)
-          }
+      let with_items : Array[(Expr, String?)] = []
+      for raw_item in split_top_level_commas(item_text) {
+        let item = raw_item.trim(chars=" \t\n\r").to_string()
+        if item.length() == 0 {
+          // Allow trailing commas inside `with (...)`.
+          continue
         }
-        None => ()
+        let mut context_text = item
+        let mut target : String? = None
+        match find_top_level_as_pos(item) {
+          Some(pos) => {
+            context_text = substring(item, 0, pos)
+              .trim(chars=" \t\n\r")
+              .to_string()
+            let mut name_text = substring(item, pos + 2, item.length())
+              .trim(chars=" \t\n\r")
+              .to_string()
+            let comma_pos = find_char(name_text, ',')
+            if comma_pos is Some(pos) {
+              name_text = substring(name_text, 0, pos)
+                .trim(chars=" \t")
+                .to_string()
+            }
+            let close_pos = find_char(name_text, ')')
+            if close_pos is Some(pos) {
+              name_text = substring(name_text, 0, pos)
+                .trim(chars=" \t")
+                .to_string()
+            }
+            if name_text.length() > 0 {
+              target = Some(name_text)
+            }
+          }
+          None => ()
+        }
+        let context_tokens = match
+          tokenize_expr(
+            context_text,
+            self.index + 1,
+            self.offsets[self.index] + current_indent + 4,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        let context = match parse_tokens_expr(context_tokens) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        with_items.push((context, target))
       }
-      let context_tokens = match
-        tokenize_expr(
-          context_text,
-          self.index + 1,
-          self.offsets[self.index] + current_indent + 4,
-        ) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let context = match parse_tokens_expr(context_tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      if with_items.length() == 0 {
+        let token = {
+          kind: Eof,
+          start: self.offsets[self.index] + current_indent,
+          end: self.offsets[self.index] + current_indent + 1,
+          line: self.index + 1,
+          column: 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
       }
       let body_text = substring(
           full_line_text,
@@ -2469,14 +2500,19 @@ fn LineParser::parse_block(
             body.push(stmt)
           }
         }
-        stmts.push(
-          wrap_stmt_for_line(
-            self.offsets,
-            line_index,
-            current_indent,
-            Stmt::With(context~, target~, body~),
-          ),
-        )
+        let mut nested_body = body
+        for i = with_items.length() - 1; i >= 0; i = i - 1 {
+          let (context, target) = with_items[i]
+          nested_body = [
+            wrap_stmt_for_line(
+              self.offsets,
+              line_index,
+              current_indent,
+              Stmt::With(context~, target~, body=nested_body),
+            ),
+          ]
+        }
+        stmts.push(nested_body[0])
         self.index = header_end_index
         continue
       }
@@ -2505,14 +2541,19 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      stmts.push(
-        wrap_stmt_for_line(
-          self.offsets,
-          line_index,
-          current_indent,
-          Stmt::With(context~, target~, body~),
-        ),
-      )
+      let mut nested_body = body
+      for i = with_items.length() - 1; i >= 0; i = i - 1 {
+        let (context, target) = with_items[i]
+        nested_body = [
+          wrap_stmt_for_line(
+            self.offsets,
+            line_index,
+            current_indent,
+            Stmt::With(context~, target~, body=nested_body),
+          ),
+        ]
+      }
+      stmts.push(nested_body[0])
       continue
     }
     let segments = split_statements(line_text)

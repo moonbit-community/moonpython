@@ -424,6 +424,18 @@ class TestCase(object):
         self.addTypeEqualityFunc(frozenset, 'assertSetEqual')
         self.addTypeEqualityFunc(str, 'assertMultiLineEqual')
 
+    # Pickling support.
+    #
+    # MoonPython's object pickling currently doesn't infer constructor args for
+    # TestCase instances. unittest expects discovery results to be picklable,
+    # so provide an explicit reduce that reconstructs the test with its method
+    # name.
+    def __reduce__(self):
+        return (self.__class__, (self._testMethodName,))
+
+    def __reduce_ex__(self, protocol):
+        return self.__reduce__()
+
     def addTypeEqualityFunc(self, typeobj, function):
         """Add a type specific assertEqual style function to compare a type.
 

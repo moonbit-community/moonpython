@@ -575,6 +575,16 @@ class Pattern:
 def compile(pattern, flags=0):
     if isinstance(pattern, Pattern):
         return pattern
+    if isinstance(pattern, str) and pattern.startswith("(?s:") and pattern.endswith(r")\Z"):
+        # Common output of fnmatch.translate(): `(?s:...)\Z`.
+        # Normalize a few constructs that this shim doesn't fully support.
+        flags |= DOTALL
+        inner = pattern[len("(?s:") : -len(r")\Z")]
+        # Atomic groups and non-greedy quantifiers appear in fnmatch's output.
+        # Approximate them with the supported subset.
+        inner = inner.replace("(?>", "(?:")
+        inner = inner.replace("*?", "*").replace("+?", "+").replace("??", "?")
+        pattern = inner + r"\Z"
     if isinstance(pattern, str) and pattern.startswith("(?"):
         # Support leading inline flags like `(?i)pattern` used throughout the
         # CPython stdlib (e.g. assertRaisesRegex patterns).
@@ -648,7 +658,30 @@ def split(pattern, string, maxsplit=0, flags=0):
 
 
 def escape(pattern):
-    return pattern
+    # Minimal re.escape() implementation.
+    #
+    # This shim intentionally supports only a subset of `re`, but callers
+    # (notably unittest) still rely on `re.escape` to turn arbitrary strings
+    # into literal patterns.
+    if isinstance(pattern, (bytes, bytearray)):
+        out = bytearray()
+        for b in pattern:
+            ch = chr(b)
+            if ch.isalnum() or ch == "_":
+                out.append(b)
+            else:
+                out.append(ord("\\"))
+                out.append(b)
+        return bytes(out)
+    s = str(pattern)
+    out = []
+    for ch in s:
+        if ch.isalnum() or ch == "_":
+            out.append(ch)
+        else:
+            out.append("\\")
+            out.append(ch)
+    return "".join(out)
 
 
 def purge():
@@ -684,6 +717,13 @@ def _simple_regex_parse(pattern):
             if c == "^" and not nodes:
                 i += 1
                 node = ("anchor_start",)
+                nodes.append(node)
+                continue
+            if c == "$":
+                # End anchor. We only support the simple "$" form (end of
+                # string); the stdlib patterns we rely on use this heavily.
+                i += 1
+                node = ("anchor_end",)
                 nodes.append(node)
                 continue
             if c == "(":
@@ -725,6 +765,16 @@ def _simple_regex_parse(pattern):
                             chars |= DIGIT_CHARS
                         elif esc == "s":
                             chars |= SPACE_CHARS
+                        elif esc == "n":
+                            chars.add("\n")
+                        elif esc == "r":
+                            chars.add("\r")
+                        elif esc == "t":
+                            chars.add("\t")
+                        elif esc == "f":
+                            chars.add("\f")
+                        elif esc == "v":
+                            chars.add("\v")
                         else:
                             chars.add(esc)
                         i += 1
@@ -764,6 +814,16 @@ def _simple_regex_parse(pattern):
                     node = ("anchor_start",)
                 elif esc == "Z":
                     node = ("anchor_end",)
+                elif esc == "n":
+                    node = ("lit", "\n")
+                elif esc == "r":
+                    node = ("lit", "\r")
+                elif esc == "t":
+                    node = ("lit", "\t")
+                elif esc == "f":
+                    node = ("lit", "\f")
+                elif esc == "v":
+                    node = ("lit", "\v")
                 else:
                     node = ("lit", esc)
                 node = parse_quant(node)
@@ -842,21 +902,22 @@ def _simple_regex_match(compiled, string, pos, endpos):
                 return match_nodes(rest, si + 1, captures)
             return None
         if kind == "group_nc":
+            # Inline the group so quantifiers inside can backtrack against the
+            # following nodes.
             inner = node[1]
-            res = match_nodes(inner, si, captures)
-            if res is None:
-                return None
-            si2, caps2 = res
-            return match_nodes(rest, si2, caps2)
+            return match_nodes(inner + rest, si, captures)
         if kind == "group":
+            # Inline the group's inner nodes with a sentinel that records the
+            # capture boundary. This allows `.*` inside groups to backtrack
+            # against the nodes that follow the group.
             gid, inner = node[1], node[2]
-            res = match_nodes(inner, si, captures)
-            if res is None:
-                return None
-            si2, caps2 = res
-            caps3 = list(caps2)
-            caps3[gid] = string[si:si2]
-            return match_nodes(rest, si2, tuple(caps3))
+            start = si
+            return match_nodes(inner + [("cap_end", gid, start)] + rest, si, captures)
+        if kind == "cap_end":
+            gid, start = node[1], node[2]
+            caps3 = list(captures)
+            caps3[gid] = string[start:si]
+            return match_nodes(rest, si, tuple(caps3))
         if kind == "repeat":
             min_n, max_n, inner = node[1], node[2], node[3]
             # Try greedy, backtrack to satisfy the rest.

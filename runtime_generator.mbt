@@ -1324,6 +1324,23 @@ fn generator_step_statement(
       state.val.frames.push(GenFrame::Block(body~, index=0, loop_depth~))
       Ok(None)
     }
+    Stmt::Del(targets) => {
+      for target in targets {
+        let _ = match
+          delete_target_with_env(
+            target,
+            state.val.locals,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+
+      }
+      Ok(None)
+    }
     _ =>
       Err(
         make_runtime_error(
@@ -1975,6 +1992,10 @@ fn generator_resume(
   sent_value_in : Value,
   thrown_in : RuntimeError?,
 ) -> Result[Value, RuntimeError] {
+  let _ = match ensure_recursion_available() {
+    Ok(_) => ()
+    Err(err) => return Err(err)
+  }
   push_traceback_frame(state.val.name, state.val.filename)
   push_closure_env(state.val.closure)
   push_scope_decls_with_nonlocals(

@@ -523,14 +523,6 @@ fn to_complex(value : Value) -> Result[(Double, Double), RuntimeError] {
 }
 
 ///|
-fn value_repr_for_format(value : Value) -> String {
-  match value {
-    Value::Str(text) => "\"" + escape_string_for_repr(text) + "\""
-    other => value_to_string(other)
-  }
-}
-
-///|
 fn pad_left(text : String, width : Int, pad_char : Char) -> String {
   if width <= text.length() {
     text
@@ -704,10 +696,20 @@ fn format_float_value(
 fn format_percent_string(
   format : String,
   value : Value,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[String, RuntimeError] {
+  touch_env([], globals, builtins, io)
   let mut mapping_pairs : Array[(Value, Value)]? = None
+  let mapping_value = value
   let args = match value {
     Value::Tuple(values) => values
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(values)) => values
+        _ => [value]
+      }
     Value::Dict(pairs) => {
       mapping_pairs = Some(pairs)
       [value]
@@ -869,30 +871,57 @@ fn format_percent_string(
     }
     let arg = match key_name {
       Some(key) => {
-        let pairs = match mapping_pairs {
-          Some(pairs) => pairs
-          None =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Type,
-                "format requires a mapping".to_string(),
-              ),
-            )
-        }
         let key_value = Value::Str(key)
-        let index = match dict_find_index(pairs, key_value) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        match index {
-          Some(pos) => pairs[pos].1
-          None =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Key,
-                "key not found".to_string(),
-              ),
-            )
+        match mapping_pairs {
+          Some(pairs) => {
+            let index = match dict_find_index(pairs, key_value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            match index {
+              Some(pos) => pairs[pos].1
+              None =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Key,
+                    "key not found".to_string(),
+                  ),
+                )
+            }
+          }
+          None => {
+            // Mapping-based formatting should accept any object that implements
+            // `__getitem__` (e.g. `instance.__dict__` wrapper used by logging).
+            let getitem = match
+              get_attr_from_value(
+                mapping_value, "__getitem__", globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) =>
+                return match err.kind {
+                  RuntimeErrorKind::Attribute =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "format requires a mapping".to_string(),
+                      ),
+                    )
+                  _ => Err(err)
+                }
+            }
+            match
+              call_callable_with_env(
+                getitem,
+                [key_value],
+                [],
+                globals,
+                builtins,
+                io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          }
         }
       }
       None => {
@@ -911,9 +940,23 @@ fn format_percent_string(
       }
     }
     let spec = chars[j]
+    fn repr_text(
+      arg : Value,
+      globals : Array[(String, Value)],
+      builtins : Array[(String, Value)],
+      io : MockIO,
+    ) -> Result[String, RuntimeError] {
+      match eval_builtin_call("repr", [arg], [], [], globals, builtins, io) {
+        Ok(Some(Value::Str(text))) => Ok(text)
+        Ok(Some(other)) => Ok(value_to_string(other))
+        Ok(None) => Ok(value_to_string(arg))
+        Err(err) => Err(err)
+      }
+    }
+
     let raw = match spec {
       's' => Ok(value_to_string(arg))
-      'r' => Ok(value_repr_for_format(arg))
+      'r' => repr_text(arg, globals, builtins, io)
       'c' =>
         match arg {
           Value::Str(s) =>

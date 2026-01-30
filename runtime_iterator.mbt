@@ -181,6 +181,11 @@ fn iter_value_to_iterator(
         Some(Value::List(values)) => return Ok(make_iterator(values))
         _ => ()
       }
+      // Treat tuple subclasses (instances carrying `$__tuple__`) as iterables.
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(values)) => return Ok(make_iterator(values))
+        _ => ()
+      }
       if inst.class.name == "dict_keys" ||
         inst.class.name == "dict_values" ||
         inst.class.name == "dict_items" {

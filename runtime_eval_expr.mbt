@@ -899,52 +899,70 @@ fn eval_expr_with_env(
 
           match target {
             Value::List(values) => slice_list(values)
-            Value::Instance(inst) =>
+            Value::Instance(inst) => {
               match get_named_value(inst.dict, list_storage_name) {
-                Some(Value::List(values)) => slice_list(values)
-                _ => {
-                  // General Python protocol: obj.__getitem__(slice(...))
-                  let slice_dict : Array[(String, Value)] = []
-                  slice_dict.push(("start", start_value))
-                  slice_dict.push(("stop", end_value))
-                  slice_dict.push(("step", step_value))
-                  let slice_obj = Value::Instance(InstanceValue::{
-                    class: builtin_class_from_name("slice", builtins),
-                    dict: slice_dict,
-                  })
-                  match
-                    get_attr_from_value(
-                      Value::Instance(inst),
-                      "__getitem__",
-                      globals,
-                      builtins,
-                      io,
-                    ) {
-                    Ok(getitem) =>
-                      call_callable_with_env(
-                        getitem,
-                        [slice_obj],
-                        [],
-                        globals,
-                        builtins,
-                        io,
-                      )
-                    Err(err) =>
-                      match err.kind {
-                        RuntimeErrorKind::Attribute =>
-                          Err(
-                            make_runtime_error(
-                              RuntimeErrorKind::Type,
-                              "'" +
-                              inst.class.name +
-                              "' object is not subscriptable",
-                            ),
-                          )
-                        _ => Err(err)
-                      }
-                  }
-                }
+                Some(Value::List(values)) => return slice_list(values)
+                _ => ()
               }
+              match get_named_value(inst.dict, tuple_storage_name) {
+                Some(Value::Tuple(values)) => {
+                  let indices = match
+                    slice_indices_from_values(
+                      values.length(),
+                      start_value,
+                      end_value,
+                      step_value,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  return Ok(
+                    Value::Tuple(slice_values_by_indices(values, indices)),
+                  )
+                }
+                _ => ()
+              }
+              // General Python protocol: obj.__getitem__(slice(...))
+              let slice_dict : Array[(String, Value)] = []
+              slice_dict.push(("start", start_value))
+              slice_dict.push(("stop", end_value))
+              slice_dict.push(("step", step_value))
+              let slice_obj = Value::Instance(InstanceValue::{
+                class: builtin_class_from_name("slice", builtins),
+                dict: slice_dict,
+              })
+              match
+                get_attr_from_value(
+                  Value::Instance(inst),
+                  "__getitem__",
+                  globals,
+                  builtins,
+                  io,
+                ) {
+                Ok(getitem) =>
+                  call_callable_with_env(
+                    getitem,
+                    [slice_obj],
+                    [],
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Err(err) =>
+                  match err.kind {
+                    RuntimeErrorKind::Attribute =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "'" +
+                          inst.class.name +
+                          "' object is not subscriptable",
+                        ),
+                      )
+                    _ => Err(err)
+                  }
+              }
+            }
             Value::Tuple(values) => {
               let indices = match
                 slice_indices_from_values(
@@ -1338,12 +1356,28 @@ fn eval_expr_with_env(
                   match get_named_value(inst.dict, list_storage_name) {
                     Some(Value::List(values)) => index_list(values, idx)
                     _ =>
-                      Err(
-                        make_runtime_error(
-                          RuntimeErrorKind::Type,
-                          "subscript requires sequence".to_string(),
-                        ),
-                      )
+                      match get_named_value(inst.dict, tuple_storage_name) {
+                        Some(Value::Tuple(values)) => {
+                          let norm = normalize_index(idx, values.length())
+                          if norm >= 0 && norm < values.length() {
+                            Ok(values[norm])
+                          } else {
+                            Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Index,
+                                "index out of range".to_string(),
+                              ),
+                            )
+                          }
+                        }
+                        _ =>
+                          Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "subscript requires sequence".to_string(),
+                            ),
+                          )
+                      }
                   }
                 Value::Tuple(values) => {
                   let norm = normalize_index(idx, values.length())

@@ -402,6 +402,7 @@ fn bracket_balance(line : String) -> Int {
   let mut triple : Char? = None
   let mut escaped = false
   let mut in_fstring = false
+  let mut fexpr_depth = 0
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
@@ -435,18 +436,23 @@ fn bracket_balance(line : String) -> Int {
             i += 2
             continue
           }
+          fexpr_depth += 1
           balance += 1
         } else if in_fstring && c == '}' {
           if i + 1 < chars.length() && chars[i + 1] == '}' {
             i += 2
             continue
           }
+          if fexpr_depth > 0 {
+            fexpr_depth -= 1
+          }
           if balance > 0 {
             balance -= 1
           }
-        } else if c == q {
+        } else if c == q && !(in_fstring && fexpr_depth > 0) {
           quote = None
           in_fstring = false
+          fexpr_depth = 0
         }
       None =>
         if i + 2 < chars.length() &&
@@ -484,6 +490,7 @@ fn bracket_balance(line : String) -> Int {
             }
           }
           in_fstring = has_f
+          fexpr_depth = 0
         } else if c == '(' || c == '[' || c == '{' {
           balance += 1
         } else if c == ')' || c == ']' || c == '}' {
@@ -554,65 +561,6 @@ fn has_top_level_comma(text : String) -> Bool {
     i += 1
   }
   false
-}
-
-///|
-fn first_top_level_comma_pos(text : String) -> Int? {
-  let chars = text.to_array()
-  let mut depth = 0
-  let mut quote : Char? = None
-  let mut triple : Char? = None
-  let mut escaped = false
-  let mut i = 0
-  while i < chars.length() {
-    let c = chars[i]
-    match triple {
-      Some(q) => {
-        if i + 2 < chars.length() &&
-          chars[i] == q &&
-          chars[i + 1] == q &&
-          chars[i + 2] == q {
-          triple = None
-          i += 3
-          continue
-        }
-        i += 1
-        continue
-      }
-      None => ()
-    }
-    match quote {
-      Some(q) =>
-        if escaped {
-          escaped = false
-        } else if c == '\\' {
-          escaped = true
-        } else if c == q {
-          quote = None
-        }
-      None =>
-        if i + 2 < chars.length() &&
-          (c == '\'' || c == '"') &&
-          chars[i + 1] == c &&
-          chars[i + 2] == c {
-          triple = Some(c)
-          i += 3
-          continue
-        } else if c == '\'' || c == '"' {
-          quote = Some(c)
-        } else if c == '(' || c == '[' || c == '{' {
-          depth += 1
-        } else if c == ')' || c == ']' || c == '}' {
-          if depth > 0 {
-            depth -= 1
-          }
-        } else if c == ',' && depth == 0 {
-          return Some(i)
-        }
-    }
-    i += 1
-  }
-  None
 }
 
 ///|
@@ -993,6 +941,9 @@ fn strip_inline_comment(text : String) -> String {
   let mut expr_quote : Char? = None
   let mut expr_triple : Char? = None
   let mut expr_escape = false
+  let mut fexpr_format_spec = false
+  let mut fexpr_paren_depth = 0
+  let mut fexpr_bracket_depth = 0
   while i < chars.length() {
     let c = chars[i]
     match triple {
@@ -1037,6 +988,9 @@ fn strip_inline_comment(text : String) -> String {
               expr_quote = None
               expr_triple = None
               expr_escape = false
+              fexpr_format_spec = false
+              fexpr_paren_depth = 0
+              fexpr_bracket_depth = 0
             }
           } else {
             // f-string expression mode: parse enough structure to recognize
@@ -1084,14 +1038,36 @@ fn strip_inline_comment(text : String) -> String {
                 } else if c == '\'' || c == '"' {
                   expr_quote = Some(c)
                   expr_escape = false
-                } else if c == '#' {
-                  // Strip until end of the current physical line, but keep the
-                  // newline so multi-line statements remain parseable.
-                  i += 1
-                  while i < chars.length() && chars[i] != '\n' {
-                    i += 1
+                } else if c == '(' {
+                  fexpr_paren_depth += 1
+                } else if c == ')' {
+                  if fexpr_paren_depth > 0 {
+                    fexpr_paren_depth -= 1
                   }
-                  continue
+                } else if c == '[' {
+                  fexpr_bracket_depth += 1
+                } else if c == ']' {
+                  if fexpr_bracket_depth > 0 {
+                    fexpr_bracket_depth -= 1
+                  }
+                } else if c == ':' &&
+                  !fexpr_format_spec &&
+                  fexpr_depth == 1 &&
+                  fexpr_paren_depth == 0 &&
+                  fexpr_bracket_depth == 0 {
+                  // Enter f-string format spec area, where `#` is not a comment
+                  // starter (e.g. `{id(self):#x}`).
+                  fexpr_format_spec = true
+                } else if c == '#' {
+                  if !fexpr_format_spec {
+                    // Strip until end of the current physical line, but keep the
+                    // newline so multi-line statements remain parseable.
+                    i += 1
+                    while i < chars.length() && chars[i] != '\n' {
+                      i += 1
+                    }
+                    continue
+                  }
                 } else if c == '{' {
                   fexpr_depth += 1
                 } else if c == '}' {
@@ -1101,6 +1077,9 @@ fn strip_inline_comment(text : String) -> String {
                       expr_quote = None
                       expr_triple = None
                       expr_escape = false
+                      fexpr_format_spec = false
+                      fexpr_paren_depth = 0
+                      fexpr_bracket_depth = 0
                     }
                   }
                 }
@@ -1111,7 +1090,7 @@ fn strip_inline_comment(text : String) -> String {
           escape = false
         } else if c == '\\' {
           escape = true
-        } else if c == q {
+        } else if c == q && !(in_fstring && fexpr_depth > 0) {
           quote = None
           in_fstring = false
           fexpr_depth = 0
@@ -1228,7 +1207,7 @@ fn replace_newlines_with_spaces(text : String) -> String {
           if fexpr_depth > 0 {
             fexpr_depth -= 1
           }
-        } else if c == q {
+        } else if c == q && !(in_fstring && fexpr_depth > 0) {
           quote = None
           in_fstring = false
           fexpr_depth = 0

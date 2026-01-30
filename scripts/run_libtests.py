@@ -61,6 +61,8 @@ _UNSUPPORTED_C_EXTENSIONS = {
 _FORCED_SKIP_MODULES = {
     # CPython's `array` is a C extension; moonpython only provides a tiny shim.
     "test.test_array",
+    # Known to be computationally heavy under an interpreter; not useful for quick compatibility tracking.
+    "test.test_bigmem",
 }
 
 _FORCED_SKIP_PREFIXES = {
@@ -81,8 +83,12 @@ def discover_test_modules(lib_dir: Path) -> List[str]:
 
 
 def forced_skip_reason(module: str) -> Optional[str]:
-    if module in _FORCED_SKIP_MODULES:
+    if module == "test.test_array":
         return "requires unsupported C extension semantics"
+    if module == "test.test_bigmem":
+        return "too slow under an interpreter (smoke runner skips it)"
+    if module in _FORCED_SKIP_MODULES:
+        return "forced skip"
     for prefix in _FORCED_SKIP_PREFIXES:
         if module.startswith(prefix):
             return "requires socket/selectors/threading support"

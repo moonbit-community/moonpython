@@ -16,6 +16,48 @@ priv enum VmBlockKind {
 priv struct VmBlock {
   kind : VmBlockKind
   stack_height : Int
+  // Whether this block pushed an active exception onto `active_exception_stack`.
+  pushed_exc : Bool
+}
+
+///|
+fn vm_trim_traceback_for_active_handler(
+  frames : Array[TracebackFrame],
+) -> Array[TracebackFrame] {
+  let depth = active_frame_stack.val.length()
+  if depth == 0 || frames.length() == 0 {
+    return frames
+  }
+  let start = depth - 1
+  if start <= 0 || start >= frames.length() {
+    return frames
+  }
+  let out : Array[TracebackFrame] = []
+  for i = start; i < frames.length(); i = i + 1 {
+    out.push(frames[i])
+  }
+  out
+}
+
+///|
+fn vm_trim_runtime_error_for_active_handler(err : RuntimeError) -> RuntimeError {
+  let trimmed = vm_trim_traceback_for_active_handler(err.traceback)
+  if trimmed.length() == err.traceback.length() {
+    err
+  } else {
+    RuntimeError::{
+      kind: err.kind,
+      message: err.message,
+      span: err.span,
+      traceback: trimmed,
+      exc_type: err.exc_type,
+      exc_args: err.exc_args,
+      exc_value: err.exc_value,
+      exc_cause: err.exc_cause,
+      exc_context: err.exc_context,
+      exc_suppress_context: err.exc_suppress_context,
+    }
+  }
 }
 
 ///|
@@ -80,25 +122,57 @@ fn unary_op_value(
         Value::Int(v) => Ok(Value::Int(-v))
         Value::Float(v) => Ok(Value::Float(-v))
         Value::Bool(v) => Ok(Value::Int(-(if v { 1N } else { 0N })))
-        _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "bad operand type for unary -".to_string(),
-            ),
-          )
+        other =>
+          match get_attr_from_value(other, "__neg__", globals, builtins, io) {
+            Ok(callable) =>
+              call_callable_with_env(callable, [], [], globals, builtins, io)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bad operand type for unary -".to_string(),
+                    ),
+                  )
+                _ => Err(err)
+              }
+          }
       }
-    UnaryOp::Pos => Ok(value)
+    UnaryOp::Pos =>
+      match value {
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) => Ok(value)
+        other =>
+          match get_attr_from_value(other, "__pos__", globals, builtins, io) {
+            Ok(callable) =>
+              call_callable_with_env(callable, [], [], globals, builtins, io)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute => Ok(other)
+                _ => Err(err)
+              }
+          }
+      }
     UnaryOp::Invert =>
       match value {
         Value::Int(v) => Ok(Value::Int(-(v + 1N)))
-        _ =>
-          Err(
-            make_runtime_error(
-              RuntimeErrorKind::Type,
-              "bad operand type for unary ~".to_string(),
-            ),
-          )
+        other =>
+          match
+            get_attr_from_value(other, "__invert__", globals, builtins, io) {
+            Ok(callable) =>
+              call_callable_with_env(callable, [], [], globals, builtins, io)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "bad operand type for unary ~".to_string(),
+                    ),
+                  )
+                _ => Err(err)
+              }
+          }
       }
   }
 }
@@ -345,13 +419,48 @@ fn get_subscr_value(
             Err(err) => Err(err)
           }
       }
-    Value::Instance(_) => {
-      let getitem = match
-        get_attr_from_value(target, "__getitem__", globals, builtins, io) {
-        Ok(v) => v
-        Err(err) => return Err(err)
+    Value::Instance(inst) => {
+      // Treat tuple/list subclasses as sequences when they carry the internal
+      // storage. This is required for namedtuple (unittest logging watcher).
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(items)) =>
+          return get_subscr_value(
+            Value::List(items),
+            index,
+            globals,
+            builtins,
+            io,
+          )
+        _ => ()
       }
-      call_callable_with_env(getitem, [index], [], globals, builtins, io)
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(items)) =>
+          return get_subscr_value(
+            Value::Tuple(items),
+            index,
+            globals,
+            builtins,
+            io,
+          )
+        _ => ()
+      }
+      match get_attr_from_value(target, "__getitem__", globals, builtins, io) {
+        Ok(getitem) =>
+          call_callable_with_env(getitem, [index], [], globals, builtins, io)
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "'" +
+                  type_name_from_value(target) +
+                  "' object is not subscriptable",
+                ),
+              )
+            _ => Err(err)
+          }
+      }
     }
     _ =>
       Err(
@@ -468,25 +577,145 @@ fn set_subscr_value(
       }
       Ok(())
     }
-    Value::Instance(_) => {
-      let setitem = match
-        get_attr_from_value(target, "__setitem__", globals, builtins, io) {
-        Ok(v) => v
-        Err(err) => return Err(err)
+    Value::ByteArray(bytes) =>
+      match slice_parts_from_value(index) {
+        Some((start, stop, step)) => {
+          let indices = match
+            slice_indices_from_values(bytes.length(), start, stop, step) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let (start_i, end_i, step_i) = match
+            slice_params_from_values(bytes.length(), start, stop, step) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let new_bytes = match value {
+            Value::Bytes(items)
+            | Value::ByteArray(items)
+            | Value::MemoryView(items) => Ok(items)
+            _ =>
+              bytes_from_iterable(
+                "bytearray.__setitem__", value, globals, builtins, io,
+              )
+          }
+          let new_bytes = match new_bytes {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          if step_i == 1 {
+            let merged : Array[Int] = []
+            for i = 0; i < start_i; i = i + 1 {
+              merged.push(bytes[i])
+            }
+            for b in new_bytes {
+              merged.push(b & 0xFF)
+            }
+            for i = end_i; i < bytes.length(); i = i + 1 {
+              merged.push(bytes[i])
+            }
+            while bytes.length() > 0 {
+              let _ = bytes.remove(bytes.length() - 1)
+
+            }
+            for b in merged {
+              bytes.push(b)
+            }
+            Ok(())
+          } else {
+            if new_bytes.length() != indices.length() {
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "ValueError: attempt to assign sequence of size " +
+                  new_bytes.length().to_string() +
+                  " to extended slice of size " +
+                  indices.length().to_string(),
+                ),
+              )
+            }
+            for i = 0; i < indices.length(); i = i + 1 {
+              bytes[indices[i]] = new_bytes[i] & 0xFF
+            }
+            Ok(())
+          }
+        }
+        None =>
+          match index_from_value(index, 0) {
+            Ok(i) => {
+              let idx = normalize_index(i, bytes.length())
+              if idx < 0 || idx >= bytes.length() {
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Index,
+                    "bytearray index out of range".to_string(),
+                  ),
+                )
+              } else {
+                let b = match byte_from_value("bytearray.__setitem__", value) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                bytes[idx] = b
+                Ok(())
+              }
+            }
+            Err(err) => Err(err)
+          }
       }
-      let _ = match
-        call_callable_with_env(
-          setitem,
-          [index, value],
-          [],
-          globals,
-          builtins,
-          io,
-        ) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
+    Value::Instance(inst) => {
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(items)) =>
+          return set_subscr_value(
+            Value::List(items),
+            index,
+            value,
+            globals,
+            builtins,
+            io,
+          )
+        _ => ()
       }
-      Ok(())
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(_)) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "'" +
+              type_name_from_value(target) +
+              "' object does not support item assignment",
+            ),
+          )
+        _ => ()
+      }
+      match get_attr_from_value(target, "__setitem__", globals, builtins, io) {
+        Ok(setitem) =>
+          match
+            call_callable_with_env(
+              setitem,
+              [index, value],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(_) => Ok(())
+            Err(err) => Err(err)
+          }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "'" +
+                  type_name_from_value(target) +
+                  "' object does not support item assignment",
+                ),
+              )
+            _ => Err(err)
+          }
+      }
     }
     _ =>
       Err(
@@ -589,7 +818,51 @@ fn delete_subscr_value(
         )
       }
     }
-    Value::Instance(_) | Value::ByteArray(_) => {
+    Value::Instance(inst) => {
+      match get_named_value(inst.dict, list_storage_name) {
+        Some(Value::List(items)) =>
+          return delete_subscr_value(
+            Value::List(items),
+            index,
+            globals,
+            builtins,
+            io,
+          )
+        _ => ()
+      }
+      match get_named_value(inst.dict, tuple_storage_name) {
+        Some(Value::Tuple(_)) =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "object does not support item deletion".to_string(),
+            ),
+          )
+        _ => ()
+      }
+      let delitem = match
+        get_attr_from_value(target, "__delitem__", globals, builtins, io) {
+        Ok(v) => v
+        Err(err) =>
+          return match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "object does not support item deletion".to_string(),
+                ),
+              )
+            _ => Err(err)
+          }
+      }
+      let _ = match
+        call_callable_with_env(delitem, [index], [], globals, builtins, io) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      Ok(())
+    }
+    Value::ByteArray(_) => {
       let delitem = match
         get_attr_from_value(target, "__delitem__", globals, builtins, io) {
         Ok(v) => v
@@ -624,6 +897,11 @@ fn delete_subscr_value(
 
 ///|
 fn vm_make_frame_value(frame : TracebackFrame) -> Value {
+  let globals_pairs : Array[(Value, Value)] = []
+  if frame.filename.contains("/Lib/unittest/") ||
+    frame.filename.contains("\\Lib\\unittest\\") {
+    globals_pairs.push((Value::Str("__unittest"), Value::Bool(true)))
+  }
   let code_value = Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "code", bases: [], dict: [] },
     dict: [
@@ -641,7 +919,7 @@ fn vm_make_frame_value(frame : TracebackFrame) -> Value {
       ("f_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
       ("f_code", code_value),
       ("f_back", Value::None),
-      ("f_globals", Value::Dict([])),
+      ("f_globals", Value::Dict(globals_pairs)),
       ("f_locals", Value::Dict([])),
     ],
   })
@@ -702,13 +980,20 @@ fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
         blocks.push(VmBlock::{
           kind: VmBlockKind::FinallyHandler,
           stack_height: stack.length(),
+          pushed_exc: false,
         })
         return Some(target)
       }
       // A return bypasses exception handlers; just drop them.
       VmBlockKind::Except(_)
       | VmBlockKind::ExceptHandler
-      | VmBlockKind::FinallyHandler => continue
+      | VmBlockKind::FinallyHandler => {
+        if blk.pushed_exc {
+          let _ = active_exception_stack.val.pop()
+
+        }
+        continue
+      }
     }
   }
   None
@@ -1440,6 +1725,100 @@ pub fn bc_exec(
           }
           Err(err) => Err(err)
         }
+      BcOp::UnpackEx(before, after) =>
+        match pop_stack(stack) {
+          Ok(assigned) => {
+            let items = match assigned {
+              Value::Tuple(values) => Ok(values)
+              Value::List(values) => Ok(values)
+              _ =>
+                match iter_value_to_iterator(assigned, globals, builtins, io) {
+                  Ok(iterator_value) => {
+                    let acc : Array[Value] = []
+                    let mut err_opt : RuntimeError? = None
+                    while true {
+                      match
+                        iterator_next(
+                          iterator_value,
+                          None,
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                        Ok(v) => acc.push(v)
+                        Err(err) =>
+                          if err.exc_type == "StopIteration" {
+                            break
+                          } else {
+                            err_opt = Some(err)
+                            break
+                          }
+                      }
+                    }
+                    match err_opt {
+                      Some(e) => Err(e)
+                      None => Ok(acc)
+                    }
+                  }
+                  Err(err) =>
+                    match err.kind {
+                      RuntimeErrorKind::Type =>
+                        if err.message == "object is not iterable" {
+                          Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "cannot unpack non-iterable".to_string(),
+                            ),
+                          )
+                        } else {
+                          Err(err)
+                        }
+                      _ => Err(err)
+                    }
+                }
+            }
+            match items {
+              Ok(values) => {
+                let min_expected = before + after
+                if values.length() < min_expected {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "ValueError: not enough values to unpack (expected at least " +
+                      min_expected.to_string() +
+                      ")",
+                    ),
+                  )
+                }
+                let out : Array[Value] = []
+                // leading fixed items
+                for i = 0; i < before; i = i + 1 {
+                  out.push(values[i])
+                }
+                // starred captures the middle into a list
+                let mid_end = values.length() - after
+                let mid : Array[Value] = []
+                for i = before; i < mid_end; i = i + 1 {
+                  mid.push(values[i])
+                }
+                out.push(Value::List(mid))
+                // trailing fixed items
+                for i = mid_end; i < values.length(); i = i + 1 {
+                  out.push(values[i])
+                }
+                // Push in reverse so the first target consumes the first value.
+                let mut i = out.length()
+                while i > 0 {
+                  i -= 1
+                  stack.push(out[i])
+                }
+                Ok(())
+              }
+              Err(err) => Err(err)
+            }
+          }
+          Err(err) => Err(err)
+        }
       BcOp::GetIter =>
         match pop_stack(stack) {
           Ok(value) =>
@@ -1644,6 +2023,7 @@ pub fn bc_exec(
         blocks.push(VmBlock::{
           kind: VmBlockKind::Except(target),
           stack_height: stack.length(),
+          pushed_exc: false,
         })
         Ok(())
       }
@@ -1651,6 +2031,7 @@ pub fn bc_exec(
         blocks.push(VmBlock::{
           kind: VmBlockKind::Finally(target),
           stack_height: stack.length(),
+          pushed_exc: false,
         })
         Ok(())
       }
@@ -1690,6 +2071,7 @@ pub fn bc_exec(
               blocks.push(VmBlock::{
                 kind: VmBlockKind::FinallyHandler,
                 stack_height: blk.stack_height,
+                pushed_exc: false,
               })
               next_pc = target
               Ok(())
@@ -1715,6 +2097,10 @@ pub fn bc_exec(
           let blk = blocks.remove(blocks.length() - 1)
           match blk.kind {
             VmBlockKind::ExceptHandler => {
+              if blk.pushed_exc {
+                let _ = active_exception_stack.val.pop()
+
+              }
               pending_exc = None
               Ok(())
             }
@@ -1738,7 +2124,11 @@ pub fn bc_exec(
         } else {
           let blk = blocks.remove(blocks.length() - 1)
           match blk.kind {
-            VmBlockKind::FinallyHandler =>
+            VmBlockKind::FinallyHandler => {
+              if blk.pushed_exc {
+                let _ = active_exception_stack.val.pop()
+
+              }
               match pending_return {
                 Some(v) =>
                   match vm_unwind_return(stack, blocks) {
@@ -1786,6 +2176,7 @@ pub fn bc_exec(
                       }
                   }
               }
+            }
             _ =>
               Err(
                 make_runtime_error(
@@ -1932,46 +2323,89 @@ pub fn bc_exec(
       BcOp::Raise =>
         match pop_stack(stack) {
           Ok(exc_value) => {
-            let context_err_opt = pending_exc
-            let inst_value = match
+            let context_err_opt = active_exception()
+            match
               ensure_exception_instance_from_value(
                 exc_value, globals, builtins, io,
               ) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            let err0 = match inst_value {
-              Value::Instance(inst) =>
-                runtime_error_from_exception_instance(inst)
-              _ =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Runtime,
-                    "RuntimeError: invalid exception".to_string(),
-                  ),
-                )
-            }
-            let err1 = match (context_err_opt, err0.exc_context) {
-              (Some(ctx_err), None) => {
-                let ctx_value = exception_value_from_runtime_error(
-                  ctx_err, globals, builtins, io,
-                )
-                RuntimeError::{
-                  kind: err0.kind,
-                  message: err0.message,
-                  span: err0.span,
-                  traceback: err0.traceback,
-                  exc_type: err0.exc_type,
-                  exc_args: err0.exc_args,
-                  exc_value: err0.exc_value,
-                  exc_cause: err0.exc_cause,
-                  exc_context: Some(ctx_value),
-                  exc_suppress_context: err0.exc_suppress_context,
+              Ok(inst_value) => {
+                let err0_opt = match inst_value {
+                  Value::Instance(inst) => {
+                    // Treat `raise exc` as a fresh raise; any stale traceback on a
+                    // reused exception instance must not win over the current stack.
+                    set_named_value(inst.dict, "__traceback__", Value::None)
+                    Some(runtime_error_from_exception_instance(inst))
+                  }
+                  _ => None
+                }
+                match err0_opt {
+                  Some(err0) => {
+                    let err1 = match (context_err_opt, err0.exc_context) {
+                      (Some(ctx_err), None) => {
+                        let ctx_value = exception_value_from_runtime_error(
+                          ctx_err, globals, builtins, io,
+                        )
+                        RuntimeError::{
+                          kind: err0.kind,
+                          message: err0.message,
+                          span: err0.span,
+                          traceback: err0.traceback,
+                          exc_type: err0.exc_type,
+                          exc_args: err0.exc_args,
+                          exc_value: err0.exc_value,
+                          exc_cause: err0.exc_cause,
+                          exc_context: Some(ctx_value),
+                          exc_suppress_context: err0.exc_suppress_context,
+                        }
+                      }
+                      _ => err0
+                    }
+                    // Keep the raised exception object's core metadata in sync so
+                    // stdlib helpers can rely on `exc.__traceback__`, etc.
+                    match err1.exc_value {
+                      Some(Value::Instance(inst)) => {
+                        set_named_value(
+                          inst.dict,
+                          "__traceback__",
+                          vm_make_traceback_value(err1.traceback),
+                        )
+                        set_named_value(
+                          inst.dict,
+                          "__cause__",
+                          match err1.exc_cause {
+                            Some(v) => v
+                            None => Value::None
+                          },
+                        )
+                        set_named_value(
+                          inst.dict,
+                          "__context__",
+                          match err1.exc_context {
+                            Some(v) => v
+                            None => Value::None
+                          },
+                        )
+                        set_named_value(
+                          inst.dict,
+                          "__suppress_context__",
+                          Value::Bool(err1.exc_suppress_context),
+                        )
+                      }
+                      _ => ()
+                    }
+                    Err(err1)
+                  }
+                  None =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "RuntimeError: invalid exception".to_string(),
+                      ),
+                    )
                 }
               }
-              _ => err0
+              Err(err) => Err(err)
             }
-            Err(err1)
           }
           Err(err) => Err(err)
         }
@@ -1980,76 +2414,116 @@ pub fn bc_exec(
           Ok(cause_value) =>
             match pop_stack(stack) {
               Ok(exc_value) => {
-                let context_err_opt = pending_exc
-                let inst_value = match
+                let context_err_opt = active_exception()
+                match
                   ensure_exception_instance_from_value(
                     exc_value, globals, builtins, io,
                   ) {
-                  Ok(v) => v
-                  Err(err) => return Err(err)
-                }
-                let err0 = match inst_value {
-                  Value::Instance(inst) =>
-                    runtime_error_from_exception_instance(inst)
-                  _ =>
-                    return Err(
-                      make_runtime_error(
-                        RuntimeErrorKind::Runtime,
-                        "RuntimeError: invalid exception".to_string(),
-                      ),
-                    )
-                }
-                let err1 = match (context_err_opt, err0.exc_context) {
-                  (Some(ctx_err), None) => {
-                    let ctx_value = exception_value_from_runtime_error(
-                      ctx_err, globals, builtins, io,
-                    )
-                    RuntimeError::{
-                      kind: err0.kind,
-                      message: err0.message,
-                      span: err0.span,
-                      traceback: err0.traceback,
-                      exc_type: err0.exc_type,
-                      exc_args: err0.exc_args,
-                      exc_value: err0.exc_value,
-                      exc_cause: err0.exc_cause,
-                      exc_context: Some(ctx_value),
-                      exc_suppress_context: err0.exc_suppress_context,
+                  Ok(inst_value) => {
+                    let err0_opt = match inst_value {
+                      Value::Instance(inst) => {
+                        set_named_value(inst.dict, "__traceback__", Value::None)
+                        Some(runtime_error_from_exception_instance(inst))
+                      }
+                      _ => None
+                    }
+                    match err0_opt {
+                      Some(err0) => {
+                        let err1 = match (context_err_opt, err0.exc_context) {
+                          (Some(ctx_err), None) => {
+                            let ctx_value = exception_value_from_runtime_error(
+                              ctx_err, globals, builtins, io,
+                            )
+                            RuntimeError::{
+                              kind: err0.kind,
+                              message: err0.message,
+                              span: err0.span,
+                              traceback: err0.traceback,
+                              exc_type: err0.exc_type,
+                              exc_args: err0.exc_args,
+                              exc_value: err0.exc_value,
+                              exc_cause: err0.exc_cause,
+                              exc_context: Some(ctx_value),
+                              exc_suppress_context: err0.exc_suppress_context,
+                            }
+                          }
+                          _ => err0
+                        }
+                        let cause_inst = match cause_value {
+                          Value::None => Ok(Value::None)
+                          _ =>
+                            ensure_exception_instance_from_value(
+                              cause_value, globals, builtins, io,
+                            )
+                        }
+                        match cause_inst {
+                          Ok(cause_inst) => {
+                            let err2 = RuntimeError::{
+                              kind: err1.kind,
+                              message: err1.message,
+                              span: err1.span,
+                              traceback: err1.traceback,
+                              exc_type: err1.exc_type,
+                              exc_args: err1.exc_args,
+                              exc_value: err1.exc_value,
+                              exc_cause: Some(cause_inst),
+                              exc_context: err1.exc_context,
+                              exc_suppress_context: true,
+                            }
+                            match err2.exc_value {
+                              Some(Value::Instance(inst)) => {
+                                set_named_value(
+                                  inst.dict,
+                                  "__traceback__",
+                                  vm_make_traceback_value(err2.traceback),
+                                )
+                                set_named_value(
+                                  inst.dict,
+                                  "__cause__",
+                                  match err2.exc_cause {
+                                    Some(v) => v
+                                    None => Value::None
+                                  },
+                                )
+                                set_named_value(
+                                  inst.dict,
+                                  "__context__",
+                                  match err2.exc_context {
+                                    Some(v) => v
+                                    None => Value::None
+                                  },
+                                )
+                                set_named_value(
+                                  inst.dict,
+                                  "__suppress_context__",
+                                  Value::Bool(err2.exc_suppress_context),
+                                )
+                              }
+                              _ => ()
+                            }
+                            Err(err2)
+                          }
+                          Err(err) => Err(err)
+                        }
+                      }
+                      None =>
+                        Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "RuntimeError: invalid exception".to_string(),
+                          ),
+                        )
                     }
                   }
-                  _ => err0
+                  Err(err) => Err(err)
                 }
-                let cause_inst = match cause_value {
-                  Value::None => Value::None
-                  _ =>
-                    match
-                      ensure_exception_instance_from_value(
-                        cause_value, globals, builtins, io,
-                      ) {
-                      Ok(v) => v
-                      Err(err) => return Err(err)
-                    }
-                }
-                let err2 = RuntimeError::{
-                  kind: err1.kind,
-                  message: err1.message,
-                  span: err1.span,
-                  traceback: err1.traceback,
-                  exc_type: err1.exc_type,
-                  exc_args: err1.exc_args,
-                  exc_value: err1.exc_value,
-                  exc_cause: Some(cause_inst),
-                  exc_context: err1.exc_context,
-                  exc_suppress_context: true,
-                }
-                Err(err2)
               }
               Err(err) => Err(err)
             }
           Err(err) => Err(err)
         }
       BcOp::Reraise =>
-        match pending_exc {
+        match active_exception() {
           Some(e) => Err(e)
           None =>
             Err(
@@ -3115,6 +3589,13 @@ pub fn bc_exec(
                             cell_set_value(cell, Value::Class(klass))
                           None => ()
                         }
+                        if get_named_value(klass.dict, "hashvalue") is None {
+                          set_named_value(
+                            klass.dict,
+                            "hashvalue",
+                            Value::Int(fresh_object_hashvalue()),
+                          )
+                        }
                         if get_named_value(klass.dict, "__mpython_metaclass__")
                           is None {
                           match selected_meta {
@@ -3360,18 +3841,20 @@ pub fn bc_exec(
         match pop_stack(stack) {
           Ok(rhs) => {
             let name = code.names[i]
-            let current = match
-              lookup_name_value(name, locals, globals, builtins) {
-              Ok(v) => v
-              Err(err) => return Err(err)
+            match lookup_name_value(name, locals, globals, builtins) {
+              Ok(current) =>
+                match
+                  eval_augassign_op_values(
+                    op, current, rhs, globals, builtins, io,
+                  ) {
+                  Ok(next) => {
+                    set_scoped_value(locals, globals, name, next)
+                    Ok(())
+                  }
+                  Err(err) => Err(err)
+                }
+              Err(err) => Err(err)
             }
-            let next = match
-              eval_augassign_op_values(op, current, rhs, globals, builtins, io) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            set_scoped_value(locals, globals, name, next)
-            Ok(())
           }
           Err(err) => Err(err)
         }
@@ -3381,24 +3864,24 @@ pub fn bc_exec(
             match pop_stack(stack) {
               Ok(rhs) => {
                 let attr = code.names[i]
-                let current = match
-                  get_attr_from_value(target, attr, globals, builtins, io) {
-                  Ok(v) => v
-                  Err(err) => return Err(err)
+                match get_attr_from_value(target, attr, globals, builtins, io) {
+                  Ok(current) =>
+                    match
+                      eval_augassign_op_values(
+                        op, current, rhs, globals, builtins, io,
+                      ) {
+                      Ok(next) =>
+                        match
+                          set_attr_on_value(
+                            target, attr, next, globals, builtins, io,
+                          ) {
+                          Ok(_) => Ok(())
+                          Err(err) => Err(err)
+                        }
+                      Err(err) => Err(err)
+                    }
+                  Err(err) => Err(err)
                 }
-                let next = match
-                  eval_augassign_op_values(
-                    op, current, rhs, globals, builtins, io,
-                  ) {
-                  Ok(v) => v
-                  Err(err) => return Err(err)
-                }
-                let _ = match
-                  set_attr_on_value(target, attr, next, globals, builtins, io) {
-                  Ok(v) => v
-                  Err(err) => return Err(err)
-                }
-                Ok(())
               }
               Err(err) => Err(err)
             }
@@ -3410,28 +3893,26 @@ pub fn bc_exec(
             match pop_stack(stack) {
               Ok(target) =>
                 match pop_stack(stack) {
-                  Ok(rhs) => {
-                    let current = match
+                  Ok(rhs) =>
+                    match
                       get_subscr_value(target, index, globals, builtins, io) {
-                      Ok(v) => v
-                      Err(err) => return Err(err)
+                      Ok(current) =>
+                        match
+                          eval_augassign_op_values(
+                            op, current, rhs, globals, builtins, io,
+                          ) {
+                          Ok(next) =>
+                            match
+                              set_subscr_value(
+                                target, index, next, globals, builtins, io,
+                              ) {
+                              Ok(_) => Ok(())
+                              Err(err) => Err(err)
+                            }
+                          Err(err) => Err(err)
+                        }
+                      Err(err) => Err(err)
                     }
-                    let next = match
-                      eval_augassign_op_values(
-                        op, current, rhs, globals, builtins, io,
-                      ) {
-                      Ok(v) => v
-                      Err(err) => return Err(err)
-                    }
-                    let _ = match
-                      set_subscr_value(
-                        target, index, next, globals, builtins, io,
-                      ) {
-                      Ok(v) => v
-                      Err(err) => return Err(err)
-                    }
-                    Ok(())
-                  }
                   Err(err) => Err(err)
                 }
               Err(err) => Err(err)
@@ -3450,28 +3931,29 @@ pub fn bc_exec(
               ),
             )
         }
-        let module_value = match
+        match
           import_module(module_name, globals, builtins, io, current_config()) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let binding = if alias_idx >= 0 {
-          code.names[alias_idx]
-        } else {
-          module_top_name(module_name)
-        }
-        let binding_value = if alias_idx >= 0 {
-          module_value
-        } else if module_name.contains(".") {
-          match module_cache_get(binding) {
-            Some(value) => value
-            None => module_value
+          Ok(module_value) => {
+            let binding = if alias_idx >= 0 {
+              code.names[alias_idx]
+            } else {
+              module_top_name(module_name)
+            }
+            let binding_value = if alias_idx >= 0 {
+              module_value
+            } else if module_name.contains(".") {
+              match module_cache_get(binding) {
+                Some(value) => value
+                None => module_value
+              }
+            } else {
+              module_value
+            }
+            set_scoped_value(locals, globals, binding, binding_value)
+            Ok(())
           }
-        } else {
-          module_value
+          Err(err) => Err(err)
         }
-        set_scoped_value(locals, globals, binding, binding_value)
-        Ok(())
       }
       BcOp::FromImport(mod_idx, names_idx, aliases_idx) => {
         let mod_value = code.consts[mod_idx]
@@ -3515,121 +3997,138 @@ pub fn bc_exec(
             ),
           )
         }
-        let resolved_name = match
-          resolve_relative_module_name(module_name, globals) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        let module_value = match
-          import_module(resolved_name, globals, builtins, io, current_config()) {
-          Ok(v) => v
-          Err(err) => return Err(err)
-        }
-        for i = 0; i < names.length(); i = i + 1 {
-          let name = match names[i] {
-            Value::Str(s) => s
-            _ =>
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Runtime,
-                  "bytecode vm: FromImport name must be str".to_string(),
-                ),
-              )
-          }
-          let alias_opt : String? = match aliases[i] {
-            Value::None => None
-            Value::Str(s) => Some(s)
-            _ =>
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Runtime,
-                  "bytecode vm: FromImport alias must be str/None".to_string(),
-                ),
-              )
-          }
-          if name == "*" {
-            match module_value {
-              Value::Instance(inst) => {
-                let mut imported_any = false
-                match get_named_value(inst.dict, "__all__") {
-                  Some(Value::List(items)) | Some(Value::Tuple(items)) =>
-                    for item in items {
-                      match item {
-                        Value::Str(sym) => {
-                          let value = match
-                            get_attr_from_value(
-                              module_value, sym, globals, builtins, io,
-                            ) {
-                            Ok(v) => v
-                            Err(err) => return Err(err)
-                          }
-                          set_scoped_value(locals, globals, sym, value)
-                          imported_any = true
+        match resolve_relative_module_name(module_name, globals) {
+          Ok(resolved_name) =>
+            match
+              import_module(
+                resolved_name,
+                globals,
+                builtins,
+                io,
+                current_config(),
+              ) {
+              Ok(module_value) => {
+                for i = 0; i < names.length(); i = i + 1 {
+                  let name = match names[i] {
+                    Value::Str(s) => s
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: FromImport name must be str".to_string(),
+                        ),
+                      )
+                  }
+                  let alias_opt : String? = match aliases[i] {
+                    Value::None => None
+                    Value::Str(s) => Some(s)
+                    _ =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "bytecode vm: FromImport alias must be str/None".to_string(),
+                        ),
+                      )
+                  }
+                  if name == "*" {
+                    match module_value {
+                      Value::Instance(inst) => {
+                        let mut imported_any = false
+                        match get_named_value(inst.dict, "__all__") {
+                          Some(Value::List(items))
+                          | Some(Value::Tuple(items)) =>
+                            for item in items {
+                              match item {
+                                Value::Str(sym) =>
+                                  match
+                                    get_attr_from_value(
+                                      module_value, sym, globals, builtins, io,
+                                    ) {
+                                    Ok(value) => {
+                                      set_scoped_value(
+                                        locals, globals, sym, value,
+                                      )
+                                      imported_any = true
+                                    }
+                                    Err(err) => return Err(err)
+                                  }
+                                _ => ()
+                              }
+                            }
+                          _ => ()
                         }
-                        _ => ()
+                        if !imported_any {
+                          for pair in inst.dict {
+                            if pair.0 != "__name__" && !pair.0.has_prefix("_") {
+                              set_scoped_value(locals, globals, pair.0, pair.1)
+                            }
+                          }
+                        }
                       }
+                      _ => ()
                     }
-                  _ => ()
-                }
-                if !imported_any {
-                  for pair in inst.dict {
-                    if pair.0 != "__name__" && !pair.0.has_prefix("_") {
-                      set_scoped_value(locals, globals, pair.0, pair.1)
-                    }
+                    continue
                   }
-                }
-              }
-              _ => ()
-            }
-            continue
-          }
-          let imported = match
-            get_attr_from_value(module_value, name, globals, builtins, io) {
-            Ok(value) => value
-            Err(err) =>
-              match err.kind {
-                RuntimeErrorKind::Attribute => {
-                  let submodule = resolved_name + "." + name
-                  match
-                    import_module(
-                      submodule,
-                      globals,
-                      builtins,
-                      io,
-                      current_config(),
+                  let imported = match
+                    get_attr_from_value(
+                      module_value, name, globals, builtins, io,
                     ) {
-                    Ok(value) => value
-                    Err(err) => {
-                      let missing_submodule_message = "ModuleNotFoundError: No module named '" +
-                        submodule +
-                        "'"
-                      if err.exc_type == "ModuleNotFoundError" &&
-                        err.message == missing_submodule_message {
-                        return Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Runtime,
-                            "ImportError: cannot import name '" +
-                            name +
-                            "' from '" +
-                            resolved_name +
-                            "'",
-                          ),
-                        )
+                    Ok(value) => Ok(value)
+                    Err(err) =>
+                      match err.kind {
+                        RuntimeErrorKind::Attribute => {
+                          let submodule = resolved_name + "." + name
+                          match
+                            import_module(
+                              submodule,
+                              globals,
+                              builtins,
+                              io,
+                              current_config(),
+                            ) {
+                            Ok(value) => Ok(value)
+                            Err(err) => {
+                              let missing_submodule_message = "ModuleNotFoundError: No module named '" +
+                                submodule +
+                                "'"
+                              if err.exc_type == "ModuleNotFoundError" &&
+                                err.message == missing_submodule_message {
+                                Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Runtime,
+                                    "ImportError: cannot import name '" +
+                                    name +
+                                    "' from '" +
+                                    resolved_name +
+                                    "'",
+                                  ),
+                                )
+                              } else {
+                                Err(err)
+                              }
+                            }
+                          }
+                        }
+                        _ => Err(err)
                       }
-                      return Err(err)
+                  }
+                  match imported {
+                    Ok(value) => {
+                      let binding = match alias_opt {
+                        Some(alias_name) => alias_name
+                        None => name
+                      }
+                      set_scoped_value(locals, globals, binding, value)
                     }
+                    Err(err) => return Err(err)
                   }
                 }
-                _ => return Err(err)
+                Ok(())
               }
-          }
-          let binding = match alias_opt {
-            Some(alias_name) => alias_name
-            None => name
-          }
-          set_scoped_value(locals, globals, binding, imported)
+              Err(err) => Err(err)
+            }
+          Err(err) => Err(err)
         }
-        Ok(())
       }
       BcOp::CheckInFunctionScope(msg) =>
         if !in_function_scope() {
@@ -3676,6 +4175,7 @@ pub fn bc_exec(
         pending_jump_count = 0
         let mut handler_pc : Int? = None
         let exc = err
+        let exc_for_handler = vm_trim_runtime_error_for_active_handler(exc)
         // Unwind blocks until we find a handler.
         while blocks.length() > 0 {
           let blk = blocks.remove(blocks.length() - 1)
@@ -3685,30 +4185,42 @@ pub fn bc_exec(
           }
           match blk.kind {
             VmBlockKind::Except(target) => {
-              pending_exc = Some(exc)
+              pending_exc = Some(exc_for_handler)
               blocks.push(VmBlock::{
                 kind: VmBlockKind::ExceptHandler,
                 stack_height: stack.length(),
+                pushed_exc: true,
               })
+              active_exception_stack.val.push(exc_for_handler)
               handler_pc = Some(target)
               break
             }
             VmBlockKind::Finally(target) => {
-              pending_exc = Some(exc)
+              pending_exc = Some(exc_for_handler)
               blocks.push(VmBlock::{
                 kind: VmBlockKind::FinallyHandler,
                 stack_height: stack.length(),
+                pushed_exc: true,
               })
+              active_exception_stack.val.push(exc_for_handler)
               handler_pc = Some(target)
               break
             }
             VmBlockKind::ExceptHandler => {
               // An exception raised while already in an except path.
+              if blk.pushed_exc {
+                let _ = active_exception_stack.val.pop()
+
+              }
               pending_exc = None
               continue
             }
             VmBlockKind::FinallyHandler => {
               // An exception raised while already in a finally path.
+              if blk.pushed_exc {
+                let _ = active_exception_stack.val.pop()
+
+              }
               pending_exc = None
               continue
             }

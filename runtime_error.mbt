@@ -23,7 +23,7 @@ fn runtime_error_exc(
         "StopAsyncIteration:", "UnicodeError:", "UnicodeDecodeError:", "UnicodeEncodeError:",
         "UnicodeTranslateError:", "ModuleNotFoundError:", "OSError:", "FileNotFoundError:",
         "FileExistsError:", "PermissionError:", "IsADirectoryError:", "NotADirectoryError:",
-        "SystemExit:", "SkipTest:", "struct.error:", "BufferError:",
+        "SystemExit:", "SkipTest:", "struct.error:", "BufferError:", "RecursionError:",
       ]
       if message == "StopIteration" {
         return ("StopIteration".to_string(), [])
@@ -118,6 +118,20 @@ fn current_traceback_filename() -> String {
     "<module>".to_string()
   } else {
     active_frame_stack.val[active_frame_stack.val.length() - 1].filename
+  }
+}
+
+///|
+fn ensure_recursion_available() -> Result[Unit, RuntimeError] {
+  if active_frame_stack.val.length() >= current_config().max_recursion {
+    Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "RecursionError: maximum recursion depth exceeded".to_string(),
+      ),
+    )
+  } else {
+    Ok(())
   }
 }
 
