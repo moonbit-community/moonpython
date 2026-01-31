@@ -14,6 +14,9 @@ let int_storage_name = "$__int__"
 let tuple_storage_name = "$__tuple__"
 
 ///|
+let set_storage_name = "$__mpython_set__"
+
+///|
 let firstlineno_capture_name = "$__mpython_firstlineno__"
 
 ///|

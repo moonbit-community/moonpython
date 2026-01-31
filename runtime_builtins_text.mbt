@@ -796,6 +796,42 @@ fn encode_string_with_encoding(
     Ok(encode_string_utf8_with_errors(text, errors))
   } else if encoding == "ascii" {
     encode_string_ascii_with_errors(name, text, errors)
+  } else if encoding == "latin-1" ||
+    encoding == "latin1" ||
+    encoding == "iso-8859-1" ||
+    encoding == "iso8859-1" {
+    if errors != "strict" &&
+      errors != "ignore" &&
+      errors != "replace" &&
+      errors != "surrogateescape" &&
+      errors != "surrogatepass" &&
+      errors != "xmlcharrefreplace" {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "LookupError: unknown error handler".to_string(),
+        ),
+      )
+    }
+    let out : Array[Int] = []
+    for ch in text {
+      let code = ch.to_int()
+      if code <= 0xFF {
+        out.push(code)
+      } else if errors == "ignore" {
+        continue
+      } else if errors == "replace" {
+        out.push(0x3F) // '?'
+      } else {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "UnicodeEncodeError: 'latin-1' codec can't encode character".to_string(),
+          ),
+        )
+      }
+    }
+    Ok(out)
   } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
     fn push_hex(out : Array[Int], value : Int, width : Int) -> Unit {
       let mut shift = (width - 1) * 4
@@ -946,6 +982,22 @@ fn decode_bytes_ascii(
 }
 
 ///|
+fn decode_bytes_latin1(
+  name : String,
+  bytes : Array[Int],
+  errors : String,
+) -> Result[String, RuntimeError] {
+  let _ = name
+  let _ = errors
+  let buf = StringBuilder::new()
+  for b in bytes {
+    let v = b & 0xFF
+    buf.write_char(v.to_char().unwrap())
+  }
+  Ok(buf.to_string())
+}
+
+///|
 fn decode_bytes_with_encoding(
   name : String,
   bytes : Array[Int],
@@ -997,6 +1049,25 @@ fn decode_bytes_with_encoding(
       )
     }
     decode_bytes_ascii(name, bytes, errors)
+  } else if encoding == "latin-1" ||
+    encoding == "latin1" ||
+    encoding == "iso-8859-1" ||
+    encoding == "iso8859-1" {
+    // For latin-1, every byte maps directly to the same codepoint.
+    // Accept a small set of error handlers for compatibility.
+    if errors != "strict" &&
+      errors != "surrogateescape" &&
+      errors != "surrogatepass" &&
+      errors != "ignore" &&
+      errors != "replace" {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "LookupError: unknown error handler".to_string(),
+        ),
+      )
+    }
+    decode_bytes_latin1(name, bytes, errors)
   } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
     let _ = errors
     fn hex_value(b : Int) -> Int? {

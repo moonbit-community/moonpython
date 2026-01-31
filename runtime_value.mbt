@@ -204,7 +204,7 @@ fn is_base_exception_class_value(klass : ClassValue) -> Bool {
 fn value_to_string(value : Value) -> String {
   fn repr_in_container(value : Value) -> String {
     match value {
-      Value::Str(text) => "'" + escape_string_for_repr(text) + "'"
+      Value::Str(text) => repr_string(text)
       other => value_to_string(other)
     }
   }
@@ -1182,6 +1182,22 @@ fn number_value(value : Value) -> Result[(Bool, Double), RuntimeError] {
       }
     Value::Float(v) => Ok((true, v))
     Value::Bool(v) => Ok((false, if v { 1.0 } else { 0.0 }))
+    Value::Instance(inst) =>
+      match get_named_value(inst.dict, int_storage_name) {
+        Some(Value::Int(v)) =>
+          match bigint_to_double_checked(v) {
+            Ok(d) => Ok((false, d))
+            Err(err) => Err(err)
+          }
+        Some(Value::Bool(v)) => Ok((false, if v { 1.0 } else { 0.0 }))
+        _ =>
+          Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "expected number".to_string(),
+            ),
+          )
+      }
     _ =>
       Err(
         make_runtime_error(

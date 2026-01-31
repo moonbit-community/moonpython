@@ -250,3 +250,31 @@ fn class_includes_tuple(klass : ClassValue) -> Bool {
   }
   false
 }
+
+///|
+fn class_includes_set(klass : ClassValue) -> Bool {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(_) => return false
+  }
+  for cls in mro {
+    if cls.name == "set" {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn class_includes_frozenset(klass : ClassValue) -> Bool {
+  let mro = match class_mro(klass) {
+    Ok(value) => value
+    Err(_) => return false
+  }
+  for cls in mro {
+    if cls.name == "frozenset" {
+      return true
+    }
+  }
+  false
+}

@@ -188,8 +188,12 @@ class PrettyPrinter:
                   not isinstance(object, type) and
                   object.__dataclass_params__.repr and
                   # Check dataclass has generated repr method.
-                  hasattr(object.__repr__, "__wrapped__") and
-                  "__create_fn__" in object.__repr__.__wrapped__.__qualname__):
+                  #
+                  # CPython tags dataclass-generated reprs with a wrapped helper.
+                  # MoonPython's dataclasses currently set `__wrapped__` but do not
+                  # expose CPython's `__create_fn__` qualname marker, so key off
+                  # `__wrapped__` alone here.
+                  hasattr(object.__repr__, "__wrapped__")):
                 context[objid] = 1
                 self._pprint_dataclass(object, stream, indent, allowance, context, level + 1)
                 del context[objid]
@@ -385,7 +389,9 @@ class PrettyPrinter:
         else:
             cls_name = object.__class__.__name__
         indent += len(cls_name) + 1
-        items = object.__dict__.items()
+        # MoonPython note: instances currently carry an internal `hashvalue`
+        # attribute for identity. Hide it from pprint output to match CPython.
+        items = [(k, v) for (k, v) in object.__dict__.items() if k != 'hashvalue']
         stream.write(cls_name + '(')
         self._format_namespace_items(items, stream, indent, allowance, context, level)
         stream.write(')')

@@ -5,6 +5,9 @@
 fn compare_sequence_values(
   left : Array[Value],
   right : Array[Value],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
 ) -> Result[Int, RuntimeError] {
   let min_len = if left.length() < right.length() {
     left.length()
@@ -15,29 +18,19 @@ fn compare_sequence_values(
     if eq_value(left[i], right[i]) {
       continue
     }
-    fn compare_ordered(a : Value, b : Value) -> Result[Int, RuntimeError] {
-      if eq_value(a, b) {
-        return Ok(0)
-      }
-      match (a, b) {
-        (Value::Str(x), Value::Str(y)) => Ok(if x < y { -1 } else { 1 })
-        (Value::Tuple(xs), Value::Tuple(ys)) => compare_sequence_values(xs, ys)
-        (Value::List(xs), Value::List(ys)) => compare_sequence_values(xs, ys)
-        _ => {
-          let (_, left_num) = match number_value(a) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let (_, right_num) = match number_value(b) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          Ok(if left_num < right_num { -1 } else { 1 })
-        }
-      }
+    let lt = match
+      compare_values_with_env(
+        CompareOp::Lt,
+        left[i],
+        right[i],
+        globals,
+        builtins,
+        io,
+      ) {
+      Ok(v) => v
+      Err(err) => return Err(err)
     }
-
-    return compare_ordered(left[i], right[i])
+    return Ok(if lt { -1 } else { 1 })
   }
   if left.length() == right.length() {
     Ok(0)
@@ -589,19 +582,21 @@ fn compare_values_with_env(
     CompareOp::Lt =>
       match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
         (Some(left), Some(right)) =>
-          match compare_sequence_values(left, right) {
+          match compare_sequence_values(left, right, globals, builtins, io) {
             Ok(cmp) => Ok(cmp < 0)
             Err(err) => Err(err)
           }
         _ =>
           match (left, right) {
             (Value::Tuple(left), Value::Tuple(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp < 0)
                 Err(err) => Err(err)
               }
             (Value::List(left), Value::List(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp < 0)
                 Err(err) => Err(err)
               }
@@ -641,7 +636,8 @@ fn compare_values_with_env(
               Ok(left < (if right { 1.0 } else { 0.0 }))
             (Value::Bool(left), Value::Float(right)) =>
               Ok((if left { 1.0 } else { 0.0 }) < right)
-            (Value::Str(left), Value::Str(right)) => Ok(left < right)
+            (Value::Str(left), Value::Str(right)) =>
+              Ok(cmp_string_for_sorted(left, right) < 0)
             (
               Value::Bytes(left)
               | Value::ByteArray(left)
@@ -659,19 +655,21 @@ fn compare_values_with_env(
     CompareOp::Lte =>
       match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
         (Some(left), Some(right)) =>
-          match compare_sequence_values(left, right) {
+          match compare_sequence_values(left, right, globals, builtins, io) {
             Ok(cmp) => Ok(cmp <= 0)
             Err(err) => Err(err)
           }
         _ =>
           match (left, right) {
             (Value::Tuple(left), Value::Tuple(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp <= 0)
                 Err(err) => Err(err)
               }
             (Value::List(left), Value::List(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp <= 0)
                 Err(err) => Err(err)
               }
@@ -711,7 +709,8 @@ fn compare_values_with_env(
               Ok(left <= (if right { 1.0 } else { 0.0 }))
             (Value::Bool(left), Value::Float(right)) =>
               Ok((if left { 1.0 } else { 0.0 }) <= right)
-            (Value::Str(left), Value::Str(right)) => Ok(left <= right)
+            (Value::Str(left), Value::Str(right)) =>
+              Ok(cmp_string_for_sorted(left, right) <= 0)
             (
               Value::Bytes(left)
               | Value::ByteArray(left)
@@ -729,19 +728,21 @@ fn compare_values_with_env(
     CompareOp::Gt =>
       match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
         (Some(left), Some(right)) =>
-          match compare_sequence_values(left, right) {
+          match compare_sequence_values(left, right, globals, builtins, io) {
             Ok(cmp) => Ok(cmp > 0)
             Err(err) => Err(err)
           }
         _ =>
           match (left, right) {
             (Value::Tuple(left), Value::Tuple(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp > 0)
                 Err(err) => Err(err)
               }
             (Value::List(left), Value::List(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp > 0)
                 Err(err) => Err(err)
               }
@@ -781,7 +782,8 @@ fn compare_values_with_env(
               Ok(left > (if right { 1.0 } else { 0.0 }))
             (Value::Bool(left), Value::Float(right)) =>
               Ok((if left { 1.0 } else { 0.0 }) > right)
-            (Value::Str(left), Value::Str(right)) => Ok(left > right)
+            (Value::Str(left), Value::Str(right)) =>
+              Ok(cmp_string_for_sorted(left, right) > 0)
             (
               Value::Bytes(left)
               | Value::ByteArray(left)
@@ -799,19 +801,21 @@ fn compare_values_with_env(
     CompareOp::Gte =>
       match (tuple_items_for_compare(left), tuple_items_for_compare(right)) {
         (Some(left), Some(right)) =>
-          match compare_sequence_values(left, right) {
+          match compare_sequence_values(left, right, globals, builtins, io) {
             Ok(cmp) => Ok(cmp >= 0)
             Err(err) => Err(err)
           }
         _ =>
           match (left, right) {
             (Value::Tuple(left), Value::Tuple(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp >= 0)
                 Err(err) => Err(err)
               }
             (Value::List(left), Value::List(right)) =>
-              match compare_sequence_values(left, right) {
+              match
+                compare_sequence_values(left, right, globals, builtins, io) {
                 Ok(cmp) => Ok(cmp >= 0)
                 Err(err) => Err(err)
               }
@@ -851,7 +855,8 @@ fn compare_values_with_env(
               Ok(left >= (if right { 1.0 } else { 0.0 }))
             (Value::Bool(left), Value::Float(right)) =>
               Ok((if left { 1.0 } else { 0.0 }) >= right)
-            (Value::Str(left), Value::Str(right)) => Ok(left >= right)
+            (Value::Str(left), Value::Str(right)) =>
+              Ok(cmp_string_for_sorted(left, right) >= 0)
             (
               Value::Bytes(left)
               | Value::ByteArray(left)

@@ -37,13 +37,141 @@ def fnmatch(name, pat):
 
 @functools.lru_cache(maxsize=32768, typed=True)
 def _compile_pattern(pat):
-    if isinstance(pat, bytes):
-        pat_str = str(pat, 'ISO-8859-1')
-        res_str = translate(pat_str)
-        res = bytes(res_str, 'ISO-8859-1')
+    # MoonPython note:
+    # The stdlib `fnmatch` implementation translates shell globs into a regular
+    # expression and relies on CPython's fast C regex engine. MoonPython ships a
+    # minimal `re` shim that is not intended to handle large backtracking-heavy
+    # patterns efficiently, which can make `test.test_fnmatch` extremely slow.
+    #
+    # Implement glob matching directly (with memoization) to keep it fast and
+    # avoid depending on the regex engine.
+    def _latin1_decode(data):
+        # Avoid relying on the encodings machinery; map bytes 0..255 directly.
+        out = []
+        for b in bytes(data):
+            out.append(chr(b))
+        return "".join(out)
+
+    is_bytes = isinstance(pat, bytes)
+    if is_bytes:
+        pat_s = _latin1_decode(pat)
     else:
-        res = translate(pat)
-    return re.compile(res).match
+        pat_s = pat
+
+    def _parse_char_class(p, i):
+        # Parse [...], returning (next_index, negate, allowed_set).
+        # If no closing ']' exists, treat '[' as a literal.
+        n = len(p)
+        j = i + 1
+        if j >= n:
+            return None
+        negate = False
+        if p[j] == "!":
+            negate = True
+            j += 1
+        if j < n and p[j] == "]":
+            # ']' is a literal if it appears first.
+            j += 1
+
+        chars = set()
+        if j > i + 1 and p[j - 1] == "]":
+            # Leading ']' is a literal member of the class.
+            chars.add("]")
+        last = None
+        while j < n and p[j] != "]":
+            start = p[j]
+            j += 1
+            # Handle ranges like a-z. If the upper bound is smaller than the
+            # lower bound, treat it as an empty range (matches nothing).
+            if j + 1 < n and p[j] == "-" and p[j + 1] != "]":
+                j += 1  # consume '-'
+                end = p[j]
+                j += 1
+                if start <= end:
+                    for code in range(ord(start), ord(end) + 1):
+                        chars.add(chr(code))
+                else:
+                    # Descending/empty range: ignore both endpoints.
+                    pass
+                last = None
+                continue
+            chars.add(start)
+            last = start
+
+        if j >= n or p[j] != "]":
+            return None
+        return (j + 1, negate, chars)
+
+    def _match(name):
+        if is_bytes:
+            if isinstance(name, str):
+                raise TypeError("cannot use a bytes pattern on a string-like object")
+            if not isinstance(name, (bytes, bytearray)):
+                raise TypeError("expected a bytes-like object")
+            s = _latin1_decode(name)
+        else:
+            if isinstance(name, (bytes, bytearray)):
+                raise TypeError("cannot use a string pattern on a bytes-like object")
+            s = name
+
+        p = pat_s
+        n_s = len(s)
+        n_p = len(p)
+        memo = {}
+
+        def go(pi, si):
+            key = (pi, si)
+            if key in memo:
+                return memo[key]
+
+            if pi == n_p:
+                ok = si == n_s
+                memo[key] = ok
+                return ok
+
+            c = p[pi]
+            if c == "*":
+                # Compress consecutive '*' into one.
+                while pi < n_p and p[pi] == "*":
+                    pi += 1
+                if pi == n_p:
+                    memo[key] = True
+                    return True
+                # Try to match the rest of the pattern at each suffix.
+                for sj in range(si, n_s + 1):
+                    if go(pi, sj):
+                        memo[key] = True
+                        return True
+                memo[key] = False
+                return False
+            if c == "?":
+                ok = si < n_s and go(pi + 1, si + 1)
+                memo[key] = ok
+                return ok
+            if c == "[":
+                parsed = _parse_char_class(p, pi)
+                if parsed is None:
+                    ok = si < n_s and s[si] == "[" and go(pi + 1, si + 1)
+                    memo[key] = ok
+                    return ok
+                next_pi, negate, chars = parsed
+                if si >= n_s:
+                    memo[key] = False
+                    return False
+                hit = s[si] in chars
+                if negate:
+                    hit = not hit
+                ok = hit and go(next_pi, si + 1)
+                memo[key] = ok
+                return ok
+
+            ok = si < n_s and s[si] == c and go(pi + 1, si + 1)
+            memo[key] = ok
+            return ok
+
+        return go(0, 0)
+
+    return _match
 
 def filter(names, pat):
     """Construct a list from those elements of the iterable NAMES that match PAT."""
@@ -68,7 +196,7 @@ def fnmatchcase(name, pat):
     its arguments.
     """
     match = _compile_pattern(pat)
-    return match(name) is not None
+    return match(name)
 
 
 def translate(pat):
@@ -128,8 +256,9 @@ def translate(pat):
                     # Hyphens that create ranges shouldn't be escaped.
                     stuff = '-'.join(s.replace('\\', r'\\').replace('-', r'\-')
                                      for s in chunks)
-                # Escape set operations (&&, ~~ and ||).
-                stuff = re.sub(r'([&~|])', r'\\\1', stuff)
+                # Escape set operations (&&, ~~ and ||). Do it manually to
+                # avoid depending on a full regex engine.
+                stuff = "".join("\\" + ch if ch in "&~|" else ch for ch in stuff)
                 i = j+1
                 if not stuff:
                     # Empty range: never match.

@@ -225,6 +225,27 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
         Ok(Value::None)
+      } else if func.body.length() == 0 &&
+        (func.name == "__repr__" || func.name.has_suffix(".__repr__")) {
+        // Intrinsic: built-in `__repr__` implementations are modeled as stubs.
+        // They should return the `repr()` string of their sole argument.
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__repr__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__repr__() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        Ok(Value::Str(repr_fallback(positional[0])))
       } else if func.name == "__new__" && func.body.length() == 0 {
         // Intrinsic: object.__new__(cls)
         if positional.length() < 1 {
@@ -245,6 +266,9 @@ fn call_callable_with_env(
             }
             if class_includes_dict(klass) {
               inst_dict.push((dict_storage_name, Value::Dict([])))
+            }
+            if class_includes_set(klass) || class_includes_frozenset(klass) {
+              inst_dict.push((set_storage_name, Value::Set([])))
             }
             if class_includes_tuple(klass) {
               inst_dict.push((tuple_storage_name, Value::Tuple([])))
@@ -380,6 +404,57 @@ fn call_callable_with_env(
         _ => ()
       }
 
+      // Intrinsic: dict.__init__(self, mapping=(), /, **kwargs)
+      //
+      // Pure-Python stdlib types like `collections.defaultdict` call
+      // `dict.__init__(self, ...)` directly; make sure the backing storage is
+      // populated instead of treating this as a no-op stub.
+      if bound_method.function.name == "__init__" &&
+        bound_method.function.body.length() == 0 {
+        match bound_method.self {
+          Value::Instance(inst) =>
+            match get_named_value(inst.dict, dict_storage_name) {
+              Some(Value::Dict(pairs)) =>
+                if class_includes_dict(inst.class) {
+                  fn replace_pairs(
+                    pairs : Array[(Value, Value)],
+                    next : Array[(Value, Value)],
+                  ) -> Unit {
+                    let mut i = pairs.length()
+                    while i > 0 {
+                      i = i - 1
+                      let _ = pairs.remove(i)
+
+                    }
+                    for item in next {
+                      pairs.push(item)
+                    }
+                  }
+
+                  let created = match
+                    builtin_dict(
+                      positional,
+                      keywords,
+                      [],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                  match created {
+                    Value::Dict(next_pairs) => replace_pairs(pairs, next_pairs)
+                    _ => ()
+                  }
+                  return Ok(Value::None)
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+      }
+
       // Intrinsic: object.__getattribute__(self, name)
       if bound_method.function.name == "__getattribute__" &&
         bound_method.function.body.length() == 0 {
@@ -504,6 +579,56 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
         return Ok(Value::None)
+      }
+
+      // Intrinsic: object.__hash__(self)
+      if bound_method.function.name == "__hash__" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__hash__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__hash__() takes no arguments".to_string(),
+            ),
+          )
+        }
+        match hash_value(bound_method.self) {
+          Ok(hash) => return Ok(Value::Int(hash))
+          Err(err) => return Err(err)
+        }
+      }
+
+      // Intrinsic: built-in `__repr__` stubs (e.g. set.__repr__) must return a string.
+      if bound_method.function.body.length() == 0 &&
+        (
+          bound_method.function.name == "__repr__" ||
+          bound_method.function.name.has_suffix(".__repr__")
+        ) {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__repr__() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "__repr__() takes no arguments".to_string(),
+            ),
+          )
+        }
+        return Ok(Value::Str(repr_fallback(bound_method.self)))
       }
 
       // Intrinsic: BaseException.__setstate__(self, state)
@@ -1746,14 +1871,20 @@ fn call_callable_with_env(
                           match
                             (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
                             (Some(xs), Some(ys)) =>
-                              match compare_sequence_values(xs, ys) {
+                              match
+                                compare_sequence_values(
+                                  xs, ys, globals, builtins, io,
+                                ) {
                                 Ok(cmp) => Ok(cmp < 0)
                                 Err(err) => Err(err)
                               }
                             _ =>
                               match (a, b) {
                                 (Value::List(xs), Value::List(ys)) =>
-                                  match compare_sequence_values(xs, ys) {
+                                  match
+                                    compare_sequence_values(
+                                      xs, ys, globals, builtins, io,
+                                    ) {
                                     Ok(cmp) => Ok(cmp < 0)
                                     Err(err) => Err(err)
                                   }
@@ -4399,14 +4530,20 @@ fn call_callable_with_env(
                     _ =>
                       match (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
                         (Some(xs), Some(ys)) =>
-                          match compare_sequence_values(xs, ys) {
+                          match
+                            compare_sequence_values(
+                              xs, ys, globals, builtins, io,
+                            ) {
                             Ok(cmp) => Ok(cmp < 0)
                             Err(err) => Err(err)
                           }
                         _ =>
                           match (a, b) {
                             (Value::List(xs), Value::List(ys)) =>
-                              match compare_sequence_values(xs, ys) {
+                              match
+                                compare_sequence_values(
+                                  xs, ys, globals, builtins, io,
+                                ) {
                                 Ok(cmp) => Ok(cmp < 0)
                                 Err(err) => Err(err)
                               }
@@ -6490,6 +6627,12 @@ fn call_callable_with_env(
           if class_includes_dict(klass) {
             inst_dict.push((dict_storage_name, Value::Dict([])))
           }
+          if class_includes_set(klass) || class_includes_frozenset(klass) {
+            inst_dict.push((set_storage_name, Value::Set([])))
+          }
+          if class_includes_tuple(klass) {
+            inst_dict.push((tuple_storage_name, Value::Tuple([])))
+          }
           let inst_value = Value::Instance(InstanceValue::{
             class: klass,
             dict: inst_dict,
@@ -6539,9 +6682,95 @@ fn call_callable_with_env(
               }
             _ => ()
           }
+          match get_named_value(inst.dict, dict_storage_name) {
+            Some(Value::Dict(pairs)) =>
+              // Dict subclasses (e.g. `class D(dict): ...`) currently don't inherit
+              // `dict.__init__` from the builtins class table, so populate their
+              // backing storage here unless they define a custom `__init__`.
+              if get_named_value(klass.dict, "__init__") is None {
+                fn replace_pairs(
+                  pairs : Array[(Value, Value)],
+                  next : Array[(Value, Value)],
+                ) -> Unit {
+                  let mut i = pairs.length()
+                  while i > 0 {
+                    i = i - 1
+                    let _ = pairs.remove(i)
+
+                  }
+                  for item in next {
+                    pairs.push(item)
+                  }
+                }
+
+                let created = match
+                  builtin_dict(positional, keywords, [], globals, builtins, io) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                match created {
+                  Value::Dict(next_pairs) => replace_pairs(pairs, next_pairs)
+                  _ => ()
+                }
+              }
+            _ => ()
+          }
+          match get_named_value(inst.dict, set_storage_name) {
+            Some(Value::Set(values)) =>
+              // Set/frozenset subclasses currently don't inherit `set.__init__`
+              // / `frozenset.__init__`; initialize storage here unless they
+              // define a custom `__init__`.
+              if get_named_value(klass.dict, "__init__") is None {
+                if keywords.length() > 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "set() takes no keyword arguments".to_string(),
+                    ),
+                  )
+                }
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "set expected at most 1 argument, got " +
+                      positional.length().to_string(),
+                    ),
+                  )
+                }
+                let items = if positional.length() == 1 {
+                  match
+                    collect_items_from_iterable(
+                      positional[0],
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(v) => v
+                    Err(err) => return Err(err)
+                  }
+                } else {
+                  ([] : Array[Value])
+                }
+                let unique : Array[Value] = []
+                for item in items {
+                  let _ = match set_add_unique(unique, item) {
+                    Ok(_) => ()
+                    Err(err) => return Err(err)
+                  }
+
+                }
+                replace_array_values(values, unique)
+              }
+            _ => ()
+          }
           match init {
             Some(Value::Function(func)) =>
-              if inst.class.name == klass.name {
+              // CPython calls __init__ if __new__ returned an instance of the
+              // requested class (including subclasses). For factory-style
+              // classes like pathlib.Path, __new__ returns a PosixPath/WindowsPath
+              // instance, and the inherited __init__ must still run.
+              if class_has_base_name(inst.class, klass.name) {
                 let args : Array[Value] = [Value::Instance(inst)]
                 for item in positional {
                   args.push(item)

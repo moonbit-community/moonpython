@@ -169,12 +169,29 @@ def build_run_command(
     lib_dir: Path,
     module: str,
     extra_args: List[str],
+    runner: str,
     target_dir: Optional[str],
     target: str,
     native_release: bool,
 ) -> Sequence[str]:
+    if runner not in {"unittest", "direct"}:
+        raise ValueError(f"unknown runner: {runner!r}")
     if target == "native":
         exe = ensure_native_runner(repo_root, target_dir, native_release)
+        if runner == "unittest":
+            # `python -m unittest test.test_xxx` imports the module under its real
+            # name (not as `__main__`). A number of Lib/test modules assume this
+            # import-style execution (e.g. repr module qualifiers), so make this
+            # the default for the smoke runner.
+            return [
+                str(exe),
+                "--stdlib",
+                str(lib_dir),
+                "-m",
+                "unittest",
+                module,
+                *extra_args,
+            ]
         return [
             str(exe),
             "--stdlib",
@@ -184,6 +201,22 @@ def build_run_command(
             *extra_args,
         ]
     # Fallback: keep using moon run for other targets (exit codes may be unreliable).
+    if runner == "unittest":
+        return [
+            "moon",
+            "run",
+            "--target",
+            target,
+            *(["--target-dir", target_dir] if target_dir else []),
+            "cmd/main",
+            "--",
+            "--stdlib",
+            str(lib_dir),
+            "-m",
+            "unittest",
+            module,
+            *extra_args,
+        ]
     return [
         "moon",
         "run",
@@ -192,12 +225,12 @@ def build_run_command(
         *(["--target-dir", target_dir] if target_dir else []),
         "cmd/main",
         "--",
-        "--stdlib",
-        str(lib_dir),
-        "-m",
-        module,
-        *extra_args,
-    ]
+            "--stdlib",
+            str(lib_dir),
+            "-m",
+            module,
+            *extra_args,
+        ]
 
 
 def run_one(
@@ -206,6 +239,7 @@ def run_one(
     module: str,
     timeout_s: float,
     extra_args: List[str],
+    runner: str,
     target_dir: Optional[str],
     target: str,
     native_release: bool,
@@ -225,6 +259,7 @@ def run_one(
             lib_dir,
             module,
             extra_args=extra_args,
+            runner=runner,
             target_dir=target_dir,
             target=target,
             native_release=native_release,
@@ -296,6 +331,12 @@ def main() -> int:
         help="Per-module timeout for known slow tests (default: 1200)",
     )
     parser.add_argument(
+        "--runner",
+        choices=("unittest", "direct"),
+        default="unittest",
+        help="How to execute a test module (default: unittest). 'unittest' imports modules under their real name; 'direct' runs them as __main__.",
+    )
+    parser.add_argument(
         "--target",
         default="native",
         help="Execution target (default: native). Non-native targets fall back to `moon run` (exit codes may be unreliable).",
@@ -340,6 +381,7 @@ def main() -> int:
             mod,
             timeout_s=timeout_s,
             extra_args=args.extra_args or [],
+            runner=args.runner,
             target_dir=args.target_dir,
             target=args.target,
             native_release=args.native_release,

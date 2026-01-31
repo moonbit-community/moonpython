@@ -227,6 +227,14 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
   if i >= chars.length() {
     return None
   }
+  let mut grouping : Char? = None
+  if i < chars.length() - 1 && (chars[i] == '_' || chars[i] == ',') {
+    grouping = Some(chars[i])
+    i += 1
+  }
+  if i >= chars.length() {
+    return None
+  }
   let typ = chars[i]
   if i + 1 != chars.length() {
     return None
@@ -241,10 +249,36 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
     'b' => ("0b", 2, false, false)
     _ => return None
   }
-  let digits = if decimal {
+  fn group_decimal_underscores(text : String) -> String {
+    let chars = text.to_array()
+    if chars.length() <= 3 {
+      return text
+    }
+    let buf = StringBuilder::new()
+    let mut i = 0
+    let rem = chars.length() % 3
+    let first = if rem == 0 { 3 } else { rem }
+    while i < chars.length() {
+      if i > 0 {
+        buf.write_char('_')
+      }
+      let chunk_len = if i == 0 { first } else { 3 }
+      for j = 0; j < chunk_len; j = j + 1 {
+        buf.write_char(chars[i + j])
+      }
+      i = i + chunk_len
+    }
+    buf.to_string()
+  }
+
+  let mut digits = if decimal {
     abs_value.to_string()
   } else {
     fstring_int_to_base_string(abs_value, base, uppercase)
+  }
+  match grouping {
+    Some('_') => if decimal { digits = group_decimal_underscores(digits) }
+    _ => ()
   }
   let sign = if neg { "-" } else { "" }
   let alt_prefix = if alternate && !decimal { prefix } else { "" }
@@ -628,6 +662,23 @@ fn format_hex_value(
 }
 
 ///|
+fn format_octal_value(value : Value) -> Result[String, RuntimeError] {
+  match value {
+    Value::Int(v) => Ok(bigint_to_base_string(v, 8, ""))
+    Value::Bool(v) => Ok(if v { "1" } else { "0" })
+    Value::Float(v) =>
+      Ok(bigint_to_base_string(@bigint.BigInt::from_int64(v.to_int64()), 8, ""))
+    _ =>
+      Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "expected number".to_string(),
+        ),
+      )
+  }
+}
+
+///|
 fn round_float_to_int64(value : Double) -> Int64 {
   if value >= 0.0 {
     @math.floor(value + 0.5).to_int64()
@@ -994,6 +1045,7 @@ fn format_percent_string(
           }
         }
       'd' | 'i' => format_decimal_value(arg)
+      'o' => format_octal_value(arg)
       'x' => format_hex_value(arg, false)
       'X' => format_hex_value(arg, true)
       'f' | 'F' =>
@@ -1015,7 +1067,7 @@ fn format_percent_string(
           pad_right(text, width, ' ')
         } else {
           match spec {
-            'd' | 'i' | 'x' | 'X' => pad_numeric(text, width, zero_pad)
+            'd' | 'i' | 'o' | 'x' | 'X' => pad_numeric(text, width, zero_pad)
             _ => pad_left(text, width, if zero_pad { '0' } else { ' ' })
           }
         }

@@ -26,10 +26,25 @@ class defaultdict(dict):
         self[key] = value
         return value
 
+    def __repr__(self):
+        factory = self.default_factory
+        if factory is None:
+            f_repr = "None"
+        else:
+            f_repr = repr(factory)
+        return f"defaultdict({f_repr}, {dict.__repr__(self)})"
+
 
 class deque:
-    def __init__(self, iterable=()):
+    def __init__(self, iterable=(), maxlen=None):
+        if maxlen is not None:
+            maxlen = int(maxlen)
+            if maxlen < 0:
+                raise ValueError("maxlen must be non-negative")
+        self.maxlen = maxlen
         self._items = list(iterable)
+        if self.maxlen is not None and len(self._items) > self.maxlen:
+            self._items = self._items[-self.maxlen :]
 
     def __len__(self):
         return len(self._items)
@@ -38,7 +53,9 @@ class deque:
         return iter(self._items)
 
     def __repr__(self):
-        return f"deque({self._items!r})"
+        if self.maxlen is None:
+            return f"deque({self._items!r})"
+        return f"deque({self._items!r}, maxlen={self.maxlen!r})"
 
     def __eq__(self, other):
         if type(other) is deque:
@@ -47,9 +64,13 @@ class deque:
 
     def append(self, value):
         self._items.append(value)
+        if self.maxlen is not None and len(self._items) > self.maxlen:
+            del self._items[0]
 
     def appendleft(self, value):
         self._items.insert(0, value)
+        if self.maxlen is not None and len(self._items) > self.maxlen:
+            self._items.pop()
 
     def pop(self):
         if not self._items:
@@ -66,11 +87,11 @@ class deque:
 
     def extend(self, iterable):
         for item in iterable:
-            self._items.append(item)
+            self.append(item)
 
     def extendleft(self, iterable):
         for item in iterable:
-            self._items.insert(0, item)
+            self.appendleft(item)
 
     def __getitem__(self, index):
         return self._items[index]
@@ -81,6 +102,15 @@ class _deque_iterator:
 
 
 class OrderedDict(dict):
+    def __repr__(self):
+        if not self:
+            return "OrderedDict()"
+        return f"OrderedDict({list(self.items())!r})"
+
+    def copy(self):
+        # CPython's OrderedDict.copy() preserves the OrderedDict type.
+        return type(self)(self)
+
     def __reversed__(self):
         return reversed(list(self.keys()))
 

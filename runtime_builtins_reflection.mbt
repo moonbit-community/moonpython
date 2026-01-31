@@ -5,6 +5,75 @@
 let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N }
 
 ///|
+// `id()` needs stable object identity, especially for cycle detection in the
+// stdlib (e.g. pprint's recursion tracking). We don't have direct pointer->int
+// casts available, so we maintain small registries keyed by reference identity.
+let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [] }
+
+///|
+let id_registry_int_array : Ref[Array[(Array[Int], @bigint.BigInt)]] = {
+  val: [],
+}
+
+///|
+let id_registry_value_array : Ref[Array[(Array[Value], @bigint.BigInt)]] = {
+  val: [],
+}
+
+///|
+let id_registry_dict_pairs : Ref[Array[(Array[(Value, Value)], @bigint.BigInt)]] = {
+  val: [],
+}
+
+///|
+fn id_for_string(value : String) -> @bigint.BigInt {
+  for pair in id_registry_string.val {
+    if physical_equal(pair.0, value) {
+      return pair.1
+    }
+  }
+  let id = fresh_object_hashvalue()
+  id_registry_string.val.push((value, id))
+  id
+}
+
+///|
+fn id_for_int_array(value : Array[Int]) -> @bigint.BigInt {
+  for pair in id_registry_int_array.val {
+    if physical_equal(pair.0, value) {
+      return pair.1
+    }
+  }
+  let id = fresh_object_hashvalue()
+  id_registry_int_array.val.push((value, id))
+  id
+}
+
+///|
+fn id_for_value_array(value : Array[Value]) -> @bigint.BigInt {
+  for pair in id_registry_value_array.val {
+    if physical_equal(pair.0, value) {
+      return pair.1
+    }
+  }
+  let id = fresh_object_hashvalue()
+  id_registry_value_array.val.push((value, id))
+  id
+}
+
+///|
+fn id_for_dict_pairs(value : Array[(Value, Value)]) -> @bigint.BigInt {
+  for pair in id_registry_dict_pairs.val {
+    if physical_equal(pair.0, value) {
+      return pair.1
+    }
+  }
+  let id = fresh_object_hashvalue()
+  id_registry_dict_pairs.val.push((value, id))
+  id
+}
+
+///|
 fn builtin_iter(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -239,15 +308,14 @@ fn bigint_to_base_string(
 }
 
 ///|
-fn escape_string_for_repr(text : String) -> String {
+fn escape_string_for_repr_with_quote(text : String, quote : Char) -> String {
   let buf = StringBuilder::new()
   for ch in text.to_array() {
     if ch == '\\' {
       buf.write_string("\\\\")
-    } else if ch == '\'' {
-      buf.write_string("\\'")
-    } else if ch == '"' {
-      buf.write_string("\\\"")
+    } else if ch == quote {
+      buf.write_char('\\')
+      buf.write_char(ch)
     } else if ch == '\n' {
       buf.write_string("\\n")
     } else if ch == '\r' {
@@ -259,6 +327,14 @@ fn escape_string_for_repr(text : String) -> String {
     }
   }
   buf.to_string()
+}
+
+///|
+fn repr_string(text : String) -> String {
+  let use_double = text.contains("'") && !text.contains("\"")
+  let quote = if use_double { '"' } else { '\'' }
+  let escaped = escape_string_for_repr_with_quote(text, quote)
+  quote.to_string() + escaped + quote.to_string()
 }
 
 ///|
@@ -284,7 +360,7 @@ fn repr_fallback(value : Value) -> String {
   }
 
   match value {
-    Value::Str(text) => "'" + escape_string_for_repr(text) + "'"
+    Value::Str(text) => repr_string(text)
     Value::Bytes(values) => bytes_repr(values)
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
     Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
@@ -326,7 +402,50 @@ fn repr_fallback(value : Value) -> String {
         _ =>
           match get_named_value(inst.dict, tuple_storage_name) {
             Some(Value::Tuple(values)) => repr_fallback(Value::Tuple(values))
-            _ => value_to_string(value)
+            _ =>
+              match get_named_value(inst.dict, dict_storage_name) {
+                Some(Value::Dict(pairs)) => repr_fallback(Value::Dict(pairs))
+                _ =>
+                  match get_named_value(inst.dict, set_storage_name) {
+                    Some(Value::Set(values)) =>
+                      if values.length() == 0 {
+                        inst.class.name + "()"
+                      } else {
+                        let buf = StringBuilder::new()
+                        buf.write_string(inst.class.name)
+                        buf.write_char('(')
+                        write_joined(buf, values, "{", "}", false)
+                        buf.write_char(')')
+                        buf.to_string()
+                      }
+                    _ => {
+                      let module_name = match
+                        get_named_value(inst.class.dict, "__module__") {
+                        Some(Value::Str(text)) => text
+                        _ => inst.class.name
+                      }
+                      let qualname = match
+                        get_named_value(inst.class.dict, "__qualname__") {
+                        Some(Value::Str(text)) => text
+                        _ => inst.class.name
+                      }
+                      let id_text = match
+                        get_named_value(inst.dict, "hashvalue") {
+                        Some(Value::Int(v)) => v.to_string()
+                        Some(Value::Bool(v)) =>
+                          (if v { 1N } else { 0N }).to_string()
+                        _ => "0"
+                      }
+                      "<" +
+                      module_name +
+                      "." +
+                      qualname +
+                      " object at 0x" +
+                      id_text +
+                      ">"
+                    }
+                  }
+              }
           }
       }
     _ => value_to_string(value)
@@ -1169,7 +1288,7 @@ fn builtin_repr(
   }
   let value = positional[0]
   match value {
-    Value::Str(text) => Ok(Value::Str("'" + escape_string_for_repr(text) + "'"))
+    Value::Str(text) => Ok(Value::Str(repr_string(text)))
     Value::Instance(inst) =>
       if is_base_exception_class_value(inst.class) {
         fn repr_arg(
@@ -1307,7 +1426,7 @@ fn builtin_ascii(
     )
   }
   match positional[0] {
-    Value::Str(text) => Ok(Value::Str("'" + escape_string_for_repr(text) + "'"))
+    Value::Str(text) => Ok(Value::Str(repr_string(text)))
     other => Ok(Value::Str(value_to_string(other)))
   }
 }
@@ -2146,10 +2265,28 @@ fn builtin_id(
   }
   let value = positional[0]
   match value {
-    Value::Int(v) => Ok(Value::Int(v))
-    Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
-    Value::Str(text) =>
-      Ok(Value::Int(@bigint.BigInt::from_int64(hash_string(text))))
+    // For immediate values, synthesize an id with a small type tag to avoid
+    // collisions between e.g. 0 and False.
+    Value::Int(v) => Ok(Value::Int(v * 8N + 1N))
+    Value::Bool(v) => Ok(Value::Int((if v { 1N } else { 0N }) * 8N + 2N))
+    Value::Float(v) =>
+      Ok(Value::Int(@bigint.BigInt::from_int64(v.to_int64()) * 8N + 3N))
+    Value::Complex(real, imag) =>
+      Ok(
+        Value::Int(
+          @bigint.BigInt::from_int64(hash_complex(real, imag)) * 8N + 4N,
+        ),
+      )
+
+    // Reference-backed values: use registries keyed by reference identity.
+    Value::Str(text) => Ok(Value::Int(id_for_string(text)))
+    Value::Bytes(values) => Ok(Value::Int(id_for_int_array(values)))
+    Value::ByteArray(values) => Ok(Value::Int(id_for_int_array(values)))
+    Value::MemoryView(values) => Ok(Value::Int(id_for_int_array(values)))
+    Value::List(values) => Ok(Value::Int(id_for_value_array(values)))
+    Value::Tuple(values) => Ok(Value::Int(id_for_value_array(values)))
+    Value::Dict(pairs) => Ok(Value::Int(id_for_dict_pairs(pairs)))
+    Value::Set(values) => Ok(Value::Int(id_for_value_array(values)))
     Value::Function(func) => Ok(Value::Int(function_identity_hash(func)))
     Value::Class(klass) =>
       match class_identity_hash(klass) {
@@ -2232,6 +2369,13 @@ fn builtin_hash(
           match result {
             Value::Int(v) => return Ok(Value::Int(v))
             Value::Bool(v) => return Ok(Value::Int(if v { 1N } else { 0N }))
+            Value::Instance(inst) =>
+              match get_named_value(inst.dict, int_storage_name) {
+                Some(Value::Int(v)) => return Ok(Value::Int(v))
+                Some(Value::Bool(v)) =>
+                  return Ok(Value::Int(if v { 1N } else { 0N }))
+                _ => ()
+              }
             _ =>
               return Err(
                 make_runtime_error(

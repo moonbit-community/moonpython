@@ -238,6 +238,11 @@ fn builtin_len(
           return Ok(Value::Int(@bigint.BigInt::from_int(pairs.length())))
         _ => ()
       }
+      match get_named_value(inst.dict, set_storage_name) {
+        Some(Value::Set(values)) =>
+          return Ok(Value::Int(@bigint.BigInt::from_int(values.length())))
+        _ => ()
+      }
       let len_method = match
         get_attr_from_value(
           Value::Instance(inst),
@@ -826,37 +831,37 @@ fn builtin_zip(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let iterables : Array[Array[Value]] = []
-  let _ = match ensure_no_keywords("zip", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+  let mut strict = false
+  for pair in keywords {
+    if pair.0 == "strict" {
+      match pair.1 {
+        Value::Bool(v) => strict = v
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "zip() strict must be bool".to_string(),
+            ),
+          )
+      }
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "zip() got unexpected keyword arguments".to_string(),
+        ),
+      )
+    }
   }
+  let iterators : Array[Value] = []
   for value in positional {
-    let items = match iterable_values(value) {
+    let it = match iter_value_to_iterator(value, globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    iterables.push(items)
+    iterators.push(it)
   }
-  if iterables.length() == 0 {
-    return Ok(Value::List([]))
-  }
-  let mut min_len = iterables[0].length()
-  for i = 1; i < iterables.length(); i = i + 1 {
-    let n = iterables[i].length()
-    if n < min_len {
-      min_len = n
-    }
-  }
-  let result : Array[Value] = []
-  for i = 0; i < min_len; i = i + 1 {
-    let tuple_items : Array[Value] = []
-    for items in iterables {
-      tuple_items.push(items[i])
-    }
-    result.push(Value::Tuple(tuple_items))
-  }
-  Ok(Value::List(result))
+  Ok(make_zip_iterator(iterators, strict))
 }
 
 ///|
@@ -1066,6 +1071,62 @@ fn builtin_sorted(
   if items.length() == 0 {
     return Ok(Value::List([]))
   }
+  fn lt_for_sort(
+    a : Value,
+    b : Value,
+    globals : Array[(String, Value)],
+    builtins : Array[(String, Value)],
+    io : MockIO,
+  ) -> Result[Bool, RuntimeError] {
+    fn tuple_items_for_sort(v : Value) -> Array[Value]? {
+      match v {
+        Value::Tuple(items) => Some(items)
+        Value::Instance(inst) =>
+          match get_named_value(inst.dict, tuple_storage_name) {
+            Some(Value::Tuple(items)) => Some(items)
+            _ => None
+          }
+        _ => None
+      }
+    }
+
+    match (a, b) {
+      (Value::Str(x), Value::Str(y)) => Ok(cmp_string_for_sorted(x, y) < 0)
+      _ =>
+        match (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
+          (Some(xs), Some(ys)) =>
+            match compare_sequence_values(xs, ys, globals, builtins, io) {
+              Ok(cmp) => Ok(cmp < 0)
+              Err(err) => Err(err)
+            }
+          _ =>
+            match (a, b) {
+              (Value::List(xs), Value::List(ys)) =>
+                match compare_sequence_values(xs, ys, globals, builtins, io) {
+                  Ok(cmp) => Ok(cmp < 0)
+                  Err(err) => Err(err)
+                }
+              (Value::Int(_) | Value::Float(_) | Value::Bool(_), _)
+              | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
+                let (_, left_num) = match number_value(a) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let (_, right_num) = match number_value(b) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                Ok(left_num < right_num)
+              }
+              _ =>
+                ordering_bool(
+                  a, b, "__lt__", "__gt__", "<", globals, builtins, io,
+                )
+            }
+        }
+    }
+  }
+
   let mut out : Array[Value] = []
   match key_value {
     Some(key_fn) => {
@@ -1083,37 +1144,58 @@ fn builtin_sorted(
         key_pairs.push((key, item))
       }
       let mut kind_opt : SortKind? = None
+      let mut can_use_fast = true
       for pair in key_pairs {
         match sort_kind_for_sorted(pair.0) {
           Some(kind) =>
             match kind_opt {
               None => kind_opt = Some(kind)
-              Some(prev) =>
-                if prev != kind {
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Type,
-                      "sorted() cannot compare values".to_string(),
-                    ),
-                  )
-                }
+              Some(prev) => if prev != kind { can_use_fast = false }
             }
-          None =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Type,
-                "sorted() cannot compare values".to_string(),
-              ),
-            )
+          None => can_use_fast = false
+        }
+        // Only use the fast comparator for simple scalar keys. For tuples/lists,
+        // fall back to rich comparisons so wrappers like pprint._safe_key work.
+        match kind_opt {
+          Some(SortKind::Tuple) | Some(SortKind::List) => can_use_fast = false
+          _ => ()
         }
       }
-      let kind = match kind_opt {
-        Some(kind) => kind
-        None => return Ok(Value::List([]))
-      }
-      let sorted_pairs = match stable_sort_pairs_by_key(key_pairs, kind) {
-        Ok(v) => v
-        Err(err) => return Err(err)
+      let sorted_pairs = if can_use_fast {
+        let kind = match kind_opt {
+          Some(kind) => kind
+          None => return Ok(Value::List([]))
+        }
+        match stable_sort_pairs_by_key(key_pairs, kind) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+      } else {
+        // Stable insertion sort using __lt__ fallback.
+        let out_pairs : Array[(Value, Value)] = []
+        for pair in key_pairs {
+          out_pairs.push(pair)
+        }
+        let mut i = 1
+        while i < out_pairs.length() {
+          let pair = out_pairs[i]
+          let mut j = i
+          while j > 0 {
+            let less = match
+              lt_for_sort(pair.0, out_pairs[j - 1].0, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            if !less {
+              break
+            }
+            out_pairs[j] = out_pairs[j - 1]
+            j -= 1
+          }
+          out_pairs[j] = pair
+          i += 1
+        }
+        out_pairs
       }
       for pair in sorted_pairs {
         out.push(pair.1)
@@ -1121,37 +1203,56 @@ fn builtin_sorted(
     }
     None => {
       let mut kind_opt : SortKind? = None
+      let mut can_use_fast = true
       for item in items {
         match sort_kind_for_sorted(item) {
           Some(kind) =>
             match kind_opt {
               None => kind_opt = Some(kind)
-              Some(prev) =>
-                if prev != kind {
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Type,
-                      "sorted() cannot compare values".to_string(),
-                    ),
-                  )
-                }
+              Some(prev) => if prev != kind { can_use_fast = false }
             }
-          None =>
-            return Err(
-              make_runtime_error(
-                RuntimeErrorKind::Type,
-                "sorted() cannot compare values".to_string(),
-              ),
-            )
+          None => can_use_fast = false
+        }
+        match kind_opt {
+          Some(SortKind::Tuple) | Some(SortKind::List) => can_use_fast = false
+          _ => ()
         }
       }
-      let kind = match kind_opt {
-        Some(kind) => kind
-        None => return Ok(Value::List([]))
-      }
-      out = match stable_sort_for_sorted(items, kind) {
-        Ok(v) => v
-        Err(err) => return Err(err)
+      out = if can_use_fast {
+        let kind = match kind_opt {
+          Some(kind) => kind
+          None => return Ok(Value::List([]))
+        }
+        match stable_sort_for_sorted(items, kind) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+      } else {
+        // Stable insertion sort using __lt__ fallback.
+        let out : Array[Value] = []
+        for item in items {
+          out.push(item)
+        }
+        let mut i = 1
+        while i < out.length() {
+          let item = out[i]
+          let mut j = i
+          while j > 0 {
+            let less = match
+              lt_for_sort(item, out[j - 1], globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            if !less {
+              break
+            }
+            out[j] = out[j - 1]
+            j -= 1
+          }
+          out[j] = item
+          i += 1
+        }
+        out
       }
     }
   }

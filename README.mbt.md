@@ -98,7 +98,8 @@ Notes:
 ## Smoke-run `Lib/test`
 
 There's a pragmatic runner in `scripts/run_libtests.py` that executes
-`Lib/test/test_*.py` modules via `-m` and reports pass/fail/timeout status:
+`Lib/test/test_*.py` modules via `unittest` (import-style execution) and reports
+pass/fail/timeout status:
 
 ```bash
 python3 scripts/run_libtests.py --target native --target-dir _build
@@ -107,7 +108,7 @@ python3 scripts/run_libtests.py --target native --target-dir _build
 You can also run a single `Lib/test` module directly:
 
 ```bash
-moon run cmd/main --target native -- --stdlib Lib -m test.test_unittest.test_case
+moon run cmd/main --target native -- --stdlib Lib -m unittest test.test_unittest.test_case
 ```
 
 Useful flags:
@@ -116,6 +117,7 @@ Useful flags:
 - `--slow-timeout SECONDS`: timeout for known slow modules (default: 600)
 - `--target-dir DIR`: pass through to `moon --target-dir` to avoid build locks
 - `--native-release`: build the native runner in release mode
+- `--runner direct`: run modules as `__main__` instead of importing via `unittest`
 
 Example: focus on unittest-related modules:
 
@@ -138,6 +140,7 @@ This is a coarse, user-facing checklist (not a full spec).
 - [x] Compilation failures are surfaced (no silent fallback to the legacy AST evaluator)
 - [x] `scripts/run_libtests.py` runner for CPython `Lib/test` smoke runs
 - [x] `Lib/test`: `test.test_unittest.*` passes on `--target native` (some modules may be skipped)
+- [x] `Lib/test`: `test.test_pprint` passes on `--target native` (some modules may be skipped)
 
 Not implemented / incomplete (selected highlights):
 

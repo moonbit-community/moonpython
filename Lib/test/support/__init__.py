@@ -511,8 +511,11 @@ def requires_lzma(reason='requires lzma'):
 def has_no_debug_ranges():
     try:
         import _testinternalcapi
-    except ImportError:
-        raise unittest.SkipTest("_testinternalcapi required")
+    except (ImportError, unittest.SkipTest):
+        # MoonPython does not support CPython's internal C API test helpers.
+        # Treat this as "no debug ranges" so tests can selectively skip the
+        # debug-range-specific assertions instead of skipping the whole module.
+        return True
     config = _testinternalcapi.get_config()
     return not bool(config['code_debug_ranges'])
 

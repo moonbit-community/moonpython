@@ -21,7 +21,7 @@ def lookup(encoding):
         result = func(encoding)
         if result is not None:
             return result
-    raise Exception("unknown encoding: " + str(encoding))
+    raise LookupError("unknown encoding: " + str(encoding))
 
 
 def encode(obj, encoding="utf-8", errors="strict"):
@@ -33,10 +33,17 @@ def encode(obj, encoding="utf-8", errors="strict"):
 def decode(obj, encoding="utf-8", errors="strict"):
     if isinstance(obj, str):
         return obj
+    encoding = str(encoding).lower().replace("_", "-")
+    if encoding in ("latin-1", "latin1", "iso-8859-1", "iso8859-1"):
+        # One byte -> one codepoint.
+        out = ""
+        for ch in obj:
+            out = out + chr(ch if isinstance(ch, int) else ord(ch))
+        return out
     if encoding not in ("utf-8", "utf8", "ascii"):
-        raise Exception("unknown encoding: " + str(encoding))
+        raise LookupError("unknown encoding: " + str(encoding))
     if errors not in ("strict", "ignore", "replace"):
-        raise Exception("unknown error handler: " + str(errors))
+        raise LookupError("unknown error handler: " + str(errors))
     out = ""
     for ch in obj:
         if isinstance(ch, int):
@@ -53,7 +60,7 @@ def register_error(name, handler):
 def lookup_error(name):
     if name in _error_handlers:
         return _error_handlers[name]
-    raise Exception("unknown error handler: " + str(name))
+    raise LookupError("unknown error handler: " + str(name))
 
 
 def strict_errors(exc):

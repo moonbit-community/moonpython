@@ -283,24 +283,36 @@ fn builtin_frozenset(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  if positional.length() == 0 {
-    Ok(Value::Set([]))
-  } else {
-    let items = match
-      collect_items_from_iterable(positional[0], globals, builtins, io) {
+  if positional.length() > 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "frozenset() takes at most 1 argument".to_string(),
+      ),
+    )
+  }
+  let items = if positional.length() == 1 {
+    match collect_items_from_iterable(positional[0], globals, builtins, io) {
       Ok(v) => v
       Err(err) => return Err(err)
     }
-    let unique : Array[Value] = []
-    for item in items {
-      let _ = match set_add_unique(unique, item) {
-        Ok(_) => ()
-        Err(err) => return Err(err)
-      }
-
-    }
-    Ok(Value::Set(unique))
+  } else {
+    ([] : Array[Value])
   }
+  let unique : Array[Value] = []
+  for item in items {
+    let _ = match set_add_unique(unique, item) {
+      Ok(_) => ()
+      Err(err) => return Err(err)
+    }
+
+  }
+  let klass = builtin_class_from_name("frozenset", builtins)
+  let dict : Array[(String, Value)] = [
+    ("hashvalue", Value::Int(fresh_object_hashvalue())),
+    (set_storage_name, Value::Set(unique)),
+  ]
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
 }
 
 ///|

@@ -575,6 +575,25 @@ class Pattern:
 def compile(pattern, flags=0):
     if isinstance(pattern, Pattern):
         return pattern
+    if (
+        isinstance(pattern, str)
+        and "|" in pattern
+        and all(part.startswith("(?s:") and part.endswith(r")\Z") for part in pattern.split("|"))
+    ):
+        # Support the (undocumented but relied-upon) behavior that multiple
+        # fnmatch.translate() results can be joined with "|" and compiled as one
+        # regex. This shim does not implement full alternation, so special-case
+        # this common shape.
+        parts = [compile(part, flags=flags) for part in pattern.split("|")]
+
+        def _match_any(s, pos=0, endpos=None):
+            for p in parts:
+                m = p.match(s, pos=pos, endpos=endpos)
+                if m is not None:
+                    return m
+            return None
+
+        return Pattern(pattern, flags=flags, matcher=_match_any, compiled=None)
     if isinstance(pattern, str) and pattern.startswith("(?s:") and pattern.endswith(r")\Z"):
         # Common output of fnmatch.translate(): `(?s:...)\Z`.
         # Normalize a few constructs that this shim doesn't fully support.

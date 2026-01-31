@@ -23,6 +23,9 @@ let cycle_class_ref : Ref[ClassValue?] = { val: None }
 let seqiter_class_ref : Ref[ClassValue?] = { val: None }
 
 ///|
+let zip_class_ref : Ref[ClassValue?] = { val: None }
+
+///|
 fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
   match cache.val {
     Some(value) => return value
@@ -168,6 +171,21 @@ fn make_seqiter_iterator(target : Value) -> Value {
 }
 
 ///|
+fn make_zip_iterator(iterators_in : Array[Value], strict : Bool) -> Value {
+  let iterators : Array[Value] = []
+  for it in iterators_in {
+    iterators.push(it)
+  }
+  let dict : Array[(String, Value)] = []
+  dict.push(("iterators", Value::List(iterators)))
+  dict.push(("strict", Value::Bool(strict)))
+  Value::Instance(InstanceValue::{
+    class: internal_iter_class("zip", zip_class_ref),
+    dict,
+  })
+}
+
+///|
 fn iter_value_to_iterator(
   value : Value,
   globals : Array[(String, Value)],
@@ -186,6 +204,11 @@ fn iter_value_to_iterator(
         Some(Value::Tuple(values)) => return Ok(make_iterator(values))
         _ => ()
       }
+      // Treat set/frozenset subclasses as iterables.
+      match get_named_value(inst.dict, set_storage_name) {
+        Some(Value::Set(values)) => return Ok(make_iterator(values))
+        _ => ()
+      }
       if inst.class.name == "dict_keys" ||
         inst.class.name == "dict_values" ||
         inst.class.name == "dict_items" {
@@ -200,7 +223,8 @@ fn iter_value_to_iterator(
         inst.class.name == "count" ||
         inst.class.name == "cycle" ||
         inst.class.name == "enumerate" ||
-        inst.class.name == "rangeiter" {
+        inst.class.name == "rangeiter" ||
+        inst.class.name == "zip" {
         Ok(Value::Instance(inst))
       } else {
         // Try the Python protocol first: obj.__iter__() -> iterator
@@ -461,6 +485,83 @@ fn iterator_next(
                 "count() expects numeric values".to_string(),
               ),
             )
+        }
+      } else if inst.class.name == "zip" {
+        let strict = match get_named_value(inst.dict, "strict") {
+          Some(Value::Bool(v)) => v
+          _ => false
+        }
+        let iterators = match get_named_value(inst.dict, "iterators") {
+          Some(Value::List(values)) => values
+          _ => ([] : Array[Value])
+        }
+        if iterators.length() == 0 {
+          match default_value {
+            Some(v) => Ok(v)
+            None =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "StopIteration".to_string(),
+                ),
+              )
+          }
+        } else {
+          let items : Array[Value] = []
+          let mut stop_index : Int? = None
+          for i = 0; i < iterators.length(); i = i + 1 {
+            match iterator_next(iterators[i], None, globals, builtins, io) {
+              Ok(v) => items.push(v)
+              Err(err) =>
+                if err.exc_type == "StopIteration" {
+                  stop_index = Some(i)
+                  break
+                } else {
+                  return Err(err)
+                }
+            }
+          }
+          match stop_index {
+            None => Ok(Value::Tuple(items))
+            Some(i) =>
+              if strict {
+                for j = i + 1; j < iterators.length(); j = j + 1 {
+                  match
+                    iterator_next(iterators[j], None, globals, builtins, io) {
+                    Ok(_) =>
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Runtime,
+                          "ValueError: zip() argument lengths differ".to_string(),
+                        ),
+                      )
+                    Err(err) =>
+                      if err.exc_type == "StopIteration" {
+                        continue
+                      } else {
+                        return Err(err)
+                      }
+                  }
+                }
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "ValueError: zip() argument lengths differ".to_string(),
+                  ),
+                )
+              } else {
+                match default_value {
+                  Some(v) => Ok(v)
+                  None =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Runtime,
+                        "StopIteration".to_string(),
+                      ),
+                    )
+                }
+              }
+          }
         }
       } else if inst.class.name == "cycle" {
         let saved = match get_named_value(inst.dict, "saved") {

@@ -12,8 +12,74 @@ def _f(): pass
 FunctionType = type(_f)
 LambdaType = type(lambda: None)         # Same as FunctionType
 CodeType = type(_f.__code__)
-MappingProxyType = type(type.__dict__)
-SimpleNamespace = type(sys.implementation)
+
+# MoonPython note:
+# In CPython, `type.__dict__` is a read-only `mappingproxy`, so
+# `type(type.__dict__)` can be used to obtain the MappingProxyType.
+# MoonPython does not currently expose a real mappingproxy object from the
+# runtime, so define a minimal compatible type explicitly.
+class MappingProxyType:
+    __slots__ = ("_mapping",)
+
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def __getitem__(self, key):
+        return self._mapping[key]
+
+    def __iter__(self):
+        return iter(self._mapping)
+
+    def __len__(self):
+        return len(self._mapping)
+
+    def __contains__(self, key):
+        return key in self._mapping
+
+    def get(self, key, default=None):
+        return self._mapping.get(key, default)
+
+    def keys(self):
+        return self._mapping.keys()
+
+    def items(self):
+        return self._mapping.items()
+
+    def values(self):
+        return self._mapping.values()
+
+    def copy(self):
+        # CPython preserves the underlying mapping type when possible
+        # (e.g. MappingProxyType(OrderedDict(...)).copy() returns an OrderedDict).
+        m = self._mapping
+        copier = getattr(m, "copy", None)
+        if copier is None:
+            return dict(m)
+        return copier()
+
+    def __repr__(self):
+        return f"mappingproxy({self._mapping!r})"
+
+class SimpleNamespace:
+    """A simple attribute-based namespace.
+
+    Minimal subset of CPython's `types.SimpleNamespace`.
+    """
+
+    def __init__(self, /, **kwargs):
+        self.__dict__.update(kwargs)
+
+    def __repr__(self):
+        items = [(k, v) for (k, v) in self.__dict__.items() if k != "hashvalue"]
+        typename = type(self).__name__
+        if typename == "SimpleNamespace":
+            typename = "namespace"
+        if not items:
+            return f"{typename}()"
+        parts = []
+        for k, v in sorted(items):
+            parts.append(f"{k}={v!r}")
+        return typename + "(" + ", ".join(parts) + ")"
 
 def _cell_factory():
     a = 1

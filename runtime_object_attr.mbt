@@ -15,6 +15,24 @@ fn lookup_class_attr(
     if direct is Some(value) {
       return Ok(Some(value))
     }
+    if name == "__repr__" && is_builtin_class_name(cls.name) {
+      // Built-in container types provide a synthetic `X.__repr__` descriptor.
+      // Make it visible through MRO lookup so subclasses inherit it (e.g. pprint
+      // dispatch keyed by `type(x).__repr__`).
+      return Ok(
+        Some(
+          Value::Function(FunctionValue::{
+            name: cls.name + ".__repr__",
+            params: ["self"],
+            defaults: [],
+            body: [],
+            is_generator: false,
+            is_async: false,
+            closure: [],
+          }),
+        ),
+      )
+    }
   }
   Ok(None)
 }
@@ -313,6 +331,27 @@ fn get_attr_raw_from_value(
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
         return Ok(value)
+      }
+      // Delegate common set/frozenset methods to the underlying set storage so
+      // `frozenset(...).__contains__` and set subclasses behave reasonably.
+      match get_named_value(inst.dict, set_storage_name) {
+        Some(Value::Set(values)) =>
+          match
+            get_attr_raw_from_value(
+              Value::Set(values),
+              attr,
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => return Ok(v)
+            Err(err) =>
+              match err.kind {
+                RuntimeErrorKind::Attribute => ()
+                _ => return Err(err)
+              }
+          }
+        _ => ()
       }
       if inst.class.name == "memoryview" {
         if attr == "tobytes" {
@@ -3469,7 +3508,37 @@ fn get_attr_raw_from_value(
         )
       } else {
         match lookup_class_attr(klass, attr) {
-          Ok(Some(Value::Function(func))) =>
+          Ok(Some(Value::Function(func))) => {
+            if attr == "__repr__" &&
+              get_named_value(klass.dict, "__repr__") is None {
+              // Built-in container types provide a synthetic `X.__repr__` via
+              // fallback lookup. For subclasses like `class S(set): ...`, make
+              // sure `S.__repr__` resolves to `set.__repr__` so stdlib dispatch
+              // keyed by `type(x).__repr__` (e.g. pprint) behaves reasonably.
+              match class_mro(klass) {
+                Ok(mro) =>
+                  for cls in mro {
+                    if cls.name == "dict" ||
+                      cls.name == "list" ||
+                      cls.name == "tuple" ||
+                      cls.name == "set" ||
+                      cls.name == "frozenset" {
+                      return Ok(
+                        Value::Function(FunctionValue::{
+                          name: cls.name + ".__repr__",
+                          params: ["self"],
+                          defaults: [],
+                          body: [],
+                          is_generator: false,
+                          is_async: false,
+                          closure: [],
+                        }),
+                      )
+                    }
+                  }
+                Err(_) => ()
+              }
+            }
             if attr == "__init_subclass__" || attr == "__class_getitem__" {
               // PEP 487 / PEP 560: these are implicitly class methods on the class object.
               Ok(
@@ -3481,6 +3550,7 @@ fn get_attr_raw_from_value(
             } else {
               Ok(Value::Function(func))
             }
+          }
           Ok(Some(value)) =>
             match apply_descriptor(value, Value::None, Value::Class(klass)) {
               Ok(Some(v)) => Ok(v)

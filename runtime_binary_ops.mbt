@@ -162,6 +162,59 @@ fn eval_binary_op_values(
               Err(_) => ()
             }
           }
+          // Numeric subclasses (e.g. `class Temperature(int)`) may not inherit
+          // `int.__add__` in the current builtins table. Fall back to treating
+          // them as plain integers when they carry `$__int__`.
+          match left_val {
+            Value::Instance(inst) =>
+              match get_named_value(inst.dict, int_storage_name) {
+                Some(Value::Int(v)) =>
+                  return eval_binary_op_values(
+                    BinaryOp::Add,
+                    Value::Int(v),
+                    right_val,
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Some(Value::Bool(v)) =>
+                  return eval_binary_op_values(
+                    BinaryOp::Add,
+                    Value::Int(if v { 1N } else { 0N }),
+                    right_val,
+                    globals,
+                    builtins,
+                    io,
+                  )
+                _ => ()
+              }
+            _ => ()
+          }
+          match right_val {
+            Value::Instance(inst) =>
+              match get_named_value(inst.dict, int_storage_name) {
+                Some(Value::Int(v)) =>
+                  return eval_binary_op_values(
+                    BinaryOp::Add,
+                    left_val,
+                    Value::Int(v),
+                    globals,
+                    builtins,
+                    io,
+                  )
+                Some(Value::Bool(v)) =>
+                  return eval_binary_op_values(
+                    BinaryOp::Add,
+                    left_val,
+                    Value::Int(if v { 1N } else { 0N }),
+                    globals,
+                    builtins,
+                    io,
+                  )
+                _ => ()
+              }
+            _ => ()
+          }
           Err(
             make_runtime_error(
               RuntimeErrorKind::Type,
