@@ -1542,15 +1542,10 @@ fn builtin_open(
   if positional.length() == 0 {
     return Err(missing_required_argument_error("open", "file"))
   }
-  let path = match positional[0] {
-    Value::Str(text) => text
-    _ =>
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "open() file must be str".to_string(),
-        ),
-      )
+  let path = match
+    posix_fspath_from_value(positional[0], "open", globals, builtins, io) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
   let mut mode = "r".to_string()
   let mut mode_from_keyword = false
@@ -1614,9 +1609,14 @@ fn builtin_open(
   let resolved_path = resolve_path_from_cwd(path)
   if exclusive && @fs.path_exists(resolved_path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileExistsError: cannot open file: " + path,
+      make_posix_os_error(
+        "FileExistsError".to_string(),
+        17,
+        "File exists".to_string(),
+        resolved_path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
@@ -1653,9 +1653,14 @@ fn builtin_open(
       Some(values) => Value::Bytes(values)
       None =>
         return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "FileNotFoundError: cannot open file: " + path,
+          make_posix_os_error(
+            "FileNotFoundError".to_string(),
+            2,
+            "No such file or directory".to_string(),
+            resolved_path,
+            globals,
+            builtins,
+            io,
           ),
         )
     }
@@ -1663,9 +1668,14 @@ fn builtin_open(
     let text_content = @fs.read_file_to_string(resolved_path) catch {
       _ =>
         return Err(
-          make_runtime_error(
-            RuntimeErrorKind::Runtime,
-            "FileNotFoundError: cannot open file: " + path,
+          make_posix_os_error(
+            "FileNotFoundError".to_string(),
+            2,
+            "No such file or directory".to_string(),
+            resolved_path,
+            globals,
+            builtins,
+            io,
           ),
         )
     }
@@ -1878,6 +1888,62 @@ fn posix_lookup_fd(fd : Int) -> PosixFdEntry? {
 }
 
 ///|
+fn make_posix_os_error(
+  exc_type : String,
+  errno : Int,
+  strerror : String,
+  filename : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> RuntimeError {
+  let errno_value = Value::Int(@bigint.BigInt::from_int(errno))
+  let inst_opt = match get_named_value(builtins, exc_type) {
+    Some(Value::Class(klass)) =>
+      match
+        call_callable_with_env(
+          Value::Class(klass),
+          [],
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(Value::Instance(inst)) => Some(inst)
+        _ => None
+      }
+    _ => None
+  }
+  match inst_opt {
+    Some(inst) => {
+      set_named_value(inst.dict, "errno", errno_value)
+      set_named_value(inst.dict, "strerror", Value::Str(strerror))
+      set_named_value(inst.dict, "filename", Value::Str(filename))
+      set_named_value(inst.dict, "filename2", Value::None)
+      set_named_value(
+        inst.dict,
+        "args",
+        Value::Tuple([errno_value, Value::Str(strerror), Value::Str(filename)]),
+      )
+      RuntimeError::{
+        kind: RuntimeErrorKind::Runtime,
+        message: exc_type + ": " + strerror,
+        span: current_span(),
+        traceback: snapshot_traceback(),
+        exc_type,
+        exc_args: [strerror],
+        exc_value: Some(Value::Instance(inst)),
+        exc_cause: None,
+        exc_context: None,
+        exc_suppress_context: false,
+      }
+    }
+    None =>
+      make_runtime_error(RuntimeErrorKind::Runtime, exc_type + ": " + strerror)
+  }
+}
+
+///|
 fn posix_update_fd(fd : Int, entry : PosixFdEntry) -> Unit {
   for i = 0; i < posix_fd_table.val.length(); i = i + 1 {
     if posix_fd_table.val[i].0 == fd {
@@ -2028,17 +2094,27 @@ fn builtin_mpython_posix_open(
   let existed = @fs.path_exists(path)
   if creating && exclusive && @fs.path_exists(path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileExistsError: file exists".to_string(),
+      make_posix_os_error(
+        "FileExistsError".to_string(),
+        17,
+        "File exists".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
   if !creating && !@fs.path_exists(path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileNotFoundError: no such file".to_string(),
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
@@ -2388,18 +2464,42 @@ fn builtin_mpython_posix_unlink(
   let path = resolve_path_from_cwd(path)
   if !@fs.path_exists(path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileNotFoundError: no such file".to_string(),
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
+  let is_dir = @fs.is_dir(path) catch { _ => false }
+  if is_dir {
+    return Err(
+      make_posix_os_error(
+        "IsADirectoryError".to_string(),
+        21,
+        "Is a directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
   let _ = @fs.remove_file(path) catch {
     _ =>
       return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "OSError: cannot unlink".to_string(),
+        make_posix_os_error(
+          "OSError".to_string(),
+          1,
+          "Cannot unlink".to_string(),
+          path,
+          globals,
+          builtins,
+          io,
         ),
       )
   }
@@ -2447,18 +2547,64 @@ fn builtin_mpython_posix_mkdir(
   }
   if @fs.path_exists(path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileExistsError: file exists".to_string(),
+      make_posix_os_error(
+        "FileExistsError".to_string(),
+        17,
+        "File exists".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
+  let parent = match find_last_char(path, '/') {
+    Some(idx) =>
+      if idx == 0 {
+        "/".to_string()
+      } else {
+        substring(path, 0, idx)
+      }
+    None => ".".to_string()
+  }
+  if !@fs.path_exists(parent) {
+    return Err(
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        parent,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
+  let parent_is_dir = @fs.is_dir(parent) catch { _ => false }
+  if !parent_is_dir {
+    return Err(
+      make_posix_os_error(
+        "NotADirectoryError".to_string(),
+        20,
+        "Not a directory".to_string(),
+        parent,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
   let _ = @fs.create_dir(path) catch {
     _ =>
       return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "OSError: cannot create directory".to_string(),
+        make_posix_os_error(
+          "OSError".to_string(),
+          1,
+          "Cannot create directory".to_string(),
+          path,
+          globals,
+          builtins,
+          io,
         ),
       )
   }
@@ -2496,12 +2642,44 @@ fn builtin_mpython_posix_rmdir(
     Err(err) => return Err(err)
   }
   let path = resolve_path_from_cwd(path)
+  if !@fs.path_exists(path) {
+    return Err(
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
+  let is_dir = @fs.is_dir(path) catch { _ => false }
+  if !is_dir {
+    return Err(
+      make_posix_os_error(
+        "NotADirectoryError".to_string(),
+        20,
+        "Not a directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
   let _ = @fs.remove_dir(path) catch {
     _ =>
       return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "OSError: cannot remove directory".to_string(),
+        make_posix_os_error(
+          "OSError".to_string(),
+          1,
+          "Cannot remove directory".to_string(),
+          path,
+          globals,
+          builtins,
+          io,
         ),
       )
   }
@@ -2541,9 +2719,14 @@ fn builtin_mpython_posix_stat(
   let path = resolve_path_from_cwd(path)
   if !@fs.path_exists(path) {
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileNotFoundError: no such file".to_string(),
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }

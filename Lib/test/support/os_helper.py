@@ -247,6 +247,10 @@ def can_chmod():
     global _can_chmod
     if _can_chmod is not None:
         return _can_chmod
+    # MoonPython/WASI: file mode bits are not supported in a meaningful way.
+    if sys.platform == "wasi":
+        _can_chmod = False
+        return _can_chmod
     if not hasattr(os, "chmod"):
         _can_chmod = False
         return _can_chmod
@@ -326,7 +330,7 @@ def skip_unless_dac_override(test):
 def unlink(filename):
     try:
         _unlink(filename)
-    except (FileNotFoundError, NotADirectoryError):
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
         pass
 
 

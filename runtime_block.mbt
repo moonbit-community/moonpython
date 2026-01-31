@@ -657,6 +657,40 @@ fn exception_value_from_runtime_error(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Value {
+  fn maybe_populate_os_error(
+    dict : Array[(String, Value)],
+    err : RuntimeError,
+  ) -> Unit {
+    if get_named_value(dict, "errno") is Some(_) {
+      return
+    }
+    let errno = match err.exc_type {
+      "FileNotFoundError" => 2
+      "FileExistsError" => 17
+      "NotADirectoryError" => 20
+      "IsADirectoryError" => 21
+      "PermissionError" => 13
+      "OSError" => 1
+      _ => -1
+    }
+    if errno < 0 {
+      return
+    }
+    let strerror = if err.exc_args.length() > 0 {
+      err.exc_args[0]
+    } else {
+      err.message
+    }
+    set_named_value(dict, "errno", Value::Int(@bigint.BigInt::from_int(errno)))
+    set_named_value(dict, "strerror", Value::Str(strerror))
+    if get_named_value(dict, "filename") is None {
+      set_named_value(dict, "filename", Value::None)
+    }
+    if get_named_value(dict, "filename2") is None {
+      set_named_value(dict, "filename2", Value::None)
+    }
+  }
+
   fn maybe_populate_syntax_error(
     dict : Array[(String, Value)],
     err : RuntimeError,
@@ -735,6 +769,7 @@ fn exception_value_from_runtime_error(
         Value::Bool(err.exc_suppress_context),
       )
       maybe_populate_syntax_error(inst.dict, err, globals)
+      maybe_populate_os_error(inst.dict, err)
       return Value::Instance(inst)
     }
     _ => ()

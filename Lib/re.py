@@ -12,6 +12,7 @@ __all__ = [
     "finditer",
     "escape",
     "purge",
+    "Scanner",
     "Pattern",
     "Match",
     "error",
@@ -29,6 +30,7 @@ __all__ = [
     "S",
     "U",
     "X",
+    "NOFLAG",
 ]
 
 # Flag values mirror CPython for compatibility (limited regex support).
@@ -39,6 +41,7 @@ DOTALL = 16
 UNICODE = 32
 VERBOSE = 64
 ASCII = 256
+NOFLAG = 0
 
 # Common flag aliases (CPython-compatible).
 A = ASCII
@@ -420,6 +423,11 @@ class Pattern:
         self._matcher = matcher
         self._compiled = compiled
 
+    def scanner(self, string, pos=0, endpos=None):
+        # CPython exposes Pattern.scanner() which returns a stateful scanner
+        # object. Most stdlib usage only relies on `.pattern` and `.match()`.
+        return _PatternScanner(self, string, pos=pos, endpos=endpos)
+
     def _run_match(self, string, pos=0, endpos=None):
         if self._compiled is not None:
             pos, endpos = _normalize_bounds(string, pos, endpos)
@@ -595,6 +603,57 @@ class Pattern:
         return parts
 
 
+class _PatternScanner:
+    def __init__(self, pattern, string, pos=0, endpos=None):
+        self.pattern = pattern
+        self.string = string
+        self.pos, self.endpos = _normalize_bounds(string, pos, endpos)
+
+    def match(self):
+        m = self.pattern.match(self.string, pos=self.pos, endpos=self.endpos)
+        if m is not None:
+            self.pos = m.end()
+        return m
+
+    def search(self):
+        m = self.pattern.search(self.string, pos=self.pos, endpos=self.endpos)
+        if m is not None:
+            self.pos = m.end()
+        return m
+
+
+class Scanner:
+    def __init__(self, lexicon, flags=0):
+        # `lexicon` is a list of (pattern, action) pairs.
+        self._lexicon = [(compile(pat, flags=flags), action) for (pat, action) in lexicon]
+        # CPython exposes `Scanner.scanner` as a Pattern-like object supporting
+        # `.scanner(text)`. Keep this compatible enough for `test_re`.
+        self.scanner = compile("")
+
+    def scan(self, string):
+        pos = 0
+        tokens = []
+        while pos < len(string):
+            for pat, action in self._lexicon:
+                m = pat.match(string, pos=pos)
+                if m is None:
+                    continue
+                token = m.group(0)
+                if action is not None:
+                    out = action(self, token) if callable(action) else action
+                    if out is not None:
+                        tokens.append(out)
+                end = m.end()
+                if end == pos:
+                    # Avoid infinite loops on patterns that can match empty strings.
+                    return tokens, string[pos:]
+                pos = end
+                break
+            else:
+                break
+        return tokens, string[pos:]
+
+
 def compile(pattern, flags=0):
     if isinstance(pattern, Pattern):
         return pattern
@@ -751,10 +810,12 @@ def _simple_regex_parse(pattern):
     DIGIT_CHARS = set("0123456789")
     SPACE_CHARS = set(" \t\r\n\v\f")
 
-    def parse_seq(stop=None):
+    def parse_seq(stop=None, stop_on_pipe=False):
         nonlocal i
         nodes = []
         while i < len(pattern) and (stop is None or pattern[i] != stop):
+            if stop_on_pipe and pattern[i] == "|":
+                break
             c = pattern[i]
             if c == "^" and not nodes:
                 i += 1
@@ -772,14 +833,14 @@ def _simple_regex_parse(pattern):
                 # capturing group or non-capturing group
                 if pattern.startswith("(?:", i):
                     i += 3
-                    inner = parse_seq(stop=")")
+                    inner = parse_alt(stop=")")
                     if i >= len(pattern) or pattern[i] != ")":
                         raise error("unbalanced group")
                     i += 1
                     node = ("group_nc", inner)
                 else:
                     i += 1
-                    inner = parse_seq(stop=")")
+                    inner = parse_alt(stop=")")
                     if i >= len(pattern) or pattern[i] != ")":
                         raise error("unbalanced group")
                     i += 1
@@ -878,6 +939,19 @@ def _simple_regex_parse(pattern):
             nodes.append(node)
         return nodes
 
+    def parse_alt(stop=None):
+        nonlocal i
+        alts = []
+        while True:
+            alts.append(parse_seq(stop=stop, stop_on_pipe=True))
+            if i < len(pattern) and pattern[i] == "|":
+                i += 1
+                continue
+            break
+        if len(alts) == 1:
+            return alts[0]
+        return [("alt", alts)]
+
     def parse_quant(node):
         nonlocal i
         if i >= len(pattern):
@@ -904,7 +978,7 @@ def _simple_regex_parse(pattern):
             return ("repeat", n, n, node)
         return node
 
-    ast = parse_seq()
+    ast = parse_alt()
     if i != len(pattern):
         raise error("unsupported regex")
     return (ast, len(groups))
@@ -942,6 +1016,14 @@ def _simple_regex_match(compiled, string, pos, endpos):
         if kind == "class_neg":
             if si < endpos and string[si] not in node[1]:
                 return match_nodes(rest, si + 1, captures)
+            return None
+        if kind == "alt":
+            # Try each alternative (leftmost-first), threading the rest of the
+            # nodes after the alternation.
+            for opt in node[1]:
+                res = match_nodes(opt + rest, si, captures)
+                if res is not None:
+                    return res
             return None
         if kind == "group_nc":
             # Inline the group so quantifiers inside can backtrack against the
