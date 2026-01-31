@@ -198,18 +198,19 @@ def _write_atomic(path, data, mode=0o666):
     temporary file is attempted."""
     # id() is used to generate a pseudo-random filename.
     path_tmp = f'{path}.{id(path)}'
-    fd = _os.open(path_tmp,
-                  _os.O_EXCL | _os.O_CREAT | _os.O_WRONLY, mode & 0o666)
     try:
         # We first write data to a temporary file, and then use os.replace() to
         # perform an atomic rename.
-        with _io.FileIO(fd, 'wb') as file:
+        with _io.open(path_tmp, 'wb') as file:
             bytes_written = file.write(data)
         if bytes_written != len(data):
             # Raise an OSError so the 'except' below cleans up the partially
             # written file.
             raise OSError("os.write() didn't write the full pyc file")
-        _os.replace(path_tmp, path)
+        try:
+            _os.replace(path_tmp, path)
+        except AttributeError:
+            _os.rename(path_tmp, path)
     except OSError:
         try:
             _os.unlink(path_tmp)
@@ -1475,8 +1476,14 @@ class PathFinder:
         # https://bugs.python.org/issue45703
         _NamespacePath._epoch += 1
 
-        from importlib.metadata import MetadataPathFinder
-        MetadataPathFinder.invalidate_caches()
+        # MoonPython: importlib.metadata pulls in csv/_csv, which we don't
+        # currently provide. Skipping this keeps invalidate_caches() usable.
+        try:
+            from importlib.metadata import MetadataPathFinder
+        except Exception:
+            pass
+        else:
+            MetadataPathFinder.invalidate_caches()
 
     @staticmethod
     def _path_hooks(path):

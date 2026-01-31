@@ -434,4 +434,10 @@ open = _builtins.open
 
 
 def open_code(*args, **kwargs):
-    raise UnsupportedOperation("open_code() not supported")
+    # Minimal shim for importlib.machinery.SourceFileLoader.get_data().
+    # CPython uses this hook to allow auditing of code reads; moonpython
+    # does not implement auditing, but needs a working file open here.
+    if not args:
+        raise TypeError("open_code() missing path argument")
+    path = args[0]
+    return _builtins.open(path, "rb")

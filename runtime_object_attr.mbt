@@ -3236,9 +3236,15 @@ fn get_attr_raw_from_value(
       }
     Value::Class(klass) =>
       if attr == "__name__" {
-        Ok(Value::Str(klass.name))
+        match get_named_value(klass.dict, "__name__") {
+          Some(Value::Str(v)) => Ok(Value::Str(v))
+          _ => Ok(Value::Str(klass.name))
+        }
       } else if attr == "__qualname__" {
-        Ok(Value::Str(klass.name))
+        match get_named_value(klass.dict, "__qualname__") {
+          Some(Value::Str(v)) => Ok(Value::Str(v))
+          _ => Ok(Value::Str(klass.name))
+        }
       } else if attr == "__module__" {
         match get_named_value(klass.dict, "__module__") {
           Some(v) => Ok(v)

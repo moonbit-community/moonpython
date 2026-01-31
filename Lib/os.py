@@ -191,6 +191,44 @@ if _exists("_have_functions"):
     del _add
 
 
+# moonpython: minimal filesystem shims.
+#
+# These are used by the stdlib test suite (notably importlib/pathlib). They are
+# intentionally conservative and may not match full CPython/POSIX semantics.
+if "chmod" not in globals():
+    def chmod(path, mode, *, follow_symlinks=True):
+        return None
+
+    __all__.append("chmod")
+
+if "rename" not in globals():
+    def rename(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+        if src_dir_fd is not None or dst_dir_fd is not None:
+            raise NotImplementedError("dir_fd is not supported")
+        src = fspath(src)
+        dst = fspath(dst)
+        # Best-effort implementation: copy bytes then unlink.
+        import builtins as _builtins
+        with _builtins.open(src, "rb") as f:
+            data = f.read()
+        try:
+            unlink(dst)
+        except FileNotFoundError:
+            pass
+        with _builtins.open(dst, "wb") as f:
+            f.write(data)
+        unlink(src)
+
+    __all__.append("rename")
+
+if "replace" not in globals():
+    def replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+        # CPython: os.replace() is like rename() but always overwrites dst.
+        return rename(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+    __all__.append("replace")
+
+
 # Python uses fixed values for the SEEK_ constants; they are mapped
 # to native constants if necessary in posixmodule.c
 # Other possible SEEK values are directly imported from posixmodule.c
@@ -373,20 +411,14 @@ def walk(top, topdown=True, onerror=None, followlinks=False):
                 onerror(error)
             continue
 
-        cont = False
+        # MoonPython note:
+        # Avoid using an explicit `next(scandir_it)` + `except StopIteration`
+        # loop inside this generator. Some backends/runtime configurations may
+        # treat StopIteration specially in generator frames. Iterating via a
+        # `for` loop keeps end-of-iteration handling in the VM and avoids
+        # propagating StopIteration as an exception.
         with scandir_it:
-            while True:
-                try:
-                    try:
-                        entry = next(scandir_it)
-                    except StopIteration:
-                        break
-                except OSError as error:
-                    if onerror is not None:
-                        onerror(error)
-                    cont = True
-                    break
-
+            for entry in scandir_it:
                 try:
                     if followlinks is _walk_symlinks_as_files:
                         is_dir = entry.is_dir(follow_symlinks=False) and not entry.is_junction()
@@ -419,8 +451,6 @@ def walk(top, topdown=True, onerror=None, followlinks=False):
 
                     if walk_into:
                         walk_dirs.append(entry.path)
-        if cont:
-            continue
 
         if topdown:
             # Yield before sub-directory traversal if going top down

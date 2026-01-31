@@ -2864,9 +2864,13 @@ fn builtin_module_globals_get(
   }
   match positional[1] {
     Value::Str(name) =>
-      match get_global_value(env, name) {
-        Some(v) => Ok(v)
-        None => Ok(default_value)
+      if name == "hashvalue" {
+        Ok(default_value)
+      } else {
+        match get_global_value(env, name) {
+          Some(v) => Ok(v)
+          None => Ok(default_value)
+        }
       }
     _ => Ok(default_value)
   }
@@ -2901,6 +2905,9 @@ fn builtin_module_globals_keys(
   }
   let pairs : Array[(Value, Value)] = []
   for pair in env {
+    if pair.0 == "hashvalue" {
+      continue
+    }
     pairs.push((Value::Str(pair.0), pair.1))
   }
   Ok(make_dict_view_instance("dict_keys", Value::Dict(pairs)))
@@ -2935,6 +2942,9 @@ fn builtin_module_globals_values(
   }
   let pairs : Array[(Value, Value)] = []
   for pair in env {
+    if pair.0 == "hashvalue" {
+      continue
+    }
     pairs.push((Value::Str(pair.0), pair.1))
   }
   Ok(make_dict_view_instance("dict_values", Value::Dict(pairs)))
@@ -2969,6 +2979,9 @@ fn builtin_module_globals_items(
   }
   let pairs : Array[(Value, Value)] = []
   for pair in env {
+    if pair.0 == "hashvalue" {
+      continue
+    }
     pairs.push((Value::Str(pair.0), pair.1))
   }
   Ok(make_dict_view_instance("dict_items", Value::Dict(pairs)))
@@ -3245,6 +3258,9 @@ fn builtin_module_globals_copy(
   }
   let pairs : Array[(Value, Value)] = []
   for item in env {
+    if item.0 == "hashvalue" {
+      continue
+    }
     pairs.push((Value::Str(item.0), item.1))
   }
   Ok(Value::Dict(pairs))

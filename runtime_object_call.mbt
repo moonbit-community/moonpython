@@ -901,6 +901,47 @@ fn call_callable_with_env(
           }
         }
 
+        fn cache_tag_from_sys() -> String {
+          let mut tag = "cpython-312".to_string()
+          match module_cache_get("sys") {
+            Some(Value::Instance(sys_inst)) =>
+              match get_named_value(sys_inst.dict, "implementation") {
+                Some(Value::Instance(impl_inst)) =>
+                  match get_named_value(impl_inst.dict, "cache_tag") {
+                    Some(Value::Str(v)) => tag = v
+                    _ => ()
+                  }
+                _ => ()
+              }
+            _ => ()
+          }
+          tag
+        }
+
+        fn cached_from_source_path(source_path : String) -> String {
+          let tag = cache_tag_from_sys()
+          let slash = find_last_char(source_path, '/')
+          let (dir, file) = match slash {
+            Some(idx) =>
+              (
+                substring(source_path, 0, idx),
+                substring(source_path, idx + 1, source_path.length()),
+              )
+            None => ("".to_string(), source_path)
+          }
+          let base = if file.has_suffix(".py") && file.length() >= 3 {
+            substring(file, 0, file.length() - 3)
+          } else {
+            file
+          }
+          let pycache_dir = if dir.length() == 0 {
+            "__pycache__".to_string()
+          } else {
+            dir + "/__pycache__"
+          }
+          pycache_dir + "/" + base + "." + tag + ".pyc"
+        }
+
         let roots : Array[String] = []
         match path_value {
           Value::None => {
@@ -956,7 +997,16 @@ fn call_callable_with_env(
             .to_string()
           if @fs.path_exists(init_path) {
             let loader = make_importlib_loader()
-            let parent = module_parent_name(fullname)
+            match loader {
+              Value::Instance(loader_inst) =>
+                set_named_value(loader_inst.dict, "path", Value::Str(init_path))
+              _ => ()
+            }
+            // ModuleSpec.parent behaves differently for packages: it is the
+            // package's own name (not the dotted parent) when the module has
+            // submodule_search_locations.
+            let parent = fullname
+            let cached = cached_from_source_path(init_path)
             let spec_class = ClassValue::{
               name: "ModuleSpec",
               bases: [],
@@ -973,7 +1023,7 @@ fn call_callable_with_env(
                   "submodule_search_locations",
                   Value::List([Value::Str(pkg_dir)]),
                 ),
-                ("cached", Value::None),
+                ("cached", Value::Str(cached)),
                 ("loader_state", Value::None),
                 ("_uninitialized_submodules", Value::List([])),
                 ("has_location", Value::Bool(true)),
@@ -988,7 +1038,17 @@ fn call_callable_with_env(
             .to_string()
           if @fs.path_exists(module_path) {
             let loader = make_importlib_loader()
+            match loader {
+              Value::Instance(loader_inst) =>
+                set_named_value(
+                  loader_inst.dict,
+                  "path",
+                  Value::Str(module_path),
+                )
+              _ => ()
+            }
             let parent = module_parent_name(fullname)
+            let cached = cached_from_source_path(module_path)
             let spec_class = ClassValue::{
               name: "ModuleSpec",
               bases: [],
@@ -1002,7 +1062,7 @@ fn call_callable_with_env(
                 ("loader", loader),
                 ("parent", Value::Str(parent)),
                 ("submodule_search_locations", Value::None),
-                ("cached", Value::None),
+                ("cached", Value::Str(cached)),
                 ("loader_state", Value::None),
                 ("_uninitialized_submodules", Value::List([])),
                 ("has_location", Value::Bool(true)),
@@ -1010,6 +1070,64 @@ fn call_callable_with_env(
             })
             return Ok(spec)
           }
+        }
+        return Ok(Value::None)
+      }
+      // Intrinsic: sys.meta_path invalidate_caches
+      if bound_method.function.name == "__mpython_invalidate_caches" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "invalidate_caches() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "invalidate_caches() takes no arguments".to_string(),
+            ),
+          )
+        }
+        let sys_value_opt = module_cache_get("sys")
+        match sys_value_opt {
+          Some(Value::Instance(sys_inst)) =>
+            match get_named_value(sys_inst.dict, "path_importer_cache") {
+              Some(Value::Dict(pairs)) =>
+                for pair in pairs {
+                  let importer = pair.1
+                  match
+                    get_attr_raw_from_value(
+                      importer,
+                      "invalidate_caches".to_string(),
+                      globals,
+                      builtins,
+                      io,
+                    ) {
+                    Ok(inv) => {
+                      let _ = match
+                        call_callable_with_env(
+                          inv,
+                          [],
+                          [],
+                          globals,
+                          builtins,
+                          io,
+                        ) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+
+                    }
+                    Err(_) => ()
+                  }
+                }
+              _ => ()
+            }
+          _ => ()
         }
         return Ok(Value::None)
       }
@@ -1025,7 +1143,7 @@ fn call_callable_with_env(
           )
         }
         let spec = positional[0]
-        let (name, origin, parent, locations, loader) = match spec {
+        let (name, origin, parent, locations, loader, cached) = match spec {
           Value::Instance(spec_inst) => {
             let name = match get_named_value(spec_inst.dict, "name") {
               Some(Value::Str(v)) => v
@@ -1048,7 +1166,11 @@ fn call_callable_with_env(
               Some(v) => v
               None => Value::None
             }
-            (name, origin, parent, locations, loader)
+            let cached = match get_named_value(spec_inst.dict, "cached") {
+              Some(v) => v
+              None => Value::None
+            }
+            (name, origin, parent, locations, loader, cached)
           }
           _ =>
             return Err(
@@ -1065,9 +1187,11 @@ fn call_callable_with_env(
         let package_name = if is_package { name } else { parent }
         let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
         let dict : Array[(String, Value)] = [
+          ("hashvalue", Value::Int(fresh_object_hashvalue())),
           ("__name__", Value::Str(name)),
           ("__package__", Value::Str(package_name)),
           ("__file__", Value::Str(origin)),
+          ("__cached__", cached),
           ("__loader__", loader),
           ("__spec__", spec),
           ("__doc__", Value::None),

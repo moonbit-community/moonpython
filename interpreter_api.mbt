@@ -1378,8 +1378,12 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     set_named_value(builtins, type_name, Value::Class(klass))
   }
   let globals : Array[(String, Value)] = [
+    ("hashvalue", Value::Int(fresh_object_hashvalue())),
     ("__name__", Value::Str("__main__")),
     ("__package__", Value::Str("")),
+    // Importlib startup tests expect these attributes to exist on every module.
+    ("__loader__", Value::None),
+    ("__spec__", Value::None),
   ]
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let main_module = Value::Instance(InstanceValue::{

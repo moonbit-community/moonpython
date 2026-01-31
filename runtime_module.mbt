@@ -2,18 +2,10 @@
 /// Minimal module objects + module loading for `import`.
 
 ///|
-let module_cache : Ref[Array[(String, Value)]] = { val: [] }
-
-///|
 let sys_modules_ref : Ref[Array[(Value, Value)]] = { val: [] }
 
 ///|
 fn module_cache_get(name : String) -> Value? {
-  for pair in module_cache.val {
-    if pair.0 == name {
-      return Some(pair.1)
-    }
-  }
   for pair in sys_modules_ref.val {
     match pair.0 {
       Value::Str(text) => if text == name { return Some(pair.1) }
@@ -25,24 +17,6 @@ fn module_cache_get(name : String) -> Value? {
 
 ///|
 fn module_cache_set(name : String, module_value : Value) -> Unit {
-  for i = 0; i < module_cache.val.length(); i = i + 1 {
-    if module_cache.val[i].0 == name {
-      module_cache.val[i] = (name, module_value)
-      for j = 0; j < sys_modules_ref.val.length(); j = j + 1 {
-        match sys_modules_ref.val[j].0 {
-          Value::Str(text) =>
-            if text == name {
-              sys_modules_ref.val[j] = (Value::Str(name), module_value)
-              return
-            }
-          _ => ()
-        }
-      }
-      sys_modules_ref.val.push((Value::Str(name), module_value))
-      return
-    }
-  }
-  module_cache.val.push((name, module_value))
   for j = 0; j < sys_modules_ref.val.length(); j = j + 1 {
     match sys_modules_ref.val[j].0 {
       Value::Str(text) =>
@@ -58,14 +32,6 @@ fn module_cache_set(name : String, module_value : Value) -> Unit {
 
 ///|
 fn module_cache_delete(name : String) -> Unit {
-  let mut i = module_cache.val.length()
-  while i > 0 {
-    i = i - 1
-    if module_cache.val[i].0 == name {
-      let _ = module_cache.val.remove(i)
-
-    }
-  }
   let mut j = sys_modules_ref.val.length()
   while j > 0 {
     j = j - 1
@@ -285,7 +251,12 @@ fn make_importlib_loader() -> Value {
       ),
     ],
   }
-  Value::Instance(InstanceValue::{ class: loader_class, dict: [] })
+  Value::Instance(InstanceValue::{
+    class: loader_class,
+    // `importlib.machinery.SourceFileLoader` exposes `.path`. Keep an attribute
+    // with the same name on our shim loader so stdlib tests can introspect it.
+    dict: [("path", Value::None)],
+  })
 }
 
 ///|
@@ -308,6 +279,18 @@ fn make_importlib_finder() -> Value {
           closure: [],
         }),
       ),
+      (
+        "invalidate_caches",
+        Value::Function(FunctionValue::{
+          name: "__mpython_invalidate_caches",
+          params: ["self"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
   Value::Instance(InstanceValue::{ class: finder_class, dict: [] })
@@ -317,13 +300,25 @@ fn make_importlib_finder() -> Value {
 fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
   let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
   let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  // For builtin/host-provided modules we use a tiny placeholder loader so
+  // `importlib.machinery.BuiltinImporter.find_spec(name)` implies a non-None
+  // `module.__loader__` in the stdlib tests.
+  let loader_class = ClassValue::{
+    name: "BuiltinImporter",
+    bases: [],
+    dict: [],
+  }
+  let loader_value = Value::Instance(InstanceValue::{
+    class: loader_class,
+    dict: [("hashvalue", Value::Int(fresh_object_hashvalue()))],
+  })
   let spec_value = Value::Instance(InstanceValue::{
     class: spec_class,
     dict: [
       ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("name", Value::Str(name)),
       ("origin", Value::Str("<builtin>")),
-      ("loader", Value::None),
+      ("loader", loader_value),
       ("parent", Value::Str("")),
       ("submodule_search_locations", Value::None),
       ("cached", Value::None),
@@ -340,7 +335,7 @@ fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
       ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("__name__", Value::Str(name)),
       ("__package__", Value::Str("")),
-      ("__loader__", Value::None),
+      ("__loader__", loader_value),
       ("__spec__", spec_value),
     ] +
     dict,
@@ -1701,6 +1696,7 @@ fn make_python_module(
     ],
   })
   let module_globals : Array[(String, Value)] = [
+    ("hashvalue", Value::Int(fresh_object_hashvalue())),
     ("__name__", Value::Str(name)),
     ("__package__", Value::Str(package_name)),
     ("__file__", Value::Str(filename_abs)),

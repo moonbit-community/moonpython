@@ -34,6 +34,8 @@ __all__ = [
     "close",
     "unlink",
     "remove",
+    "rename",
+    "replace",
     "mkdir",
     "rmdir",
     "terminal_size",
@@ -257,6 +259,23 @@ def unlink(path, *args, **kwargs):
 
 def remove(path, *args, **kwargs):
     return unlink(path, *args, **kwargs)
+
+def rename(src, dst, *args, **kwargs):
+    # Minimal shim: implement via copy+unlink.
+    import builtins as _builtins
+    with _builtins.open(src, "rb") as f:
+        data = f.read()
+    try:
+        unlink(dst)
+    except FileNotFoundError:
+        pass
+    with _builtins.open(dst, "wb") as f:
+        f.write(data)
+    unlink(src)
+
+
+def replace(src, dst, *args, **kwargs):
+    return rename(src, dst, *args, **kwargs)
 
 def mkdir(path, mode=0o777, *args, **kwargs):
     # Backed by host filesystem helpers in the interpreter runtime.
