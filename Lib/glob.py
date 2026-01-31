@@ -217,15 +217,17 @@ def _join(dirname, basename):
         return dirname or basename
     return os.path.join(dirname, basename)
 
-magic_check = re.compile('([*?[])')
-magic_check_bytes = re.compile(b'([*?[])')
-
 def has_magic(s):
+    # Avoid depending on the regex engine for a simple probe.
     if isinstance(s, bytes):
-        match = magic_check_bytes.search(s)
-    else:
-        match = magic_check.search(s)
-    return match is not None
+        for b in s:
+            if b in (ord("*"), ord("?"), ord("[")):
+                return True
+        return False
+    for ch in s:
+        if ch in "*?[":
+            return True
+    return False
 
 def _ishidden(path):
     return path[0] in ('.', b'.'[0])
@@ -243,9 +245,25 @@ def escape(pathname):
     # Metacharacters do not work in the drive part and shouldn't be escaped.
     drive, pathname = os.path.splitdrive(pathname)
     if isinstance(pathname, bytes):
-        pathname = magic_check_bytes.sub(br'[\1]', pathname)
+        out = bytearray()
+        for b in pathname:
+            if b in (ord("*"), ord("?"), ord("[")):
+                out.extend(b"[")
+                out.append(b)
+                out.extend(b"]")
+            else:
+                out.append(b)
+        pathname = bytes(out)
     else:
-        pathname = magic_check.sub(r'[\1]', pathname)
+        out = []
+        for ch in pathname:
+            if ch in "*?[":
+                out.append("[")
+                out.append(ch)
+                out.append("]")
+            else:
+                out.append(ch)
+        pathname = "".join(out)
     return drive + pathname
 
 

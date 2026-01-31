@@ -48,10 +48,15 @@ class ABCMeta(type):
                 if getattr(value, "__isabstractmethod__", False):
                     abstracts.add(name)
         cls.__abstractmethods__ = frozenset(abstracts)
-        # Set up inheritance registry
-        cls._abc_registry = WeakSet()
-        cls._abc_cache = WeakSet()
-        cls._abc_negative_cache = WeakSet()
+        # Set up inheritance registry.
+        #
+        # CPython uses WeakSet here, but moonpython does not currently aim to
+        # model weak reference semantics precisely. Using plain sets keeps ABC
+        # registration/issubclass behavior working for the stdlib (e.g.
+        # importlib.abc) without depending on weakref implementation details.
+        cls._abc_registry = set()
+        cls._abc_cache = set()
+        cls._abc_negative_cache = set()
         cls._abc_negative_cache_version = ABCMeta._abc_invalidation_counter
         return cls
 
@@ -128,12 +133,13 @@ class ABCMeta(type):
         # Check negative cache; may have to invalidate
         if cls._abc_negative_cache_version < ABCMeta._abc_invalidation_counter:
             # Invalidate the negative cache
-            cls._abc_negative_cache = WeakSet()
+            cls._abc_negative_cache = set()
             cls._abc_negative_cache_version = ABCMeta._abc_invalidation_counter
         elif subclass in cls._abc_negative_cache:
             return False
-        # Check the subclass hook
-        ok = cls.__subclasshook__(subclass)
+        # Check the subclass hook (may be missing in minimal runtimes).
+        hook = getattr(cls, "__subclasshook__", None)
+        ok = NotImplemented if hook is None else hook(subclass)
         if ok is not NotImplemented:
             assert isinstance(ok, bool)
             if ok:

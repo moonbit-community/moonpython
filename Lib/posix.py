@@ -21,6 +21,7 @@ __all__ = [
     "fsdecode",
     "fspath",
     "getcwd",
+    "chdir",
     "getpid",
     "cpu_count",
     "listdir",

@@ -413,6 +413,13 @@ class IncrementalNewlineDecoder:
     def __init__(self, *args, **kwargs):
         pass
 
+    def decode(self, s):
+        # Minimal universal-newline decoder. CPython's implementation is
+        # incremental; MoonPython only needs the basic normalization behavior.
+        if not isinstance(s, str):
+            return s
+        return s.replace("\r\n", "\n").replace("\r", "\n")
+
 
 def text_encoding(encoding, stacklevel=2):
     if encoding:

@@ -791,11 +791,32 @@ def decode_source(source_bytes):
 
     Universal newline support is used in the decoding.
     """
-    import tokenize  # To avoid bootstrap issues.
-    source_bytes_readline = _io.BytesIO(source_bytes).readline
-    encoding = tokenize.detect_encoding(source_bytes_readline)
-    newline_decoder = _io.IncrementalNewlineDecoder(None, True)
-    return newline_decoder.decode(source_bytes.decode(encoding[0]))
+    # MoonPython note:
+    # CPython uses `tokenize.detect_encoding()` and `_io.IncrementalNewlineDecoder`
+    # for universal-newline decoding. MoonPython's `_io` shim does not model the
+    # full incremental decoder API, and the full tokenize-based encoding
+    # detection depends on subtle byte/line handling.
+    #
+    # For importlib's own needs, a light-weight "coding cookie" detector for the
+    # first two lines is sufficient.
+    import re
+
+    encoding = "utf-8"
+    cookie_re = re.compile(r"coding[:=]\s*([-\w.]+)")
+    bio = _io.BytesIO(source_bytes)
+    for raw in (bio.readline(), bio.readline()):
+        try:
+            # The coding cookie is restricted to ASCII per PEP 263.
+            line = raw.decode("ascii")
+        except Exception:
+            continue
+        m = cookie_re.search(line)
+        if m:
+            encoding = m.group(1)
+            break
+
+    text = source_bytes.decode(encoding)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 # Module specifications #######################################################

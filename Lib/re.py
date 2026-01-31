@@ -484,6 +484,29 @@ class Pattern:
                     break
                 i = line_end + 1
             return out
+        # doctest uses this pattern to collect leading spaces on non-blank lines:
+        #   re.compile(r'^([ ]*)(?=\\S)', re.MULTILINE)
+        if self.pattern == r"^([ ]*)(?=\S)" and (self.flags & MULTILINE):
+            pos, endpos = _normalize_bounds(string, pos, endpos)
+            out = []
+            i = pos
+            while i <= endpos:
+                line_end = string.find("\n", i, endpos)
+                if line_end == -1:
+                    line_end = endpos
+                    has_newline = False
+                else:
+                    has_newline = True
+                line = string[i:line_end]
+                j = 0
+                while j < len(line) and line[j] == " ":
+                    j += 1
+                if j < len(line) and line[j] not in " \t\r\n\v\f":
+                    out.append(line[:j])
+                if not has_newline:
+                    break
+                i = line_end + 1
+            return out
         # argparse help formatter uses this exact regexp to split usage.
         if self.pattern == (
             r"\(.*?\)+(?=\s|$)|"

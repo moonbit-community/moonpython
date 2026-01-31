@@ -285,7 +285,14 @@ def run_one(
             output=output,
         )
     except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "") + (exc.stderr or "")
+        def _to_text(value) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return str(value)
+
+        output = _to_text(exc.stdout) + _to_text(exc.stderr)
         return Result(
             module=module,
             status="timeout",

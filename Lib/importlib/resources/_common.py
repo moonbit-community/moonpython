@@ -77,13 +77,13 @@ def resolve(cand: Optional[Anchor]) -> types.ModuleType:
     return cast(types.ModuleType, cand)
 
 
-@resolve.register
-def _(cand: str) -> types.ModuleType:
+@resolve.register(str)
+def _(cand):
     return importlib.import_module(cand)
 
 
-@resolve.register
-def _(cand: None) -> types.ModuleType:
+@resolve.register(type(None))
+def _(cand):
     return resolve(_infer_caller().f_globals['__name__'])
 
 

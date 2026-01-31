@@ -1042,7 +1042,7 @@ class Differ:
 
 import re
 
-def IS_LINE_JUNK(line, pat=re.compile(r"\s*(?:#\s*)?$").match):
+def IS_LINE_JUNK(line, pat=None):
     r"""
     Return True for ignorable line: iff `line` is blank or contains a single '#'.
 
@@ -1056,7 +1056,12 @@ def IS_LINE_JUNK(line, pat=re.compile(r"\s*(?:#\s*)?$").match):
     False
     """
 
-    return pat(line) is not None
+    if pat is not None:
+        return pat(line) is not None
+    # Avoid relying on the regex engine for this hot-path helper. This also
+    # prevents catastrophic behavior on very long whitespace-only inputs.
+    stripped = line.strip()
+    return stripped == "" or stripped == "#"
 
 def IS_CHARACTER_JUNK(ch, ws=" \t"):
     r"""
@@ -1270,6 +1275,16 @@ def _check_types(a, b, *args):
         if not isinstance(arg, str):
             raise TypeError('all arguments must be str, not: %r' % (arg,))
 
+
+def _diff_bytes_decode(s):
+    try:
+        return s.decode('ascii', 'surrogateescape')
+    except AttributeError as err:
+        msg = ('all arguments must be bytes, not %s (%r)' %
+               (type(s).__name__, s))
+        raise TypeError(msg) from err
+
+
 def diff_bytes(dfunc, a, b, fromfile=b'', tofile=b'',
                fromfiledate=b'', tofiledate=b'', n=3, lineterm=b'\n'):
     r"""
@@ -1281,20 +1296,13 @@ def diff_bytes(dfunc, a, b, fromfile=b'', tofile=b'',
     unknown or inconsistent encoding. All other inputs (except `n`) must be
     bytes rather than str.
     """
-    def decode(s):
-        try:
-            return s.decode('ascii', 'surrogateescape')
-        except AttributeError as err:
-            msg = ('all arguments must be bytes, not %s (%r)' %
-                   (type(s).__name__, s))
-            raise TypeError(msg) from err
-    a = list(map(decode, a))
-    b = list(map(decode, b))
-    fromfile = decode(fromfile)
-    tofile = decode(tofile)
-    fromfiledate = decode(fromfiledate)
-    tofiledate = decode(tofiledate)
-    lineterm = decode(lineterm)
+    a = list(map(_diff_bytes_decode, a))
+    b = list(map(_diff_bytes_decode, b))
+    fromfile = _diff_bytes_decode(fromfile)
+    tofile = _diff_bytes_decode(tofile)
+    fromfiledate = _diff_bytes_decode(fromfiledate)
+    tofiledate = _diff_bytes_decode(tofiledate)
+    lineterm = _diff_bytes_decode(lineterm)
 
     lines = dfunc(a, b, fromfile, tofile, fromfiledate, tofiledate, n, lineterm)
     for line in lines:
@@ -1337,6 +1345,136 @@ def ndiff(a, b, linejunk=None, charjunk=IS_CHARACTER_JUNK):
     """
     return Differ(linejunk, charjunk).compare(a, b)
 
+
+# moonpython limitation: nested `def` statements inside generator functions are
+# not supported yet. CPython's `difflib._mdiff` defines a few helper functions
+# inside the generator; we hoist them to module scope to keep HtmlDiff working.
+def _mdiff_collect_sub_info(markers):
+    """Return a list of (mark, (begin, end)) for runs of +, -, ^ in markers."""
+    sub_info = []
+    i = 0
+    # The markers line is aligned with the text line (including the 2-char
+    # ndiff prefix), so indices match the string we splice into.
+    while i < len(markers):
+        ch = markers[i]
+        if ch in "+-^":
+            j = i + 1
+            while j < len(markers) and markers[j] == ch:
+                j += 1
+            sub_info.append((ch, (i, j)))
+            i = j
+        else:
+            i += 1
+    return sub_info
+
+
+def _mdiff_make_line(lines, format_key, side, num_lines):
+    """Returns line of text with user's change markup and line formatting.
+
+    This is extracted from CPython's difflib._mdiff implementation, but is kept
+    at module scope to avoid nested defs inside generators (moonpython).
+    """
+    num_lines[side] += 1
+    if format_key is None:
+        return (num_lines[side], lines.pop(0)[2:])
+    if format_key == "?":
+        text, markers = lines.pop(0), lines.pop(0)
+        sub_info = _mdiff_collect_sub_info(markers)
+        for key, (begin, end) in reversed(sub_info):
+            text = text[0:begin] + "\0" + key + text[begin:end] + "\1" + text[end:]
+        text = text[2:]
+    else:
+        text = lines.pop(0)[2:]
+        if not text:
+            text = " "
+        text = "\0" + format_key + text + "\1"
+    return (num_lines[side], text)
+
+
+def _mdiff_line_iterator(diff_lines_iterator, num_lines):
+    """Yield (from_line, to_line, found_diff) triples for _mdiff()."""
+    lines = []
+    num_blanks_pending, num_blanks_to_yield = 0, 0
+    while True:
+        while len(lines) < 4:
+            lines.append(next(diff_lines_iterator, "X"))
+        s = "".join([line[0] for line in lines])
+        if s.startswith("X"):
+            num_blanks_to_yield = num_blanks_pending
+        elif s.startswith("-?+?"):
+            yield _mdiff_make_line(lines, "?", 0, num_lines), _mdiff_make_line(
+                lines, "?", 1, num_lines
+            ), True
+            continue
+        elif s.startswith("--++"):
+            num_blanks_pending -= 1
+            yield _mdiff_make_line(lines, "-", 0, num_lines), None, True
+            continue
+        elif s.startswith(("--?+", "--+", "- ")):
+            from_line, to_line = _mdiff_make_line(lines, "-", 0, num_lines), None
+            num_blanks_to_yield, num_blanks_pending = num_blanks_pending - 1, 0
+        elif s.startswith("-+?"):
+            yield _mdiff_make_line(lines, None, 0, num_lines), _mdiff_make_line(
+                lines, "?", 1, num_lines
+            ), True
+            continue
+        elif s.startswith("-?+"):
+            yield _mdiff_make_line(lines, "?", 0, num_lines), _mdiff_make_line(
+                lines, None, 1, num_lines
+            ), True
+            continue
+        elif s.startswith("-"):
+            num_blanks_pending -= 1
+            yield _mdiff_make_line(lines, "-", 0, num_lines), None, True
+            continue
+        elif s.startswith("+--"):
+            num_blanks_pending += 1
+            yield None, _mdiff_make_line(lines, "+", 1, num_lines), True
+            continue
+        elif s.startswith(("+ ", "+-")):
+            from_line, to_line = None, _mdiff_make_line(lines, "+", 1, num_lines)
+            num_blanks_to_yield, num_blanks_pending = num_blanks_pending + 1, 0
+        elif s.startswith("+"):
+            num_blanks_pending += 1
+            yield None, _mdiff_make_line(lines, "+", 1, num_lines), True
+            continue
+        elif s.startswith(" "):
+            yield _mdiff_make_line(lines[:], None, 0, num_lines), _mdiff_make_line(
+                lines, None, 1, num_lines
+            ), False
+            continue
+        while num_blanks_to_yield < 0:
+            num_blanks_to_yield += 1
+            yield None, ("", "\n"), True
+        while num_blanks_to_yield > 0:
+            num_blanks_to_yield -= 1
+            yield ("", "\n"), None, True
+        if s.startswith("X"):
+            return
+        # Avoid `yield from_line, ...` which can be mis-tokenized as `yield from`
+        # by moonpython's bytecode compiler when the yielded expression starts
+        # with an identifier named `from_*`.
+        yield (from_line, to_line, True)
+
+
+def _mdiff_line_pair_iterator(line_iterator):
+    """Yield paired (from_line, to_line, found_diff) triples for _mdiff()."""
+    fromlines, tolines = [], []
+    while True:
+        while len(fromlines) == 0 or len(tolines) == 0:
+            try:
+                from_line, to_line, found_diff = next(line_iterator)
+            except StopIteration:
+                return
+            if from_line is not None:
+                fromlines.append((from_line, found_diff))
+            if to_line is not None:
+                tolines.append((to_line, found_diff))
+        from_line, from_diff = fromlines.pop(0)
+        to_line, to_diff = tolines.pop(0)
+        yield (from_line, to_line, from_diff or to_diff)
+
+
 def _mdiff(fromlines, tolines, context=None, linejunk=None,
            charjunk=IS_CHARACTER_JUNK):
     r"""Returns generator yielding marked up from/to side by side differences.
@@ -1371,192 +1509,14 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
     side difference markup.  Optional ndiff arguments may be passed to this
     function and they in turn will be passed to ndiff.
     """
-    import re
-
-    # regular expression for finding intraline change indices
-    change_re = re.compile(r'(\++|\-+|\^+)')
-
     # create the difference iterator to generate the differences
     diff_lines_iterator = ndiff(fromlines,tolines,linejunk,charjunk)
-
-    def _make_line(lines, format_key, side, num_lines=[0,0]):
-        """Returns line of text with user's change markup and line formatting.
-
-        lines -- list of lines from the ndiff generator to produce a line of
-                 text from.  When producing the line of text to return, the
-                 lines used are removed from this list.
-        format_key -- '+' return first line in list with "add" markup around
-                          the entire line.
-                      '-' return first line in list with "delete" markup around
-                          the entire line.
-                      '?' return first line in list with add/delete/change
-                          intraline markup (indices obtained from second line)
-                      None return first line in list with no markup
-        side -- indice into the num_lines list (0=from,1=to)
-        num_lines -- from/to current line number.  This is NOT intended to be a
-                     passed parameter.  It is present as a keyword argument to
-                     maintain memory of the current line numbers between calls
-                     of this function.
-
-        Note, this function is purposefully not defined at the module scope so
-        that data it needs from its parent function (within whose context it
-        is defined) does not need to be of module scope.
-        """
-        num_lines[side] += 1
-        # Handle case where no user markup is to be added, just return line of
-        # text with user's line format to allow for usage of the line number.
-        if format_key is None:
-            return (num_lines[side],lines.pop(0)[2:])
-        # Handle case of intraline changes
-        if format_key == '?':
-            text, markers = lines.pop(0), lines.pop(0)
-            # find intraline changes (store change type and indices in tuples)
-            sub_info = []
-            def record_sub_info(match_object,sub_info=sub_info):
-                sub_info.append([match_object.group(1)[0],match_object.span()])
-                return match_object.group(1)
-            change_re.sub(record_sub_info,markers)
-            # process each tuple inserting our special marks that won't be
-            # noticed by an xml/html escaper.
-            for key,(begin,end) in reversed(sub_info):
-                text = text[0:begin]+'\0'+key+text[begin:end]+'\1'+text[end:]
-            text = text[2:]
-        # Handle case of add/delete entire line
-        else:
-            text = lines.pop(0)[2:]
-            # if line of text is just a newline, insert a space so there is
-            # something for the user to highlight and see.
-            if not text:
-                text = ' '
-            # insert marks that won't be noticed by an xml/html escaper.
-            text = '\0' + format_key + text + '\1'
-        # Return line of text, first allow user's line formatter to do its
-        # thing (such as adding the line number) then replace the special
-        # marks with what the user's change markup.
-        return (num_lines[side],text)
-
-    def _line_iterator():
-        """Yields from/to lines of text with a change indication.
-
-        This function is an iterator.  It itself pulls lines from a
-        differencing iterator, processes them and yields them.  When it can
-        it yields both a "from" and a "to" line, otherwise it will yield one
-        or the other.  In addition to yielding the lines of from/to text, a
-        boolean flag is yielded to indicate if the text line(s) have
-        differences in them.
-
-        Note, this function is purposefully not defined at the module scope so
-        that data it needs from its parent function (within whose context it
-        is defined) does not need to be of module scope.
-        """
-        lines = []
-        num_blanks_pending, num_blanks_to_yield = 0, 0
-        while True:
-            # Load up next 4 lines so we can look ahead, create strings which
-            # are a concatenation of the first character of each of the 4 lines
-            # so we can do some very readable comparisons.
-            while len(lines) < 4:
-                lines.append(next(diff_lines_iterator, 'X'))
-            s = ''.join([line[0] for line in lines])
-            if s.startswith('X'):
-                # When no more lines, pump out any remaining blank lines so the
-                # corresponding add/delete lines get a matching blank line so
-                # all line pairs get yielded at the next level.
-                num_blanks_to_yield = num_blanks_pending
-            elif s.startswith('-?+?'):
-                # simple intraline change
-                yield _make_line(lines,'?',0), _make_line(lines,'?',1), True
-                continue
-            elif s.startswith('--++'):
-                # in delete block, add block coming: we do NOT want to get
-                # caught up on blank lines yet, just process the delete line
-                num_blanks_pending -= 1
-                yield _make_line(lines,'-',0), None, True
-                continue
-            elif s.startswith(('--?+', '--+', '- ')):
-                # in delete block and see an intraline change or unchanged line
-                # coming: yield the delete line and then blanks
-                from_line,to_line = _make_line(lines,'-',0), None
-                num_blanks_to_yield,num_blanks_pending = num_blanks_pending-1,0
-            elif s.startswith('-+?'):
-                # intraline change
-                yield _make_line(lines,None,0), _make_line(lines,'?',1), True
-                continue
-            elif s.startswith('-?+'):
-                # intraline change
-                yield _make_line(lines,'?',0), _make_line(lines,None,1), True
-                continue
-            elif s.startswith('-'):
-                # delete FROM line
-                num_blanks_pending -= 1
-                yield _make_line(lines,'-',0), None, True
-                continue
-            elif s.startswith('+--'):
-                # in add block, delete block coming: we do NOT want to get
-                # caught up on blank lines yet, just process the add line
-                num_blanks_pending += 1
-                yield None, _make_line(lines,'+',1), True
-                continue
-            elif s.startswith(('+ ', '+-')):
-                # will be leaving an add block: yield blanks then add line
-                from_line, to_line = None, _make_line(lines,'+',1)
-                num_blanks_to_yield,num_blanks_pending = num_blanks_pending+1,0
-            elif s.startswith('+'):
-                # inside an add block, yield the add line
-                num_blanks_pending += 1
-                yield None, _make_line(lines,'+',1), True
-                continue
-            elif s.startswith(' '):
-                # unchanged text, yield it to both sides
-                yield _make_line(lines[:],None,0),_make_line(lines,None,1),False
-                continue
-            # Catch up on the blank lines so when we yield the next from/to
-            # pair, they are lined up.
-            while(num_blanks_to_yield < 0):
-                num_blanks_to_yield += 1
-                yield None,('','\n'),True
-            while(num_blanks_to_yield > 0):
-                num_blanks_to_yield -= 1
-                yield ('','\n'),None,True
-            if s.startswith('X'):
-                return
-            else:
-                yield from_line,to_line,True
-
-    def _line_pair_iterator():
-        """Yields from/to lines of text with a change indication.
-
-        This function is an iterator.  It itself pulls lines from the line
-        iterator.  Its difference from that iterator is that this function
-        always yields a pair of from/to text lines (with the change
-        indication).  If necessary it will collect single from/to lines
-        until it has a matching pair from/to pair to yield.
-
-        Note, this function is purposefully not defined at the module scope so
-        that data it needs from its parent function (within whose context it
-        is defined) does not need to be of module scope.
-        """
-        line_iterator = _line_iterator()
-        fromlines,tolines=[],[]
-        while True:
-            # Collecting lines of text until we have a from/to pair
-            while (len(fromlines)==0 or len(tolines)==0):
-                try:
-                    from_line, to_line, found_diff = next(line_iterator)
-                except StopIteration:
-                    return
-                if from_line is not None:
-                    fromlines.append((from_line,found_diff))
-                if to_line is not None:
-                    tolines.append((to_line,found_diff))
-            # Once we have a pair, remove them from the collection and yield it
-            from_line, fromDiff = fromlines.pop(0)
-            to_line, to_diff = tolines.pop(0)
-            yield (from_line,to_line,fromDiff or to_diff)
+    num_lines = [0, 0]
+    line_iterator = _mdiff_line_iterator(diff_lines_iterator, num_lines)
+    line_pair_iterator = _mdiff_line_pair_iterator(line_iterator)
 
     # Handle case where user does not want context differencing, just yield
     # them up without doing anything else with them.
-    line_pair_iterator = _line_pair_iterator()
     if context is None:
         yield from line_pair_iterator
     # Handle case where user wants context differencing.  We must do some
@@ -1601,7 +1561,8 @@ def _mdiff(fromlines, tolines, context=None, linejunk=None,
                         lines_to_write = context-1
                     else:
                         lines_to_write -= 1
-                    yield from_line, to_line, found_diff
+                    # See comment in _mdiff_line_iterator about `yield from_*`.
+                    yield (from_line, to_line, found_diff)
             except StopIteration:
                 # Catch exception from next() and return normally
                 return
@@ -1814,7 +1775,9 @@ class HtmlDiff(object):
         for fromdata,todata,flag in diffs:
             # check for context separators and pass them through
             if flag is None:
-                yield fromdata,todata,flag
+                # Avoid `yield fromdata, ...` which can be mis-tokenized as
+                # `yield from` by moonpython's bytecode compiler.
+                yield (fromdata, todata, flag)
                 continue
             (fromline,fromtext),(toline,totext) = fromdata,todata
             # for each from/to line split it at the wrap column to form
@@ -1833,7 +1796,8 @@ class HtmlDiff(object):
                     todata = tolist.pop(0)
                 else:
                     todata = ('',' ')
-                yield fromdata,todata,flag
+                # Avoid `yield fromdata, ...` (moonpython `yield from` tokenization).
+                yield (fromdata, todata, flag)
 
     def _collect_lines(self,diffs):
         """Collects mdiff output into separate lists

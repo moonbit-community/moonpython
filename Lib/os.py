@@ -1161,3 +1161,116 @@ if name == 'nt':
             cookie,
             nt._remove_dll_directory
         )
+
+# ---------------------------------------------------------------------------
+# MoonPython shims
+# ---------------------------------------------------------------------------
+
+# Provide a pure-Python scandir implementation when the underlying posix/nt
+# shim doesn't expose one. This is enough for glob/shutil/pathlib basics.
+if not _exists("scandir"):
+    class DirEntry:
+        __slots__ = ("name", "_path", "_fullpath")
+
+        def __init__(self, path, name):
+            self.name = name
+            self._path = path
+            # Build a full path of the same type as `path` (str/bytes).
+            self._fullpath = self._join(path, name)
+
+        @staticmethod
+        def _join(path, name):
+            # Avoid depending on os.path for mixed str/bytes handling.
+            if path in ("", b""):
+                return name
+            if isinstance(path, bytes):
+                sep_b = b"/"
+                if path.endswith(sep_b):
+                    return path + name
+                return path + sep_b + name
+            sep_s = "/"
+            if path.endswith(sep_s):
+                return path + name
+            return path + sep_s + name
+
+        @property
+        def path(self):
+            return self._fullpath
+
+        def __fspath__(self):
+            return self._fullpath
+
+        def stat(self, *, follow_symlinks=True):
+            fn = getattr(sys.modules[__name__], "stat", None)
+            if fn is None:
+                raise AttributeError("os.stat is not available")
+            try:
+                return fn(self._fullpath, follow_symlinks=follow_symlinks)
+            except TypeError:
+                # follow_symlinks may not be supported by the posix shim.
+                return fn(self._fullpath)
+
+        def inode(self):
+            st0 = self.stat()
+            return getattr(st0, "st_ino", 0)
+
+        def is_dir(self, *, follow_symlinks=True):
+            try:
+                mode = self.stat(follow_symlinks=follow_symlinks).st_mode
+            except OSError:
+                return False
+            return st.S_ISDIR(mode)
+
+        def is_file(self, *, follow_symlinks=True):
+            try:
+                mode = self.stat(follow_symlinks=follow_symlinks).st_mode
+            except OSError:
+                return False
+            return st.S_ISREG(mode)
+
+        def is_junction(self):
+            # Windows-only concept. Keep API surface for shutil/pathlib.
+            return False
+
+        def __repr__(self):
+            return f"<DirEntry {self.name!r}>"
+
+    __all__.append("DirEntry")
+
+    class _ScandirIterator:
+        __slots__ = ("_entries", "_idx", "_closed")
+
+        def __init__(self, entries):
+            self._entries = entries
+            self._idx = 0
+            self._closed = False
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._closed:
+                raise StopIteration
+            if self._idx >= len(self._entries):
+                raise StopIteration
+            ent = self._entries[self._idx]
+            self._idx += 1
+            return ent
+
+        def close(self):
+            self._closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+            return False
+
+    def scandir(path="."):
+        # `listdir()` already normalizes path-like objects; keep type.
+        names = listdir(path)
+        entries = [DirEntry(path, name) for name in names]
+        return _ScandirIterator(entries)
+
+    __all__.append("scandir")
