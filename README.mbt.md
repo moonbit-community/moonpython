@@ -141,6 +141,9 @@ This is a coarse, user-facing checklist (not a full spec).
 - [x] `scripts/run_libtests.py` runner for CPython `Lib/test` smoke runs
 - [x] `Lib/test`: `test.test_unittest.*` passes on `--target native` (some modules may be skipped)
 - [x] `Lib/test`: `test.test_pprint` passes on `--target native` (some modules may be skipped)
+- [x] `Lib/test`: `test.test_importlib.test_abc` passes on `--target native`
+- [x] `Lib/test`: `test.test_fnmatch` passes on `--target native`
+- [x] `Lib/test`: `test.test_glob` passes on `--target native`
 
 Not implemented / incomplete (selected highlights):
 
