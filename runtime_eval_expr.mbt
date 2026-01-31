@@ -1104,6 +1104,7 @@ fn eval_expr_with_env(
                   let args = match class_getitem {
                     Value::BoundMethod(_) => [idx_value]
                     Value::Function(_) => [target, idx_value]
+                    Value::Class(_) => [target, idx_value]
                     _ => [idx_value]
                   }
                   return call_callable_with_env(

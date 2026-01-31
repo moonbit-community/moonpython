@@ -224,27 +224,26 @@ fn get_attr_raw_from_value(
       Value::Instance(inst) =>
         if class_has_base_name(inst.class, "classmethod") {
           match get_named_value(inst.dict, "func") {
-            Some(func_value) => {
-              let func = match func_value {
-                Value::Function(f) => f
-                _ =>
-                  return Err(
-                    make_runtime_error(
-                      RuntimeErrorKind::Type,
-                      "classmethod() expects a function".to_string(),
+            Some(func_value) =>
+              match func_value {
+                Value::Function(func) =>
+                  // Call with the owner class as the implicit first argument.
+                  return Ok(
+                    Some(
+                      Value::BoundMethod(BoundMethodValue::{
+                        function: func,
+                        self: owner,
+                      }),
                     ),
                   )
+                _ =>
+                  // CPython allows wrapping other callables (e.g.
+                  // `__class_getitem__ = classmethod(GenericAlias)` in `os`).
+                  // We can't represent a generic "bound callable" yet, so
+                  // return the underlying callable and let specific call sites
+                  // (like subscription) provide the explicit `cls` argument.
+                  return Ok(Some(func_value))
               }
-              // Call with the owner class as the implicit first argument.
-              return Ok(
-                Some(
-                  Value::BoundMethod(BoundMethodValue::{
-                    function: func,
-                    self: owner,
-                  }),
-                ),
-              )
-            }
             None => return Ok(None)
           }
         }
@@ -2031,6 +2030,38 @@ fn get_attr_raw_from_value(
               name: "decode",
               params: ["self", "encoding", "errors"],
               defaults: [Value::Str("utf-8"), Value::Str("strict")],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "find" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "find",
+              params: ["self", "sub", "start", "end"],
+              defaults: [Value::None, Value::None],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "rfind" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "rfind",
+              params: ["self", "sub", "start", "end"],
+              defaults: [Value::None, Value::None],
               body: [],
               is_generator: false,
               is_async: false,

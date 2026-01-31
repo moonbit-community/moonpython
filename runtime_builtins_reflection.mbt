@@ -1764,6 +1764,42 @@ fn issubclass_pair(
           return Ok(bool_from_value(result))
         }
       }
+      // ABCMeta semantics: prefer the metaclass-provided `__subclasscheck__`
+      // when this looks like an ABC. This handles virtual subclass registration
+      // transitively (e.g. ExtensionFileLoader registered under ExecutionLoader
+      // should also count as an InspectLoader).
+      if get_named_value(base_class.dict, "_abc_registry") is Some(_) {
+        let subclass_check = match
+          get_attr_raw_from_value(
+            Value::Class(base_class),
+            "__subclasscheck__",
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(v) => Some(v)
+          Err(err) =>
+            match err.kind {
+              RuntimeErrorKind::Attribute => None
+              _ => return Err(err)
+            }
+        }
+        if subclass_check is Some(check_value) {
+          let result = match
+            call_callable_with_env(
+              check_value,
+              [cls],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          return Ok(bool_from_value(result))
+        }
+      }
       match get_named_value(base_class.dict, "_abc_registry") {
         Some(Value::Set(values)) =>
           for item in values {
@@ -2075,6 +2111,60 @@ fn builtin_type_new(
     Ok(v) => v
     Err(err) => return Err(err)
   }
+  // Track direct subclass relationships for `type.__subclasses__()`.
+  let sub_value = Value::Class(klass)
+  for base in base_values {
+    match base {
+      Value::Class(base_class) =>
+        match get_named_value(base_class.dict, "__mpython_subclasses__") {
+          Some(Value::List(values)) => values.push(sub_value)
+          _ =>
+            base_class.dict.push(
+              ("__mpython_subclasses__", Value::List([sub_value])),
+            )
+        }
+      _ => ()
+    }
+  }
+  // PEP 487: call inherited __init_subclass__ hooks.
+  match class_mro(klass) {
+    Ok(mro) => {
+      let mut hook : Value? = None
+      for i = 1; i < mro.length(); i = i + 1 {
+        match get_named_value(mro[i].dict, "__init_subclass__") {
+          Some(Value::Function(func)) => {
+            hook = Some(
+              Value::BoundMethod(BoundMethodValue::{
+                function: func,
+                self: Value::Class(klass),
+              }),
+            )
+            break
+          }
+          _ => ()
+        }
+      }
+      match hook {
+        Some(callable) => {
+          let _ = match
+            call_callable_with_env(
+              callable,
+              [],
+              keywords,
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+
+        }
+        None => ()
+      }
+    }
+    Err(_) => ()
+  }
   Ok(Value::Class(klass))
 }
 
@@ -2114,7 +2204,6 @@ fn builtin_type(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = keywords
   if positional.length() == 1 {
     let value = positional[0]
     return match value {
@@ -2237,6 +2326,60 @@ fn builtin_type(
   let _ = match class_mro(klass) {
     Ok(v) => v
     Err(err) => return Err(err)
+  }
+  // Track direct subclass relationships for `type.__subclasses__()`.
+  let sub_value = Value::Class(klass)
+  for base in base_values {
+    match base {
+      Value::Class(base_class) =>
+        match get_named_value(base_class.dict, "__mpython_subclasses__") {
+          Some(Value::List(values)) => values.push(sub_value)
+          _ =>
+            base_class.dict.push(
+              ("__mpython_subclasses__", Value::List([sub_value])),
+            )
+        }
+      _ => ()
+    }
+  }
+  // PEP 487: call inherited __init_subclass__ hooks.
+  match class_mro(klass) {
+    Ok(mro) => {
+      let mut hook : Value? = None
+      for i = 1; i < mro.length(); i = i + 1 {
+        match get_named_value(mro[i].dict, "__init_subclass__") {
+          Some(Value::Function(func)) => {
+            hook = Some(
+              Value::BoundMethod(BoundMethodValue::{
+                function: func,
+                self: Value::Class(klass),
+              }),
+            )
+            break
+          }
+          _ => ()
+        }
+      }
+      match hook {
+        Some(callable) => {
+          let _ = match
+            call_callable_with_env(
+              callable,
+              [],
+              keywords,
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+
+        }
+        None => ()
+      }
+    }
+    Err(_) => ()
   }
   Ok(Value::Class(klass))
 }
@@ -3200,8 +3343,29 @@ fn builtin_eval(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let expr_text = match expr_value {
-    Value::Str(text) => text
+  let (expr_text, filename, mode) = match expr_value {
+    Value::Str(text) => (text, "<eval>".to_string(), "eval".to_string())
+    Value::Instance(inst) if inst.class.name == "code" => {
+      let source = match get_named_value(inst.dict, "__mpython_source__") {
+        Some(Value::Str(text)) => text
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "eval() code object missing source".to_string(),
+            ),
+          )
+      }
+      let filename = match get_named_value(inst.dict, "co_filename") {
+        Some(Value::Str(text)) => text
+        _ => "<eval>".to_string()
+      }
+      let mode = match get_named_value(inst.dict, "__mpython_mode__") {
+        Some(Value::Str(text)) => text
+        _ => "eval".to_string()
+      }
+      (source, filename, mode)
+    }
     _ =>
       return Err(
         make_runtime_error(
@@ -3209,6 +3373,14 @@ fn builtin_eval(
           "eval() arg 1 must be a string".to_string(),
         ),
       )
+  }
+  if mode != "eval" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "eval() code object must be created with mode 'eval'".to_string(),
+      ),
+    )
   }
   let (locals_env, globals_env, locals_pairs, globals_pairs) = match
     resolve_exec_eval_env("eval", globals_arg, locals_arg, locals, globals) {
@@ -3223,7 +3395,7 @@ fn builtin_eval(
     Ok(_) => ()
     Err(err) => return Err(err)
   }
-  push_traceback_frame("<eval>".to_string(), "<eval>".to_string())
+  push_traceback_frame("<eval>".to_string(), filename)
   let result = eval_expr_with_env(expr, locals_env, globals_env, builtins, io)
   pop_traceback_frame()
   match globals_pairs {
@@ -3252,8 +3424,29 @@ fn builtin_exec(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let source_text = match source_value {
-    Value::Str(text) => text
+  let (source_text, filename, mode) = match source_value {
+    Value::Str(text) => (text, "<exec>".to_string(), "exec".to_string())
+    Value::Instance(inst) if inst.class.name == "code" => {
+      let source = match get_named_value(inst.dict, "__mpython_source__") {
+        Some(Value::Str(text)) => text
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "exec() code object missing source".to_string(),
+            ),
+          )
+      }
+      let filename = match get_named_value(inst.dict, "co_filename") {
+        Some(Value::Str(text)) => text
+        _ => "<exec>".to_string()
+      }
+      let mode = match get_named_value(inst.dict, "__mpython_mode__") {
+        Some(Value::Str(text)) => text
+        _ => "exec".to_string()
+      }
+      (source, filename, mode)
+    }
     _ =>
       return Err(
         make_runtime_error(
@@ -3261,6 +3454,14 @@ fn builtin_exec(
           "exec() arg 1 must be a string".to_string(),
         ),
       )
+  }
+  if mode != "exec" && mode != "single" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "exec() code object must be created with mode 'exec' or 'single'".to_string(),
+      ),
+    )
   }
   let (locals_env, globals_env, locals_pairs, globals_pairs) = match
     resolve_exec_eval_env("exec", globals_arg, locals_arg, locals, globals) {
@@ -3275,7 +3476,7 @@ fn builtin_exec(
     Ok(_) => ()
     Err(err) => return Err(err)
   }
-  push_traceback_frame("<exec>".to_string(), "<exec>".to_string())
+  push_traceback_frame("<exec>".to_string(), filename)
   let result = eval_block(
     program.body,
     locals_env,
@@ -3309,14 +3510,9 @@ fn builtin_compile(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  if keywords.length() != 0 {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Type,
-        "compile() does not support keyword arguments yet".to_string(),
-      ),
-    )
-  }
+  let _ = keywords
+  // Accept keyword arguments (flags/dont_inherit/optimize) but ignore them for now.
+  // A number of stdlib helpers call `compile(..., dont_inherit=True)`.
   if positional.length() < 3 {
     return Err(
       make_runtime_error(
@@ -3327,15 +3523,25 @@ fn builtin_compile(
   }
   let source_text = match positional[0] {
     Value::Str(text) => text
+    Value::Bytes(bytes) =>
+      match decode_bytes_utf8("compile", bytes, "surrogateescape") {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+    Value::ByteArray(bytes) =>
+      match decode_bytes_utf8("compile", bytes, "surrogateescape") {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
     _ =>
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Type,
-          "compile() arg 1 must be a string".to_string(),
+          "compile() arg 1 must be a string or bytes-like object".to_string(),
         ),
       )
   }
-  let _filename = match positional[1] {
+  let filename = match positional[1] {
     Value::Str(text) => text
     _ =>
       return Err(
@@ -3376,9 +3582,26 @@ fn builtin_compile(
     )
   }
 
-  // Placeholder: we don't model a CodeType yet. Returning the source text keeps
-  // `exec(compile(...))` and `eval(compile(...))` usable in practice.
-  Ok(Value::Str(source_text))
+  // Minimal CodeType placeholder: carry enough metadata for stdlib callers
+  // (importlib, inspect) to access `co_filename`, and let `exec`/`eval` consume it.
+  let code = make_code_instance_with_meta(
+    0N,
+    filename,
+    "<module>".to_string(),
+    1N,
+    0,
+    0,
+    0,
+    [],
+  )
+  match code {
+    Value::Instance(inst) => {
+      inst.dict.push(("__mpython_source__", Value::Str(source_text)))
+      inst.dict.push(("__mpython_mode__", Value::Str(mode)))
+      Ok(code)
+    }
+    _ => Ok(code)
+  }
 }
 
 ///|

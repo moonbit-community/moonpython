@@ -462,6 +462,78 @@ fn get_subscr_value(
           }
       }
     }
+    Value::Function(func) => {
+      // Support `list[int]`-style generic aliases for builtin collection types.
+      if func.body.length() == 0 && is_generic_alias_origin_name(func.name) {
+        let args = match index {
+          Value::Tuple(values) => values
+          _ => [index]
+        }
+        return Ok(
+          make_generic_alias(
+            Value::Class(builtin_class_from_name(func.name, builtins)),
+            args,
+          ),
+        )
+      }
+      // PEP 560: if a class (or builtin type modelled as Value::Function)
+      // defines __class_getitem__, use it for subscription.
+      match
+        get_attr_from_value(target, "__class_getitem__", globals, builtins, io) {
+        Ok(class_getitem) => {
+          let args = match class_getitem {
+            Value::BoundMethod(_) => [index]
+            Value::Function(_) => [target, index]
+            Value::Class(_) => [target, index]
+            _ => [index]
+          }
+          call_callable_with_env(class_getitem, args, [], globals, builtins, io)
+        }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "subscript requires sequence".to_string(),
+                ),
+              )
+            _ => Err(err)
+          }
+      }
+    }
+    Value::Class(klass) => {
+      if is_generic_alias_origin_name(klass.name) {
+        let args = match index {
+          Value::Tuple(values) => values
+          _ => [index]
+        }
+        return Ok(make_generic_alias(Value::Class(klass), args))
+      }
+      match
+        get_attr_from_value(target, "__class_getitem__", globals, builtins, io) {
+        Ok(class_getitem) => {
+          let args = match class_getitem {
+            Value::BoundMethod(_) => [index]
+            Value::Function(_) => [target, index]
+            Value::Class(_) => [target, index]
+            _ => [index]
+          }
+          call_callable_with_env(class_getitem, args, [], globals, builtins, io)
+        }
+        Err(err) =>
+          match err.kind {
+            RuntimeErrorKind::Attribute =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "subscript requires sequence".to_string(),
+                ),
+              )
+            _ => Err(err)
+          }
+      }
+    }
     _ =>
       Err(
         make_runtime_error(

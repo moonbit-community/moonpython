@@ -1337,6 +1337,8 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("UnicodeEncodeError", Value::Class(unicode_encode_error_class)),
     ("UnicodeTranslateError", Value::Class(unicode_translate_error_class)),
     ("OSError", Value::Class(os_error_class)),
+    // CPython compatibility: IOError is an alias of OSError.
+    ("IOError", Value::Class(os_error_class)),
     ("BlockingIOError", Value::Class(blocking_io_error_class)),
     ("ChildProcessError", Value::Class(child_process_error_class)),
     ("ConnectionError", Value::Class(connection_error_class)),

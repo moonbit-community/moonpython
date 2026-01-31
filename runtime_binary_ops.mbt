@@ -1169,6 +1169,110 @@ fn eval_binary_op_values(
           }
           Ok(Value::Set(values))
         }
+        // frozenset unions are common in the stdlib (e.g. typing.py uses
+        // frozenset(...) | frozenset(...) | {...} at import time). moonpython
+        // models `frozenset()` as an instance carrying set storage, so handle
+        // unions involving that representation here.
+        (Value::Instance(left_inst), right) => {
+          let left_storage = match
+            get_named_value(left_inst.dict, set_storage_name) {
+            Some(Value::Set(values)) => Some(values)
+            _ => None
+          }
+          let right_storage = match right {
+            Value::Set(values) => Some(values)
+            Value::Instance(right_inst) =>
+              match get_named_value(right_inst.dict, set_storage_name) {
+                Some(Value::Set(values)) => Some(values)
+                _ => None
+              }
+            _ => None
+          }
+          match (left_storage, right_storage) {
+            (Some(left_values), Some(right_values)) => {
+              let values : Array[Value] = []
+              for item in left_values {
+                let _ = match set_add_unique(values, item) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+
+              }
+              for item in right_values {
+                let _ = match set_add_unique(values, item) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+
+              }
+              if left_inst.class.name == "frozenset" {
+                let klass = builtin_class_from_name("frozenset", builtins)
+                let dict : Array[(String, Value)] = [
+                  ("hashvalue", Value::Int(fresh_object_hashvalue())),
+                  (set_storage_name, Value::Set(values)),
+                ]
+                Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+              } else {
+                Ok(Value::Set(values))
+              }
+            }
+            _ => {
+              // Not a set/frozenset union; fall back to `X | Y` union types.
+              let left_args = union_args_from_value(
+                Value::Instance(left_inst),
+                builtins,
+              )
+              let right_args = union_args_from_value(right, builtins)
+              match (left_args, right_args) {
+                (Some(left), Some(right)) => {
+                  let args : Array[Value] = []
+                  for value in left {
+                    args.push(value)
+                  }
+                  for value in right {
+                    args.push(value)
+                  }
+                  Ok(make_union_type(args))
+                }
+                _ =>
+                  Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "unsupported operand type for |".to_string(),
+                    ),
+                  )
+              }
+            }
+          }
+        }
+        (Value::Set(left), Value::Instance(right_inst)) =>
+          match get_named_value(right_inst.dict, set_storage_name) {
+            Some(Value::Set(right)) => {
+              let values : Array[Value] = []
+              for item in left {
+                let _ = match set_add_unique(values, item) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+
+              }
+              for item in right {
+                let _ = match set_add_unique(values, item) {
+                  Ok(_) => ()
+                  Err(err) => return Err(err)
+                }
+
+              }
+              Ok(Value::Set(values))
+            }
+            _ =>
+              Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "unsupported operand type for |".to_string(),
+                ),
+              )
+          }
         (Value::Dict(left), Value::Dict(right)) => {
           // PEP 584: dict union.
           let out : Array[(Value, Value)] = []

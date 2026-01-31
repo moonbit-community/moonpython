@@ -1092,6 +1092,14 @@ fn builtin_sorted(
 
     match (a, b) {
       (Value::Str(x), Value::Str(y)) => Ok(cmp_string_for_sorted(x, y) < 0)
+      (
+        Value::Bytes(x)
+        | Value::ByteArray(x)
+        | Value::MemoryView(x),
+        Value::Bytes(y)
+        | Value::ByteArray(y)
+        | Value::MemoryView(y),
+      ) => Ok(compare_bytes_like(x, y) < 0)
       _ =>
         match (tuple_items_for_sort(a), tuple_items_for_sort(b)) {
           (Some(xs), Some(ys)) =>

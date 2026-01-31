@@ -2677,6 +2677,26 @@ fn builtin_mpython_posix_listdir(
     }
   }
   let path = resolve_path_from_cwd(path)
+  let exists = @fs.path_exists(path)
+  let is_dir = @fs.is_dir(path) catch { _ => false }
+  if !is_dir {
+    // Avoid calling read_dir() on non-directories: some backends print noisy
+    // "opendir: Not a directory" messages to stderr.
+    if exists {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "NotADirectoryError: not a directory".to_string(),
+        ),
+      )
+    }
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "FileNotFoundError: no such directory".to_string(),
+      ),
+    )
+  }
   let entries = @fs.read_dir(path) catch {
     _ =>
       return Err(

@@ -850,8 +850,14 @@ fn call_callable_with_env(
             ),
           )
         }
-        // We don't track subclass relationships yet; return an empty list.
-        return Ok(Value::List([]))
+        match bound_method.self {
+          Value::Class(klass) =>
+            match get_named_value(klass.dict, "__mpython_subclasses__") {
+              Some(Value::List(values)) => return Ok(Value::List(values))
+              _ => return Ok(Value::List([]))
+            }
+          _ => return Ok(Value::List([]))
+        }
       }
       // Intrinsic: importlib meta_path finder
       if bound_method.function.name == "__mpython_find_spec" &&
@@ -5703,6 +5709,229 @@ fn call_callable_with_env(
                 }
                 return Ok(Value::Str(text))
               }
+              "find" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "find() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                fn needle_bytes(
+                  value : Value,
+                ) -> Result[Array[Int], RuntimeError] {
+                  match value {
+                    Value::Bytes(v)
+                    | Value::ByteArray(v)
+                    | Value::MemoryView(v) => Ok(v)
+                    Value::Int(v) =>
+                      match bigint_to_int_checked(v) {
+                        Ok(iv) =>
+                          if iv < 0 || iv > 255 {
+                            Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "ValueError: byte must be in range(0, 256)".to_string(),
+                              ),
+                            )
+                          } else {
+                            Ok([iv])
+                          }
+                        Err(err) => Err(err)
+                      }
+                    Value::Bool(v) => Ok([if v { 1 } else { 0 }])
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "find() expects a bytes-like object".to_string(),
+                        ),
+                      )
+                  }
+                }
+
+                let needle = match needle_bytes(positional[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    values.length(),
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, values.length())
+                let mut end_idx = normalize_index(end, values.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > values.length() {
+                  start_idx = values.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > values.length() {
+                  end_idx = values.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                if needle.length() == 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(start_idx)))
+                }
+                if needle.length() > end_idx - start_idx {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
+                }
+                let max_start = end_idx - needle.length()
+                let mut found = -1
+                let mut i = start_idx
+                while i <= max_start {
+                  let mut ok = true
+                  for j = 0; j < needle.length(); j = j + 1 {
+                    if (values[i + j] & 0xFF) != (needle[j] & 0xFF) {
+                      ok = false
+                      break
+                    }
+                  }
+                  if ok {
+                    found = i
+                    break
+                  }
+                  i += 1
+                }
+                return Ok(Value::Int(@bigint.BigInt::from_int(found)))
+              }
+              "rfind" => {
+                if positional.length() == 0 || positional.length() > 3 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "rfind() takes 1 to 3 arguments".to_string(),
+                    ),
+                  )
+                }
+                fn needle_bytes(
+                  value : Value,
+                ) -> Result[Array[Int], RuntimeError] {
+                  match value {
+                    Value::Bytes(v)
+                    | Value::ByteArray(v)
+                    | Value::MemoryView(v) => Ok(v)
+                    Value::Int(v) =>
+                      match bigint_to_int_checked(v) {
+                        Ok(iv) =>
+                          if iv < 0 || iv > 255 {
+                            Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "ValueError: byte must be in range(0, 256)".to_string(),
+                              ),
+                            )
+                          } else {
+                            Ok([iv])
+                          }
+                        Err(err) => Err(err)
+                      }
+                    Value::Bool(v) => Ok([if v { 1 } else { 0 }])
+                    _ =>
+                      Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "rfind() expects a bytes-like object".to_string(),
+                        ),
+                      )
+                  }
+                }
+
+                let needle = match needle_bytes(positional[0]) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let start = match
+                  index_from_value(
+                    if positional.length() >= 2 {
+                      positional[1]
+                    } else {
+                      Value::None
+                    },
+                    0,
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let end = match
+                  index_from_value(
+                    if positional.length() == 3 {
+                      positional[2]
+                    } else {
+                      Value::None
+                    },
+                    values.length(),
+                  ) {
+                  Ok(v) => v
+                  Err(err) => return Err(err)
+                }
+                let mut start_idx = normalize_index(start, values.length())
+                let mut end_idx = normalize_index(end, values.length())
+                if start_idx < 0 {
+                  start_idx = 0
+                }
+                if start_idx > values.length() {
+                  start_idx = values.length()
+                }
+                if end_idx < 0 {
+                  end_idx = 0
+                }
+                if end_idx > values.length() {
+                  end_idx = values.length()
+                }
+                if end_idx < start_idx {
+                  end_idx = start_idx
+                }
+                if needle.length() == 0 {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(end_idx)))
+                }
+                if needle.length() > end_idx - start_idx {
+                  return Ok(Value::Int(@bigint.BigInt::from_int(-1)))
+                }
+                let mut found = -1
+                let mut i = end_idx - needle.length()
+                while i >= start_idx {
+                  let mut ok = true
+                  for j = 0; j < needle.length(); j = j + 1 {
+                    if (values[i + j] & 0xFF) != (needle[j] & 0xFF) {
+                      ok = false
+                      break
+                    }
+                  }
+                  if ok {
+                    found = i
+                    break
+                  }
+                  i -= 1
+                }
+                return Ok(Value::Int(@bigint.BigInt::from_int(found)))
+              }
               "hex" => {
                 if positional.length() > 2 {
                   return Err(
@@ -6521,7 +6750,9 @@ fn call_callable_with_env(
         dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
         dict.push(("__name__", Value::Str(name)))
         dict.push(("__doc__", doc_value))
-        dict.push(("__package__", Value::Str("")))
+        // Let importlib populate `__package__`; defaulting to "" prevents
+        // `_init_module_attrs()` from setting it (it only checks for None).
+        dict.push(("__package__", Value::None))
         dict.push(("__loader__", Value::None))
         dict.push(("__spec__", Value::None))
         let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
@@ -6558,6 +6789,41 @@ fn call_callable_with_env(
             Value::None
           }
           dict.push(("value", value))
+        }
+        if klass.name == "ImportError" || klass.name == "ModuleNotFoundError" {
+          // CPython's ImportError exposes `.name` and `.path`. importlib relies on
+          // `.name` when probing for optional frozen modules.
+          let mut name_value : Value = Value::None
+          let mut path_value : Value = Value::None
+          for kw in keywords {
+            if kw.0 == "name" {
+              name_value = kw.1
+            } else if kw.0 == "path" {
+              path_value = kw.1
+            }
+          }
+          if positional.length() > 0 {
+            match positional[0] {
+              Value::Str(msg) =>
+                if name_value is Value::None &&
+                  msg.has_prefix("No module named") {
+                  match msg.find("'") {
+                    Some(pos0) => {
+                      let rest = substring(msg, pos0 + 1, msg.length())
+                      match rest.find("'") {
+                        Some(pos1) =>
+                          name_value = Value::Str(substring(rest, 0, pos1))
+                        None => ()
+                      }
+                    }
+                    None => ()
+                  }
+                }
+              _ => ()
+            }
+          }
+          dict.push(("name", name_value))
+          dict.push(("path", path_value))
         }
         let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
         gc_register_instance(inst_value)

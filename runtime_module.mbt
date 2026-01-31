@@ -1105,7 +1105,12 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
   let impl_class = ClassValue::{ name: "implementation", bases: [], dict: [] }
   let impl_value = Value::Instance(InstanceValue::{
     class: impl_class,
-    dict: [("name", Value::Str("moonpython")), ("version", version_info)],
+    dict: [
+      ("name", Value::Str("moonpython")),
+      ("version", version_info),
+      // CPython's importlib uses this to form __pycache__ filenames.
+      ("cache_tag", Value::Str("cpython-312")),
+    ],
   })
   let float_info_class = ClassValue::{ name: "float_info", bases: [], dict: [] }
   let float_info_value = Value::Instance(InstanceValue::{
@@ -1369,11 +1374,13 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     ("float_info", float_info_value),
     ("hash_info", hash_info_value),
     ("flags", flags_value),
+    ("dont_write_bytecode", Value::Bool(false)),
     ("prefix", prefix_value),
     ("base_prefix", prefix_value),
     ("exec_prefix", prefix_value),
     ("base_exec_prefix", prefix_value),
     ("builtin_module_names", builtin_module_names),
+    ("pycache_prefix", Value::None),
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List(path_values)),
     ("path_hooks", Value::List([])),
@@ -1995,23 +2002,13 @@ fn import_module(
   } else if module_name == "enum" {
     make_enum_module(builtins)
   } else if module_name == "asyncio" {
-    // Prefer the CPython stdlib `asyncio` package when filesystem imports are
-    // enabled. Fall back to a tiny builtin shim when the stdlib isn't present
-    // (or filesystem imports are disabled).
-    if config.allow_filesystem_imports {
-      match
-        load_module_from_filesystem(module_name, globals, builtins, io, config) {
-        Ok(v) => v
-        Err(err) =>
-          if err.exc_type == "ModuleNotFoundError" {
-            make_asyncio_module()
-          } else {
-            return Err(err)
-          }
-      }
-    } else {
-      make_asyncio_module()
-    }
+    // Intentionally prefer a tiny builtin shim over CPython's `asyncio`.
+    //
+    // CPython's `asyncio` pulls in a large dependency graph (typing, sockets,
+    // selectors, threading) that moonpython does not currently aim to emulate.
+    // The shim is enough for parts of the stdlib (e.g. `unittest.mock`) that
+    // only need a few helpers like `iscoroutinefunction`.
+    make_asyncio_module()
   } else {
     if !config.allow_filesystem_imports {
       return Err(

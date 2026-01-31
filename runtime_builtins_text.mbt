@@ -760,6 +760,20 @@ fn encode_string_with_encoding(
   encoding_value : Value,
   errors_value : Value?,
 ) -> Result[Array[Int], RuntimeError] {
+  fn normalize_encoding_name(raw : String) -> String {
+    // CPython normalizes encoding names case-insensitively and treats "_" as "-".
+    let lower = raw.to_lower()
+    let buf = StringBuilder::new()
+    for ch in lower {
+      if ch == '_' {
+        buf.write_char('-')
+      } else {
+        buf.write_char(ch)
+      }
+    }
+    buf.to_string()
+  }
+
   let encoding = match encoding_value {
     Value::Str(value) => value
     _ =>
@@ -770,6 +784,7 @@ fn encode_string_with_encoding(
         ),
       )
   }
+  let encoding = normalize_encoding_name(encoding)
   let errors = match errors_value {
     Some(Value::Str(errs)) => errs
     Some(_) =>
@@ -794,7 +809,9 @@ fn encode_string_with_encoding(
       )
     }
     Ok(encode_string_utf8_with_errors(text, errors))
-  } else if encoding == "ascii" {
+  } else if encoding == "ascii" ||
+    encoding == "us-ascii" ||
+    encoding == "usascii" {
     encode_string_ascii_with_errors(name, text, errors)
   } else if encoding == "latin-1" ||
     encoding == "latin1" ||
@@ -1004,6 +1021,19 @@ fn decode_bytes_with_encoding(
   encoding_value : Value,
   errors_value : Value?,
 ) -> Result[String, RuntimeError] {
+  fn normalize_encoding_name(raw : String) -> String {
+    let lower = raw.to_lower()
+    let buf = StringBuilder::new()
+    for ch in lower {
+      if ch == '_' {
+        buf.write_char('-')
+      } else {
+        buf.write_char(ch)
+      }
+    }
+    buf.to_string()
+  }
+
   let encoding = match encoding_value {
     Value::Str(value) => value
     _ =>
@@ -1014,6 +1044,7 @@ fn decode_bytes_with_encoding(
         ),
       )
   }
+  let encoding = normalize_encoding_name(encoding)
   let errors = match errors_value {
     Some(Value::Str(errs)) => errs
     Some(_) =>
@@ -1037,7 +1068,9 @@ fn decode_bytes_with_encoding(
       )
     }
     decode_bytes_utf8(name, bytes, errors)
-  } else if encoding == "ascii" {
+  } else if encoding == "ascii" ||
+    encoding == "us-ascii" ||
+    encoding == "usascii" {
     if errors != "strict" &&
       errors != "surrogateescape" &&
       errors != "surrogatepass" {
