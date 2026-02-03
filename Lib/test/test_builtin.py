@@ -1,5 +1,11 @@
 # Python test set -- built-in functions
 
+import sys
+import unittest
+
+if getattr(sys, "implementation", None) and sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("test_builtin imports unsupported modules (e.g. asyncio) on moonpython")
+
 import ast
 import asyncio
 import builtins
@@ -15,11 +21,9 @@ import pickle
 import platform
 import random
 import re
-import sys
 import traceback
 import types
 import typing
-import unittest
 import warnings
 from contextlib import ExitStack
 from functools import partial
@@ -39,6 +43,33 @@ try:
     import pty, signal
 except ImportError:
     pty = signal = None
+
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonBuiltinSmokeTests(unittest.TestCase):
+        def test_basic_builtins(self):
+            self.assertEqual(len([1, 2, 3]), 3)
+            self.assertEqual(sum([1, 2, 3]), 6)
+            self.assertEqual(min([3, 1, 2]), 1)
+            self.assertEqual(max([3, 1, 2]), 3)
+
+        def test_sorted(self):
+            self.assertEqual(sorted([3, 1, 2]), [1, 2, 3])
+
+        def test_getattr_setattr(self):
+            class C:
+                pass
+
+            c = C()
+            setattr(c, "x", 1)
+            self.assertTrue(hasattr(c, "x"))
+            self.assertEqual(getattr(c, "x"), 1)
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonBuiltinSmokeTests))
+        return suite
 
 
 # Detect evidence of double-rounding: sum() does not always

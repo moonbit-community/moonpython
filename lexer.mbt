@@ -612,7 +612,13 @@ fn tokenize_expr(
   source : String,
   line : Int,
   base_offset : Int,
+  base_column : Int,
 ) -> Result[Array[Token], ParseError] {
+  fn column_at(pos : Int, line_start : Int, base_column : Int) -> Int {
+    let col_base = if line_start == 0 { base_column } else { 1 }
+    pos - line_start + col_base
+  }
+
   let chars = source.to_array()
   let mut i = 0
   let tokens : Array[Token] = []
@@ -633,7 +639,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -649,7 +655,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -665,7 +671,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -681,7 +687,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -697,7 +703,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -713,7 +719,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 1,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -737,7 +743,7 @@ fn tokenize_expr(
           start: base_offset + i,
           end: base_offset + i + 1,
           line: current_line,
-          column: i - line_start + 2,
+          column: column_at(i + 1, line_start, base_column),
         }
         return Err(
           make_parse_error(
@@ -752,7 +758,7 @@ fn tokenize_expr(
         start: base_offset + i + 1,
         end: base_offset + i + 2,
         line: current_line,
-        column: i - line_start + 2,
+        column: column_at(i + 1, line_start, base_column),
       }
       return Err(
         make_parse_error(
@@ -780,7 +786,7 @@ fn tokenize_expr(
         start: base_offset + i,
         end: base_offset + i + 3,
         line: current_line,
-        column: i - line_start + 1,
+        column: column_at(i, line_start, base_column),
       })
       i += 3
     } else if is_digit(c) || (c == '.' && i + 1 < len && is_digit(chars[i + 1])) {
@@ -824,7 +830,7 @@ fn tokenize_expr(
                   start: base_offset + i,
                   end: base_offset + i + 1,
                   line: current_line,
-                  column: i - line_start + 1,
+                  column: column_at(i, line_start, base_column),
                 }
                 return Err(
                   make_parse_error(
@@ -850,7 +856,7 @@ fn tokenize_expr(
               start: base_offset + start + 1,
               end: base_offset + start + 2,
               line: current_line,
-              column: start - line_start + 2,
+              column: column_at(start + 1, line_start, base_column),
             }
             return Err(
               make_parse_error(
@@ -904,7 +910,7 @@ fn tokenize_expr(
                 start: base_offset + error_pos,
                 end: base_offset + error_pos + 1,
                 line: current_line,
-                column: error_pos - line_start + 1,
+                column: column_at(error_pos, line_start, base_column),
               }
               return Err(
                 make_parse_error(
@@ -947,7 +953,7 @@ fn tokenize_expr(
             start: base_offset + i,
             end: base_offset + i + 1,
             line: current_line,
-            column: i - line_start + 1,
+            column: column_at(i, line_start, base_column),
           }
           return Err(
             make_parse_error(
@@ -965,7 +971,7 @@ fn tokenize_expr(
           start: base_offset + start,
           end: base_offset + start + 1,
           line: current_line,
-          column: start - line_start + 1,
+          column: column_at(start, line_start, base_column),
         }
         return Err(
           make_parse_error(
@@ -996,12 +1002,12 @@ fn tokenize_expr(
         start: base_offset + start,
         end: base_offset + end_pos,
         line: current_line,
-        column: start - line_start + 1,
+        column: column_at(start, line_start, base_column),
       })
     } else if c == '"' || c == '\'' {
       let start = i
       let start_line = current_line
-      let start_column = start - line_start + 1
+      let start_column = column_at(start, line_start, base_column)
       let triple = start + 2 < chars.length() &&
         chars[start + 1] == chars[start] &&
         chars[start + 2] == chars[start]
@@ -1029,7 +1035,7 @@ fn tokenize_expr(
           start: base_offset + start,
           end: base_offset + start + 1,
           line: current_line,
-          column: start - line_start + 1,
+          column: column_at(start, line_start, base_column),
         }
         return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
       }
@@ -1115,7 +1121,7 @@ fn tokenize_expr(
             start: base_offset + start,
             end: base_offset + start + 1,
             line: current_line,
-            column: start - line_start + 1,
+            column: column_at(start, line_start, base_column),
           }
           return Err(make_parse_error(ParseErrorKind::Syntax, message, token))
         }
@@ -1125,7 +1131,7 @@ fn tokenize_expr(
             start: base_offset + start,
             end: base_offset + start + 1,
             line: current_line,
-            column: start - line_start + 1,
+            column: column_at(start, line_start, base_column),
           }
           return Err(
             make_parse_error(
@@ -1141,7 +1147,7 @@ fn tokenize_expr(
             start: base_offset + start,
             end: base_offset + next_i,
             line: current_line,
-            column: start - line_start + 1,
+            column: column_at(start, line_start, base_column),
           }
           return Err(
             make_parse_error(
@@ -1167,7 +1173,7 @@ fn tokenize_expr(
             start: base_offset + next_i - 1,
             end: base_offset + next_i,
             line: err_line,
-            column: next_i - err_line_start + 1,
+            column: column_at(next_i - 1, err_line_start, base_column),
           }
           return Err(
             make_parse_error(
@@ -1190,7 +1196,7 @@ fn tokenize_expr(
           start: base_offset + start,
           end: base_offset + i,
           line: current_line,
-          column: start - line_start + 1,
+          column: column_at(start, line_start, base_column),
         })
         let mut k = start
         while k < i {
@@ -1249,7 +1255,7 @@ fn tokenize_expr(
           start: base_offset + start,
           end: base_offset + i,
           line: current_line,
-          column: start - line_start + 1,
+          column: column_at(start, line_start, base_column),
         })
       }
     } else {
@@ -1370,7 +1376,7 @@ fn tokenize_expr(
               start: base_offset + start,
               end: base_offset + start + 1,
               line: current_line,
-              column: start - line_start + 1,
+              column: column_at(start, line_start, base_column),
             }
             return Err(unexpected_token_error(token))
           }
@@ -1380,7 +1386,7 @@ fn tokenize_expr(
             start: base_offset + start,
             end: base_offset + start + 1,
             line: current_line,
-            column: start - line_start + 1,
+            column: column_at(start, line_start, base_column),
           }
           return Err(unexpected_token_error(token))
         }
@@ -1388,9 +1394,9 @@ fn tokenize_expr(
       tokens.push({
         kind,
         start: base_offset + start,
-        end: base_offset + i,
+        end: base_offset + start + consumed,
         line: current_line,
-        column: start - line_start + 1,
+        column: column_at(start, line_start, base_column),
       })
       i += consumed
     }
@@ -1400,7 +1406,7 @@ fn tokenize_expr(
     start: base_offset + len,
     end: base_offset + len,
     line: current_line,
-    column: len - line_start + 1,
+    column: column_at(len, line_start, base_column),
   })
   Ok(tokens)
 }

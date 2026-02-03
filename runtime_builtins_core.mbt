@@ -787,9 +787,18 @@ fn builtin_enumerate(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   touch_env(locals, globals, builtins, io)
-  let _ = match ensure_no_keywords("enumerate", keywords) {
-    Ok(v) => v
-    Err(err) => return Err(err)
+  let mut start_kw : Value? = None
+  for pair in keywords {
+    if pair.0 == "start" {
+      start_kw = Some(pair.1)
+    } else {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "enumerate() got an unexpected keyword argument".to_string(),
+        ),
+      )
+    }
   }
   if positional.length() == 0 || positional.length() > 2 {
     return Err(
@@ -804,19 +813,37 @@ fn builtin_enumerate(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let mut start = 0N
   if positional.length() == 2 {
-    match positional[1] {
-      Value::Int(v) => start = v
-      Value::Bool(v) => start = if v { 1N } else { 0N }
-      _ =>
+    match start_kw {
+      Some(_) =>
         return Err(
           make_runtime_error(
             RuntimeErrorKind::Type,
-            "enumerate() integer argument expected".to_string(),
+            "enumerate() got multiple values for argument 'start'".to_string(),
           ),
         )
+      None => ()
     }
+  }
+  let mut start = 0N
+  let start_value = match start_kw {
+    Some(v) => Some(v)
+    None => if positional.length() == 2 { Some(positional[1]) } else { None }
+  }
+  match start_value {
+    Some(v) =>
+      match v {
+        Value::Int(v) => start = v
+        Value::Bool(v) => start = if v { 1N } else { 0N }
+        _ =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "enumerate() integer argument expected".to_string(),
+            ),
+          )
+      }
+    None => ()
   }
   Ok(make_enumerate_iterator(iterator, start))
 }

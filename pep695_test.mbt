@@ -27,6 +27,8 @@ fn stmt_summary(stmt : Stmt) -> String {
       type_params~,
       params~,
       defaults~,
+      annotations~,
+      return_annotation~,
       body~,
       is_generator~,
       is_async~
@@ -34,6 +36,8 @@ fn stmt_summary(stmt : Stmt) -> String {
       let _ = decorators
       let _ = params
       let _ = defaults
+      let _ = annotations
+      let _ = return_annotation
       let _ = body
       let _ = is_generator
       let _ = is_async

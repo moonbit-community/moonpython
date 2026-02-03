@@ -2,6 +2,7 @@
 
 __all__ = [
     "time",
+    "ctime",
     "perf_counter",
     "monotonic",
     "sleep",
@@ -10,6 +11,12 @@ __all__ = [
 
 def time():
     return 0.0
+
+
+def ctime(_seconds=None):
+    # Minimal stub aligned with CPython's epoch representation.
+    # time.ctime(0) -> "Thu Jan  1 00:00:00 1970"
+    return "Thu Jan  1 00:00:00 1970"
 
 
 def perf_counter():

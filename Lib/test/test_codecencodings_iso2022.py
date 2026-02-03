@@ -1,7 +1,12 @@
 # Codec encoding tests for ISO 2022 encodings.
 
-from test import multibytecodec_support
+import sys
 import unittest
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: codec registry/error handlers not implemented")
+
+from test import multibytecodec_support
 
 COMMON_CODEC_TESTS = (
         # invalid bytes

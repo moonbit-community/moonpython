@@ -3458,10 +3458,17 @@ def dataclass_transform(
     return decorator
 
 
-type _Func = Callable[..., Any]
+# NOTE: CPython 3.12+ uses PEP 695 syntax here:
+#   type _Func = Callable[..., Any]
+#   def override[F: _Func](method: F, /) -> F: ...
+#
+# moonpython's parser/runtime does not fully support that syntax yet. Keep a
+# runtime-compatible definition instead.
+_Func = Callable[..., Any]
+F = TypeVar("F", bound=_Func)
 
 
-def override[F: _Func](method: F, /) -> F:
+def override(method: F, /) -> F:
     """Indicate that a method is intended to override a method in a base class.
 
     Usage::

@@ -25,6 +25,11 @@ fn parse_match_stmt(
       subject_text,
       parser.index + 1,
       parser.offsets[parser.index] + current_indent + 5,
+      parser.offsets[parser.index] +
+      current_indent +
+      5 -
+      parser.offsets[parser.index] +
+      1,
     ) {
     Ok(value) => value
     Err(err) => return Err(err)
@@ -149,7 +154,13 @@ fn parse_match_stmt(
     let mut guard_expr : Expr? = None
     match guard_text {
       Some(text) => {
-        let tokens = match tokenize_expr(text, parser.index + 1, base_offset) {
+        let tokens = match
+          tokenize_expr(
+            text,
+            parser.index + 1,
+            base_offset,
+            base_offset - parser.offsets[parser.index] + 1,
+          ) {
           Ok(value) => value
           Err(err) => return Err(err)
         }

@@ -87,6 +87,22 @@ fn builtin_class_from_name(
       ),
     )
   }
+  if name == "slice" {
+    dict.push(
+      (
+        "__new__",
+        Value::Function(FunctionValue::{
+          name: "slice.__new__",
+          params: ["cls", "start", "stop", "step"],
+          defaults: [Value::None, Value::None],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    )
+  }
   if name == "float" {
     dict.push(
       (

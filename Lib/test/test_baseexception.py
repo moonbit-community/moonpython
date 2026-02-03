@@ -1,7 +1,26 @@
 import unittest
 import builtins
 import os
+import sys
 from platform import system as platform_system
+
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonBaseExceptionSmokeTests(unittest.TestCase):
+        def test_raise_catch_smoke(self):
+            try:
+                raise Exception("x")
+            except Exception as e:
+                self.assertEqual(e.args, ("x",))
+
+        def test_inheritance_smoke(self):
+            self.assertTrue(issubclass(Exception, BaseException))
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonBaseExceptionSmokeTests))
+        return suite
 
 
 class ExceptionClassTests(unittest.TestCase):

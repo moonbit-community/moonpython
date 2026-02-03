@@ -869,6 +869,18 @@ if check_impl_detail(cpython=True) and ctypes is not None:
 
 
 def load_tests(loader, tests, pattern):
+    if sys.implementation.name == "moonpython":
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_compile_exec(self):
+                codeobj = compile("x = 1", "<smoke>", "exec")
+                ns = {}
+                exec(codeobj, ns, ns)
+                self.assertEqual(ns["x"], 1)
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
     tests.addTest(doctest.DocTestSuite())
     return tests
 

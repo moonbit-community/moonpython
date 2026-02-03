@@ -396,6 +396,8 @@ fn parse_def_stmt(
   let params_text = substring(header, name_end + 1, close_pos.unwrap())
   let params : Array[String] = []
   let defaults : Array[Expr] = []
+  let annotations : Array[(String, Expr)] = []
+  let mut return_annotation : Expr? = None
   let seen : Array[String] = []
   let mut default_seen = false
   let mut kw_only = false
@@ -418,12 +420,53 @@ fn parse_def_stmt(
     if trimmed_param.length() == 0 {
       return Ok(())
     }
-    let mut name = trimmed_param
-    let eq_pos_full = find_char(trimmed_param, '=')
-    let has_default = eq_pos_full is Some(_)
-    if eq_pos_full is Some(eq_idx) {
-      name = substring(trimmed_param, 0, eq_idx).trim(chars=" \t").to_string()
+    let mut colon_idx_opt : Int? = None
+    let mut eq_idx_opt : Int? = None
+    let scan_chars = raw_param.to_array()
+    let mut scan_depth = 0
+    let mut scan_quote : Char? = None
+    let mut scan_escape = false
+    for j = 0; j < scan_chars.length(); j = j + 1 {
+      let c = scan_chars[j]
+      match scan_quote {
+        Some(q) =>
+          if scan_escape {
+            scan_escape = false
+          } else if c == '\\' {
+            scan_escape = true
+          } else if c == q {
+            scan_quote = None
+          }
+        None =>
+          if c == '\'' || c == '"' {
+            scan_quote = Some(c)
+            scan_escape = false
+          } else if c == '(' || c == '[' || c == '{' {
+            scan_depth += 1
+          } else if c == ')' || c == ']' || c == '}' {
+            if scan_depth > 0 {
+              scan_depth -= 1
+            }
+          } else if c == ':' &&
+            scan_depth == 0 &&
+            colon_idx_opt is None &&
+            eq_idx_opt is None {
+            colon_idx_opt = Some(j)
+          } else if c == '=' && scan_depth == 0 && eq_idx_opt is None {
+            eq_idx_opt = Some(j)
+          }
+      }
     }
+    let name_end_idx = match (colon_idx_opt, eq_idx_opt) {
+      (Some(cidx), Some(eidx)) => if cidx < eidx { cidx } else { eidx }
+      (Some(cidx), None) => cidx
+      (None, Some(eidx)) => eidx
+      (None, None) => raw_param.length()
+    }
+    let mut name = substring(raw_param, 0, name_end_idx)
+      .trim(chars=" \t\n\r")
+      .to_string()
+    let has_default = eq_idx_opt is Some(_)
     if name == "/" {
       if has_default || kw_only || seen_posonly_marker {
         let token = {
@@ -465,10 +508,6 @@ fn parse_def_stmt(
     }
     if star_count > 0 {
       kw_only = true
-    }
-    let colon_pos = find_char(name, ':')
-    if colon_pos is Some(colon_idx) {
-      name = substring(name, 0, colon_idx).trim(chars=" \t").to_string()
     }
     if name.length() == 0 {
       return Ok(())
@@ -544,17 +583,89 @@ fn parse_def_stmt(
       if !kw_only {
         default_seen = true
       }
-      let eq_pos = find_char(raw_param, '=')
-      if eq_pos is Some(eq_idx) {
-        let default_text = substring(raw_param, eq_idx + 1, raw_param.length())
-          .trim(chars=" \t\n\r")
-          .to_string()
+      match eq_idx_opt {
+        Some(eq_idx) => {
+          let default_text = substring(
+              raw_param,
+              eq_idx + 1,
+              raw_param.length(),
+            )
+            .trim(chars=" \t\n\r")
+            .to_string()
+          let tokens = match
+            tokenize_expr(
+              default_text,
+              parser.index + 1,
+              parser.offsets[parser.index] +
+              param_base +
+              param_start +
+              eq_idx +
+              1,
+              param_base + param_start + eq_idx + 2,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let expr = match parse_tokens_expr(tokens) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          defaults.push(expr)
+        }
+        None => ()
+      }
+    }
+    match colon_idx_opt {
+      Some(colon_idx) => {
+        let ann_end = match eq_idx_opt {
+          Some(eq_idx) =>
+            if eq_idx > colon_idx {
+              eq_idx
+            } else {
+              raw_param.length()
+            }
+          None => raw_param.length()
+        }
+        let ann_raw = substring(raw_param, colon_idx + 1, ann_end).to_string()
+        let ann_text = ann_raw.trim(chars=" \t\n\r").to_string()
+        if ann_text.length() == 0 {
+          let token = {
+            kind: Eof,
+            start: parser.offsets[parser.index] +
+            param_base +
+            param_start +
+            colon_idx,
+            end: parser.offsets[parser.index] +
+            param_base +
+            param_start +
+            colon_idx +
+            1,
+            line: parser.index + 1,
+            column: param_base + param_start + colon_idx + 1,
+          }
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              token,
+            ),
+          )
+        }
+        let ann_leading = count_indent(ann_raw)
+        let ann_offset = parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          colon_idx +
+          1 +
+          ann_leading
+        let ann_column = param_base +
+          param_start +
+          colon_idx +
+          1 +
+          ann_leading +
+          1
         let tokens = match
-          tokenize_expr(
-            default_text,
-            parser.index + 1,
-            parser.offsets[parser.index] + param_base + param_start + eq_idx + 1,
-          ) {
+          tokenize_expr(ann_text, parser.index + 1, ann_offset, ann_column) {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -562,8 +673,9 @@ fn parse_def_stmt(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        defaults.push(expr)
+        annotations.push((name, expr))
       }
+      None => ()
     }
     seen.push(name)
     let mut encoded = name
@@ -611,6 +723,54 @@ fn parse_def_stmt(
   let _ = match consume_param_segment(params_chars.length()) {
     Ok(_) => ()
     Err(err) => return Err(err)
+  }
+  let return_slice = substring(
+    header,
+    close_pos.unwrap() + 1,
+    colon_pos.unwrap(),
+  ).to_string()
+  match return_slice.find("->") {
+    Some(pos) => {
+      let raw_ret = substring(return_slice, pos + 2, return_slice.length()).to_string()
+      let ret_text = raw_ret.trim(chars=" \t\n\r").to_string()
+      if ret_text.length() == 0 {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            name_token,
+          ),
+        )
+      }
+      let ret_leading = count_indent(raw_ret)
+      let ret_offset = parser.offsets[parser.index] +
+        current_indent +
+        4 +
+        close_pos.unwrap() +
+        1 +
+        pos +
+        2 +
+        ret_leading
+      let ret_column = current_indent +
+        4 +
+        close_pos.unwrap() +
+        1 +
+        pos +
+        2 +
+        ret_leading +
+        1
+      let tokens = match
+        tokenize_expr(ret_text, parser.index + 1, ret_offset, ret_column) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      let expr = match parse_tokens_expr(tokens) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      return_annotation = Some(expr)
+    }
+    None => ()
   }
   let body_text = strip_inline_comment(
       substring(header, colon_pos.unwrap() + 1, header.length()).to_string(),
@@ -761,6 +921,8 @@ fn parse_def_stmt(
           type_params~,
           params~,
           defaults~,
+          annotations~,
+          return_annotation~,
           body~,
           is_generator~,
           is_async=is_async_def,
@@ -1329,6 +1491,8 @@ fn parse_def_stmt(
         type_params~,
         params~,
         defaults~,
+        annotations~,
+        return_annotation~,
         body~,
         is_generator~,
         is_async=is_async_def,

@@ -222,6 +222,7 @@ fn main {
   let args = @sys.get_cli_args()
   let mut script_path : String? = None
   let mut module_name : String? = None
+  let mut module_run_name : String? = None
   let mut parse_only = false
   let stdlib_paths : Array[String] = []
   let program_args : Array[String] = []
@@ -255,6 +256,7 @@ fn main {
           @sys.exit(1)
         }
         module_name = Some(args[i + 1])
+        module_run_name = Some(args[i + 1])
         i += 2
         continue
       }
@@ -321,6 +323,16 @@ fn main {
   let interpreter = @mpython.Interpreter::with_config(config)
   interpreter.set_global_str("__file__", entry_path)
   interpreter.set_global_str("__package__", package_name)
+  match module_run_name {
+    Some(modname) => {
+      let is_pkg_main = entry_path.has_suffix("/__main__.py") ||
+        entry_path.has_suffix("\\__main__.py")
+      interpreter.set_main_module_spec(
+        modname, entry_path, package_name, is_pkg_main,
+      )
+    }
+    None => ()
+  }
   match interpreter.exec_source(source) {
     Ok(run) => print_run(run)
     Err(err) => {

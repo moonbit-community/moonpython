@@ -365,6 +365,42 @@ def _match_tokenize_blank_re(string, pos=0, endpos=None):
     return None
 
 
+def _match_json_hexdigits(string, pos=0, endpos=None):
+    # Match: r'[0-9A-Fa-f]{4}'
+    pos, endpos = _normalize_bounds(string, pos, endpos)
+    if pos + 4 > endpos:
+        return None
+    for ch in string[pos : pos + 4]:
+        if not ("0" <= ch <= "9" or "A" <= ch <= "F" or "a" <= ch <= "f"):
+            return None
+    return Match(string, pos, pos + 4)
+
+
+def _match_json_whitespace(string, pos=0, endpos=None):
+    # Match: r'[ \t\n\r]*'
+    pos, endpos = _normalize_bounds(string, pos, endpos)
+    i = pos
+    while i < endpos and string[i] in " \t\n\r":
+        i += 1
+    return Match(string, pos, i)
+
+
+def _match_json_stringchunk(string, pos=0, endpos=None):
+    # Match: r'(.*?)(["\\\x00-\x1f])'
+    #
+    # Used heavily by Lib/json/decoder.py. A backtracking implementation of
+    # `.*?` can be extremely slow; keep this linear-time.
+    pos, endpos = _normalize_bounds(string, pos, endpos)
+    i = pos
+    while i < endpos:
+        ch = string[i]
+        if ch == '"' or ch == "\\" or ord(ch) <= 0x1F:
+            content = string[pos:i]
+            return Match(string, pos, i + 1, groups=(content, ch))
+        i += 1
+    return None
+
+
 def _subn_remove_non_base64_bytes(repl, string, count=0):
     # Used by Lib/test/test_binascii.py to count valid base64 characters:
     #   re.sub(br'[^A-Za-z0-9/+]', br'', data)
@@ -413,6 +449,14 @@ def _select_matcher(pattern, flags):
         and pattern.endswith(")?$")
     ):
         return _match_pkgutil_resolve_name
+    # json.decoder uses a few regular expressions heavily; special-case them to
+    # avoid performance cliffs in the minimal regex engine.
+    if pattern == r"[0-9A-Fa-f]{4}":
+        return _match_json_hexdigits
+    if pattern == r"[ \t\n\r]*":
+        return _match_json_whitespace
+    if pattern == r'(.*?)(["\\\x00-\x1f])':
+        return _match_json_stringchunk
     return None
 
 
@@ -810,6 +854,17 @@ def _simple_regex_parse(pattern):
     DIGIT_CHARS = set("0123456789")
     SPACE_CHARS = set(" \t\r\n\v\f")
 
+    def _parse_hex_escape(start, digits):
+        # Parse \xHH / \uHHHH escapes.
+        # `start` points at the escape kind character ('x' or 'u') within `pattern`.
+        if start + 1 + digits > len(pattern):
+            raise error("dangling escape")
+        text = pattern[start + 1 : start + 1 + digits]
+        if len(text) != digits or any(ch not in "0123456789abcdefABCDEF" for ch in text):
+            raise error("invalid escape")
+        code = int(text, 16)
+        return chr(code), start + 1 + digits
+
     def parse_seq(stop=None, stop_on_pipe=False):
         nonlocal i
         nodes = []
@@ -857,41 +912,74 @@ def _simple_regex_parse(pattern):
                     negated = True
                     i += 1
                 chars = set()
-                while i < len(pattern) and pattern[i] != "]":
+                def parse_class_char():
+                    nonlocal i
+                    if i >= len(pattern):
+                        raise error("unbalanced char class")
                     ch = pattern[i]
-                    if ch == "\\" and i + 1 < len(pattern):
+                    if ch != "\\":
                         i += 1
-                        esc = pattern[i]
-                        if esc == "w":
-                            chars |= WORD_CHARS
-                        elif esc == "d":
-                            chars |= DIGIT_CHARS
-                        elif esc == "s":
-                            chars |= SPACE_CHARS
-                        elif esc == "n":
-                            chars.add("\n")
-                        elif esc == "r":
-                            chars.add("\r")
-                        elif esc == "t":
-                            chars.add("\t")
-                        elif esc == "f":
-                            chars.add("\f")
-                        elif esc == "v":
-                            chars.add("\v")
-                        else:
-                            chars.add(esc)
+                        return ch
+                    # escape inside [...]
+                    i += 1
+                    if i >= len(pattern):
+                        raise error("dangling escape")
+                    esc = pattern[i]
+                    if esc == "w":
                         i += 1
+                        return ("__set__", WORD_CHARS)
+                    if esc == "d":
+                        i += 1
+                        return ("__set__", DIGIT_CHARS)
+                    if esc == "s":
+                        i += 1
+                        return ("__set__", SPACE_CHARS)
+                    if esc == "n":
+                        i += 1
+                        return "\n"
+                    if esc == "r":
+                        i += 1
+                        return "\r"
+                    if esc == "t":
+                        i += 1
+                        return "\t"
+                    if esc == "f":
+                        i += 1
+                        return "\f"
+                    if esc == "v":
+                        i += 1
+                        return "\v"
+                    if esc == "x":
+                        ch2, next_i = _parse_hex_escape(i, 2)
+                        i = next_i
+                        return ch2
+                    if esc == "u":
+                        ch2, next_i = _parse_hex_escape(i, 4)
+                        i = next_i
+                        return ch2
+                    # default: treat as a literal escape of the next char
+                    i += 1
+                    return esc
+
+                while i < len(pattern) and pattern[i] != "]":
+                    first = parse_class_char()
+                    # Expand sets returned by \w/\d/\s.
+                    if isinstance(first, tuple) and first and first[0] == "__set__":
+                        chars |= set(first[1])
                         continue
-                    if i + 2 < len(pattern) and pattern[i + 1] == "-" and pattern[i + 2] != "]":
-                        lo = ord(pattern[i])
-                        hi = ord(pattern[i + 2])
+                    # Ranges: a-b (where a/b are single characters, not sets).
+                    if i + 1 < len(pattern) and pattern[i] == "-" and pattern[i + 1] != "]":
+                        i += 1  # consume '-'
+                        second = parse_class_char()
+                        if isinstance(second, tuple) and second and second[0] == "__set__":
+                            raise error("unsupported char class range")
+                        lo = ord(first)
+                        hi = ord(second)
                         if lo <= hi:
                             for code in range(lo, hi + 1):
                                 chars.add(chr(code))
-                        i += 3
                         continue
-                    chars.add(ch)
-                    i += 1
+                    chars.add(first)
                 if i >= len(pattern) or pattern[i] != "]":
                     raise error("unbalanced char class")
                 i += 1
@@ -927,6 +1015,16 @@ def _simple_regex_parse(pattern):
                     node = ("lit", "\f")
                 elif esc == "v":
                     node = ("lit", "\v")
+                elif esc == "x":
+                    # Two hex digits.
+                    ch2, next_i = _parse_hex_escape(i - 1, 2)
+                    i = next_i
+                    node = ("lit", ch2)
+                elif esc == "u":
+                    # Four hex digits.
+                    ch2, next_i = _parse_hex_escape(i - 1, 4)
+                    i = next_i
+                    node = ("lit", ch2)
                 else:
                     node = ("lit", esc)
                 node = parse_quant(node)
@@ -956,26 +1054,49 @@ def _simple_regex_parse(pattern):
         nonlocal i
         if i >= len(pattern):
             return node
+        nongreedy = False
         c = pattern[i]
         if c == "?":
             i += 1
-            return ("repeat", 0, 1, node)
+            if i < len(pattern) and pattern[i] == "?":
+                nongreedy = True
+                i += 1
+            return ("repeat", 0, 1, node, nongreedy)
         if c == "*":
             i += 1
-            return ("repeat", 0, None, node)
+            if i < len(pattern) and pattern[i] == "?":
+                nongreedy = True
+                i += 1
+            return ("repeat", 0, None, node, nongreedy)
         if c == "+":
             i += 1
-            return ("repeat", 1, None, node)
+            if i < len(pattern) and pattern[i] == "?":
+                nongreedy = True
+                i += 1
+            return ("repeat", 1, None, node, nongreedy)
         if c == "{":
             j = pattern.find("}", i)
             if j == -1:
                 raise error("unbalanced quantifier")
             n_text = pattern[i + 1 : j]
-            if not n_text.isdigit():
-                raise error("unsupported quantifier")
-            n = int(n_text)
+            if "," in n_text:
+                left, right = n_text.split(",", 1)
+                if left and not left.isdigit():
+                    raise error("unsupported quantifier")
+                if right and not right.isdigit():
+                    raise error("unsupported quantifier")
+                min_n = int(left) if left else 0
+                max_n = int(right) if right else None
+            else:
+                if not n_text.isdigit():
+                    raise error("unsupported quantifier")
+                min_n = int(n_text)
+                max_n = min_n
             i = j + 1
-            return ("repeat", n, n, node)
+            if i < len(pattern) and pattern[i] == "?":
+                nongreedy = True
+                i += 1
+            return ("repeat", min_n, max_n, node, nongreedy)
         return node
 
     ast = parse_alt()
@@ -1044,7 +1165,8 @@ def _simple_regex_match(compiled, string, pos, endpos):
             return match_nodes(rest, si, tuple(caps3))
         if kind == "repeat":
             min_n, max_n, inner = node[1], node[2], node[3]
-            # Try greedy, backtrack to satisfy the rest.
+            nongreedy = bool(node[4]) if len(node) >= 5 else False
+            # Try greedy (default) or non-greedy, backtrack to satisfy the rest.
             matches = []
             si_cur = si
             caps_cur = captures
@@ -1060,7 +1182,11 @@ def _simple_regex_match(compiled, string, pos, endpos):
                 si_cur, caps_cur = si_next, caps_next
                 n += 1
             # include the "no more repeats" state as well
-            for take in range(len(matches), -1, -1):
+            if nongreedy:
+                take_iter = range(0, len(matches) + 1)
+            else:
+                take_iter = range(len(matches), -1, -1)
+            for take in take_iter:
                 if take < min_n:
                     continue
                 if take == 0:

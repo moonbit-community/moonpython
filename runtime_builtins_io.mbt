@@ -1878,6 +1878,84 @@ let posix_next_fd : Ref[Int] = { val: 3 }
 let posix_fd_table : Ref[Array[(Int, PosixFdEntry)]] = { val: [] }
 
 ///|
+priv struct PosixPathTimes {
+  mut atime : Int
+  mut mtime : Int
+  mut ctime : Int
+}
+
+///|
+let posix_next_time : Ref[Int] = { val: 1 }
+
+///|
+let posix_path_times : Ref[Array[(String, PosixPathTimes)]] = { val: [] }
+
+///|
+fn posix_now_tick() -> Int {
+  let t = posix_next_time.val
+  posix_next_time.val = t + 1
+  t
+}
+
+///|
+fn posix_times_find_idx(path : String) -> Int? {
+  for i = 0; i < posix_path_times.val.length(); i = i + 1 {
+    if posix_path_times.val[i].0 == path {
+      return Some(i)
+    }
+  }
+  None
+}
+
+///|
+fn posix_times_get_or_init(path : String) -> PosixPathTimes {
+  match posix_times_find_idx(path) {
+    Some(i) => posix_path_times.val[i].1
+    None => {
+      let now = posix_now_tick()
+      let times = PosixPathTimes::{ atime: now, mtime: now, ctime: now }
+      posix_path_times.val.push((path, times))
+      times
+    }
+  }
+}
+
+///|
+fn posix_times_set(path : String, times : PosixPathTimes) -> Unit {
+  match posix_times_find_idx(path) {
+    Some(i) => posix_path_times.val[i] = (path, times)
+    None => posix_path_times.val.push((path, times))
+  }
+}
+
+///|
+fn posix_times_touch_modify(path : String) -> Unit {
+  let now = posix_now_tick()
+  let prev = posix_times_get_or_init(path)
+  posix_times_set(path, PosixPathTimes::{
+    atime: prev.atime,
+    mtime: now,
+    ctime: now,
+  })
+}
+
+///|
+fn posix_times_delete(path : String) -> Unit {
+  match posix_times_find_idx(path) {
+    Some(i) => {
+      let out : Array[(String, PosixPathTimes)] = []
+      for j = 0; j < posix_path_times.val.length(); j = j + 1 {
+        if j != i {
+          out.push(posix_path_times.val[j])
+        }
+      }
+      posix_path_times.val = out
+    }
+    None => ()
+  }
+}
+
+///|
 fn posix_lookup_fd(fd : Int) -> PosixFdEntry? {
   for pair in posix_fd_table.val {
     if pair.0 == fd {
@@ -1930,6 +2008,7 @@ fn make_posix_os_error(
         message: exc_type + ": " + strerror,
         span: current_span(),
         traceback: snapshot_traceback(),
+        traceback_envs: snapshot_frame_env_stack(),
         exc_type,
         exc_args: [strerror],
         exc_value: Some(Value::Instance(inst)),
@@ -2132,6 +2211,13 @@ fn builtin_mpython_posix_open(
   posix_next_fd.val = posix_next_fd.val + 1
   let pos = if appending { buffer.length() } else { 0 }
   let dirty = truncating || (creating && !existed)
+  // Ensure we have some timestamps for this path; update mtime/ctime for
+  // operations that will replace the file contents.
+  if !existed && creating {
+    ignore(posix_times_get_or_init(path))
+  } else if truncating {
+    posix_times_touch_modify(path)
+  }
   posix_fd_table.val.push(
     (fd, PosixFdEntry::{ path, buffer, pos, dirty, appending }),
   )
@@ -2195,6 +2281,7 @@ fn builtin_mpython_posix_write(
     dirty: true,
     appending: entry.appending,
   })
+  posix_times_touch_modify(entry.path)
   Ok(Value::Int(@bigint.BigInt::from_int(bytes.length())))
 }
 
@@ -2375,7 +2462,7 @@ fn builtin_mpython_posix_close(
           ),
         )
     }
-
+    posix_times_touch_modify(entry.path)
   }
   Ok(Value::None)
 }
@@ -2415,6 +2502,7 @@ fn builtin_mpython_posix_fstat(
   }
   let st_mode = 0o100000 | 0o666
   let st_size = entry.buffer.length()
+  let times = posix_times_get_or_init(entry.path)
   Ok(
     Value::Tuple([
       Value::Int(@bigint.BigInt::from_int(st_mode)), // st_mode
@@ -2424,9 +2512,9 @@ fn builtin_mpython_posix_fstat(
       Value::Int(0N), // st_uid
       Value::Int(0N), // st_gid
       Value::Int(@bigint.BigInt::from_int(st_size)), // st_size
-      Value::Int(0N), // st_atime
-      Value::Int(0N), // st_mtime
-      Value::Int(0N), // st_ctime
+      Value::Int(@bigint.BigInt::from_int(times.atime)), // st_atime
+      Value::Int(@bigint.BigInt::from_int(times.mtime)), // st_mtime
+      Value::Int(@bigint.BigInt::from_int(times.ctime)), // st_ctime
     ]),
   )
 }
@@ -2503,6 +2591,7 @@ fn builtin_mpython_posix_unlink(
         ),
       )
   }
+  posix_times_delete(path)
   Ok(Value::None)
 }
 
@@ -2608,6 +2697,7 @@ fn builtin_mpython_posix_mkdir(
         ),
       )
   }
+  ignore(posix_times_get_or_init(path))
   Ok(Value::None)
 }
 
@@ -2683,6 +2773,79 @@ fn builtin_mpython_posix_rmdir(
         ),
       )
   }
+  posix_times_delete(path)
+  Ok(Value::None)
+}
+
+///|
+fn builtin_mpython_posix_utime(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = keywords
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_posix_utime() takes 3 arguments".to_string(),
+      ),
+    )
+  }
+  let path = match
+    posix_fspath_from_value(
+      positional[0],
+      "__mpython_posix_utime",
+      globals,
+      builtins,
+      io,
+    ) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  let path = resolve_path_from_cwd(path)
+  if !@fs.path_exists(path) {
+    return Err(
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
+      ),
+    )
+  }
+  let now = posix_now_tick()
+  let parse_time = fn(value : Value) -> Result[Int, RuntimeError] {
+    match value {
+      Value::None => Ok(now)
+      Value::Int(v) => Ok(v.to_int())
+      Value::Bool(v) => Ok(if v { 1 } else { 0 })
+      Value::Float(v) => Ok(round_float_to_int(v).to_int())
+      other =>
+        match real_to_double(other, "__float__", globals, builtins, io) {
+          Ok(v) => Ok(round_float_to_int(v).to_int())
+          Err(err) => Err(err)
+        }
+    }
+  }
+  let times = posix_times_get_or_init(path)
+  times.atime = match parse_time(positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  times.mtime = match parse_time(positional[2]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  times.ctime = now
+  posix_times_set(path, times)
   Ok(Value::None)
 }
 
@@ -2738,6 +2901,7 @@ fn builtin_mpython_posix_stat(
     let bytes = @fs.read_file_to_bytes(path) catch { _ => b"" }
     bytes.length()
   }
+  let times = posix_times_get_or_init(path)
   Ok(
     Value::Tuple([
       Value::Int(@bigint.BigInt::from_int(st_mode)), // st_mode
@@ -2747,9 +2911,9 @@ fn builtin_mpython_posix_stat(
       Value::Int(0N), // st_uid
       Value::Int(0N), // st_gid
       Value::Int(@bigint.BigInt::from_int(st_size)), // st_size
-      Value::Int(0N), // st_atime
-      Value::Int(0N), // st_mtime
-      Value::Int(0N), // st_ctime
+      Value::Int(@bigint.BigInt::from_int(times.atime)), // st_atime
+      Value::Int(@bigint.BigInt::from_int(times.mtime)), // st_mtime
+      Value::Int(@bigint.BigInt::from_int(times.ctime)), // st_ctime
     ]),
   )
 }
@@ -2867,25 +3031,40 @@ fn builtin_mpython_posix_listdir(
     // "opendir: Not a directory" messages to stderr.
     if exists {
       return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "NotADirectoryError: not a directory".to_string(),
+        make_posix_os_error(
+          "NotADirectoryError".to_string(),
+          20,
+          "Not a directory".to_string(),
+          path,
+          globals,
+          builtins,
+          io,
         ),
       )
     }
     return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "FileNotFoundError: no such directory".to_string(),
+      make_posix_os_error(
+        "FileNotFoundError".to_string(),
+        2,
+        "No such file or directory".to_string(),
+        path,
+        globals,
+        builtins,
+        io,
       ),
     )
   }
   let entries = @fs.read_dir(path) catch {
     _ =>
       return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Runtime,
-          "FileNotFoundError: no such directory".to_string(),
+        make_posix_os_error(
+          "FileNotFoundError".to_string(),
+          2,
+          "No such file or directory".to_string(),
+          path,
+          globals,
+          builtins,
+          io,
         ),
       )
   }

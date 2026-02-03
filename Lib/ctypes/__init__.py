@@ -567,7 +567,7 @@ for kind in [c_ushort, c_uint, c_ulong, c_ulonglong]:
     if sizeof(kind) == 2: c_uint16 = kind
     elif sizeof(kind) == 4: c_uint32 = kind
     elif sizeof(kind) == 8: c_uint64 = kind
-del(kind)
+del kind
 
 if SIZEOF_TIME_T == 8:
     c_time_t = c_int64

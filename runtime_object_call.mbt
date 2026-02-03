@@ -631,6 +631,81 @@ fn call_callable_with_env(
         return Ok(Value::Str(repr_fallback(bound_method.self)))
       }
 
+      // Intrinsic: code.co_positions(self)
+      if bound_method.function.name == "code.co_positions" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "co_positions() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "co_positions() takes no arguments".to_string(),
+            ),
+          )
+        }
+        match bound_method.self {
+          Value::Instance(inst) =>
+            match get_named_value(inst.dict, "__mpython_co_positions") {
+              Some(Value::List(items)) => return Ok(Value::List(items))
+              _ => ()
+            }
+          _ => ()
+        }
+        return Ok(
+          Value::List([
+            Value::Tuple([Value::None, Value::None, Value::None, Value::None]),
+          ]),
+        )
+      }
+
+      // Intrinsic: frame.clear(self)
+      if bound_method.function.name == "frame.clear" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "clear() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "clear() takes no arguments".to_string(),
+            ),
+          )
+        }
+        match bound_method.self {
+          Value::Instance(inst) => {
+            match get_named_value(inst.dict, "f_locals") {
+              Some(Value::Dict(pairs)) =>
+                while pairs.length() > 0 {
+                  let _ = pairs.remove(pairs.length() - 1)
+
+                }
+              _ => set_named_value(inst.dict, "f_locals", Value::Dict([]))
+            }
+            return Ok(Value::None)
+          }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "clear() expects a frame".to_string(),
+              ),
+            )
+        }
+      }
+
       // Intrinsic: BaseException.__setstate__(self, state)
       if bound_method.function.name == "__setstate__" &&
         bound_method.function.body.length() == 0 {
@@ -813,6 +888,64 @@ fn call_callable_with_env(
               make_runtime_error(
                 RuntimeErrorKind::Type,
                 "__reduce__() expects an exception instance".to_string(),
+              ),
+            )
+        }
+      }
+
+      // Intrinsic: BaseException.add_note(self, note)
+      if bound_method.function.name == "add_note" &&
+        bound_method.function.body.length() == 0 {
+        if keywords.length() > 0 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "add_note() got unexpected keyword arguments".to_string(),
+            ),
+          )
+        }
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "add_note() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        let note = match positional[0] {
+          Value::Str(text) => Value::Str(text)
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "add_note() argument must be str".to_string(),
+              ),
+            )
+        }
+        match bound_method.self {
+          Value::Instance(inst) =>
+            match get_named_value(inst.dict, "__notes__") {
+              None | Some(Value::None) => {
+                set_named_value(inst.dict, "__notes__", Value::List([note]))
+                return Ok(Value::None)
+              }
+              Some(Value::List(items)) => {
+                items.push(note)
+                return Ok(Value::None)
+              }
+              Some(_) =>
+                return Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "__notes__ must be a list".to_string(),
+                  ),
+                )
+            }
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "add_note() expects an exception instance".to_string(),
               ),
             )
         }
@@ -1281,6 +1414,7 @@ fn call_callable_with_env(
           Err(err) => return Err(err)
         }
         push_traceback_frame("<module>".to_string(), filename)
+        set_traceback_frame_env(module_globals, module_globals)
         let program = match parse(source) {
           Ok(v) => v
           Err(err) => {
@@ -1323,6 +1457,50 @@ fn call_callable_with_env(
         // Importlib expects `exec_module` to return None.
         let _ = name
         return Ok(Value::None)
+      }
+      // Intrinsic: importlib loader get_source(fullname)
+      if bound_method.function.name == "__mpython_get_source" &&
+        bound_method.function.body.length() == 0 {
+        if positional.length() != 1 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "get_source() takes exactly one argument".to_string(),
+            ),
+          )
+        }
+        let fullname = match positional[0] {
+          Value::Str(v) => v
+          _ =>
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Type,
+                "get_source() fullname must be str".to_string(),
+              ),
+            )
+        }
+        let module_value_opt = module_cache_get(fullname)
+        let filename_opt = match module_value_opt {
+          Some(Value::Instance(inst)) =>
+            match get_named_value(inst.dict, "__file__") {
+              Some(Value::Str(v)) => Some(v)
+              _ => None
+            }
+          _ => None
+        }
+        match filename_opt {
+          Some(filename) =>
+            if filename.has_prefix("<") && filename.has_suffix(">") {
+              return Ok(Value::None)
+            } else {
+              let source = @fs.read_file_to_string(filename) catch { _ => "" }
+              if source.length() == 0 {
+                return Ok(Value::None)
+              }
+              return Ok(Value::Str(source))
+            }
+          None => return Ok(Value::None)
+        }
       }
       match bound_method.self {
         Value::Instance(inst) =>
@@ -5795,7 +5973,7 @@ fn call_callable_with_env(
           }
         Value::Bytes(values) =>
           if bound_method.function.body.length() == 0 {
-            if keywords.length() > 0 {
+            if keywords.length() > 0 && bound_method.function.name != "decode" {
               return Err(
                 make_runtime_error(
                   RuntimeErrorKind::Type,
@@ -5814,15 +5992,45 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let encoding_value = if positional.length() >= 1 {
+                let mut encoding_value : Value = if positional.length() >= 1 {
                   positional[0]
                 } else {
                   Value::Str("utf-8")
                 }
-                let errors_value = if positional.length() == 2 {
+                let mut errors_value : Value? = if positional.length() == 2 {
                   Some(positional[1])
                 } else {
                   None
+                }
+                for kw in keywords {
+                  if kw.0 == "encoding" {
+                    if positional.length() >= 1 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "decode() got multiple values for argument 'encoding'".to_string(),
+                        ),
+                      )
+                    }
+                    encoding_value = kw.1
+                  } else if kw.0 == "errors" {
+                    if positional.length() >= 2 {
+                      return Err(
+                        make_runtime_error(
+                          RuntimeErrorKind::Type,
+                          "decode() got multiple values for argument 'errors'".to_string(),
+                        ),
+                      )
+                    }
+                    errors_value = Some(kw.1)
+                  } else {
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "decode() got an unexpected keyword argument".to_string(),
+                      ),
+                    )
+                  }
                 }
                 let text = match
                   decode_bytes_with_encoding(
@@ -5832,6 +6040,55 @@ fn call_callable_with_env(
                   Err(err) => return Err(err)
                 }
                 return Ok(Value::Str(text))
+              }
+              "strip" => {
+                if positional.length() > 1 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Type,
+                      "strip() takes at most 1 argument".to_string(),
+                    ),
+                  )
+                }
+                let strip_chars : Array[Int] = match positional.length() {
+                  0 => [9, 10, 11, 12, 13, 32]
+                  _ =>
+                    match positional[0] {
+                      Value::None => [9, 10, 11, 12, 13, 32]
+                      Value::Bytes(b)
+                      | Value::ByteArray(b)
+                      | Value::MemoryView(b) => b
+                      _ =>
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Type,
+                            "strip() argument must be bytes-like or None".to_string(),
+                          ),
+                        )
+                    }
+                }
+                fn in_strip_set(ch : Int, chars : Array[Int]) -> Bool {
+                  for c in chars {
+                    if c == ch {
+                      return true
+                    }
+                  }
+                  false
+                }
+
+                let mut start = 0
+                let mut end = values.length()
+                while start < end && in_strip_set(values[start], strip_chars) {
+                  start = start + 1
+                }
+                while end > start && in_strip_set(values[end - 1], strip_chars) {
+                  end = end - 1
+                }
+                let out : Array[Int] = []
+                for i = start; i < end; i = i + 1 {
+                  out.push(values[i])
+                }
+                return Ok(Value::Bytes(out))
               }
               "find" => {
                 if positional.length() == 0 || positional.length() > 3 {
@@ -6855,6 +7112,37 @@ fn call_callable_with_env(
         gc_register_instance(inst_value)
         return Ok(inst_value)
       }
+      // `types.TracebackType(tb_next, frame, lasti, lineno)` is used by the
+      // CPython stdlib tests to synthesize traceback objects.
+      if klass.name == "traceback" {
+        let _ = match ensure_no_keywords("traceback", keywords) {
+          Ok(v) => v
+          Err(err) => return Err(err)
+        }
+        if positional.length() != 4 {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "traceback() takes exactly 4 arguments".to_string(),
+            ),
+          )
+        }
+        let tb_next = positional[0]
+        let tb_frame = positional[1]
+        let tb_lasti = positional[2]
+        let tb_lineno = positional[3]
+        let dict : Array[(String, Value)] = []
+        dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
+        dict.push(("tb_next", tb_next))
+        dict.push(("tb_frame", tb_frame))
+        dict.push(("tb_lasti", tb_lasti))
+        dict.push(("tb_lineno", tb_lineno))
+        // MoonPython extension: keep a column value for PEP 657 helpers.
+        dict.push(("tb_colno", Value::Int(1N)))
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        gc_register_instance(inst_value)
+        return Ok(inst_value)
+      }
       // Minimal exception instance payload for any BaseException subclass.
       // This is relied upon by the CPython stdlib (e.g. abc/unittest) for custom
       // exception classes like `class CustomError(Exception): ...`.
@@ -6898,6 +7186,70 @@ fn call_callable_with_env(
         if positional.length() > 0 {
           dict.push(("message", positional[0]))
         }
+        if klass.name == "NameError" {
+          let mut name_value : Value = Value::None
+          for kw in keywords {
+            if kw.0 == "name" {
+              name_value = kw.1
+            }
+          }
+          dict.push(("name", name_value))
+        }
+        if klass.name == "AttributeError" {
+          let mut name_value : Value = Value::None
+          let mut obj_value : Value = Value::None
+          for kw in keywords {
+            if kw.0 == "name" {
+              name_value = kw.1
+            } else if kw.0 == "obj" {
+              obj_value = kw.1
+            }
+          }
+          dict.push(("name", name_value))
+          dict.push(("obj", obj_value))
+        }
+        if klass.name == "SyntaxError" ||
+          klass.name == "IndentationError" ||
+          klass.name == "TabError" {
+          // CPython's traceback helpers expect these attributes on all
+          // SyntaxError subclasses.
+          let mut msg_value : Value = Value::None
+          if positional.length() > 0 {
+            msg_value = positional[0]
+          }
+          dict.push(("msg", msg_value))
+          dict.push(("filename", Value::None))
+          dict.push(("lineno", Value::None))
+          dict.push(("offset", Value::None))
+          dict.push(("text", Value::None))
+          dict.push(("end_lineno", Value::None))
+          dict.push(("end_offset", Value::None))
+          if positional.length() > 1 {
+            match positional[1] {
+              Value::Tuple(items) | Value::List(items) => {
+                if items.length() > 0 {
+                  set_named_value(dict, "filename", items[0])
+                }
+                if items.length() > 1 {
+                  set_named_value(dict, "lineno", items[1])
+                }
+                if items.length() > 2 {
+                  set_named_value(dict, "offset", items[2])
+                }
+                if items.length() > 3 {
+                  set_named_value(dict, "text", items[3])
+                }
+                if items.length() > 4 {
+                  set_named_value(dict, "end_lineno", items[4])
+                }
+                if items.length() > 5 {
+                  set_named_value(dict, "end_offset", items[5])
+                }
+              }
+              _ => ()
+            }
+          }
+        }
         if klass.name == "SystemExit" {
           let code = if positional.length() > 0 {
             positional[0]
@@ -6919,11 +7271,17 @@ fn call_callable_with_env(
           // `.name` when probing for optional frozen modules.
           let mut name_value : Value = Value::None
           let mut path_value : Value = Value::None
+          let mut name_from_value : Value = Value::None
+          let mut obj_value : Value = Value::None
           for kw in keywords {
             if kw.0 == "name" {
               name_value = kw.1
             } else if kw.0 == "path" {
               path_value = kw.1
+            } else if kw.0 == "name_from" {
+              name_from_value = kw.1
+            } else if kw.0 == "obj" {
+              obj_value = kw.1
             }
           }
           if positional.length() > 0 {
@@ -6948,6 +7306,8 @@ fn call_callable_with_env(
           }
           dict.push(("name", name_value))
           dict.push(("path", path_value))
+          dict.push(("name_from", name_from_value))
+          dict.push(("obj", obj_value))
         }
         let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
         gc_register_instance(inst_value)

@@ -18,7 +18,35 @@ TESTFN_ASCII = '@test'
 
 # Disambiguate TESTFN for parallel testing, while letting it remain a valid
 # module name.
-TESTFN_ASCII = "{}_{}_tmp".format(TESTFN_ASCII, os.getpid())
+_pid = os.getpid()
+# MoonPython may report a non-unique pid (e.g. 1), which makes TESTFN collide
+# across repeated test runs and can cause huge cascades of errors/timeouts.
+if getattr(sys, "implementation", None) and sys.implementation.name == "moonpython":
+    # MoonPython currently lacks a working wall clock and entropy source, so we
+    # persist a simple counter in the current working directory to avoid name
+    # collisions across repeated test runs.
+    _uniq = None
+    try:
+        _counter_path = os.path.join(os.getcwd(), ".moonpython_testfn_counter")
+        try:
+            with open(_counter_path, "r") as _fp:
+                _n = int((_fp.read() or "0").strip() or "0")
+        except OSError:
+            _n = 0
+        _n += 1
+        try:
+            with open(_counter_path, "w") as _fp:
+                _fp.write(str(_n))
+        except OSError:
+            pass
+        _uniq = _n
+    except Exception:
+        _uniq = None
+    if _uniq is None:
+        _uniq = id(object())
+    TESTFN_ASCII = "{}_{}_{}_tmp".format(TESTFN_ASCII, _pid, _uniq)
+else:
+    TESTFN_ASCII = "{}_{}_tmp".format(TESTFN_ASCII, _pid)
 
 # TESTFN_UNICODE is a non-ascii filename
 TESTFN_UNICODE = TESTFN_ASCII + "-\xe0\xf2\u0258\u0141\u011f"

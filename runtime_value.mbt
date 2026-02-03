@@ -201,6 +201,21 @@ fn is_base_exception_class_value(klass : ClassValue) -> Bool {
 }
 
 ///|
+fn is_exception_group_class_value(klass : ClassValue) -> Bool {
+  match class_mro(klass) {
+    Ok(mro) => {
+      for cls in mro {
+        if cls.name == "BaseExceptionGroup" {
+          return true
+        }
+      }
+      false
+    }
+    Err(_) => false
+  }
+}
+
+///|
 fn value_to_string(value : Value) -> String {
   fn repr_in_container(value : Value) -> String {
     match value {
@@ -279,25 +294,50 @@ fn value_to_string(value : Value) -> String {
     Value::Class(klass) => "<class '" + klass.name + "'>"
     Value::Instance(inst) =>
       if is_base_exception_class_value(inst.class) {
-        // Exception stringification: match CPython's BaseException.__str__ based
-        // on `.args`. Keep the synthetic `message` field as a fallback for
-        // runtime-generated errors that don't populate `args`.
-        match lookup_instance_field(inst.dict, "args") {
-          Some(Value::Tuple(args)) =>
-            if args.length() == 0 {
-              "".to_string()
-            } else if args.length() == 1 {
-              value_to_string(args[0])
-            } else {
-              value_to_string(Value::Tuple(args))
-            }
-          Some(other) => value_to_string(other)
-          None =>
-            match lookup_instance_field(inst.dict, "message") {
-              Some(Value::Str(text)) => text
-              Some(other) => value_to_string(other)
-              None => "".to_string()
-            }
+        if is_exception_group_class_value(inst.class) {
+          // ExceptionGroup / BaseExceptionGroup override BaseException.__str__ in CPython.
+          // Format: "<message> (<n> sub-exception[s])"
+          let message = match lookup_instance_field(inst.dict, "message") {
+            Some(Value::Str(text)) => text
+            Some(other) => value_to_string(other)
+            None => "".to_string()
+          }
+          let count = match lookup_instance_field(inst.dict, "exceptions") {
+            Some(Value::List(values)) => values.length()
+            Some(Value::Tuple(values)) => values.length()
+            _ => 0
+          }
+          let suffix = if count == 1 {
+            "1 sub-exception".to_string()
+          } else {
+            count.to_string() + " sub-exceptions"
+          }
+          if message.length() == 0 {
+            " (" + suffix + ")"
+          } else {
+            message + " (" + suffix + ")"
+          }
+        } else {
+          // Exception stringification: match CPython's BaseException.__str__ based
+          // on `.args`. Keep the synthetic `message` field as a fallback for
+          // runtime-generated errors that don't populate `args`.
+          match lookup_instance_field(inst.dict, "args") {
+            Some(Value::Tuple(args)) =>
+              if args.length() == 0 {
+                "".to_string()
+              } else if args.length() == 1 {
+                value_to_string(args[0])
+              } else {
+                value_to_string(Value::Tuple(args))
+              }
+            Some(other) => value_to_string(other)
+            None =>
+              match lookup_instance_field(inst.dict, "message") {
+                Some(Value::Str(text)) => text
+                Some(other) => value_to_string(other)
+                None => "".to_string()
+              }
+          }
         }
       } else if inst.class.name == "range" {
         let start = match get_named_value(inst.dict, "start") {

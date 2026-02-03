@@ -17,7 +17,9 @@ fn function_stub(name : String) -> Value {
 ///|
 pub fn Config::default() -> Config {
   Config::{
-    max_recursion: 1000,
+    // Keep this lower than CPython's default (1000) to make the CPython Lib/test
+    // suite practical under an interpreter.
+    max_recursion: 250,
     traceback_limit: 20,
     track_spans: true,
     bytecode_strict: false,
@@ -105,7 +107,7 @@ pub fn MockIO::take_stderr(self : MockIO) -> String {
 ///|
 pub fn Interpreter::new() -> Interpreter {
   let config = Config::{
-    max_recursion: 1000,
+    max_recursion: 250,
     traceback_limit: 20,
     track_spans: true,
     bytecode_strict: false,
@@ -352,10 +354,38 @@ pub fn Interpreter::new_spec() -> Interpreter {
   )
   base_exception_dict.push(
     (
+      "add_note",
+      Value::Function(FunctionValue::{
+        name: "add_note",
+        params: ["self", "note"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
       "__repr__",
       Value::Function(FunctionValue::{
         name: "__repr__",
         params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "add_note",
+      Value::Function(FunctionValue::{
+        name: "add_note",
+        params: ["self", "note"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -554,12 +584,12 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "__mpython_asyncgen_throw", "__mpython_asyncgen_close", "__mpython_posix_open",
     "__mpython_posix_read", "__mpython_posix_lseek", "__mpython_posix_write", "__mpython_posix_close",
     "__mpython_posix_fstat", "__mpython_posix_unlink", "__mpython_posix_mkdir", "__mpython_posix_rmdir",
-    "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir", "__mpython_posix_listdir",
-    "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump", "print", "len",
-    "range", "str", "bytes", "bytearray", "memoryview", "int", "float", "complex",
-    "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map", "filter",
-    "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr", "super",
-    "compile", "eval", "exec", "ascii", "open", "__import__",
+    "__mpython_posix_utime", "__mpython_posix_stat", "__mpython_posix_getcwd", "__mpython_posix_chdir",
+    "__mpython_posix_listdir", "__mpython_abc_cache_token", "__mpython_abc_cache_token_bump",
+    "print", "len", "range", "str", "bytes", "bytearray", "memoryview", "int", "float",
+    "complex", "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map",
+    "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
+    "super", "compile", "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
@@ -854,6 +884,20 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
       Value::Function(FunctionValue::{
         name: "__repr__",
         params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  )
+  base_exception_dict.push(
+    (
+      "add_note",
+      Value::Function(FunctionValue::{
+        name: "add_note",
+        params: ["self", "note"],
         defaults: [],
         body: [],
         is_generator: false,
@@ -1207,6 +1251,10 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("open", function_stub("open")),
     ("__debug__", Value::Bool(true)),
     ("__mpython_run", function_stub("__mpython_run")),
+    (
+      "__mpython_levenshtein_distance",
+      function_stub("__mpython_levenshtein_distance"),
+    ),
     ("__mpython_asyncgenexp_next", function_stub("__mpython_asyncgenexp_next")),
     ("__mpython_asyncgen_next", function_stub("__mpython_asyncgen_next")),
     ("__mpython_asyncgen_send", function_stub("__mpython_asyncgen_send")),
@@ -1221,6 +1269,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__mpython_posix_unlink", function_stub("__mpython_posix_unlink")),
     ("__mpython_posix_mkdir", function_stub("__mpython_posix_mkdir")),
     ("__mpython_posix_rmdir", function_stub("__mpython_posix_rmdir")),
+    ("__mpython_posix_utime", function_stub("__mpython_posix_utime")),
     ("__mpython_posix_stat", function_stub("__mpython_posix_stat")),
     ("__mpython_posix_getcwd", function_stub("__mpython_posix_getcwd")),
     ("__mpython_posix_chdir", function_stub("__mpython_posix_chdir")),
@@ -1413,6 +1462,7 @@ pub fn Interpreter::exec(
     Err(err) => return Err(err)
   }
   push_traceback_frame("<module>".to_string(), filename)
+  set_traceback_frame_env(self.globals, self.globals)
   // Execute via the bytecode pipeline. If compilation fails, surface the error
   // directly so we don't silently fall back and hide bytecode compiler gaps.
   let value_result = match compile_module_to_bc(program, filename) {
@@ -1511,6 +1561,7 @@ pub fn Interpreter::eval_source(
     Err(err) => return Err(err)
   }
   push_traceback_frame("<expr>".to_string(), filename)
+  set_traceback_frame_env(self.globals, self.globals)
   push_active_config(self.config)
   let value_result = eval_expr_with_env(
     expr,
@@ -1594,4 +1645,58 @@ pub fn Interpreter::set_global_str(
   value : String,
 ) -> Unit {
   set_global_value(self.globals, name, Value::Str(value))
+}
+
+///|
+pub fn Interpreter::set_main_module_spec(
+  self : Interpreter,
+  module_name : String,
+  origin : String,
+  parent : String,
+  is_package_main : Bool,
+) -> Unit {
+  // When running with `-m`, CPython populates `__spec__`/`__loader__` on the
+  // `__main__` module. Stdlib helpers (e.g. `linecache.lazycache`) rely on a
+  // working `__loader__.get_source(__spec__.name)` implementation.
+  let loader = make_importlib_loader()
+  match loader {
+    Value::Instance(loader_inst) =>
+      set_named_value(loader_inst.dict, "path", Value::Str(origin))
+    _ => ()
+  }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let spec_name = if is_package_main {
+    module_name + ".__main__"
+  } else {
+    module_name
+  }
+  let submodule_search_locations = if is_package_main {
+    let pkg_dir = @path.Path(origin).dirname().to_string()
+    Value::List([Value::Str(pkg_dir)])
+  } else {
+    Value::None
+  }
+  let spec_value = Value::Instance(InstanceValue::{
+    class: spec_class,
+    dict: [
+      ("hashvalue", Value::Int(fresh_object_hashvalue())),
+      ("name", Value::Str(spec_name)),
+      ("origin", Value::Str(origin)),
+      ("loader", loader),
+      ("parent", Value::Str(parent)),
+      ("submodule_search_locations", submodule_search_locations),
+      ("cached", Value::None),
+      ("loader_state", Value::None),
+      ("_uninitialized_submodules", Value::List([])),
+      ("has_location", Value::Bool(true)),
+    ],
+  })
+  set_global_value(self.globals, "__loader__", loader)
+  set_global_value(self.globals, "__spec__", spec_value)
+  // Make `__loader__.get_source(__spec__.name)` work for the `__main__` module by
+  // aliasing it in `sys.modules` under the real module name.
+  match module_cache_get("__main__") {
+    Some(main_mod) => module_cache_set(spec_name, main_mod)
+    None => ()
+  }
 }

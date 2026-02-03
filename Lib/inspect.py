@@ -1343,19 +1343,24 @@ def getargs(co):
     if not iscode(co):
         raise TypeError('{!r} is not a code object'.format(co))
 
+    if not hasattr(co, "co_varnames"):
+        # moonpython's internal code objects are intentionally minimal; allow
+        # callers like cgitb/traceback formatting to degrade gracefully.
+        return Arguments([], None, None)
+
     names = co.co_varnames
-    nargs = co.co_argcount
-    nkwargs = co.co_kwonlyargcount
+    nargs = getattr(co, "co_argcount", 0)
+    nkwargs = getattr(co, "co_kwonlyargcount", 0)
     args = list(names[:nargs])
     kwonlyargs = list(names[nargs:nargs+nkwargs])
 
     nargs += nkwargs
     varargs = None
-    if co.co_flags & CO_VARARGS:
+    if getattr(co, "co_flags", 0) & CO_VARARGS:
         varargs = co.co_varnames[nargs]
         nargs = nargs + 1
     varkw = None
-    if co.co_flags & CO_VARKEYWORDS:
+    if getattr(co, "co_flags", 0) & CO_VARKEYWORDS:
         varkw = co.co_varnames[nargs]
     return Arguments(args + kwonlyargs, varargs, varkw)
 
@@ -1762,8 +1767,15 @@ def getouterframes(frame, context=1):
     framelist = []
     while frame:
         traceback_info = getframeinfo(frame, context)
-        frameinfo = (frame,) + traceback_info
-        framelist.append(FrameInfo(*frameinfo, positions=traceback_info.positions))
+        frameinfo = (
+            frame,
+            traceback_info.filename,
+            traceback_info.lineno,
+            traceback_info.function,
+            traceback_info.code_context,
+            traceback_info.index,
+        )
+        framelist.append(FrameInfo(*frameinfo, positions=getattr(traceback_info, "positions", None)))
         frame = frame.f_back
     return framelist
 
@@ -1775,8 +1787,15 @@ def getinnerframes(tb, context=1):
     framelist = []
     while tb:
         traceback_info = getframeinfo(tb, context)
-        frameinfo = (tb.tb_frame,) + traceback_info
-        framelist.append(FrameInfo(*frameinfo, positions=traceback_info.positions))
+        frameinfo = (
+            tb.tb_frame,
+            traceback_info.filename,
+            traceback_info.lineno,
+            traceback_info.function,
+            traceback_info.code_context,
+            traceback_info.index,
+        )
+        framelist.append(FrameInfo(*frameinfo, positions=getattr(traceback_info, "positions", None)))
         tb = tb.tb_next
     return framelist
 
@@ -2699,17 +2718,48 @@ class _empty:
 
 
 class _ParameterKindMember:
-    __slots__ = ("name", "description")
+    __slots__ = ("name", "description", "value")
 
-    def __init__(self, name, description):
+    def __init__(self, name, description, value):
         self.name = name
         self.description = description
+        # Ordering matches CPython's enum.IntEnum _ParameterKind values.
+        self.value = value
 
     def __repr__(self):
         return f"_ParameterKind.{self.name}"
 
     def __str__(self):
         return self.name
+
+    def _cmp_value(self, other):
+        if isinstance(other, _ParameterKindMember):
+            return other.value
+        return NotImplemented
+
+    def __lt__(self, other):
+        ov = self._cmp_value(other)
+        if ov is NotImplemented:
+            return NotImplemented
+        return self.value < ov
+
+    def __le__(self, other):
+        ov = self._cmp_value(other)
+        if ov is NotImplemented:
+            return NotImplemented
+        return self.value <= ov
+
+    def __gt__(self, other):
+        ov = self._cmp_value(other)
+        if ov is NotImplemented:
+            return NotImplemented
+        return self.value > ov
+
+    def __ge__(self, other):
+        ov = self._cmp_value(other)
+        if ov is NotImplemented:
+            return NotImplemented
+        return self.value >= ov
 
 
 class _ParameterKind:
@@ -2734,14 +2784,16 @@ class _ParameterKind:
         raise ValueError(f"value {kind!r} is not a valid Parameter.kind")
 
 
-for _name, _desc in (
-    ("POSITIONAL_ONLY", "positional-only"),
-    ("POSITIONAL_OR_KEYWORD", "positional or keyword"),
-    ("VAR_POSITIONAL", "variadic positional"),
-    ("KEYWORD_ONLY", "keyword-only"),
-    ("VAR_KEYWORD", "variadic keyword"),
+for _value, (_name, _desc) in enumerate(
+    (
+        ("POSITIONAL_ONLY", "positional-only"),
+        ("POSITIONAL_OR_KEYWORD", "positional or keyword"),
+        ("VAR_POSITIONAL", "variadic positional"),
+        ("KEYWORD_ONLY", "keyword-only"),
+        ("VAR_KEYWORD", "variadic keyword"),
+    )
 ):
-    _m = _ParameterKindMember(_name, _desc)
+    _m = _ParameterKindMember(_name, _desc, _value)
     setattr(_ParameterKind, _name, _m)
     _ParameterKind.__members__[_name] = _m
 

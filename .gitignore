@@ -28,6 +28,7 @@ tempcwd/
 
 # Artifacts created by vendored CPython Lib/test runs.
 @test_*
+.moonpython_testfn_counter
 
 # Local reference checkout for architecture/bytecode design inspiration.
 micropython-reference/

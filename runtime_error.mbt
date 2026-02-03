@@ -68,17 +68,31 @@ fn runtime_error_exc(
 let active_frame_stack : Ref[Array[TracebackFrame]] = { val: [] }
 
 ///|
+let active_frame_env_stack : Ref[Array[TracebackEnv]] = { val: [] }
+
+///|
 let active_span_stack : Ref[Array[Span]] = { val: [] }
 
 ///|
-fn clone_traceback_stack(
-  stack : Array[TracebackFrame],
-) -> Array[TracebackFrame] {
-  let out : Array[TracebackFrame] = []
-  for frame in stack {
-    out.push(frame)
+fn snapshot_frame_env_stack() -> Array[TracebackEnv] {
+  let stack = active_frame_env_stack.val
+  if stack.length() == 0 {
+    []
+  } else {
+    [stack[stack.length() - 1]]
   }
-  out
+}
+
+///|
+fn set_traceback_frame_env(
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+) -> Unit {
+  if active_frame_env_stack.val.length() == 0 {
+    return
+  }
+  let idx = active_frame_env_stack.val.length() - 1
+  active_frame_env_stack.val[idx] = TracebackEnv::{ locals, globals }
 }
 
 ///|
@@ -92,22 +106,75 @@ fn current_span() -> Span? {
 
 ///|
 fn snapshot_traceback() -> Array[TracebackFrame] {
-  let frames = clone_traceback_stack(active_frame_stack.val)
-  if frames.length() == 0 {
+  // Capture only the currently executing (innermost) frame at raise-time.
+  // Outer frames are appended as the exception unwinds through callers, which
+  // more closely matches CPython's traceback growth semantics.
+  let stack = active_frame_stack.val
+  if stack.length() == 0 {
+    return []
+  }
+  let frames : Array[TracebackFrame] = []
+  let f0 = stack[stack.length() - 1]
+  frames.push(TracebackFrame::{
+    name: f0.name,
+    filename: f0.filename,
+    line: f0.line,
+    column: f0.column,
+    end_column: 0,
+  })
+  // Best-effort: map the active span stack onto the active frame stack so
+  // callers can display accurate "last instruction" locations for nested calls
+  // (e.g. decorators, multi-line expressions, recursion).
+  let spans = active_span_stack.val
+  if spans.length() > frames.length() {
+    // In the AST evaluator spans can nest within a single frame, making the
+    // span stack longer than the frame stack. In that case, only trust the
+    // current (innermost) span to avoid corrupting outer frame locations.
+    match current_span() {
+      Some(span) => {
+        let mut last = frames[frames.length() - 1]
+        let mut width = span.end - span.start
+        if width <= 0 {
+          width = 1
+        }
+        let end_column = if width > 512 { 0 } else { span.column + width }
+        last = TracebackFrame::{
+          name: last.name,
+          filename: last.filename,
+          line: span.line,
+          column: span.column,
+          end_column,
+        }
+        frames[frames.length() - 1] = last
+      }
+      None => ()
+    }
     return frames
   }
-  match current_span() {
-    Some(span) => {
-      let mut last = frames[frames.length() - 1]
-      last = TracebackFrame::{
-        name: last.name,
-        filename: last.filename,
-        line: span.line,
-        column: span.column,
-      }
-      frames[frames.length() - 1] = last
+  let mut i = 0
+  let max = if frames.length() < spans.length() {
+    frames.length()
+  } else {
+    spans.length()
+  }
+  while i < max {
+    let frame_idx = frames.length() - 1 - i
+    let span_idx = spans.length() - 1 - i
+    let span = spans[span_idx]
+    let last = frames[frame_idx]
+    let mut width = span.end - span.start
+    if width <= 0 {
+      width = 1
     }
-    None => ()
+    let end_column = if width > 512 { 0 } else { span.column + width }
+    frames[frame_idx] = TracebackFrame::{
+      name: last.name,
+      filename: last.filename,
+      line: span.line,
+      column: span.column,
+      end_column,
+    }
+    i = i + 1
   }
   frames
 }
@@ -142,7 +209,9 @@ fn push_traceback_frame(name : String, filename : String) -> Unit {
     filename,
     line: 1,
     column: 1,
+    end_column: 0,
   })
+  active_frame_env_stack.val.push(TracebackEnv::{ locals: [], globals: [] })
 }
 
 ///|
@@ -151,23 +220,17 @@ fn pop_traceback_frame() -> Unit {
     return
   }
   let _ = active_frame_stack.val.remove(active_frame_stack.val.length() - 1)
+  if active_frame_env_stack.val.length() > 0 {
+    let _ = active_frame_env_stack.val.remove(
+      active_frame_env_stack.val.length() - 1,
+    )
 
+  }
 }
 
 ///|
 fn push_active_span(span : Span) -> Unit {
   active_span_stack.val.push(span)
-  if active_frame_stack.val.length() == 0 {
-    return
-  }
-  let idx = active_frame_stack.val.length() - 1
-  let last = active_frame_stack.val[idx]
-  active_frame_stack.val[idx] = TracebackFrame::{
-    name: last.name,
-    filename: last.filename,
-    line: span.line,
-    column: span.column,
-  }
 }
 
 ///|
@@ -175,8 +238,27 @@ fn pop_active_span() -> Unit {
   if active_span_stack.val.length() == 0 {
     return
   }
-  let _ = active_span_stack.val.remove(active_span_stack.val.length() - 1)
-
+  let span = active_span_stack.val.remove(active_span_stack.val.length() - 1)
+  // Record the last completed source location for the currently active frame.
+  // This intentionally happens on span pop (end of an instruction/step) so
+  // callers paused in a nested call keep their previous `f_lineno` value.
+  if active_frame_stack.val.length() == 0 {
+    return
+  }
+  let idx = active_frame_stack.val.length() - 1
+  let last = active_frame_stack.val[idx]
+  let mut width = span.end - span.start
+  if width <= 0 {
+    width = 1
+  }
+  let end_column = if width > 512 { 0 } else { span.column + width }
+  active_frame_stack.val[idx] = TracebackFrame::{
+    name: last.name,
+    filename: last.filename,
+    line: span.line,
+    column: span.column,
+    end_column,
+  }
 }
 
 ///|
@@ -190,6 +272,7 @@ fn make_runtime_error(
     message,
     span: current_span(),
     traceback: snapshot_traceback(),
+    traceback_envs: snapshot_frame_env_stack(),
     exc_type,
     exc_args,
     exc_value: None,
@@ -211,6 +294,7 @@ fn make_parse_runtime_error(error : ParseError) -> RuntimeError {
     message,
     span: Some(error.span),
     traceback: [],
+    traceback_envs: [],
     exc_type,
     exc_args,
     exc_value: None,

@@ -947,6 +947,35 @@ fn builtin_time_time(
 }
 
 ///|
+fn builtin_time_ctime(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("time.ctime", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 0 && positional.length() != 1 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "time.ctime() takes 0 or 1 argument".to_string(),
+      ),
+    )
+  }
+  // Minimal stub: keep cgitb (and other callers) working without requiring a
+  // full locale/timezone implementation.
+  //
+  // CPython: time.ctime(0) -> "Thu Jan  1 00:00:00 1970"
+  Ok(Value::Str("Thu Jan  1 00:00:00 1970"))
+}
+
+///|
 fn builtin_time_monotonic(
   positional : Array[Value],
   keywords : Array[(String, Value)],
@@ -5868,30 +5897,64 @@ fn builtin_itertools_islice(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let start = if positional.length() >= 3 {
-    match index_from_value(positional[1], 0) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
+  let start_value = if positional.length() >= 3 {
+    positional[1]
   } else {
-    0
+    Value::Int(0N)
   }
   let stop_value = if positional.length() >= 3 {
     positional[2]
   } else {
     positional[1]
   }
-  let stop = match index_from_value(stop_value, 0) {
-    Ok(v) => v
-    Err(err) => return Err(err)
-  }
-  let step = if positional.length() == 4 {
-    match index_from_value(positional[3], 1) {
-      Ok(v) => v
-      Err(err) => return Err(err)
-    }
+  let step_value = if positional.length() == 4 {
+    positional[3]
   } else {
-    1
+    Value::Int(1N)
+  }
+  let start = match start_value {
+    Value::None => 0
+    _ =>
+      match index_from_value(start_value, 0) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+  }
+  let stop_opt : Int? = match stop_value {
+    Value::None => None
+    _ =>
+      match index_from_value(stop_value, 0) {
+        Ok(v) => Some(v)
+        Err(err) => return Err(err)
+      }
+  }
+  let step = match step_value {
+    Value::None => 1
+    _ =>
+      match index_from_value(step_value, 1) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+  }
+  if start < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: start must be non-negative".to_string(),
+      ),
+    )
+  }
+  match stop_opt {
+    Some(stop) =>
+      if stop < 0 {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: stop must be non-negative".to_string(),
+          ),
+        )
+      }
+    None => ()
   }
   if step <= 0 {
     return Err(
@@ -5903,7 +5966,11 @@ fn builtin_itertools_islice(
   }
   let items : Array[Value] = []
   let mut idx = 0
-  while idx < stop {
+  while true {
+    match stop_opt {
+      Some(stop) => if idx >= stop { break }
+      None => ()
+    }
     match iterator_next(iterator, None, globals, builtins, io) {
       Ok(item) => {
         if idx >= start && (idx - start) % step == 0 {
@@ -6025,6 +6092,101 @@ fn builtin_itertools_permutations(
   }
 
   Ok(Value::List(build_permutations(values, r)))
+}
+
+///|
+fn builtin_itertools_combinations(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("itertools.combinations", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "combinations() takes exactly 2 arguments".to_string(),
+      ),
+    )
+  }
+  let values = match positional[0] {
+    Value::Str(text) => {
+      let out : Array[Value] = []
+      for ch in text.to_array() {
+        let buf = StringBuilder::new()
+        buf.write_char(ch)
+        out.push(Value::Str(buf.to_string()))
+      }
+      out
+    }
+    Value::List(items) => items
+    Value::Tuple(items) => items
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "combinations() expects a str or sequence".to_string(),
+        ),
+      )
+  }
+  let r = match positional[1] {
+    Value::Int(v) =>
+      match bigint_to_int_checked(v) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+    Value::Bool(v) => if v { 1 } else { 0 }
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "combinations() r must be int".to_string(),
+        ),
+      )
+  }
+  if r < 0 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: r must be non-negative".to_string(),
+      ),
+    )
+  }
+  if r > values.length() {
+    return Ok(Value::List([]))
+  }
+  fn build_combinations(
+    values : Array[Value],
+    start : Int,
+    r : Int,
+    prefix : Array[Value],
+  ) -> Array[Value] {
+    if r == 0 {
+      return [Value::Tuple(prefix)]
+    }
+    let out : Array[Value] = []
+    for i = start; i <= values.length() - r; i = i + 1 {
+      let next_prefix : Array[Value] = []
+      for item in prefix {
+        next_prefix.push(item)
+      }
+      next_prefix.push(values[i])
+      let tails = build_combinations(values, i + 1, r - 1, next_prefix)
+      for tail in tails {
+        out.push(tail)
+      }
+    }
+    out
+  }
+
+  Ok(Value::List(build_combinations(values, 0, r, [])))
 }
 
 ///|

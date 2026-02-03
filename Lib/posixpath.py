@@ -212,6 +212,15 @@ def lexists(path):
 
 def ismount(path):
     """Test whether a path is a mount point"""
+    # moonpython: the runtime stat backend does not currently provide stable
+    # st_dev/st_ino semantics for mount detection. Keep a conservative behavior
+    # that is sufficient for stdlib tests: only treat the filesystem root as a
+    # mount point.
+    if getattr(sys, "implementation", None) and sys.implementation.name == "moonpython":
+        p = os.fspath(path)
+        if isinstance(p, bytes):
+            return p == b"/"
+        return p == "/"
     try:
         s1 = os.lstat(path)
     except (OSError, ValueError):

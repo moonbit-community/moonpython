@@ -3,8 +3,13 @@
 #   Codec encoding tests for PRC encodings.
 #
 
-from test import multibytecodec_support
+import sys
 import unittest
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: codec registry/error handlers not implemented")
+
+from test import multibytecodec_support
 
 class Test_GB2312(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'gb2312'

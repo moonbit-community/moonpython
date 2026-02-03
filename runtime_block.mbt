@@ -13,46 +13,44 @@ priv enum BlockFlow {
 let active_exception_stack : Ref[Array[RuntimeError]] = { val: [] }
 
 ///|
-fn trim_traceback_for_active_handler(
-  frames : Array[TracebackFrame],
-) -> Array[TracebackFrame] {
-  // When an exception is caught, CPython's traceback stops at the frame
-  // containing the except handler (it does not include callers above it).
-  // Our RuntimeError stores a snapshot captured at raise-time; trim it to the
-  // current handler depth for sys.exc_info() / traceback.format_exception.
-  let depth = active_frame_stack.val.length()
-  if depth == 0 || frames.length() == 0 {
-    return frames
-  }
-  let start = depth - 1
-  if start <= 0 || start >= frames.length() {
-    return frames
-  }
-  let out : Array[TracebackFrame] = []
-  for i = start; i < frames.length(); i = i + 1 {
-    out.push(frames[i])
-  }
-  out
-}
 
 ///|
 fn trim_runtime_error_for_active_handler(err : RuntimeError) -> RuntimeError {
-  let trimmed = trim_traceback_for_active_handler(err.traceback)
-  if trimmed.length() == err.traceback.length() {
-    err
-  } else {
-    RuntimeError::{
-      kind: err.kind,
-      message: err.message,
-      span: err.span,
-      traceback: trimmed,
-      exc_type: err.exc_type,
-      exc_args: err.exc_args,
-      exc_value: err.exc_value,
-      exc_cause: err.exc_cause,
-      exc_context: err.exc_context,
-      exc_suppress_context: err.exc_suppress_context,
+  // Our RuntimeError captures a snapshot of the full active traceback stack at
+  // raise-time. When an exception is caught, CPython's traceback stops at the
+  // handler frame (it does not include frames above the handler).
+  //
+  // Trim away frames that are above the currently active handler frame.
+  let active_len = active_frame_stack.val.length()
+  if active_len <= 1 {
+    return err
+  }
+  let drop = active_len - 1
+  if err.traceback.length() <= drop {
+    return err
+  }
+  let trimmed_tb : Array[TracebackFrame] = []
+  for i = drop; i < err.traceback.length(); i = i + 1 {
+    trimmed_tb.push(err.traceback[i])
+  }
+  let trimmed_envs : Array[TracebackEnv] = []
+  if err.traceback_envs.length() == err.traceback.length() {
+    for i = drop; i < err.traceback_envs.length(); i = i + 1 {
+      trimmed_envs.push(err.traceback_envs[i])
     }
+  }
+  RuntimeError::{
+    kind: err.kind,
+    message: err.message,
+    span: err.span,
+    traceback: trimmed_tb,
+    traceback_envs: trimmed_envs,
+    exc_type: err.exc_type,
+    exc_args: err.exc_args,
+    exc_value: err.exc_value,
+    exc_cause: err.exc_cause,
+    exc_context: err.exc_context,
+    exc_suppress_context: err.exc_suppress_context,
   }
 }
 
@@ -169,6 +167,9 @@ fn exception_matches_handler(
   }
   match get_named_value(builtins, err.exc_type) {
     Some(Value::Class(err_class)) => {
+      if err_class.name == handler_class.name {
+        return Ok(true)
+      }
       let mro = match class_mro(err_class) {
         Ok(value) => value
         Err(e) => return Err(e)
@@ -201,6 +202,9 @@ fn exception_value_matches_handler(
   }
   match exc_class {
     Some(err_class) => {
+      if err_class.name == handler_class.name {
+        return Ok(true)
+      }
       let mro = match class_mro(err_class) {
         Ok(value) => value
         Err(e) => return Err(e)
@@ -330,28 +334,52 @@ fn exception_group_split_by_classes(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[(Value?, Value?), RuntimeError] {
+  fn ensure_group_instance(
+    value : Value,
+  ) -> Result[InstanceValue, RuntimeError] {
+    match value {
+      Value::Instance(inst) => {
+        if inst.class.name != "ExceptionGroup" &&
+          inst.class.name != "BaseExceptionGroup" {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "except* requires an ExceptionGroup".to_string(),
+            ),
+          )
+        }
+        Ok(inst)
+      }
+      _ =>
+        Err(
+          make_runtime_error(
+            RuntimeErrorKind::Type,
+            "except* requires an ExceptionGroup".to_string(),
+          ),
+        )
+    }
+  }
+
+  fn copy_group_metadata(src : InstanceValue, dst : InstanceValue) -> Unit {
+    for
+      key in [
+        "__traceback__", "__cause__", "__context__", "__suppress_context__", "__notes__",
+      ] {
+      match get_named_value(src.dict, key) {
+        Some(v) => set_named_value(dst.dict, key, v)
+        None => ()
+      }
+    }
+  }
+
   if handler_classes.length() == 0 {
     return Ok((None, Some(group_value)))
   }
-  let inst = match group_value {
-    Value::Instance(inst) => inst
-    _ =>
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::Type,
-          "except* requires an ExceptionGroup".to_string(),
-        ),
-      )
+  let inst = match ensure_group_instance(group_value) {
+    Ok(v) => v
+    Err(err) => return Err(err)
   }
-  if inst.class.name != "ExceptionGroup" &&
-    inst.class.name != "BaseExceptionGroup" {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Type,
-        "except* requires an ExceptionGroup".to_string(),
-      ),
-    )
-  }
+  let message = exception_group_message_value(inst)
   let exceptions = match exception_group_exceptions(inst) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -359,6 +387,34 @@ fn exception_group_split_by_classes(
   let matched : Array[Value] = []
   let remaining : Array[Value] = []
   for exc in exceptions {
+    // Preserve nested group structure by splitting recursively.
+    match exc {
+      Value::Instance(nested_inst) =>
+        if nested_inst.class.name == "ExceptionGroup" ||
+          nested_inst.class.name == "BaseExceptionGroup" {
+          let (m_opt, r_opt) = match
+            exception_group_split_by_classes(
+              Value::Instance(nested_inst),
+              handler_classes,
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          match m_opt {
+            Some(v) => matched.push(v)
+            None => ()
+          }
+          match r_opt {
+            Some(v) => remaining.push(v)
+            None => ()
+          }
+          continue
+        }
+      _ => ()
+    }
     let mut is_match = false
     for klass in handler_classes {
       match exception_value_matches_handler(exc, klass, builtins) {
@@ -379,14 +435,17 @@ fn exception_group_split_by_classes(
   if matched.length() == 0 {
     return Ok((None, Some(group_value)))
   }
-  let message = exception_group_message_value(inst)
-  let matched_group = match
+  let matched_group_value = match
     exception_group_make(inst.class, message, matched, globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let remaining_group = if remaining.length() > 0 {
-    match
+  match matched_group_value {
+    Value::Instance(dst) => copy_group_metadata(inst, dst)
+    _ => ()
+  }
+  let remaining_group_value : Value? = if remaining.length() > 0 {
+    let rem_value = match
       exception_group_make(
         inst.class,
         message,
@@ -395,13 +454,18 @@ fn exception_group_split_by_classes(
         builtins,
         io,
       ) {
-      Ok(v) => Some(v)
+      Ok(v) => v
       Err(err) => return Err(err)
     }
+    match rem_value {
+      Value::Instance(dst) => copy_group_metadata(inst, dst)
+      _ => ()
+    }
+    Some(rem_value)
   } else {
     None
   }
-  Ok((Some(matched_group), remaining_group))
+  Ok((Some(matched_group_value), remaining_group_value))
 }
 
 ///|
@@ -506,7 +570,13 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
               }
             _ => 1
           }
-          frames.push(TracebackFrame::{ name, filename, line, column })
+          frames.push(TracebackFrame::{
+            name,
+            filename,
+            line,
+            column,
+            end_column: 0,
+          })
           tb_value = match get_named_value(tb_inst.dict, "tb_next") {
             Some(v) => v
             None => Value::None
@@ -562,11 +632,16 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     Some(frames) => frames
     None => snapshot_traceback()
   }
+  let traceback_envs = match traceback_from_exception_instance(inst) {
+    Some(_) => []
+    None => snapshot_frame_env_stack()
+  }
   RuntimeError::{
     kind,
     message: printed,
     span: current_span(),
     traceback,
+    traceback_envs,
     exc_type: inst.class.name,
     exc_args: args,
     exc_value,
@@ -577,22 +652,47 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
 }
 
 ///|
-fn make_frame_value(frame : TracebackFrame) -> Value {
+fn make_frame_value(frame : TracebackFrame, builtins_dict : Value) -> Value {
   let globals_pairs : Array[(Value, Value)] = []
   if frame.filename.contains("/Lib/unittest/") ||
     frame.filename.contains("\\Lib\\unittest\\") {
     globals_pairs.push((Value::Str("__unittest"), Value::Bool(true)))
   }
+  let frame_class_dict : Array[(String, Value)] = [
+    (
+      "clear",
+      Value::Function(FunctionValue::{
+        name: "frame.clear",
+        params: ["self"],
+        defaults: [],
+        body: [],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }),
+    ),
+  ]
+  // We don't currently model real frame locals; keep a small placeholder dict so
+  // `traceback.clear_frames()` can exercise `frame.clear()` semantics.
+  let locals_pairs : Array[(Value, Value)] = [
+    (Value::Str("__mpython_locals__"), Value::None),
+  ]
   let code_value = Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "code", bases: [], dict: [] },
     dict: [
       ("co_filename", Value::Str(frame.filename)),
       ("co_name", Value::Str(frame.name)),
       ("co_firstlineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+      (
+        "__mpython_co_positions",
+        Value::List([
+          Value::Tuple([Value::None, Value::None, Value::None, Value::None]),
+        ]),
+      ),
     ],
   })
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "frame", bases: [], dict: [] },
+    class: ClassValue::{ name: "frame", bases: [], dict: frame_class_dict },
     dict: [
       ("f_name", Value::Str(frame.name)),
       ("f_filename", Value::Str(frame.filename)),
@@ -601,24 +701,61 @@ fn make_frame_value(frame : TracebackFrame) -> Value {
       ("f_code", code_value),
       ("f_back", Value::None),
       // Used by parts of the CPython stdlib (e.g. unittest) when cleaning tracebacks.
-      // We don't currently model real frame globals/locals; keep them as empty dicts.
       ("f_globals", Value::Dict(globals_pairs)),
-      ("f_locals", Value::Dict([])),
+      ("f_builtins", builtins_dict),
+      ("f_locals", Value::Dict(locals_pairs)),
     ],
   })
 }
 
 ///|
-fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
+fn filter_frame_builtins(
+  builtins : Array[(String, Value)],
+) -> Array[(String, Value)] {
+  // The interpreter's builtin dispatch table includes many internal/dotted
+  // helper names (e.g. "str.join"). For suggestion formatting (traceback.py),
+  // expose a CPython-like subset to keep candidate sets small.
+  let out : Array[(String, Value)] = []
+  for pair in builtins {
+    let name = pair.0
+    if name.contains(".") || name.has_prefix("__mpython") {
+      continue
+    }
+    out.push(pair)
+  }
+  out
+}
+
+///|
+fn frame_builtins_dict_from_builtins(
+  builtins : Array[(String, Value)],
+) -> Value {
+  let pairs : Array[(Value, Value)] = []
+  for pair in filter_frame_builtins(builtins) {
+    pairs.push((Value::Str(pair.0), pair.1))
+  }
+  Value::Dict(pairs)
+}
+
+///|
+fn make_traceback_value(
+  frames : Array[TracebackFrame],
+  builtins_dict : Value,
+  span : Span?,
+) -> Value {
   if frames.length() == 0 {
     // Some stdlib helpers expect `tb_frame.f_code` etc to exist even when the
     // interpreter doesn't have a real stack. Provide a minimal placeholder.
-    let frame_value = make_frame_value(TracebackFrame::{
-      name: "<module>",
-      filename: "<module>",
-      line: 1,
-      column: 1,
-    })
+    let frame_value = make_frame_value(
+      TracebackFrame::{
+        name: "<module>",
+        filename: "<module>",
+        line: 1,
+        column: 1,
+        end_column: 0,
+      },
+      builtins_dict,
+    )
     return Value::Instance(InstanceValue::{
       class: ClassValue::{ name: "traceback", bases: [], dict: [] },
       dict: [
@@ -626,7 +763,7 @@ fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
         ("tb_lineno", Value::Int(1N)),
         ("tb_colno", Value::Int(1N)),
         ("tb_next", Value::None),
-        ("tb_lasti", Value::Int(-1N)),
+        ("tb_lasti", Value::Int(@bigint.BigInt::from_int(-1))),
       ],
     })
   }
@@ -635,17 +772,219 @@ fn make_traceback_value(frames : Array[TracebackFrame]) -> Value {
   while i > 0 {
     i = i - 1
     let frame = frames[i]
-    let frame_value = make_frame_value(frame)
+    let frame_value = make_frame_value(frame, builtins_dict)
+    let is_deepest = i == frames.length() - 1
+    let mut tb_lasti = -1
+    let mut col0_opt : Int? = None
+    let mut end0_opt : Int? = None
+    if frame.end_column > 0 {
+      let mut col0 = frame.column - 1
+      if col0 < 0 {
+        col0 = 0
+      }
+      let mut end0 = frame.end_column - 1
+      if end0 <= col0 {
+        end0 = col0 + 1
+      }
+      tb_lasti = 0
+      col0_opt = Some(col0)
+      end0_opt = Some(end0)
+    } else if is_deepest {
+      // Fallback for runtimes that only provide the deepest span.
+      match span {
+        Some(s) => {
+          let mut col0 = s.column - 1
+          if col0 < 0 {
+            col0 = 0
+          }
+          let mut width = s.end - s.start
+          if width <= 0 {
+            width = 1
+          }
+          tb_lasti = 0
+          col0_opt = Some(col0)
+          end0_opt = Some(col0 + width)
+        }
+        None => ()
+      }
+    }
+    match (col0_opt, end0_opt) {
+      (Some(col0), Some(end0)) =>
+        match frame_value {
+          Value::Instance(inst) =>
+            match get_named_value(inst.dict, "f_code") {
+              Some(Value::Instance(code_inst)) =>
+                set_named_value(
+                  code_inst.dict,
+                  "__mpython_co_positions",
+                  Value::List([
+                    Value::Tuple([
+                      Value::None,
+                      Value::None,
+                      Value::Int(@bigint.BigInt::from_int(col0)),
+                      Value::Int(@bigint.BigInt::from_int(end0)),
+                    ]),
+                  ]),
+                )
+              _ => ()
+            }
+          _ => ()
+        }
+      _ => ()
+    }
     let dict : Array[(String, Value)] = []
     dict.push(("tb_frame", frame_value))
     dict.push(("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))))
     dict.push(("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))))
-    dict.push(("tb_lasti", Value::Int(-1N)))
+    dict.push(("tb_lasti", Value::Int(@bigint.BigInt::from_int(tb_lasti))))
     dict.push(("tb_next", next_value))
     next_value = Value::Instance(InstanceValue::{
       class: ClassValue::{ name: "traceback", bases: [], dict: [] },
       dict,
     })
+  }
+  next_value
+}
+
+///|
+fn make_traceback_value_with_env(
+  frames : Array[TracebackFrame],
+  envs : Array[TracebackEnv],
+  builtins_dict : Value,
+  span : Span?,
+) -> Value {
+  if frames.length() == 0 {
+    return make_traceback_value(frames, builtins_dict, span)
+  }
+  if envs.length() != frames.length() {
+    return make_traceback_value(frames, builtins_dict, span)
+  }
+  let mut next_value : Value = Value::None
+  let mut i = frames.length()
+  while i > 0 {
+    i = i - 1
+    let frame = frames[i]
+    let env = envs[i]
+    let frame_value = make_frame_value(frame, builtins_dict)
+    let is_deepest = i == frames.length() - 1
+    let mut tb_lasti = -1
+    let mut col0_opt : Int? = None
+    let mut end0_opt : Int? = None
+    if frame.end_column > 0 {
+      let mut col0 = frame.column - 1
+      if col0 < 0 {
+        col0 = 0
+      }
+      let mut end0 = frame.end_column - 1
+      if end0 <= col0 {
+        end0 = col0 + 1
+      }
+      tb_lasti = 0
+      col0_opt = Some(col0)
+      end0_opt = Some(end0)
+    } else if is_deepest {
+      match span {
+        Some(s) => {
+          let mut col0 = s.column - 1
+          if col0 < 0 {
+            col0 = 0
+          }
+          let mut width = s.end - s.start
+          if width <= 0 {
+            width = 1
+          }
+          tb_lasti = 0
+          col0_opt = Some(col0)
+          end0_opt = Some(col0 + width)
+        }
+        None => ()
+      }
+    }
+    match (col0_opt, end0_opt) {
+      (Some(col0), Some(end0)) =>
+        match frame_value {
+          Value::Instance(inst) =>
+            match get_named_value(inst.dict, "f_code") {
+              Some(Value::Instance(code_inst)) =>
+                set_named_value(
+                  code_inst.dict,
+                  "__mpython_co_positions",
+                  Value::List([
+                    Value::Tuple([
+                      Value::None,
+                      Value::None,
+                      Value::Int(@bigint.BigInt::from_int(col0)),
+                      Value::Int(@bigint.BigInt::from_int(end0)),
+                    ]),
+                  ]),
+                )
+              _ => ()
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+    match frame_value {
+      Value::Instance(inst) => {
+        let locals_pairs : Array[(Value, Value)] = []
+        for pair in env.locals {
+          if pair.0.has_prefix("$__") {
+            continue
+          }
+          let value_opt = if is_cell_value(pair.1) {
+            cell_get_value(pair.1)
+          } else {
+            Some(pair.1)
+          }
+          match value_opt {
+            Some(v) => locals_pairs.push((Value::Str(pair.0), v))
+            None => ()
+          }
+        }
+        set_named_value(inst.dict, "f_locals", Value::Dict(locals_pairs))
+        let globals_pairs : Array[(Value, Value)] = []
+        for pair in env.globals {
+          if pair.0.has_prefix("$__") {
+            continue
+          }
+          globals_pairs.push((Value::Str(pair.0), pair.1))
+        }
+        // Preserve any pre-populated globals markers (e.g. __unittest).
+        match get_named_value(inst.dict, "f_globals") {
+          Some(Value::Dict(existing)) =>
+            for gp in globals_pairs {
+              existing.push(gp)
+            }
+          _ =>
+            set_named_value(inst.dict, "f_globals", Value::Dict(globals_pairs))
+        }
+        let tb_value = Value::Instance(InstanceValue::{
+          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          dict: [
+            ("tb_frame", Value::Instance(inst)),
+            ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+            ("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+            ("tb_next", next_value),
+            ("tb_lasti", Value::Int(@bigint.BigInt::from_int(tb_lasti))),
+          ],
+        })
+        next_value = tb_value
+      }
+      _ => {
+        // Fallback: keep the original behavior.
+        let tb_value = Value::Instance(InstanceValue::{
+          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          dict: [
+            ("tb_frame", frame_value),
+            ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
+            ("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
+            ("tb_next", next_value),
+            ("tb_lasti", Value::Int(@bigint.BigInt::from_int(tb_lasti))),
+          ],
+        })
+        next_value = tb_value
+      }
+    }
   }
   next_value
 }
@@ -657,6 +996,7 @@ fn exception_value_from_runtime_error(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Value {
+  let frame_builtins_dict = frame_builtins_dict_from_builtins(builtins)
   fn maybe_populate_os_error(
     dict : Array[(String, Value)],
     err : RuntimeError,
@@ -696,7 +1036,9 @@ fn exception_value_from_runtime_error(
     err : RuntimeError,
     globals : Array[(String, Value)],
   ) -> Unit {
-    if err.exc_type != "SyntaxError" {
+    if err.exc_type != "SyntaxError" &&
+      err.exc_type != "IndentationError" &&
+      err.exc_type != "TabError" {
       return
     }
     // CPython's traceback helpers expect these fields on SyntaxError instances.
@@ -704,8 +1046,16 @@ fn exception_value_from_runtime_error(
       Some(Value::Str(name)) => name
       _ => "<module>".to_string()
     }
-    set_named_value(dict, "filename", Value::Str(filename))
-    set_named_value(dict, "msg", Value::Str(err.message))
+    match get_named_value(dict, "filename") {
+      None | Some(Value::None) =>
+        set_named_value(dict, "filename", Value::Str(filename))
+      _ => ()
+    }
+    match get_named_value(dict, "msg") {
+      None | Some(Value::None) =>
+        set_named_value(dict, "msg", Value::Str(err.message))
+      _ => ()
+    }
     // `traceback` and `unittest` expect this to exist even when we don't have
     // access to the full source line.
     if get_named_value(dict, "text") is None {
@@ -713,26 +1063,54 @@ fn exception_value_from_runtime_error(
     }
     match err.span {
       Some(span) => {
-        set_named_value(
-          dict,
-          "lineno",
-          Value::Int(@bigint.BigInt::from_int(span.line)),
-        )
-        set_named_value(
-          dict,
-          "offset",
-          Value::Int(@bigint.BigInt::from_int(span.column)),
-        )
-        set_named_value(
-          dict,
-          "end_lineno",
-          Value::Int(@bigint.BigInt::from_int(span.line)),
-        )
-        set_named_value(
-          dict,
-          "end_offset",
-          Value::Int(@bigint.BigInt::from_int(span.column)),
-        )
+        let has_lineno = match get_named_value(dict, "lineno") {
+          None | Some(Value::None) => false
+          Some(_) => true
+        }
+        let has_offset = match get_named_value(dict, "offset") {
+          None | Some(Value::None) => false
+          Some(_) => true
+        }
+        match get_named_value(dict, "lineno") {
+          None | Some(Value::None) =>
+            set_named_value(
+              dict,
+              "lineno",
+              Value::Int(@bigint.BigInt::from_int(span.line)),
+            )
+          _ => ()
+        }
+        match get_named_value(dict, "offset") {
+          None | Some(Value::None) =>
+            set_named_value(
+              dict,
+              "offset",
+              Value::Int(@bigint.BigInt::from_int(span.column)),
+            )
+          _ => ()
+        }
+        match get_named_value(dict, "end_lineno") {
+          None | Some(Value::None) =>
+            if !has_lineno {
+              set_named_value(
+                dict,
+                "end_lineno",
+                Value::Int(@bigint.BigInt::from_int(span.line)),
+              )
+            }
+          _ => ()
+        }
+        match get_named_value(dict, "end_offset") {
+          None | Some(Value::None) =>
+            if !has_offset {
+              set_named_value(
+                dict,
+                "end_offset",
+                Value::Int(@bigint.BigInt::from_int(span.column)),
+              )
+            }
+          _ => ()
+        }
       }
       None => ()
     }
@@ -742,11 +1120,13 @@ fn exception_value_from_runtime_error(
     Some(Value::Instance(inst)) => {
       // Keep the existing exception object, but sync core metadata so
       // context managers (assertRaises, etc.) see a proper exc_type/value/tb.
-      set_named_value(
-        inst.dict,
-        "__traceback__",
-        make_traceback_value(err.traceback),
+      let tb_value = make_traceback_value_with_env(
+        err.traceback,
+        err.traceback_envs,
+        frame_builtins_dict,
+        err.span,
       )
+      set_named_value(inst.dict, "__traceback__", tb_value)
       set_named_value(
         inst.dict,
         "__cause__",
@@ -785,50 +1165,235 @@ fn exception_value_from_runtime_error(
       positional.push(Value::Str(arg))
     }
   }
+  fn clone_values(values : Array[Value]) -> Array[Value] {
+    let out : Array[Value] = []
+    for v in values {
+      out.push(v)
+    }
+    out
+  }
+
+  fn attach_exc_metadata(
+    inst : InstanceValue,
+    positional : Array[Value],
+    err : RuntimeError,
+    globals : Array[(String, Value)],
+  ) -> Unit {
+    fn parse_single_quoted_name(text : String) -> String? {
+      let chars = text.to_array()
+      let mut start = -1
+      for i = 0; i < chars.length(); i = i + 1 {
+        if chars[i] == '\'' {
+          start = i + 1
+          break
+        }
+      }
+      if start < 0 || start >= chars.length() {
+        return None
+      }
+      let mut end = -1
+      for j = start; j < chars.length(); j = j + 1 {
+        if chars[j] == '\'' {
+          end = j
+          break
+        }
+      }
+      if end < 0 || end < start {
+        return None
+      }
+      let buf = StringBuilder::new()
+      for k = start; k < end; k = k + 1 {
+        buf.write_char(chars[k])
+      }
+      Some(buf.to_string())
+    }
+
+    set_named_value(inst.dict, "args", Value::Tuple(positional))
+    set_named_value(
+      inst.dict,
+      "__traceback__",
+      make_traceback_value_with_env(
+        err.traceback,
+        err.traceback_envs,
+        frame_builtins_dict,
+        err.span,
+      ),
+    )
+    set_named_value(
+      inst.dict,
+      "__cause__",
+      match err.exc_cause {
+        Some(v) => v
+        None => Value::None
+      },
+    )
+    set_named_value(
+      inst.dict,
+      "__context__",
+      match err.exc_context {
+        Some(v) => v
+        None => Value::None
+      },
+    )
+    set_named_value(
+      inst.dict,
+      "__suppress_context__",
+      Value::Bool(err.exc_suppress_context),
+    )
+    // CPython exposes `NameError.name` (and UnboundLocalError.name) to power
+    // suggestion formatting in traceback.py.
+    if err.exc_type == "NameError" {
+      match get_named_value(inst.dict, "name") {
+        Some(Value::None) | None =>
+          match get_named_value(inst.dict, "args") {
+            Some(Value::Tuple(args)) if args.length() > 0 =>
+              match args[0] {
+                Value::Str(msg) =>
+                  match parse_single_quoted_name(msg) {
+                    Some(name) =>
+                      set_named_value(inst.dict, "name", Value::Str(name))
+                    None => ()
+                  }
+                _ => ()
+              }
+            _ => ()
+          }
+        Some(_) => ()
+      }
+    }
+    // For "from X import Y" errors, CPython populates ImportError.name and
+    // ImportError.name_from for suggestion formatting in traceback.py.
+    if err.exc_type == "ImportError" {
+      let has_name_from = match get_named_value(inst.dict, "name_from") {
+        Some(Value::None) | None => false
+        Some(_) => true
+      }
+      if !has_name_from {
+        match get_named_value(inst.dict, "args") {
+          Some(Value::Tuple(args)) if args.length() > 0 =>
+            match args[0] {
+              Value::Str(msg) =>
+                // Best-effort parse "cannot import name '<name_from>' from '<module>'".
+                match parse_single_quoted_name(msg) {
+                  Some(name_from) => {
+                    let chars = msg.to_array()
+                    // Find the next quoted segment after the first closing quote.
+                    let mut start2 = -1
+                    let mut end1 = -1
+                    let mut saw_first = false
+                    for i = 0; i < chars.length(); i = i + 1 {
+                      if chars[i] == '\'' {
+                        if !saw_first {
+                          // first quote
+                          saw_first = true
+                        } else if end1 < 0 {
+                          // end of first segment
+                          end1 = i
+                          break
+                        }
+                      }
+                    }
+                    if end1 >= 0 {
+                      for j = end1 + 1; j < chars.length(); j = j + 1 {
+                        if chars[j] == '\'' {
+                          start2 = j + 1
+                          break
+                        }
+                      }
+                    }
+                    if start2 >= 0 && start2 < chars.length() {
+                      let mut end2 = -1
+                      for k = start2; k < chars.length(); k = k + 1 {
+                        if chars[k] == '\'' {
+                          end2 = k
+                          break
+                        }
+                      }
+                      if end2 > start2 {
+                        let buf = StringBuilder::new()
+                        for k = start2; k < end2; k = k + 1 {
+                          buf.write_char(chars[k])
+                        }
+                        let mod_name = buf.to_string()
+                        set_named_value(
+                          inst.dict,
+                          "name_from",
+                          Value::Str(name_from),
+                        )
+                        set_named_value(inst.dict, "name", Value::Str(mod_name))
+                      }
+                    }
+                  }
+                  None => ()
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+      }
+    }
+    maybe_populate_syntax_error(inst.dict, err, globals)
+    maybe_populate_os_error(inst.dict, err)
+  }
+
+  fn fallback_instance_for_class(
+    klass : ClassValue,
+    positional : Array[Value],
+    err : RuntimeError,
+    globals : Array[(String, Value)],
+  ) -> Value {
+    let dict : Array[(String, Value)] = []
+    let inst = InstanceValue::{ class: klass, dict }
+    attach_exc_metadata(inst, positional, err, globals)
+    Value::Instance(inst)
+  }
+
   match get_named_value(builtins, err.exc_type) {
     Some(Value::Class(klass)) =>
       match
         call_callable_with_env(
           Value::Class(klass),
-          positional,
+          clone_values(positional),
           [],
           globals,
           builtins,
           io,
         ) {
         Ok(Value::Instance(inst)) => {
-          set_named_value(
-            inst.dict,
-            "__traceback__",
-            make_traceback_value(err.traceback),
-          )
-          set_named_value(
-            inst.dict,
-            "__cause__",
-            match err.exc_cause {
-              Some(v) => v
-              None => Value::None
-            },
-          )
-          set_named_value(
-            inst.dict,
-            "__context__",
-            match err.exc_context {
-              Some(v) => v
-              None => Value::None
-            },
-          )
-          set_named_value(
-            inst.dict,
-            "__suppress_context__",
-            Value::Bool(err.exc_suppress_context),
-          )
-          maybe_populate_syntax_error(inst.dict, err, globals)
+          attach_exc_metadata(inst, clone_values(positional), err, globals)
           Value::Instance(inst)
         }
-        _ => Value::Str(format_runtime_error(err))
+        _ =>
+          // If constructing with args fails (e.g. ExceptionGroup), still return
+          // a real exception instance so higher-level helpers can set attributes
+          // like `__traceback__` without crashing.
+          match
+            call_callable_with_env(
+              Value::Class(klass),
+              [],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(Value::Instance(inst)) => {
+              attach_exc_metadata(inst, clone_values(positional), err, globals)
+              Value::Instance(inst)
+            }
+            _ =>
+              fallback_instance_for_class(
+                klass,
+                clone_values(positional),
+                err,
+                globals,
+              )
+          }
       }
-    _ => Value::Str(format_runtime_error(err))
+    _ => {
+      // Unknown exception type: fall back to a generic Exception instance.
+      let klass = builtin_class_from_name("Exception", builtins)
+      fallback_instance_for_class(klass, clone_values(positional), err, globals)
+    }
   }
 }
 
@@ -1211,6 +1776,8 @@ fn eval_block_flow(
         type_params~,
         params~,
         defaults~,
+        annotations~,
+        return_annotation~,
         body~,
         is_generator~,
         is_async~
@@ -1234,6 +1801,48 @@ fn eval_block_flow(
           }
           default_values.push(value)
         }
+        let ann_pairs : Array[(Value, Value)] = []
+        let future_on = match
+          get_global_value(globals, "__mpython_future_annotations__") {
+          Some(Value::Bool(true)) => true
+          _ => false
+        }
+        if !future_on {
+          for ann in annotations {
+            let key = ann.0
+            let expr = ann.1
+            let value = match
+              eval_expr_with_env(expr, locals, globals, builtins, io) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+            let _ = match dict_set_item(ann_pairs, Value::Str(key), value) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+
+          }
+          match return_annotation {
+            Some(expr) => {
+              let value = match
+                eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+              let _ = match
+                dict_set_item(
+                  ann_pairs,
+                  Value::Str("return".to_string()),
+                  value,
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+
+            }
+            None => ()
+          }
+        }
         let template = FunctionValue::{
           name,
           params,
@@ -1250,6 +1859,24 @@ fn eval_block_flow(
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
+        }
+        if ann_pairs.length() > 0 {
+          match defined {
+            Value::Function(func) => {
+              let pairs = function_attr_dict(func)
+              let _ = match
+                dict_set_item(
+                  pairs,
+                  Value::Str("__annotations__".to_string()),
+                  Value::Dict(ann_pairs),
+                ) {
+                Ok(v) => v
+                Err(err) => return Err(err)
+              }
+
+            }
+            _ => ()
+          }
         }
         set_scoped_value(locals, globals, name, defined)
         last = Value::None
@@ -1322,13 +1949,8 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
             let err0 = match inst_value {
-              Value::Instance(inst) => {
-                // Treat `raise exc` as a fresh raise; any stale traceback on a
-                // reused exception instance must not "win" over the current
-                // call stack.
-                set_named_value(inst.dict, "__traceback__", Value::None)
+              Value::Instance(inst) =>
                 runtime_error_from_exception_instance(inst)
-              }
               _ =>
                 return Err(
                   make_runtime_error(
@@ -1347,6 +1969,7 @@ fn eval_block_flow(
                   message: err0.message,
                   span: err0.span,
                   traceback: err0.traceback,
+                  traceback_envs: err0.traceback_envs,
                   exc_type: err0.exc_type,
                   exc_args: err0.exc_args,
                   exc_value: err0.exc_value,
@@ -1381,6 +2004,7 @@ fn eval_block_flow(
                   message: err1.message,
                   span: err1.span,
                   traceback: err1.traceback,
+                  traceback_envs: err1.traceback_envs,
                   exc_type: err1.exc_type,
                   exc_args: err1.exc_args,
                   exc_value: err1.exc_value,
@@ -1399,7 +2023,12 @@ fn eval_block_flow(
                 set_named_value(
                   inst.dict,
                   "__traceback__",
-                  make_traceback_value(err2.traceback),
+                  make_traceback_value_with_env(
+                    err2.traceback,
+                    err2.traceback_envs,
+                    frame_builtins_dict_from_builtins(builtins),
+                    err2.span,
+                  ),
                 )
                 set_named_value(
                   inst.dict,
@@ -1469,6 +2098,18 @@ fn eval_block_flow(
           resolve_relative_module_name(module_name, globals) {
           Ok(v) => v
           Err(err) => return Err(err)
+        }
+        if resolved_name == "__future__" {
+          for item in names {
+            if item.0 == "annotations" {
+              set_global_value(
+                globals,
+                "__mpython_future_annotations__",
+                Value::Bool(true),
+              )
+              break
+            }
+          }
         }
         let module_value = match
           import_module(resolved_name, globals, builtins, io, config) {
@@ -1623,7 +2264,11 @@ fn eval_block_flow(
               Value::Instance(inst) => Value::Class(inst.class)
               _ => Value::Str(err.exc_type)
             }
-            let tb_value = make_traceback_value(err.traceback)
+            let tb_value = make_traceback_value(
+              err.traceback,
+              Value::Dict([]),
+              err.span,
+            )
             let exit_result = match
               call_callable_with_env(
                 exit_value,
@@ -1722,7 +2367,11 @@ fn eval_block_flow(
             // For `__aexit__`, we currently pass the exception *type name* (string),
             // matching the expectations in `async_test.mbt`.
             let exc_type_value = Value::Str(err.exc_type)
-            let tb_value = make_traceback_value(err.traceback)
+            let tb_value = make_traceback_value(
+              err.traceback,
+              Value::Dict([]),
+              err.span,
+            )
             // exception exit: suppress if await aexit(...) is truthy
             let exit_call = match
               call_callable_with_env(

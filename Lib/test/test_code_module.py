@@ -7,6 +7,9 @@ from contextlib import ExitStack
 from unittest import mock
 from test.support import import_helper
 
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: interactive console/sys.excepthook semantics not implemented")
+
 
 code = import_helper.import_module('code')
 

@@ -18,45 +18,53 @@ priv struct VmBlock {
   stack_height : Int
   // Whether this block pushed an active exception onto `active_exception_stack`.
   pushed_exc : Bool
+  // `except*` state (stored on the active ExceptHandler block).
+  star_base_err : RuntimeError?
+  star_remaining_group : Value?
+  star_active_match : Bool
 }
 
 ///|
-fn vm_trim_traceback_for_active_handler(
-  frames : Array[TracebackFrame],
-) -> Array[TracebackFrame] {
-  let depth = active_frame_stack.val.length()
-  if depth == 0 || frames.length() == 0 {
-    return frames
-  }
-  let start = depth - 1
-  if start <= 0 || start >= frames.length() {
-    return frames
-  }
-  let out : Array[TracebackFrame] = []
-  for i = start; i < frames.length(); i = i + 1 {
-    out.push(frames[i])
-  }
-  out
-}
 
 ///|
 fn vm_trim_runtime_error_for_active_handler(err : RuntimeError) -> RuntimeError {
-  let trimmed = vm_trim_traceback_for_active_handler(err.traceback)
-  if trimmed.length() == err.traceback.length() {
-    err
-  } else {
-    RuntimeError::{
-      kind: err.kind,
-      message: err.message,
-      span: err.span,
-      traceback: trimmed,
-      exc_type: err.exc_type,
-      exc_args: err.exc_args,
-      exc_value: err.exc_value,
-      exc_cause: err.exc_cause,
-      exc_context: err.exc_context,
-      exc_suppress_context: err.exc_suppress_context,
+  // See `runtime_block.mbt::trim_runtime_error_for_active_handler`.
+  let active_len = active_frame_stack.val.length()
+  if active_len <= 1 {
+    return err
+  }
+  // Only trim when the traceback appears to be a full snapshot of the active
+  // frame stack. With incremental traceback growth (caller-frame injection),
+  // trimming here would incorrectly drop legitimate outer frames.
+  if err.traceback.length() != active_len {
+    return err
+  }
+  let drop = active_len - 1
+  if err.traceback.length() <= drop {
+    return err
+  }
+  let trimmed_tb : Array[TracebackFrame] = []
+  for i = drop; i < err.traceback.length(); i = i + 1 {
+    trimmed_tb.push(err.traceback[i])
+  }
+  let trimmed_envs : Array[TracebackEnv] = []
+  if err.traceback_envs.length() == err.traceback.length() {
+    for i = drop; i < err.traceback_envs.length(); i = i + 1 {
+      trimmed_envs.push(err.traceback_envs[i])
     }
+  }
+  RuntimeError::{
+    kind: err.kind,
+    message: err.message,
+    span: err.span,
+    traceback: trimmed_tb,
+    traceback_envs: trimmed_envs,
+    exc_type: err.exc_type,
+    exc_args: err.exc_args,
+    exc_value: err.exc_value,
+    exc_cause: err.exc_cause,
+    exc_context: err.exc_context,
+    exc_suppress_context: err.exc_suppress_context,
   }
 }
 
@@ -121,6 +129,7 @@ fn unary_op_value(
       match value {
         Value::Int(v) => Ok(Value::Int(-v))
         Value::Float(v) => Ok(Value::Float(-v))
+        Value::Complex(real, imag) => Ok(Value::Complex(-real, -imag))
         Value::Bool(v) => Ok(Value::Int(-(if v { 1N } else { 0N })))
         other =>
           match get_attr_from_value(other, "__neg__", globals, builtins, io) {
@@ -141,7 +150,8 @@ fn unary_op_value(
       }
     UnaryOp::Pos =>
       match value {
-        Value::Int(_) | Value::Float(_) | Value::Bool(_) => Ok(value)
+        Value::Bool(v) => Ok(Value::Int(if v { 1N } else { 0N }))
+        Value::Int(_) | Value::Float(_) | Value::Complex(_, _) => Ok(value)
         other =>
           match get_attr_from_value(other, "__pos__", globals, builtins, io) {
             Ok(callable) =>
@@ -156,6 +166,59 @@ fn unary_op_value(
     UnaryOp::Invert =>
       match value {
         Value::Int(v) => Ok(Value::Int(-(v + 1N)))
+        Value::Bool(v) => {
+          // CPython 3.13+: `~bool` is deprecated.
+          let import_value = match get_named_value(builtins, "__import__") {
+            Some(v) => v
+            None =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Runtime,
+                  "missing builtins.__import__".to_string(),
+                ),
+              )
+          }
+          let warnings_module = match
+            call_callable_with_env(
+              import_value,
+              [Value::Str("warnings")],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let warn_fn = match
+            get_attr_from_value(warnings_module, "warn", globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let category = match get_named_value(builtins, "DeprecationWarning") {
+            Some(Value::Class(k)) => Value::Class(k)
+            _ => Value::None
+          }
+          let _ = match
+            call_callable_with_env(
+              warn_fn,
+              [
+                Value::Str(
+                  "Bitwise inversion on bool is deprecated".to_string(),
+                ),
+                category,
+                Value::Int(2N),
+              ],
+              [],
+              globals,
+              builtins,
+              io,
+            ) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          Ok(Value::Int(-((if v { 1N } else { 0N }) + 1N)))
+        }
         other =>
           match
             get_attr_from_value(other, "__invert__", globals, builtins, io) {
@@ -968,75 +1031,6 @@ fn delete_subscr_value(
 }
 
 ///|
-fn vm_make_frame_value(frame : TracebackFrame) -> Value {
-  let globals_pairs : Array[(Value, Value)] = []
-  if frame.filename.contains("/Lib/unittest/") ||
-    frame.filename.contains("\\Lib\\unittest\\") {
-    globals_pairs.push((Value::Str("__unittest"), Value::Bool(true)))
-  }
-  let code_value = Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "code", bases: [], dict: [] },
-    dict: [
-      ("co_filename", Value::Str(frame.filename)),
-      ("co_name", Value::Str(frame.name)),
-      ("co_firstlineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
-    ],
-  })
-  Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "frame", bases: [], dict: [] },
-    dict: [
-      ("f_name", Value::Str(frame.name)),
-      ("f_filename", Value::Str(frame.filename)),
-      ("f_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
-      ("f_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
-      ("f_code", code_value),
-      ("f_back", Value::None),
-      ("f_globals", Value::Dict(globals_pairs)),
-      ("f_locals", Value::Dict([])),
-    ],
-  })
-}
-
-///|
-fn vm_make_traceback_value(frames : Array[TracebackFrame]) -> Value {
-  if frames.length() == 0 {
-    let frame_value = vm_make_frame_value(TracebackFrame::{
-      name: "<module>",
-      filename: "<module>",
-      line: 1,
-      column: 1,
-    })
-    return Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
-      dict: [
-        ("tb_frame", frame_value),
-        ("tb_lineno", Value::Int(1N)),
-        ("tb_colno", Value::Int(1N)),
-        ("tb_next", Value::None),
-        ("tb_lasti", Value::Int(-1N)),
-      ],
-    })
-  }
-  let mut next_value : Value = Value::None
-  let mut i = frames.length()
-  while i > 0 {
-    i = i - 1
-    let frame = frames[i]
-    let frame_value = vm_make_frame_value(frame)
-    let tb_value = Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
-      dict: [
-        ("tb_frame", frame_value),
-        ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
-        ("tb_colno", Value::Int(@bigint.BigInt::from_int(frame.column))),
-        ("tb_next", next_value),
-        ("tb_lasti", Value::Int(@bigint.BigInt::from_int(i))),
-      ],
-    })
-    next_value = tb_value
-  }
-  next_value
-}
 
 ///|
 fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
@@ -1053,6 +1047,9 @@ fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
           kind: VmBlockKind::FinallyHandler,
           stack_height: stack.length(),
           pushed_exc: false,
+          star_base_err: None,
+          star_remaining_group: None,
+          star_active_match: false,
         })
         return Some(target)
       }
@@ -1079,6 +1076,138 @@ pub fn bc_exec(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  fn refresh_raised_exception_traceback(
+    inst : InstanceValue,
+    err : RuntimeError,
+  ) -> RuntimeError {
+    // `raise exc` uses the raise site for outer frames, but when raising an
+    // already-caught exception instance that carries an existing traceback, we
+    // must preserve its original tail (see CPython's test_traceback).
+    let current_tb = snapshot_traceback()
+    let current_envs = snapshot_frame_env_stack()
+    let has_existing_tb = match get_named_value(inst.dict, "__traceback__") {
+      Some(Value::None) => false
+      Some(_) => true
+      None => false
+    }
+    if has_existing_tb {
+      // `runtime_error_from_exception_instance` uses the instance's traceback
+      // when present; treat that as the tail we need to preserve.
+      let tail = err.traceback
+      let combined : Array[TracebackFrame] = []
+      for f in current_tb {
+        combined.push(f)
+      }
+      for f in tail {
+        combined.push(f)
+      }
+      RuntimeError::{
+        kind: err.kind,
+        message: err.message,
+        span: err.span,
+        traceback: combined,
+        traceback_envs: current_envs,
+        exc_type: err.exc_type,
+        exc_args: err.exc_args,
+        exc_value: err.exc_value,
+        exc_cause: err.exc_cause,
+        exc_context: err.exc_context,
+        exc_suppress_context: err.exc_suppress_context,
+      }
+    } else {
+      RuntimeError::{
+        kind: err.kind,
+        message: err.message,
+        span: err.span,
+        traceback: current_tb,
+        traceback_envs: current_envs,
+        exc_type: err.exc_type,
+        exc_args: err.exc_args,
+        exc_value: err.exc_value,
+        exc_cause: err.exc_cause,
+        exc_context: err.exc_context,
+        exc_suppress_context: err.exc_suppress_context,
+      }
+    }
+  }
+
+  fn prepend_current_callsite_frame(
+    err : RuntimeError,
+    callsite_span : Span?,
+  ) -> RuntimeError {
+    // When an exception bubbles out of a callee back to its caller (even if the
+    // caller catches it), CPython adds the caller frame (at the call site) to
+    // the traceback chain. Do the same here so stdlib formatting (notably
+    // ExceptionGroup reporting in Lib/test/test_traceback.py) matches.
+    let active_frames = active_frame_stack.val
+    if active_frames.length() == 0 {
+      return err
+    }
+    let caller_raw = active_frames[active_frames.length() - 1]
+    let caller_frame = match callsite_span {
+      Some(s) => {
+        let mut width = s.end - s.start
+        if width <= 0 {
+          width = 1
+        }
+        let end_column = if width > 512 { 0 } else { s.column + width }
+        TracebackFrame::{
+          name: caller_raw.name,
+          filename: caller_raw.filename,
+          line: s.line,
+          column: s.column,
+          end_column,
+        }
+      }
+      None => caller_raw
+    }
+    if err.traceback.length() > 0 {
+      let head = err.traceback[0]
+      if head.name == caller_frame.name &&
+        head.filename == caller_frame.filename &&
+        head.line == caller_frame.line &&
+        // Avoid duplicating frames for errors raised directly in the caller
+        // frame (e.g. builtins). For recursive unwinding, we still want
+        // repeated frames so traceback.py can shrink them.
+        err.traceback.length() == 1 &&
+        err.exc_type != "RecursionError" {
+        return err
+      }
+    }
+    let combined_frames : Array[TracebackFrame] = []
+    combined_frames.push(caller_frame)
+    for f in err.traceback {
+      combined_frames.push(f)
+    }
+    let combined_envs : Array[TracebackEnv] = []
+    if err.traceback_envs.length() == err.traceback.length() {
+      let env_stack = active_frame_env_stack.val
+      if env_stack.length() > 0 {
+        combined_envs.push(env_stack[env_stack.length() - 1])
+        for env in err.traceback_envs {
+          combined_envs.push(env)
+        }
+      }
+    }
+    RuntimeError::{
+      kind: err.kind,
+      message: err.message,
+      span: err.span,
+      traceback: combined_frames,
+      traceback_envs: if combined_envs.length() == combined_frames.length() {
+        combined_envs
+      } else {
+        err.traceback_envs
+      },
+      exc_type: err.exc_type,
+      exc_args: err.exc_args,
+      exc_value: err.exc_value,
+      exc_cause: err.exc_cause,
+      exc_context: err.exc_context,
+      exc_suppress_context: err.exc_suppress_context,
+    }
+  }
+
   let stack : Array[Value] = []
   let blocks : Array[VmBlock] = []
   let mut pending_exc : RuntimeError? = None
@@ -1086,6 +1215,56 @@ pub fn bc_exec(
   let mut pending_jump_target : Int? = None
   let mut pending_jump_count = 0
   let mut pc = 0
+  fn find_current_except_handler_block(blocks : Array[VmBlock]) -> Int? {
+    let mut i = blocks.length()
+    while i > 0 {
+      i = i - 1
+      match blocks[i].kind {
+        VmBlockKind::ExceptHandler => return Some(i)
+        _ => ()
+      }
+    }
+    None
+  }
+
+  fn find_except_star_handler_block(blocks : Array[VmBlock]) -> Int? {
+    let mut i = blocks.length()
+    while i > 0 {
+      i = i - 1
+      match blocks[i].kind {
+        VmBlockKind::ExceptHandler =>
+          match blocks[i].star_base_err {
+            Some(_) => return Some(i)
+            None => ()
+          }
+        _ => ()
+      }
+    }
+    None
+  }
+
+  fn ensure_except_star_handler_classes(
+    handler_classes : Array[ClassValue],
+  ) -> Result[Unit, RuntimeError] {
+    for klass in handler_classes {
+      let mro = match class_mro(klass) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      for cls in mro {
+        if cls.name == "BaseExceptionGroup" || cls.name == "ExceptionGroup" {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Type,
+              "except* cannot catch exception groups".to_string(),
+            ),
+          )
+        }
+      }
+    }
+    Ok(())
+  }
+
   while pc < code.ops.length() {
     let op = code.ops[pc]
     let span = code.spans[pc]
@@ -2096,6 +2275,9 @@ pub fn bc_exec(
           kind: VmBlockKind::Except(target),
           stack_height: stack.length(),
           pushed_exc: false,
+          star_base_err: None,
+          star_remaining_group: None,
+          star_active_match: false,
         })
         Ok(())
       }
@@ -2104,6 +2286,9 @@ pub fn bc_exec(
           kind: VmBlockKind::Finally(target),
           stack_height: stack.length(),
           pushed_exc: false,
+          star_base_err: None,
+          star_remaining_group: None,
+          star_active_match: false,
         })
         Ok(())
       }
@@ -2144,6 +2329,9 @@ pub fn bc_exec(
                 kind: VmBlockKind::FinallyHandler,
                 stack_height: blk.stack_height,
                 pushed_exc: false,
+                star_base_err: None,
+                star_remaining_group: None,
+                star_active_match: false,
               })
               next_pc = target
               Ok(())
@@ -2325,6 +2513,290 @@ pub fn bc_exec(
         pending_exc = None
         Ok(())
       }
+      BcOp::EnsureExceptionGroup =>
+        match pending_exc {
+          Some(err) => {
+            let group_value = match
+              exception_group_from_runtime_error(err, globals, builtins, io) {
+              Ok(v) => v
+              Err(e) => return Err(e)
+            }
+            match group_value {
+              Value::Instance(inst) => {
+                let group_err0 = vm_trim_runtime_error_for_active_handler(
+                  runtime_error_from_exception_instance(inst),
+                )
+                // Avoid attaching PEP 657 caret positions to exception-group
+                // dispatch locations (CPython does not show carets for these).
+                let group_err = RuntimeError::{
+                  kind: group_err0.kind,
+                  message: group_err0.message,
+                  span: None,
+                  traceback: group_err0.traceback,
+                  traceback_envs: group_err0.traceback_envs,
+                  exc_type: group_err0.exc_type,
+                  exc_args: group_err0.exc_args,
+                  exc_value: group_err0.exc_value,
+                  exc_cause: group_err0.exc_cause,
+                  exc_context: group_err0.exc_context,
+                  exc_suppress_context: group_err0.exc_suppress_context,
+                }
+                pending_exc = Some(group_err)
+                if active_exception_stack.val.length() > 0 {
+                  let _ = active_exception_stack.val.pop()
+                  active_exception_stack.val.push(group_err)
+                }
+                Ok(())
+              }
+              _ => Ok(())
+            }
+          }
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
+        }
+      BcOp::ExceptStarInit =>
+        match pending_exc {
+          Some(err) => {
+            let group_value = exception_value_from_runtime_error(
+              err, globals, builtins, io,
+            )
+            let idx_opt = find_current_except_handler_block(blocks)
+            match idx_opt {
+              Some(idx) => {
+                let blk = blocks[idx]
+                blocks[idx] = VmBlock::{
+                  kind: blk.kind,
+                  stack_height: blk.stack_height,
+                  pushed_exc: blk.pushed_exc,
+                  star_base_err: Some(err),
+                  star_remaining_group: Some(group_value),
+                  star_active_match: false,
+                }
+                Ok(())
+              }
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: ExceptStarInit without an active except handler".to_string(),
+                  ),
+                )
+            }
+          }
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: no pending exception".to_string(),
+              ),
+            )
+        }
+      BcOp::ExceptStarMatch =>
+        match pop_stack(stack) {
+          Ok(exc_value) => {
+            let idx_opt = find_except_star_handler_block(blocks)
+            match idx_opt {
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: ExceptStarMatch without ExceptStarInit".to_string(),
+                  ),
+                )
+              Some(idx) => {
+                let blk = blocks[idx]
+                match blk.star_remaining_group {
+                  None => {
+                    stack.push(Value::Bool(false))
+                    Ok(())
+                  }
+                  Some(group_value) =>
+                    match handler_classes_from_value(exc_value, builtins) {
+                      Ok(handler_classes) => {
+                        let _ = match
+                          ensure_except_star_handler_classes(handler_classes) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        let (matched_opt, remaining_opt) = match
+                          exception_group_split_by_classes(
+                            group_value, handler_classes, globals, builtins, io,
+                          ) {
+                          Ok(v) => v
+                          Err(err) => return Err(err)
+                        }
+                        match matched_opt {
+                          None => {
+                            stack.push(Value::Bool(false))
+                            Ok(())
+                          }
+                          Some(matched_group) => {
+                            // Update remaining group state for subsequent handlers.
+                            blocks[idx] = VmBlock::{
+                              kind: blk.kind,
+                              stack_height: blk.stack_height,
+                              pushed_exc: blk.pushed_exc,
+                              star_base_err: blk.star_base_err,
+                              star_remaining_group: remaining_opt,
+                              star_active_match: true,
+                            }
+                            // Set the current exception (pending + active) to the matched group.
+                            let match_err0 = match matched_group {
+                              Value::Instance(inst) =>
+                                runtime_error_from_exception_instance(inst)
+                              _ =>
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "except* requires an ExceptionGroup".to_string(),
+                                  ),
+                                )
+                            }
+                            let match_err1 = vm_trim_runtime_error_for_active_handler(
+                              match_err0,
+                            )
+                            let match_err = RuntimeError::{
+                              kind: match_err1.kind,
+                              message: match_err1.message,
+                              span: None,
+                              traceback: match_err1.traceback,
+                              traceback_envs: match_err1.traceback_envs,
+                              exc_type: match_err1.exc_type,
+                              exc_args: match_err1.exc_args,
+                              exc_value: match_err1.exc_value,
+                              exc_cause: match_err1.exc_cause,
+                              exc_context: match_err1.exc_context,
+                              exc_suppress_context: match_err1.exc_suppress_context,
+                            }
+                            pending_exc = Some(match_err)
+                            if active_exception_stack.val.length() == 0 {
+                              return Err(
+                                make_runtime_error(
+                                  RuntimeErrorKind::Runtime,
+                                  "bytecode vm: no active exception".to_string(),
+                                ),
+                              )
+                            }
+                            let _ = active_exception_stack.val.pop()
+                            active_exception_stack.val.push(match_err)
+                            stack.push(Value::Bool(true))
+                            Ok(())
+                          }
+                        }
+                      }
+                      Err(err) => Err(err)
+                    }
+                }
+              }
+            }
+          }
+          Err(err) => Err(err)
+        }
+      BcOp::ExceptStarEndHandler => {
+        let idx_opt = find_except_star_handler_block(blocks)
+        match idx_opt {
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: ExceptStarEndHandler without ExceptStarInit".to_string(),
+              ),
+            )
+          Some(idx) => {
+            let blk = blocks[idx]
+            match (blk.star_base_err, blk.star_active_match) {
+              (Some(base_err), true) => {
+                // Restore the base exception as the active exception for subsequent handler matching.
+                if active_exception_stack.val.length() == 0 {
+                  return Err(
+                    make_runtime_error(
+                      RuntimeErrorKind::Runtime,
+                      "bytecode vm: no active exception".to_string(),
+                    ),
+                  )
+                }
+                let _ = active_exception_stack.val.pop()
+                active_exception_stack.val.push(base_err)
+                blocks[idx] = VmBlock::{
+                  kind: blk.kind,
+                  stack_height: blk.stack_height,
+                  pushed_exc: blk.pushed_exc,
+                  star_base_err: blk.star_base_err,
+                  star_remaining_group: blk.star_remaining_group,
+                  star_active_match: false,
+                }
+              }
+              _ => ()
+            }
+            // Keep pending exception cleared while running handler code.
+            pending_exc = None
+            stack.push(Value::Bool(blk.star_remaining_group is Some(_)))
+            Ok(())
+          }
+        }
+      }
+      BcOp::ExceptStarRaiseRemaining => {
+        let idx_opt = find_except_star_handler_block(blocks)
+        match idx_opt {
+          None =>
+            Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "bytecode vm: ExceptStarRaiseRemaining without ExceptStarInit".to_string(),
+              ),
+            )
+          Some(idx) => {
+            let blk = blocks[idx]
+            match blk.star_remaining_group {
+              None =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Runtime,
+                    "bytecode vm: no remaining exception group".to_string(),
+                  ),
+                )
+              Some(rem) => {
+                let err0 = match rem {
+                  Value::Instance(inst) =>
+                    runtime_error_from_exception_instance(inst)
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "except* requires an ExceptionGroup".to_string(),
+                      ),
+                    )
+                }
+                // Avoid attaching the base exception as implicit context when re-raising
+                // the remaining group: it is logically a continuation of the original.
+                let err = if err0.exc_context is None && err0.exc_cause is None {
+                  RuntimeError::{
+                    kind: err0.kind,
+                    message: err0.message,
+                    span: err0.span,
+                    traceback: err0.traceback,
+                    traceback_envs: err0.traceback_envs,
+                    exc_type: err0.exc_type,
+                    exc_args: err0.exc_args,
+                    exc_value: err0.exc_value,
+                    exc_cause: err0.exc_cause,
+                    exc_context: Some(Value::None),
+                    exc_suppress_context: err0.exc_suppress_context,
+                  }
+                } else {
+                  err0
+                }
+                Err(err)
+              }
+            }
+          }
+        }
+      }
       BcOp::AssertFail =>
         match pop_stack(stack) {
           Ok(msg_value) =>
@@ -2381,7 +2853,14 @@ pub fn bc_exec(
       BcOp::LoadExceptionTraceback =>
         match pending_exc {
           Some(err) => {
-            stack.push(vm_make_traceback_value(err.traceback))
+            stack.push(
+              make_traceback_value_with_env(
+                err.traceback,
+                err.traceback_envs,
+                frame_builtins_dict_from_builtins(builtins),
+                err.span,
+              ),
+            )
             Ok(())
           }
           None =>
@@ -2402,12 +2881,13 @@ pub fn bc_exec(
               ) {
               Ok(inst_value) => {
                 let err0_opt = match inst_value {
-                  Value::Instance(inst) => {
-                    // Treat `raise exc` as a fresh raise; any stale traceback on a
-                    // reused exception instance must not win over the current stack.
-                    set_named_value(inst.dict, "__traceback__", Value::None)
-                    Some(runtime_error_from_exception_instance(inst))
-                  }
+                  Value::Instance(inst) =>
+                    Some(
+                      refresh_raised_exception_traceback(
+                        inst,
+                        runtime_error_from_exception_instance(inst),
+                      ),
+                    )
                   _ => None
                 }
                 match err0_opt {
@@ -2422,6 +2902,7 @@ pub fn bc_exec(
                           message: err0.message,
                           span: err0.span,
                           traceback: err0.traceback,
+                          traceback_envs: err0.traceback_envs,
                           exc_type: err0.exc_type,
                           exc_args: err0.exc_args,
                           exc_value: err0.exc_value,
@@ -2439,7 +2920,12 @@ pub fn bc_exec(
                         set_named_value(
                           inst.dict,
                           "__traceback__",
-                          vm_make_traceback_value(err1.traceback),
+                          make_traceback_value_with_env(
+                            err1.traceback,
+                            err1.traceback_envs,
+                            frame_builtins_dict_from_builtins(builtins),
+                            err1.span,
+                          ),
                         )
                         set_named_value(
                           inst.dict,
@@ -2493,10 +2979,13 @@ pub fn bc_exec(
                   ) {
                   Ok(inst_value) => {
                     let err0_opt = match inst_value {
-                      Value::Instance(inst) => {
-                        set_named_value(inst.dict, "__traceback__", Value::None)
-                        Some(runtime_error_from_exception_instance(inst))
-                      }
+                      Value::Instance(inst) =>
+                        Some(
+                          refresh_raised_exception_traceback(
+                            inst,
+                            runtime_error_from_exception_instance(inst),
+                          ),
+                        )
                       _ => None
                     }
                     match err0_opt {
@@ -2511,6 +3000,7 @@ pub fn bc_exec(
                               message: err0.message,
                               span: err0.span,
                               traceback: err0.traceback,
+                              traceback_envs: err0.traceback_envs,
                               exc_type: err0.exc_type,
                               exc_args: err0.exc_args,
                               exc_value: err0.exc_value,
@@ -2535,6 +3025,7 @@ pub fn bc_exec(
                               message: err1.message,
                               span: err1.span,
                               traceback: err1.traceback,
+                              traceback_envs: err1.traceback_envs,
                               exc_type: err1.exc_type,
                               exc_args: err1.exc_args,
                               exc_value: err1.exc_value,
@@ -2547,7 +3038,12 @@ pub fn bc_exec(
                                 set_named_value(
                                   inst.dict,
                                   "__traceback__",
-                                  vm_make_traceback_value(err2.traceback),
+                                  make_traceback_value_with_env(
+                                    err2.traceback,
+                                    err2.traceback_envs,
+                                    frame_builtins_dict_from_builtins(builtins),
+                                    err2.span,
+                                  ),
                                 )
                                 set_named_value(
                                   inst.dict,
@@ -2846,7 +3342,7 @@ pub fn bc_exec(
                           io,
                           [],
                           [],
-                          [],
+                          current_closure_env(),
                           template.name,
                           filename,
                         )
@@ -2980,7 +3476,8 @@ pub fn bc_exec(
                             stack.push(out)
                             Ok(())
                           }
-                          Err(err) => Err(err)
+                          Err(err) =>
+                            Err(prepend_current_callsite_frame(err, span))
                         }
                       Err(err) => Err(err)
                     }
@@ -2998,7 +3495,7 @@ pub fn bc_exec(
                         stack.push(out)
                         Ok(())
                       }
-                      Err(err) => Err(err)
+                      Err(err) => Err(prepend_current_callsite_frame(err, span))
                     }
                 }
               Err(err) => Err(err)
@@ -3074,7 +3571,10 @@ pub fn bc_exec(
                                     stack.push(out)
                                     Ok(())
                                   }
-                                  Err(err) => Err(err)
+                                  Err(err) =>
+                                    Err(
+                                      prepend_current_callsite_frame(err, span),
+                                    )
                                 }
                               Err(err) => Err(err)
                             }
@@ -3087,7 +3587,8 @@ pub fn bc_exec(
                                 stack.push(out)
                                 Ok(())
                               }
-                              Err(err) => Err(err)
+                              Err(err) =>
+                                Err(prepend_current_callsite_frame(err, span))
                             }
                         }
                       }
@@ -3191,7 +3692,8 @@ pub fn bc_exec(
                                 stack.push(out)
                                 Ok(())
                               }
-                              Err(err) => Err(err)
+                              Err(err) =>
+                                Err(prepend_current_callsite_frame(err, span))
                             }
                           Err(err) => Err(err)
                         }
@@ -3204,7 +3706,8 @@ pub fn bc_exec(
                             stack.push(out)
                             Ok(())
                           }
-                          Err(err) => Err(err)
+                          Err(err) =>
+                            Err(prepend_current_callsite_frame(err, span))
                         }
                     }
                   }
@@ -3231,7 +3734,7 @@ pub fn bc_exec(
                         stack.push(defined)
                         Ok(())
                       }
-                      Err(err) => Err(err)
+                      Err(err) => Err(prepend_current_callsite_frame(err, span))
                     }
                   _ =>
                     Err(
@@ -3253,376 +3756,404 @@ pub fn bc_exec(
               Ok(base_specs_val) =>
                 match pop_n(stack, decorator_count) {
                   Ok(decorator_values) => {
-                    let class_name = code.names[name_idx]
-                    let template_value = code.consts[template]
-                    let body = match template_value {
-                      Value::Function(template_func) => template_func.body
-                      _ =>
-                        return Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Type,
-                            "bytecode vm: MakeClass template is not a function".to_string(),
-                          ),
-                        )
-                    }
-                    let base_specs = match base_specs_val {
-                      Value::List(items) => items
-                      _ =>
-                        return Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Runtime,
-                            "bytecode vm: MakeClass expects base spec list".to_string(),
-                          ),
-                        )
-                    }
-                    let raw_base_values : Array[Value] = []
-                    for spec in base_specs {
-                      match spec {
-                        Value::Tuple(values) if values.length() == 2 =>
-                          match values[0] {
-                            Value::Bool(true) => {
-                              let iter_value = values[1]
-                              let items = match iterable_values(iter_value) {
-                                Ok(v) => v
-                                Err(err) => return Err(err)
-                              }
-                              for item in items {
-                                raw_base_values.push(item)
-                              }
-                            }
-                            Value::Bool(false) =>
-                              raw_base_values.push(values[1])
-                            _ =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Runtime,
-                                  "bytecode vm: invalid base spec".to_string(),
-                                ),
-                              )
-                          }
+                    fn inner() -> Result[Unit, RuntimeError] {
+                      let class_name = code.names[name_idx]
+                      let template_value = code.consts[template]
+                      let body = match template_value {
+                        Value::Function(template_func) => template_func.body
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Type,
+                              "bytecode vm: MakeClass template is not a function".to_string(),
+                            ),
+                          )
+                      }
+                      let base_specs = match base_specs_val {
+                        Value::List(items) => items
                         _ =>
                           return Err(
                             make_runtime_error(
                               RuntimeErrorKind::Runtime,
-                              "bytecode vm: invalid base spec".to_string(),
+                              "bytecode vm: MakeClass expects base spec list".to_string(),
                             ),
                           )
                       }
-                    }
-                    let base_values : Array[Value] = []
-                    for base_value in raw_base_values {
-                      let expanded = match base_value {
-                        Value::Instance(_) =>
-                          match
-                            get_attr_from_value(
-                              base_value, "__mro_entries__", globals, builtins, io,
-                            ) {
-                            Ok(mro_entries) => {
-                              let bases_tuple : Array[Value] = []
-                              for item in raw_base_values {
-                                bases_tuple.push(item)
+                      let raw_base_values : Array[Value] = []
+                      for spec in base_specs {
+                        match spec {
+                          Value::Tuple(values) if values.length() == 2 =>
+                            match values[0] {
+                              Value::Bool(true) => {
+                                let iter_value = values[1]
+                                let items = match iterable_values(iter_value) {
+                                  Ok(v) => v
+                                  Err(err) => return Err(err)
+                                }
+                                for item in items {
+                                  raw_base_values.push(item)
+                                }
                               }
-                              let entries = match
-                                call_callable_with_env(
-                                  mro_entries,
-                                  [Value::Tuple(bases_tuple)],
-                                  [],
-                                  globals,
-                                  builtins,
-                                  io,
-                                ) {
-                                Ok(value) => value
-                                Err(err) => return Err(err)
-                              }
-                              match entries {
-                                Value::Tuple(values) => values
-                                Value::List(values) => values
-                                _ =>
-                                  return Err(
-                                    make_runtime_error(
-                                      RuntimeErrorKind::Type,
-                                      "base class must be a class".to_string(),
-                                    ),
-                                  )
-                              }
+                              Value::Bool(false) =>
+                                raw_base_values.push(values[1])
+                              _ =>
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Runtime,
+                                    "bytecode vm: invalid base spec".to_string(),
+                                  ),
+                                )
                             }
-                            Err(_) =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Type,
-                                  "base class must be a class".to_string(),
-                                ),
-                              )
-                          }
-                        _ => [base_value]
-                      }
-                      for value in expanded {
-                        match value {
-                          Value::Class(_) => base_values.push(value)
-                          Value::Function(func) =>
-                            if func.body.length() == 0 &&
-                              is_builtin_class_name(func.name) {
-                              base_values.push(
-                                Value::Class(
-                                  builtin_class_from_name(func.name, builtins),
-                                ),
-                              )
-                            } else {
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Type,
-                                  "base class must be a class".to_string(),
-                                ),
-                              )
-                            }
-                          other => base_values.push(other)
+                          _ =>
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "bytecode vm: invalid base spec".to_string(),
+                              ),
+                            )
                         }
                       }
-                    }
-                    let keyword_specs = match keyword_specs_val {
-                      Value::List(items) => items
-                      _ =>
-                        return Err(
-                          make_runtime_error(
-                            RuntimeErrorKind::Runtime,
-                            "bytecode vm: MakeClass expects keyword spec list".to_string(),
-                          ),
-                        )
-                    }
-                    let class_kwargs : Array[(String, Value)] = []
-                    let mut metaclass_value : Value? = None
-                    for spec in keyword_specs {
-                      let (key, value) = match spec {
-                        Value::Tuple(values) if values.length() == 2 =>
-                          match values[0] {
-                            Value::Str(k) => (k, values[1])
-                            _ =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Runtime,
-                                  "bytecode vm: class keyword name must be str".to_string(),
-                                ),
-                              )
-                          }
-                        _ =>
-                          return Err(
-                            make_runtime_error(
-                              RuntimeErrorKind::Runtime,
-                              "bytecode vm: invalid class keyword spec".to_string(),
-                            ),
-                          )
-                      }
-                      if key == "**" {
-                        let pairs = match
-                          dict_pairs_from_value("class", value) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                        for pair in pairs {
-                          match pair.0 {
-                            Value::Str(k) =>
-                              if k == "metaclass" {
-                                metaclass_value = Some(pair.1)
-                              } else {
-                                set_global_value(class_kwargs, k, pair.1)
+                      let base_values : Array[Value] = []
+                      for base_value in raw_base_values {
+                        let expanded = match base_value {
+                          Value::Instance(_) =>
+                            match
+                              get_attr_from_value(
+                                base_value, "__mro_entries__", globals, builtins,
+                                io,
+                              ) {
+                              Ok(mro_entries) => {
+                                let bases_tuple : Array[Value] = []
+                                for item in raw_base_values {
+                                  bases_tuple.push(item)
+                                }
+                                let entries = match
+                                  call_callable_with_env(
+                                    mro_entries,
+                                    [Value::Tuple(bases_tuple)],
+                                    [],
+                                    globals,
+                                    builtins,
+                                    io,
+                                  ) {
+                                  Ok(value) => value
+                                  Err(err) => return Err(err)
+                                }
+                                match entries {
+                                  Value::Tuple(values) => values
+                                  Value::List(values) => values
+                                  _ =>
+                                    return Err(
+                                      make_runtime_error(
+                                        RuntimeErrorKind::Type,
+                                        "base class must be a class".to_string(),
+                                      ),
+                                    )
+                                }
                               }
-                            _ =>
-                              return Err(
-                                make_runtime_error(
-                                  RuntimeErrorKind::Type,
-                                  "keywords must be strings".to_string(),
-                                ),
-                              )
-                          }
-                        }
-                        continue
-                      }
-                      if key == "metaclass" {
-                        metaclass_value = Some(value)
-                        continue
-                      }
-                      set_global_value(class_kwargs, key, value)
-                    }
-                    if base_values.length() == 0 {
-                      for pair in builtins {
-                        if pair.0 == "object" {
-                          match pair.1 {
-                            Value::Class(object_class) =>
-                              base_values.push(Value::Class(object_class))
-                            _ => ()
-                          }
-                          break
-                        }
-                      }
-                    }
-                    for base_value in base_values {
-                      match base_value {
-                        Value::Class(base_class) =>
-                          match get_named_value(base_class.dict, "__module__") {
-                            Some(Value::Str(module_name)) =>
-                              if module_name == "builtins" &&
-                                base_class.name == "bool" {
+                              Err(_) =>
                                 return Err(
                                   make_runtime_error(
                                     RuntimeErrorKind::Type,
-                                    "type 'bool' is not an acceptable base type".to_string(),
+                                    "base class must be a class".to_string(),
+                                  ),
+                                )
+                            }
+                          _ => [base_value]
+                        }
+                        for value in expanded {
+                          match value {
+                            Value::Class(_) => base_values.push(value)
+                            Value::Function(func) =>
+                              if func.body.length() == 0 &&
+                                is_builtin_class_name(func.name) {
+                                base_values.push(
+                                  Value::Class(
+                                    builtin_class_from_name(func.name, builtins),
+                                  ),
+                                )
+                              } else {
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "base class must be a class".to_string(),
                                   ),
                                 )
                               }
-                            _ => ()
+                            other => base_values.push(other)
                           }
-                        _ => ()
-                      }
-                    }
-                    let module_name_value = get_global_value(
-                      globals, "__name__",
-                    )
-                    if module_name_value is None {
-                      return Err(
-                        make_runtime_error(
-                          RuntimeErrorKind::Name,
-                          "name '__name__' is not defined",
-                        ),
-                      )
-                    }
-                    let module_name = match module_name_value.unwrap() {
-                      Value::Str(text) => text
-                      other => value_to_string(other)
-                    }
-                    let class_dict : Array[(String, Value)] = []
-                    let mut qualname = class_name
-                    match get_global_value(locals, "__qualname__") {
-                      Some(Value::Str(parent)) =>
-                        qualname = parent + "." + class_name
-                      _ => ()
-                    }
-                    class_dict.push(("__module__", Value::Str(module_name)))
-                    class_dict.push(("__qualname__", Value::Str(qualname)))
-                    ensure_local_cell(class_dict, "__class__", Value::None)
-                    let mut pushed_closure = false
-                    if has_active_closure_env() {
-                      for i = 0; i < locals.length(); i = i + 1 {
-                        let name = locals[i].0
-                        let value = locals[i].1
-                        if !is_cell_value(value) {
-                          ensure_local_cell(locals, name, value)
                         }
                       }
-                      let class_closure = merge_cell_closures(
-                        locals,
-                        current_closure_env(),
+                      let keyword_specs = match keyword_specs_val {
+                        Value::List(items) => items
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Runtime,
+                              "bytecode vm: MakeClass expects keyword spec list".to_string(),
+                            ),
+                          )
+                      }
+                      let class_kwargs : Array[(String, Value)] = []
+                      let mut metaclass_value : Value? = None
+                      for spec in keyword_specs {
+                        let (key, value) = match spec {
+                          Value::Tuple(values) if values.length() == 2 =>
+                            match values[0] {
+                              Value::Str(k) => (k, values[1])
+                              _ =>
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Runtime,
+                                    "bytecode vm: class keyword name must be str".to_string(),
+                                  ),
+                                )
+                            }
+                          _ =>
+                            return Err(
+                              make_runtime_error(
+                                RuntimeErrorKind::Runtime,
+                                "bytecode vm: invalid class keyword spec".to_string(),
+                              ),
+                            )
+                        }
+                        if key == "**" {
+                          let pairs = match
+                            dict_pairs_from_value("class", value) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
+                          }
+                          for pair in pairs {
+                            match pair.0 {
+                              Value::Str(k) =>
+                                if k == "metaclass" {
+                                  metaclass_value = Some(pair.1)
+                                } else {
+                                  set_global_value(class_kwargs, k, pair.1)
+                                }
+                              _ =>
+                                return Err(
+                                  make_runtime_error(
+                                    RuntimeErrorKind::Type,
+                                    "keywords must be strings".to_string(),
+                                  ),
+                                )
+                            }
+                          }
+                          continue
+                        }
+                        if key == "metaclass" {
+                          metaclass_value = Some(value)
+                          continue
+                        }
+                        set_global_value(class_kwargs, key, value)
+                      }
+                      if base_values.length() == 0 {
+                        for pair in builtins {
+                          if pair.0 == "object" {
+                            match pair.1 {
+                              Value::Class(object_class) =>
+                                base_values.push(Value::Class(object_class))
+                              _ => ()
+                            }
+                            break
+                          }
+                        }
+                      }
+                      for base_value in base_values {
+                        match base_value {
+                          Value::Class(base_class) =>
+                            match
+                              get_named_value(base_class.dict, "__module__") {
+                              Some(Value::Str(module_name)) =>
+                                if module_name == "builtins" &&
+                                  base_class.name == "bool" {
+                                  return Err(
+                                    make_runtime_error(
+                                      RuntimeErrorKind::Type,
+                                      "type 'bool' is not an acceptable base type".to_string(),
+                                    ),
+                                  )
+                                }
+                              _ => ()
+                            }
+                          _ => ()
+                        }
+                      }
+                      let module_name_value = get_global_value(
+                        globals, "__name__",
                       )
-                      push_closure_env(class_closure)
-                      pushed_closure = true
-                    }
-                    let flow = match
-                      eval_block_flow(
-                        body,
-                        class_dict,
-                        globals,
-                        builtins,
-                        io,
-                        current_config(),
-                        0,
-                      ) {
-                      Ok(value) => value
-                      Err(err) => return Err(err)
-                    }
-                    if pushed_closure {
-                      pop_closure_env()
-                    }
-                    match flow {
-                      BlockFlow::Normal(_) => ()
-                      _ =>
+                      if module_name_value is None {
                         return Err(
                           make_runtime_error(
-                            RuntimeErrorKind::Runtime,
-                            "SyntaxError: invalid class body".to_string(),
+                            RuntimeErrorKind::Name,
+                            "name '__name__' is not defined",
                           ),
                         )
-                    }
-                    let mut selected_meta = Value::Class(
-                      builtin_class_from_name("type", builtins),
-                    )
-                    match metaclass_value {
-                      Some(v) => selected_meta = v
-                      None =>
-                        for base_value in base_values {
-                          match base_value {
-                            Value::Class(base_class) =>
-                              match
-                                get_named_value(
-                                  base_class.dict,
-                                  "__mpython_metaclass__",
-                                ) {
-                                Some(Value::Class(meta)) => {
-                                  selected_meta = Value::Class(meta)
-                                  break
-                                }
-                                _ => ()
-                              }
-                            _ => ()
+                      }
+                      let module_name = match module_name_value.unwrap() {
+                        Value::Str(text) => text
+                        other => value_to_string(other)
+                      }
+                      let class_dict : Array[(String, Value)] = []
+                      let mut qualname = class_name
+                      match get_global_value(locals, "__qualname__") {
+                        Some(Value::Str(parent)) =>
+                          qualname = parent + "." + class_name
+                        _ => ()
+                      }
+                      class_dict.push(("__module__", Value::Str(module_name)))
+                      class_dict.push(("__qualname__", Value::Str(qualname)))
+                      ensure_local_cell(class_dict, "__class__", Value::None)
+                      let mut pushed_closure = false
+                      if has_active_closure_env() {
+                        for i = 0; i < locals.length(); i = i + 1 {
+                          let name = locals[i].0
+                          let value = locals[i].1
+                          if !is_cell_value(value) {
+                            ensure_local_cell(locals, name, value)
                           }
                         }
-                    }
-                    let namespace_pairs : Array[(Value, Value)] = []
-                    for pair in class_dict {
-                      namespace_pairs.push((Value::Str(pair.0), pair.1))
-                    }
-                    let metaclass_args : Array[Value] = [
-                      Value::Str(class_name),
-                      Value::Tuple(base_values),
-                      Value::Dict(namespace_pairs),
-                    ]
-                    let created_value = match
-                      call_callable_with_env(
-                        selected_meta, metaclass_args, class_kwargs, globals, builtins,
-                        io,
-                      ) {
-                      Ok(v) => v
-                      Err(err) => return Err(err)
-                    }
-                    fn apply_decorators(
-                      defined0 : Value,
-                      decorator_values : Array[Value],
-                      locals : Array[(String, Value)],
-                      globals : Array[(String, Value)],
-                      builtins : Array[(String, Value)],
-                      io : MockIO,
-                    ) -> Result[Value, RuntimeError] {
-                      let mut defined = defined0
-                      for i = decorator_values.length(); i > 0; i = i - 1 {
-                        let decorator_value = decorator_values[i - 1]
-                        defined = match decorator_value {
-                          Value::Function(dec_func) =>
-                            if dec_func.body.length() == 0 {
-                              match
-                                eval_builtin_call(
-                                  dec_func.name,
-                                  [defined],
-                                  [],
-                                  locals,
-                                  globals,
-                                  builtins,
-                                  io,
-                                ) {
-                                Ok(Some(value)) => value
-                                Ok(None) =>
-                                  match
-                                    call_callable_with_env(
-                                      decorator_value,
-                                      [defined],
-                                      [],
-                                      globals,
-                                      builtins,
-                                      io,
-                                    ) {
-                                    Ok(value) => value
-                                    Err(err) => return Err(err)
+                        let class_closure = merge_cell_closures(
+                          locals,
+                          current_closure_env(),
+                        )
+                        push_closure_env(class_closure)
+                        pushed_closure = true
+                      }
+                      let flow = match
+                        eval_block_flow(
+                          body,
+                          class_dict,
+                          globals,
+                          builtins,
+                          io,
+                          current_config(),
+                          0,
+                        ) {
+                        Ok(value) => value
+                        Err(err) => return Err(err)
+                      }
+                      if pushed_closure {
+                        pop_closure_env()
+                      }
+                      match flow {
+                        BlockFlow::Normal(_) => ()
+                        _ =>
+                          return Err(
+                            make_runtime_error(
+                              RuntimeErrorKind::Runtime,
+                              "SyntaxError: invalid class body".to_string(),
+                            ),
+                          )
+                      }
+                      let mut selected_meta = Value::Class(
+                        builtin_class_from_name("type", builtins),
+                      )
+                      match metaclass_value {
+                        Some(v) => selected_meta = v
+                        None =>
+                          for base_value in base_values {
+                            match base_value {
+                              Value::Class(base_class) =>
+                                match
+                                  get_named_value(
+                                    base_class.dict,
+                                    "__mpython_metaclass__",
+                                  ) {
+                                  Some(Value::Class(meta)) => {
+                                    selected_meta = Value::Class(meta)
+                                    break
                                   }
-                                Err(err) => return Err(err)
+                                  _ => ()
+                                }
+                              _ => ()
+                            }
+                          }
+                      }
+                      let namespace_pairs : Array[(Value, Value)] = []
+                      for pair in class_dict {
+                        namespace_pairs.push((Value::Str(pair.0), pair.1))
+                      }
+                      let metaclass_args : Array[Value] = [
+                        Value::Str(class_name),
+                        Value::Tuple(base_values),
+                        Value::Dict(namespace_pairs),
+                      ]
+                      let created_value = match
+                        call_callable_with_env(
+                          selected_meta, metaclass_args, class_kwargs, globals, builtins,
+                          io,
+                        ) {
+                        Ok(v) => v
+                        Err(err) => return Err(err)
+                      }
+                      fn apply_decorators(
+                        defined0 : Value,
+                        decorator_values : Array[Value],
+                        locals : Array[(String, Value)],
+                        globals : Array[(String, Value)],
+                        builtins : Array[(String, Value)],
+                        io : MockIO,
+                      ) -> Result[Value, RuntimeError] {
+                        let mut defined = defined0
+                        for i = decorator_values.length(); i > 0; i = i - 1 {
+                          let decorator_value = decorator_values[i - 1]
+                          defined = match decorator_value {
+                            Value::Function(dec_func) =>
+                              if dec_func.body.length() == 0 {
+                                match
+                                  eval_builtin_call(
+                                    dec_func.name,
+                                    [defined],
+                                    [],
+                                    locals,
+                                    globals,
+                                    builtins,
+                                    io,
+                                  ) {
+                                  Ok(Some(value)) => value
+                                  Ok(None) =>
+                                    match
+                                      call_callable_with_env(
+                                        decorator_value,
+                                        [defined],
+                                        [],
+                                        globals,
+                                        builtins,
+                                        io,
+                                      ) {
+                                      Ok(value) => value
+                                      Err(err) =>
+                                        return Err(
+                                          prepend_current_callsite_frame(
+                                            err, span,
+                                          ),
+                                        )
+                                    }
+                                  Err(err) =>
+                                    return Err(
+                                      prepend_current_callsite_frame(err, span),
+                                    )
+                                }
+                              } else {
+                                match
+                                  call_callable_with_env(
+                                    decorator_value,
+                                    [defined],
+                                    [],
+                                    globals,
+                                    builtins,
+                                    io,
+                                  ) {
+                                  Ok(value) => value
+                                  Err(err) =>
+                                    return Err(
+                                      prepend_current_callsite_frame(err, span),
+                                    )
+                                }
                               }
-                            } else {
+                            _ =>
                               match
                                 call_callable_with_env(
                                   decorator_value,
@@ -3633,242 +4164,259 @@ pub fn bc_exec(
                                   io,
                                 ) {
                                 Ok(value) => value
-                                Err(err) => return Err(err)
+                                Err(err) =>
+                                  return Err(
+                                    prepend_current_callsite_frame(err, span),
+                                  )
+                              }
+                          }
+                        }
+                        Ok(defined)
+                      }
+
+                      match created_value {
+                        Value::Class(klass) => {
+                          match get_named_value(class_dict, "__class__") {
+                            Some(cell) =>
+                              cell_set_value(cell, Value::Class(klass))
+                            None => ()
+                          }
+                          if get_named_value(klass.dict, "hashvalue") is None {
+                            // Some metaclasses (notably EnumMeta) treat setting a
+                            // new int-valued attribute as defining a new enum
+                            // member. Avoid injecting our identity hash into such
+                            // classes to keep stdlib enums (e.g. calendar.Month)
+                            // behaving predictably.
+                            let mut should_set = true
+                            for base_value in base_values {
+                              match base_value {
+                                Value::Class(base_class) =>
+                                  if base_class.name == "Enum" ||
+                                    base_class.name == "IntEnum" ||
+                                    base_class.name == "StrEnum" {
+                                    should_set = false
+                                    break
+                                  }
+                                _ => ()
                               }
                             }
-                          _ =>
-                            match
-                              call_callable_with_env(
-                                decorator_value,
-                                [defined],
-                                [],
-                                globals,
-                                builtins,
-                                io,
-                              ) {
-                              Ok(value) => value
-                              Err(err) => return Err(err)
-                            }
-                        }
-                      }
-                      Ok(defined)
-                    }
-
-                    match created_value {
-                      Value::Class(klass) => {
-                        match get_named_value(class_dict, "__class__") {
-                          Some(cell) =>
-                            cell_set_value(cell, Value::Class(klass))
-                          None => ()
-                        }
-                        if get_named_value(klass.dict, "hashvalue") is None {
-                          set_named_value(
-                            klass.dict,
-                            "hashvalue",
-                            Value::Int(fresh_object_hashvalue()),
-                          )
-                        }
-                        if get_named_value(klass.dict, "__mpython_metaclass__")
-                          is None {
-                          match selected_meta {
-                            Value::Class(meta) =>
+                            if should_set {
                               set_named_value(
                                 klass.dict,
-                                "__mpython_metaclass__",
-                                Value::Class(meta),
+                                "hashvalue",
+                                Value::Int(fresh_object_hashvalue()),
                               )
-                            _ => ()
+                            }
                           }
-                        }
-                        let _ = match class_mro(klass) {
-                          Ok(_) => ()
-                          Err(err) => return Err(err)
-                        }
-                        for pair in klass.dict {
-                          match pair.1 {
-                            Value::Instance(desc_inst) =>
-                              if class_has_base_name(
-                                  desc_inst.class,
-                                  "property",
-                                ) {
-                                if get_named_value(desc_inst.dict, "__name__")
-                                  is None {
-                                  set_named_value(
-                                    desc_inst.dict,
-                                    "__name__",
-                                    Value::Str(pair.0),
-                                  )
+                          if get_named_value(
+                              klass.dict,
+                              "__mpython_metaclass__",
+                            )
+                            is None {
+                            match selected_meta {
+                              Value::Class(meta) =>
+                                set_named_value(
+                                  klass.dict,
+                                  "__mpython_metaclass__",
+                                  Value::Class(meta),
+                                )
+                              _ => ()
+                            }
+                          }
+                          let _ = match class_mro(klass) {
+                            Ok(_) => ()
+                            Err(err) => return Err(err)
+                          }
+                          for pair in klass.dict {
+                            match pair.1 {
+                              Value::Instance(desc_inst) =>
+                                if class_has_base_name(
+                                    desc_inst.class,
+                                    "property",
+                                  ) {
+                                  if get_named_value(desc_inst.dict, "__name__")
+                                    is None {
+                                    set_named_value(
+                                      desc_inst.dict,
+                                      "__name__",
+                                      Value::Str(pair.0),
+                                    )
+                                  }
+                                }
+                              _ => ()
+                            }
+                          }
+                          fn value_is_abstract(
+                            value : Value,
+                            globals : Array[(String, Value)],
+                            builtins : Array[(String, Value)],
+                            io : MockIO,
+                          ) -> Result[Bool, RuntimeError] {
+                            match
+                              get_attr_from_value(
+                                value, "__isabstractmethod__", globals, builtins,
+                                io,
+                              ) {
+                              Ok(flag) =>
+                                truthy_from_value_with_env(
+                                  flag, globals, builtins, io,
+                                )
+                              Err(err) =>
+                                match err.kind {
+                                  RuntimeErrorKind::Attribute => Ok(false)
+                                  _ =>
+                                    if err.exc_type == "AttributeError" {
+                                      Ok(false)
+                                    } else {
+                                      Err(err)
+                                    }
+                                }
+                            }
+                          }
+
+                          let abstract_names : Array[Value] = []
+                          for pair in class_dict {
+                            let is_abstract = match
+                              value_is_abstract(pair.1, globals, builtins, io) {
+                              Ok(v) => v
+                              Err(err) => return Err(err)
+                            }
+                            if is_abstract {
+                              let _ = set_add_unique(
+                                abstract_names,
+                                Value::Str(pair.0),
+                              )
+
+                            }
+                          }
+                          let mut has_abstractmethods_attr = false
+                          for base_value in base_values {
+                            match base_value {
+                              Value::Class(base_class) => {
+                                let base_abs = get_named_value(
+                                  base_class.dict,
+                                  "__abstractmethods__",
+                                )
+                                if base_abs is Some(_) {
+                                  has_abstractmethods_attr = true
+                                }
+                                match base_abs {
+                                  Some(Value::Set(items))
+                                  | Some(Value::Tuple(items)) =>
+                                    for item in items {
+                                      match item {
+                                        Value::Str(name) =>
+                                          match lookup_class_attr(klass, name) {
+                                            Ok(Some(value)) => {
+                                              let is_abstract = match
+                                                value_is_abstract(
+                                                  value, globals, builtins, io,
+                                                ) {
+                                                Ok(v) => v
+                                                Err(err) => return Err(err)
+                                              }
+                                              if is_abstract {
+                                                let _ = set_add_unique(
+                                                  abstract_names,
+                                                  Value::Str(name),
+                                                )
+
+                                              }
+                                            }
+                                            _ => ()
+                                          }
+                                        _ => ()
+                                      }
+                                    }
+                                  _ => ()
                                 }
                               }
-                            _ => ()
+                              _ => ()
+                            }
                           }
-                        }
-                        fn value_is_abstract(
-                          value : Value,
-                          globals : Array[(String, Value)],
-                          builtins : Array[(String, Value)],
-                          io : MockIO,
-                        ) -> Result[Bool, RuntimeError] {
-                          match
-                            get_attr_from_value(
-                              value, "__isabstractmethod__", globals, builtins, io,
-                            ) {
-                            Ok(flag) =>
-                              truthy_from_value_with_env(
-                                flag, globals, builtins, io,
-                              )
-                            Err(err) =>
-                              match err.kind {
-                                RuntimeErrorKind::Attribute => Ok(false)
-                                _ =>
-                                  if err.exc_type == "AttributeError" {
-                                    Ok(false)
-                                  } else {
-                                    Err(err)
+                          if abstract_names.length() > 0 ||
+                            has_abstractmethods_attr {
+                            set_named_value(
+                              klass.dict,
+                              "__abstractmethods__",
+                              Value::Set(abstract_names),
+                            )
+                          }
+                          let inherited_init_subclass : Value? = match
+                            class_mro(klass) {
+                            Ok(mro) => {
+                              let mut found : Value? = None
+                              for i = 1; i < mro.length(); i = i + 1 {
+                                match
+                                  get_named_value(
+                                    mro[i].dict,
+                                    "__init_subclass__",
+                                  ) {
+                                  Some(Value::Function(func)) => {
+                                    found = Some(
+                                      Value::BoundMethod(BoundMethodValue::{
+                                        function: func,
+                                        self: Value::Class(klass),
+                                      }),
+                                    )
+                                    break
                                   }
+                                  _ => ()
+                                }
                               }
+                              found
+                            }
+                            Err(_) => None
                           }
-                        }
+                          match inherited_init_subclass {
+                            Some(hook) => {
+                              let _ = match
+                                call_callable_with_env(
+                                  hook,
+                                  [],
+                                  class_kwargs,
+                                  globals,
+                                  builtins,
+                                  io,
+                                ) {
+                                Ok(value) => value
+                                Err(err) => return Err(err)
+                              }
 
-                        let abstract_names : Array[Value] = []
-                        for pair in class_dict {
-                          let is_abstract = match
-                            value_is_abstract(pair.1, globals, builtins, io) {
+                            }
+                            None => ()
+                          }
+                          let defined = match
+                            apply_decorators(
+                              Value::Class(klass),
+                              decorator_values,
+                              locals,
+                              globals,
+                              builtins,
+                              io,
+                            ) {
                             Ok(v) => v
                             Err(err) => return Err(err)
                           }
-                          if is_abstract {
-                            let _ = set_add_unique(
-                              abstract_names,
-                              Value::Str(pair.0),
-                            )
-
+                          stack.push(defined)
+                          Ok(())
+                        }
+                        other => {
+                          let defined = match
+                            apply_decorators(
+                              other, decorator_values, locals, globals, builtins,
+                              io,
+                            ) {
+                            Ok(v) => v
+                            Err(err) => return Err(err)
                           }
+                          stack.push(defined)
+                          Ok(())
                         }
-                        let mut has_abstractmethods_attr = false
-                        for base_value in base_values {
-                          match base_value {
-                            Value::Class(base_class) => {
-                              let base_abs = get_named_value(
-                                base_class.dict,
-                                "__abstractmethods__",
-                              )
-                              if base_abs is Some(_) {
-                                has_abstractmethods_attr = true
-                              }
-                              match base_abs {
-                                Some(Value::Set(items))
-                                | Some(Value::Tuple(items)) =>
-                                  for item in items {
-                                    match item {
-                                      Value::Str(name) =>
-                                        match lookup_class_attr(klass, name) {
-                                          Ok(Some(value)) => {
-                                            let is_abstract = match
-                                              value_is_abstract(
-                                                value, globals, builtins, io,
-                                              ) {
-                                              Ok(v) => v
-                                              Err(err) => return Err(err)
-                                            }
-                                            if is_abstract {
-                                              let _ = set_add_unique(
-                                                abstract_names,
-                                                Value::Str(name),
-                                              )
-
-                                            }
-                                          }
-                                          _ => ()
-                                        }
-                                      _ => ()
-                                    }
-                                  }
-                                _ => ()
-                              }
-                            }
-                            _ => ()
-                          }
-                        }
-                        if abstract_names.length() > 0 ||
-                          has_abstractmethods_attr {
-                          set_named_value(
-                            klass.dict,
-                            "__abstractmethods__",
-                            Value::Set(abstract_names),
-                          )
-                        }
-                        let inherited_init_subclass : Value? = match
-                          class_mro(klass) {
-                          Ok(mro) => {
-                            let mut found : Value? = None
-                            for i = 1; i < mro.length(); i = i + 1 {
-                              match
-                                get_named_value(
-                                  mro[i].dict,
-                                  "__init_subclass__",
-                                ) {
-                                Some(Value::Function(func)) => {
-                                  found = Some(
-                                    Value::BoundMethod(BoundMethodValue::{
-                                      function: func,
-                                      self: Value::Class(klass),
-                                    }),
-                                  )
-                                  break
-                                }
-                                _ => ()
-                              }
-                            }
-                            found
-                          }
-                          Err(_) => None
-                        }
-                        match inherited_init_subclass {
-                          Some(hook) => {
-                            let _ = match
-                              call_callable_with_env(
-                                hook,
-                                [],
-                                class_kwargs,
-                                globals,
-                                builtins,
-                                io,
-                              ) {
-                              Ok(value) => value
-                              Err(err) => return Err(err)
-                            }
-
-                          }
-                          None => ()
-                        }
-                        let defined = match
-                          apply_decorators(
-                            Value::Class(klass),
-                            decorator_values,
-                            locals,
-                            globals,
-                            builtins,
-                            io,
-                          ) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                        stack.push(defined)
-                        Ok(())
-                      }
-                      other => {
-                        let defined = match
-                          apply_decorators(
-                            other, decorator_values, locals, globals, builtins, io,
-                          ) {
-                          Ok(v) => v
-                          Err(err) => return Err(err)
-                        }
-                        stack.push(defined)
-                        Ok(())
                       }
                     }
+
+                    inner()
                   }
                   Err(err) => Err(err)
                 }
@@ -4070,7 +4618,22 @@ pub fn bc_exec(
           )
         }
         match resolve_relative_module_name(module_name, globals) {
-          Ok(resolved_name) =>
+          Ok(resolved_name) => {
+            if resolved_name == "__future__" {
+              for item in names {
+                match item {
+                  Value::Str(sym) =>
+                    if sym == "annotations" {
+                      set_global_value(
+                        globals,
+                        "__mpython_future_annotations__",
+                        Value::Bool(true),
+                      )
+                    }
+                  _ => ()
+                }
+              }
+            }
             match
               import_module(
                 resolved_name,
@@ -4199,6 +4762,7 @@ pub fn bc_exec(
               }
               Err(err) => Err(err)
             }
+          }
           Err(err) => Err(err)
         }
       }
@@ -4246,7 +4810,33 @@ pub fn bc_exec(
         pending_jump_target = None
         pending_jump_count = 0
         let mut handler_pc : Int? = None
-        let exc = err
+        let mut exc = err
+        // If we are currently handling another exception (inside an except/finally
+        // path), attach it as implicit context, mirroring CPython's behavior.
+        match active_exception() {
+          Some(ctx_err) =>
+            if exc.exc_context is None &&
+              exc.exc_cause is None &&
+              !exc.exc_suppress_context {
+              let ctx_value = exception_value_from_runtime_error(
+                ctx_err, globals, builtins, io,
+              )
+              exc = RuntimeError::{
+                kind: exc.kind,
+                message: exc.message,
+                span: exc.span,
+                traceback: exc.traceback,
+                traceback_envs: exc.traceback_envs,
+                exc_type: exc.exc_type,
+                exc_args: exc.exc_args,
+                exc_value: exc.exc_value,
+                exc_cause: exc.exc_cause,
+                exc_context: Some(ctx_value),
+                exc_suppress_context: exc.exc_suppress_context,
+              }
+            }
+          None => ()
+        }
         let exc_for_handler = vm_trim_runtime_error_for_active_handler(exc)
         // Unwind blocks until we find a handler.
         while blocks.length() > 0 {
@@ -4262,6 +4852,9 @@ pub fn bc_exec(
                 kind: VmBlockKind::ExceptHandler,
                 stack_height: stack.length(),
                 pushed_exc: true,
+                star_base_err: None,
+                star_remaining_group: None,
+                star_active_match: false,
               })
               active_exception_stack.val.push(exc_for_handler)
               handler_pc = Some(target)
@@ -4273,6 +4866,9 @@ pub fn bc_exec(
                 kind: VmBlockKind::FinallyHandler,
                 stack_height: stack.length(),
                 pushed_exc: true,
+                star_base_err: None,
+                star_remaining_group: None,
+                star_active_match: false,
               })
               active_exception_stack.val.push(exc_for_handler)
               handler_pc = Some(target)

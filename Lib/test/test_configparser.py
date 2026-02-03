@@ -2,12 +2,16 @@ import collections
 import configparser
 import io
 import os
+import sys
 import textwrap
 import unittest
 import warnings
 
 from test import support
 from test.support import os_helper
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: configparser requires a full regex engine")
 
 
 class SortedDict(collections.UserDict):

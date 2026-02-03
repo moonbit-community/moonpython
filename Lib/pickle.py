@@ -35,6 +35,15 @@ import re
 import io
 import codecs
 import _compat_pickle
+import builtins as _builtins
+
+# moonpython: builtin functions currently have a per-module __module__ default.
+# The pickle protocol expects helpers like builtins.getattr to be importable
+# from the real 'builtins' module.
+try:
+    _builtins.getattr.__module__ = "builtins"
+except Exception:
+    pass
 
 __all__ = ["PickleError", "PicklingError", "UnpicklingError", "Pickler",
            "Unpickler", "dump", "dumps", "load", "loads"]

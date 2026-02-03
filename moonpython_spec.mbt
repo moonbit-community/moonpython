@@ -119,6 +119,7 @@ pub enum Expr {
   Binary(op~ : BinaryOp, left~ : Expr, right~ : Expr)
   BoolOp(op~ : BoolOp, values~ : Array[Expr])
   Compare(left~ : Expr, ops~ : Array[CompareOp], comparators~ : Array[Expr])
+  WithSpan(span~ : Span, expr~ : Expr)
 } derive(ToJson)
 
 ///|
@@ -145,6 +146,7 @@ pub enum Pattern {
 ///|
 /// Try/except handler (supports except*)
 pub struct ExceptHandler {
+  span : Span
   is_star : Bool
   exc : Expr?
   name : String?
@@ -185,6 +187,8 @@ pub enum Stmt {
     type_params~ : Array[String],
     params~ : Array[String],
     defaults~ : Array[Expr],
+    annotations~ : Array[(String, Expr)],
+    return_annotation~ : Expr?,
     body~ : Array[Stmt],
     is_generator~ : Bool,
     is_async~ : Bool
@@ -259,6 +263,7 @@ pub(all) struct RuntimeError {
   message : String
   span : Span?
   traceback : Array[TracebackFrame]
+  traceback_envs : Array[TracebackEnv]
   exc_type : String
   exc_args : Array[String]
   exc_value : Value?
@@ -274,6 +279,17 @@ pub(all) struct TracebackFrame {
   filename : String
   line : Int
   column : Int
+  end_column : Int
+} derive(ToJson)
+
+///|
+/// Best-effort environment snapshot for a traceback frame.
+///
+/// This is captured at raise-time so traceback formatting (e.g. suggestions in
+/// Lib/traceback.py) can access locals/globals even after stack unwinding.
+pub(all) struct TracebackEnv {
+  locals : Array[(String, Value)]
+  globals : Array[(String, Value)]
 } derive(ToJson)
 
 ///|

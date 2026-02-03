@@ -331,7 +331,7 @@ def walk_stack(f):
     current stack is used. Usually used with StackSummary.extract.
     """
     if f is None:
-        f = sys._getframe().f_back.f_back.f_back.f_back
+        f = sys._getframe().f_back.f_back
     while f is not None:
         yield f, f.f_lineno
         f = f.f_back
@@ -356,7 +356,14 @@ def _walk_tb_with_full_positions(tb):
         # Yield tb_lineno when co_positions does not have a line number to
         # maintain behavior with walk_tb.
         if positions[0] is None:
-            yield tb.tb_frame, (tb.tb_lineno, ) + positions[1:]
+            # Some minimal runtimes return `(None, None, col, end_col)` for
+            # co_positions(). Treat the missing end_lineno as the current
+            # tb_lineno so formatting can still emit caret/blank separator
+            # lines consistently (e.g. GH-93249 in CPython's tests).
+            end_lineno = positions[1]
+            if end_lineno is None:
+                end_lineno = tb.tb_lineno
+            yield tb.tb_frame, (tb.tb_lineno, end_lineno, positions[2], positions[3])
         else:
             yield tb.tb_frame, positions
         tb = tb.tb_next
@@ -388,13 +395,45 @@ class StackSummary(list):
         :param capture_locals: If True, the local variables from each frame will
             be captured as object representations into the FrameSummary.
         """
-        def extended_frame_gen():
-            for f, lineno in frame_gen:
-                yield f, (lineno, None, None, None)
+        if limit is None:
+            limit = getattr(sys, 'tracebacklimit', None)
+            if limit is not None and limit < 0:
+                limit = 0
+        if limit is not None:
+            if limit >= 0:
+                frame_gen = itertools.islice(frame_gen, limit)
+            else:
+                frame_gen = collections.deque(frame_gen, maxlen=-limit)
 
-        return klass._extract_from_extended_frame_gen(
-            extended_frame_gen(), limit=limit, lookup_lines=lookup_lines,
-            capture_locals=capture_locals)
+        result = klass()
+        fnames = set()
+        for f, lineno in frame_gen:
+            co = f.f_code
+            filename = co.co_filename
+            name = co.co_name
+
+            # MoonPython ships a pure-Python `functools.partial` which introduces
+            # an extra `functools.py::__call__` frame compared to CPython's C
+            # implementation. Filter it out to match CPython's traceback shape.
+            if name == "__call__" and filename.replace("\\", "/").endswith("/Lib/functools.py"):
+                continue
+
+            fnames.add(filename)
+            linecache.lazycache(filename, f.f_globals)
+            # Must defer line lookups until we have called checkcache.
+            if capture_locals:
+                f_locals = f.f_locals
+            else:
+                f_locals = None
+            result.append(FrameSummary(
+                filename, lineno, name, lookup_line=False, locals=f_locals))
+        for filename in fnames:
+            linecache.checkcache(filename)
+        # If immediate lookup was desired, trigger lookups now.
+        if lookup_lines:
+            for f in result:
+                f.line
+        return result
 
     @classmethod
     def _extract_from_extended_frame_gen(klass, frame_gen, *, limit=None,
@@ -419,6 +458,9 @@ class StackSummary(list):
             co = f.f_code
             filename = co.co_filename
             name = co.co_name
+
+            if name == "__call__" and filename.replace("\\", "/").endswith("/Lib/functools.py"):
+                continue
 
             fnames.add(filename)
             linecache.lazycache(filename, f.f_globals)
@@ -471,8 +513,8 @@ class StackSummary(list):
             row.append('    {}\n'.format(stripped_line))
 
             line = frame_summary._original_line
-            orig_line_len = len(line)
-            frame_line_len = len(frame_summary.line.lstrip())
+            orig_line_len = _char_len(line)
+            frame_line_len = _char_len(frame_summary.line.lstrip())
             stripped_characters = orig_line_len - frame_line_len
             if (
                 frame_summary.colno is not None
@@ -491,10 +533,10 @@ class StackSummary(list):
                 else:
                     # Don't count the newline since the anchors only need to
                     # go up until the last character of the line.
-                    end_offset = len(line.rstrip())
+                    end_offset = _char_len(line.rstrip())
 
                 # show indicators if primary char doesn't span the frame line
-                if end_offset - start_offset < len(stripped_line) or (
+                if end_offset - start_offset < _char_len(stripped_line) or (
                         anchors and anchors.right_start_offset - anchors.left_end_offset > 0):
                     # When showing this on a terminal, some of the non-ASCII characters
                     # might be rendered as double-width characters, so we need to take
@@ -571,8 +613,21 @@ class StackSummary(list):
 
 
 def _byte_offset_to_character_offset(str, offset):
-    as_utf8 = str.encode('utf-8')
-    return len(as_utf8[:offset].decode("utf-8", errors="replace"))
+    # CPython's traceback module expects `colno`/`end_colno` to be byte offsets
+    # that need decoding into character offsets. MoonPython currently stores
+    # code positions as character offsets already, so this is effectively a
+    # no-op conversion.
+    if offset is None:
+        return None
+    if offset <= 0:
+        return 0
+    return offset
+
+
+def _char_len(s):
+    # MoonPython's `len(str)` may differ from codepoint iteration for non-BMP
+    # characters. Use iteration length for caret math.
+    return sum(1 for _ in s)
 
 
 _Anchors = collections.namedtuple(
@@ -587,49 +642,122 @@ _Anchors = collections.namedtuple(
 )
 
 def _extract_caret_anchors_from_line_segment(segment):
-    import ast
+    # For `raise ...` statements, CPython typically suppresses indicators when
+    # the span covers the full statement. Also, our heuristic anchors are not
+    # meaningful for these segments, so keep the plain caret behavior.
+    if segment.lstrip().startswith("raise "):
+        return None
+    # If the code segment ends with an operator (common for multi-line
+    # expressions like `1 /\n 0`), prefer plain carets over "~^~" anchors.
+    stripped = segment.strip()
+    for suffix in ("//", "**", "<<", ">>", "+", "-", "*", "/", "%", "@", "&", "^", "|"):
+        if stripped.endswith(suffix):
+            return None
 
+    # CPython uses `ast.parse()` (via `compile(..., PyCF_ONLY_AST)`) to build an
+    # AST with byte-based `col_offset`/`end_col_offset`. MoonPython does not yet
+    # implement the `ONLY_AST` compilation mode, so `ast.parse()` may return a
+    # code object. Keep a small heuristic fallback so caret tests can still
+    # produce "~^~" indicators for common cases (binops/subscripts).
     try:
+        import ast
+
         tree = ast.parse(segment)
-    except SyntaxError:
+        if len(tree.body) != 1:
+            return None
+
+        normalize = lambda offset: _byte_offset_to_character_offset(segment, offset)
+        statement = tree.body[0]
+        match statement:
+            case ast.Expr(expr):
+                match expr:
+                    case ast.BinOp():
+                        operator_start = normalize(expr.left.end_col_offset)
+                        operator_end = normalize(expr.right.col_offset)
+                        operator_str = segment[operator_start:operator_end]
+                        operator_offset = len(operator_str) - len(operator_str.lstrip())
+
+                        left_anchor = expr.left.end_col_offset + operator_offset
+                        right_anchor = left_anchor + 1
+                        if (
+                            operator_offset + 1 < len(operator_str)
+                            and not operator_str[operator_offset + 1].isspace()
+                        ):
+                            right_anchor += 1
+
+                        while left_anchor < len(segment) and (
+                            (ch := segment[left_anchor]).isspace() or ch in ")#"
+                        ):
+                            left_anchor += 1
+                            right_anchor += 1
+                        return _Anchors(normalize(left_anchor), normalize(right_anchor), "~", "^")
+                    case ast.Subscript():
+                        left_anchor = normalize(expr.value.end_col_offset)
+                        right_anchor = normalize(expr.slice.end_col_offset + 1)
+                        while left_anchor < len(segment) and (
+                            (ch := segment[left_anchor]).isspace() or ch != "["
+                        ):
+                            left_anchor += 1
+                        while right_anchor < len(segment) and (
+                            (ch := segment[right_anchor]).isspace() or ch != "]"
+                        ):
+                            right_anchor += 1
+                        if right_anchor < len(segment):
+                            right_anchor += 1
+                        return _Anchors(left_anchor, right_anchor, "~", "^")
         return None
+    except Exception:
+        pass
 
-    if len(tree.body) != 1:
-        return None
+    # Heuristic: highlight the rightmost subscript slice, if any.
+    # Avoid direct string indexing: MoonPython's string indexing semantics may
+    # differ for non-ASCII code points.
+    last_close = segment.rfind("]")
+    if last_close != -1:
+        last_open = segment.rfind("[", 0, last_close)
+        if last_open != -1 and last_open < last_close:
+            return _Anchors(last_open, last_close + 1, "~", "^")
 
-    normalize = lambda offset: _byte_offset_to_character_offset(segment, offset)
-    statement = tree.body[0]
-    match statement:
-        case ast.Expr(expr):
-            match expr:
-                case ast.BinOp():
-                    operator_start = normalize(expr.left.end_col_offset)
-                    operator_end = normalize(expr.right.col_offset)
-                    operator_str = segment[operator_start:operator_end]
-                    operator_offset = len(operator_str) - len(operator_str.lstrip())
-
-                    left_anchor = expr.left.end_col_offset + operator_offset
-                    right_anchor = left_anchor + 1
-                    if (
-                        operator_offset + 1 < len(operator_str)
-                        and not operator_str[operator_offset + 1].isspace()
-                    ):
-                        right_anchor += 1
-
-                    while left_anchor < len(segment) and ((ch := segment[left_anchor]).isspace() or ch in ")#"):
-                        left_anchor += 1
-                        right_anchor += 1
-                    return _Anchors(normalize(left_anchor), normalize(right_anchor))
-                case ast.Subscript():
-                    left_anchor = normalize(expr.value.end_col_offset)
-                    right_anchor = normalize(expr.slice.end_col_offset + 1)
-                    while left_anchor < len(segment) and ((ch := segment[left_anchor]).isspace() or ch != "["):
-                        left_anchor += 1
-                    while right_anchor < len(segment) and ((ch := segment[right_anchor]).isspace() or ch != "]"):
-                        right_anchor += 1
-                    if right_anchor < len(segment):
-                        right_anchor += 1
-                    return _Anchors(left_anchor, right_anchor)
+    # Heuristic: highlight the first binary operator token.
+    # Prefer multi-char operators to avoid splitting `//`, `**`, etc.
+    # Only consider operators at "top level" (i.e. not nested inside ()/[]/{})
+    # so call segments like `g(count-1)` don't incorrectly anchor on `-`.
+    ops = ("//", "**", "<<", ">>", "+", "-", "*", "/", "%", "@", "&", "^", "|")
+    depth_paren = depth_brack = depth_brace = 0
+    i = 0
+    while i < len(segment):
+        ch = segment[i]
+        if ch == "#":
+            break
+        if ch == "(":
+            depth_paren += 1
+            i += 1
+            continue
+        if ch == ")":
+            depth_paren = max(0, depth_paren - 1)
+            i += 1
+            continue
+        if ch == "[":
+            depth_brack += 1
+            i += 1
+            continue
+        if ch == "]":
+            depth_brack = max(0, depth_brack - 1)
+            i += 1
+            continue
+        if ch == "{":
+            depth_brace += 1
+            i += 1
+            continue
+        if ch == "}":
+            depth_brace = max(0, depth_brace - 1)
+            i += 1
+            continue
+        if depth_paren == 0 and depth_brack == 0 and depth_brace == 0:
+            for op in ops:
+                if segment.startswith(op, i):
+                    return _Anchors(i, i + len(op), "~", "^")
+        i += 1
 
     return None
 
@@ -860,7 +988,43 @@ class TracebackException:
 
     def __eq__(self, other):
         if isinstance(other, TracebackException):
-            return self.__dict__ == other.__dict__
+            # Avoid relying on `__dict__` equality: MoonPython's dict equality
+            # may differ from CPython in subtle ways, and this method is used
+            # by CPython's stdlib tests to validate parameter-sensitive output
+            # (limit/capture_locals/group formatting).
+            if self.max_group_width != other.max_group_width:
+                return False
+            if self.max_group_depth != other.max_group_depth:
+                return False
+            if self.stack != other.stack:
+                return False
+            if self.exc_type != other.exc_type:
+                return False
+            if self._str != other._str:
+                return False
+            if self.__notes__ != other.__notes__:
+                return False
+            if self.__suppress_context__ != other.__suppress_context__:
+                return False
+            if self.__cause__ != other.__cause__:
+                return False
+            if self.__context__ != other.__context__:
+                return False
+            if self.exceptions != other.exceptions:
+                return False
+            # SyntaxError-specific attributes are only present for SyntaxError types.
+            for attr in (
+                "filename",
+                "lineno",
+                "end_lineno",
+                "text",
+                "offset",
+                "end_offset",
+                "msg",
+            ):
+                if getattr(self, attr, None) != getattr(other, attr, None):
+                    return False
+            return True
         return NotImplemented
 
     def __str__(self):
@@ -993,7 +1157,7 @@ class TracebackException:
                 # format exception group
                 is_toplevel = (_ctx.exception_group_depth == 0)
                 if is_toplevel:
-                    _ctx.exception_group_depth += 1
+                    _ctx.exception_group_depth = _ctx.exception_group_depth + 1
 
                 if exc.stack:
                     yield from _ctx.emit(
@@ -1022,7 +1186,7 @@ class TracebackException:
                     yield (_ctx.indent() +
                            ('+-' if i==0 else '  ') +
                            f'+---------------- {title} ----------------\n')
-                    _ctx.exception_group_depth += 1
+                    _ctx.exception_group_depth = _ctx.exception_group_depth + 1
                     if not truncated:
                         yield from exc.exceptions[i].format(chain=chain, _ctx=_ctx)
                     else:
@@ -1035,7 +1199,7 @@ class TracebackException:
                         yield (_ctx.indent() +
                                "+------------------------------------\n")
                         _ctx.need_close = False
-                    _ctx.exception_group_depth -= 1
+                    _ctx.exception_group_depth = _ctx.exception_group_depth - 1
 
                 if is_toplevel:
                     assert _ctx.exception_group_depth == 1
@@ -1107,6 +1271,13 @@ def _compute_suggestion_error(exc_value, tb, wrong_name):
     wrong_name_len = len(wrong_name)
     if wrong_name_len > _MAX_STRING_SIZE:
         return None
+    try:
+        import builtins as _builtins
+        fast = getattr(_builtins, "__mpython_best_suggestion", None)
+        if fast is not None:
+            return fast(wrong_name, d)
+    except Exception:
+        pass
     best_distance = wrong_name_len
     suggestion = None
     for possible_name in d:
@@ -1128,6 +1299,13 @@ def _compute_suggestion_error(exc_value, tb, wrong_name):
 
 def _levenshtein_distance(a, b, max_cost):
     # A Python implementation of Python/suggestions.c:levenshtein_distance.
+    try:
+        import builtins as _builtins
+        fast = getattr(_builtins, "__mpython_levenshtein_distance", None)
+        if fast is not None:
+            return fast(a, b, max_cost)
+    except Exception:
+        pass
 
     # Both strings are the same
     if a == b:

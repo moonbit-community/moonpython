@@ -32,6 +32,9 @@ fn compile_expr(
   span : Span?,
 ) -> Result[Unit, RuntimeError] {
   match expr {
+    Expr::WithSpan(span=new_span, expr=inner) =>
+      // Prefer the expression's own span when available.
+      compile_expr(inner, b, Some(new_span))
     Expr::Literal(lit) => {
       let idx = b.add_const(literal_to_value(lit))
       let _ = b.emit(BcOp::LoadConst(idx), span)
@@ -444,7 +447,12 @@ fn compile_expr(
         if items.length() == 1 {
           Some(assign)
         } else {
+          let handler_span = match span {
+            Some(s) => s
+            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+          }
           let handler = ExceptHandler::{
+            span: handler_span,
             is_star: false,
             exc: None,
             name: None,
@@ -850,7 +858,12 @@ fn compile_expr(
         if items.length() == 1 {
           Some(assign)
         } else {
+          let handler_span = match span {
+            Some(s) => s
+            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+          }
           let handler = ExceptHandler::{
+            span: handler_span,
             is_star: false,
             exc: None,
             name: None,
@@ -985,7 +998,12 @@ fn compile_expr(
         if items.length() == 1 {
           Some(assign)
         } else {
+          let handler_span = match span {
+            Some(s) => s
+            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+          }
           let handler = ExceptHandler::{
+            span: handler_span,
             is_star: false,
             exc: None,
             name: None,
@@ -1450,27 +1468,235 @@ fn compile_try_except_else(
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
   finally_depth : Int,
+  future_annotations : Bool,
 ) -> Result[Unit, RuntimeError] {
+  fn caretless_span(span : Span?) -> Span? {
+    match span {
+      Some(s) =>
+        // Suppress PEP 657 caret rendering for internal exception-dispatch spans.
+        // We still keep the correct line/column, but force end_column == 0 by
+        // making the span width exceed the caret cutoff.
+        Some(Span::{
+          start: s.start,
+          end: s.start + 1024,
+          line: s.line,
+          column: s.column,
+        })
+      None => None
+    }
+  }
+
+  fn validate_except_star_body(
+    body : Array[Stmt],
+    loop_depth : Int,
+    in_nested_def : Bool,
+  ) -> Result[Unit, RuntimeError] {
+    for stmt in body {
+      match stmt {
+        Stmt::WithSpan(span=_, stmt=inner) =>
+          match validate_except_star_body([inner], loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        Stmt::Break | Stmt::Continue =>
+          if !in_nested_def && loop_depth == 0 {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "SyntaxError: 'break', 'continue' and 'return' cannot appear in an except* block".to_string(),
+              ),
+            )
+          }
+        Stmt::Return(_) =>
+          if !in_nested_def {
+            return Err(
+              make_runtime_error(
+                RuntimeErrorKind::Runtime,
+                "SyntaxError: 'break', 'continue' and 'return' cannot appear in an except* block".to_string(),
+              ),
+            )
+          }
+        Stmt::Function(
+          name=_,
+          decorators=_,
+          type_params=_,
+          params=_,
+          defaults=_,
+          annotations=_,
+          return_annotation=_,
+          body=nested_body,
+          is_generator=_,
+          is_async=_
+        ) =>
+          // Nested function bodies are allowed to use return/break/continue.
+          match validate_except_star_body(nested_body, 0, true) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        Stmt::Class(
+          name=_,
+          decorators=_,
+          type_params=_,
+          bases=_,
+          keywords=_,
+          body=nested_body
+        ) =>
+          // Nested class bodies are allowed to contain nested defs/loops.
+          match validate_except_star_body(nested_body, 0, true) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        Stmt::If(condition=_, body=if_body, else_body~) => {
+          match validate_except_star_body(if_body, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match
+            validate_except_star_body(else_body, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Stmt::While(condition=_, body=while_body, else_body=while_else) => {
+          match
+            validate_except_star_body(while_body, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match
+            validate_except_star_body(while_else, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Stmt::For(target=_, iter=_, body=for_body, else_body=for_else) => {
+          match
+            validate_except_star_body(for_body, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match
+            validate_except_star_body(for_else, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Stmt::AsyncFor(target=_, iter=_, body=for_body, else_body=for_else) => {
+          match
+            validate_except_star_body(for_body, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match
+            validate_except_star_body(for_else, loop_depth + 1, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Stmt::With(context=_, target=_, body=with_body) =>
+          match
+            validate_except_star_body(with_body, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        Stmt::AsyncWith(context=_, target=_, body=with_body) =>
+          match
+            validate_except_star_body(with_body, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        Stmt::Try(
+          body=try_body,
+          handlers=try_handlers,
+          else_body=try_else,
+          finally_body=try_finally
+        ) => {
+          match validate_except_star_body(try_body, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          for handler in try_handlers {
+            match
+              validate_except_star_body(handler.body, loop_depth, in_nested_def) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+          }
+          match validate_except_star_body(try_else, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          match
+            validate_except_star_body(try_finally, loop_depth, in_nested_def) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+        }
+        Stmt::Match(subject=_, cases=match_cases) =>
+          for case in match_cases {
+            let case_body = case.2
+            match
+              validate_except_star_body(case_body, loop_depth, in_nested_def) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+          }
+        _ => ()
+      }
+    }
+    Ok(())
+  }
+
+  let mut has_star = false
+  let mut first_star_span : Span? = None
   for handler in handlers {
     if handler.is_star {
-      return Err(
-        make_runtime_error(
-          RuntimeErrorKind::NotImplemented,
-          "bytecode compiler: except* not implemented".to_string(),
-        ),
-      )
+      has_star = true
+      if first_star_span is None {
+        first_star_span = Some(handler.span)
+      }
+    }
+  }
+  if has_star {
+    // PEP 654: a try block cannot mix `except` and `except*` clauses.
+    for handler in handlers {
+      if !handler.is_star {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "SyntaxError: cannot have both 'except' and 'except*' on the same 'try'".to_string(),
+          ),
+        )
+      }
+      // `except*:` is invalid: every handler must have a type expression.
+      match handler.exc {
+        None =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: invalid except* clause".to_string(),
+            ),
+          )
+        Some(_) => ()
+      }
+      match validate_except_star_body(handler.body, 0, false) {
+        Ok(_) => ()
+        Err(err) => return Err(err)
+      }
     }
   }
   let setup_pc = b.emit(BcOp::SetupExcept(-1), span)
   for s in body {
-    match compile_stmt(s, b, span, loop_stack, finally_depth) {
+    match
+      compile_stmt(s, b, span, loop_stack, finally_depth, future_annotations) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
   }
   let _ = b.emit(BcOp::PopExcept, span)
   for s in else_body {
-    match compile_stmt(s, b, span, loop_stack, finally_depth) {
+    match
+      compile_stmt(s, b, span, loop_stack, finally_depth, future_annotations) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -1478,58 +1704,133 @@ fn compile_try_except_else(
   let j_end = b.emit(BcOp::Jump(-1), span)
   let handlers_pc = b.code.ops.length()
   bc_patch_jump(b.code, setup_pc, handlers_pc)
+  if has_star {
+    let star_span = match first_star_span {
+      Some(s) => Some(s)
+      None => span
+    }
+    let star_span = caretless_span(star_span)
+    let _ = b.emit(BcOp::EnsureExceptionGroup, star_span)
+    let _ = b.emit(BcOp::ExceptStarInit, star_span)
+
+  }
   let handler_done_jumps : Array[Int] = []
-  for i = 0; i < handlers.length(); i = i + 1 {
-    let handler = handlers[i]
-    let next_handler_jump : Int? = match handler.exc {
-      None => (None : Int?)
-      Some(exc_expr) => {
-        match compile_expr(exc_expr, b, span) {
-          Ok(_) => ()
-          Err(err) => return Err(err)
-        }
-        let _ = b.emit(BcOp::CheckExceptionMatch, span)
-        Some(b.emit(BcOp::JumpIfFalse(-1), span))
+  if has_star {
+    let star_done_jumps : Array[Int] = []
+    for i = 0; i < handlers.length(); i = i + 1 {
+      let handler = handlers[i]
+      let handler_span = caretless_span(Some(handler.span))
+      // Handler type expression is guaranteed to exist (validated above).
+      let exc_expr = match handler.exc {
+        Some(v) => v
+        None =>
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SyntaxError: invalid except* clause".to_string(),
+            ),
+          )
       }
-    }
-    match handler.name {
-      Some(name) => {
-        let name_idx = b.intern_name(name)
-        let _ = b.emit(BcOp::LoadException, span)
-        let _ = b.emit(BcOp::StoreName(name_idx), span)
-        ()
-      }
-      None => ()
-    }
-    // Once we're executing a handler, the exception is no longer "pending"
-    // for unwind through nested finally/with blocks. Keep it available via
-    // `active_exception_stack` (for sys.exc_info / bare raise), but clear the
-    // VM's unwind flag so normal finally blocks don't re-raise it.
-    let _ = b.emit(BcOp::ClearPendingException, span)
-    for s in handler.body {
-      match compile_stmt(s, b, span, loop_stack, finally_depth) {
+      match compile_expr(exc_expr, b, span) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
+      let _ = b.emit(BcOp::ExceptStarMatch, handler_span)
+      let next_handler_jump = b.emit(BcOp::JumpIfFalse(-1), handler_span)
+      match handler.name {
+        Some(name) => {
+          let name_idx = b.intern_name(name)
+          let _ = b.emit(BcOp::LoadException, handler_span)
+          let _ = b.emit(BcOp::StoreName(name_idx), handler_span)
+          ()
+        }
+        None => ()
+      }
+      // See non-star handler comment: clear pending unwind exception once a
+      // handler starts executing.
+      let _ = b.emit(BcOp::ClearPendingException, handler_span)
+      for s in handler.body {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let _ = b.emit(BcOp::ExceptStarEndHandler, handler_span)
+      // If no remaining exceptions exist, the exception is fully handled.
+      star_done_jumps.push(b.emit(BcOp::JumpIfFalse(-1), handler_span))
+      let next_pc = b.code.ops.length()
+      bc_patch_jump(b.code, next_handler_jump, next_pc)
+    }
+    let _ = b.emit(BcOp::ExceptStarRaiseRemaining, span)
+    let handled_pc = b.code.ops.length()
+    for pc in star_done_jumps {
+      bc_patch_jump(b.code, pc, handled_pc)
     }
     let _ = b.emit(BcOp::EndExcept, span)
-    handler_done_jumps.push(b.emit(BcOp::Jump(-1), span))
-    match next_handler_jump {
-      Some(pc) => {
-        let next_pc = b.code.ops.length()
-        bc_patch_jump(b.code, pc, next_pc)
-        ()
+    let handled_jump = b.emit(BcOp::Jump(-1), span)
+    let end_pc = b.code.ops.length()
+    bc_patch_jump(b.code, j_end, end_pc)
+    bc_patch_jump(b.code, handled_jump, end_pc)
+    Ok(())
+  } else {
+    for i = 0; i < handlers.length(); i = i + 1 {
+      let handler = handlers[i]
+      let next_handler_jump : Int? = match handler.exc {
+        None => (None : Int?)
+        Some(exc_expr) => {
+          match compile_expr(exc_expr, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CheckExceptionMatch, span)
+          Some(b.emit(BcOp::JumpIfFalse(-1), span))
+        }
       }
-      None => ()
+      match handler.name {
+        Some(name) => {
+          let name_idx = b.intern_name(name)
+          let _ = b.emit(BcOp::LoadException, span)
+          let _ = b.emit(BcOp::StoreName(name_idx), span)
+          ()
+        }
+        None => ()
+      }
+      // Once we're executing a handler, the exception is no longer "pending"
+      // for unwind through nested finally/with blocks. Keep it available via
+      // `active_exception_stack` (for sys.exc_info / bare raise), but clear the
+      // VM's unwind flag so normal finally blocks don't re-raise it.
+      let _ = b.emit(BcOp::ClearPendingException, span)
+      for s in handler.body {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
+          Ok(_) => ()
+          Err(err) => return Err(err)
+        }
+      }
+      let _ = b.emit(BcOp::EndExcept, span)
+      handler_done_jumps.push(b.emit(BcOp::Jump(-1), span))
+      match next_handler_jump {
+        Some(pc) => {
+          let next_pc = b.code.ops.length()
+          bc_patch_jump(b.code, pc, next_pc)
+          ()
+        }
+        None => ()
+      }
     }
+    let _ = b.emit(BcOp::Reraise, span)
+    let end_pc = b.code.ops.length()
+    bc_patch_jump(b.code, j_end, end_pc)
+    for pc in handler_done_jumps {
+      bc_patch_jump(b.code, pc, end_pc)
+    }
+    Ok(())
   }
-  let _ = b.emit(BcOp::Reraise, span)
-  let end_pc = b.code.ops.length()
-  bc_patch_jump(b.code, j_end, end_pc)
-  for pc in handler_done_jumps {
-    bc_patch_jump(b.code, pc, end_pc)
-  }
-  Ok(())
 }
 
 ///|
@@ -1539,10 +1840,18 @@ fn compile_stmt(
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
   finally_depth : Int,
+  future_annotations : Bool,
 ) -> Result[Unit, RuntimeError] {
   match stmt {
     Stmt::WithSpan(span~, stmt~) =>
-      compile_stmt(stmt, b, Some(span), loop_stack, finally_depth)
+      compile_stmt(
+        stmt,
+        b,
+        Some(span),
+        loop_stack,
+        finally_depth,
+        future_annotations,
+      )
     Stmt::Pass => Ok(())
     Stmt::ExprStmt(expr) => {
       match compile_expr(expr, b, span) {
@@ -1632,6 +1941,7 @@ fn compile_stmt(
               span,
               loop_stack,
               finally_depth,
+              future_annotations,
             ) {
             Ok(_) => ()
             Err(err) => return Err(err)
@@ -1697,7 +2007,10 @@ fn compile_stmt(
       }
       let j_else = b.emit(BcOp::JumpIfFalse(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1706,7 +2019,10 @@ fn compile_stmt(
       let else_pc = b.code.ops.length()
       bc_patch_jump(b.code, j_else, else_pc)
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1730,7 +2046,10 @@ fn compile_stmt(
         finally_depth,
       })
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1747,7 +2066,10 @@ fn compile_stmt(
 
       // `while ... else`: run else_body only when loop terminates normally (i.e. not broken).
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1789,7 +2111,10 @@ fn compile_stmt(
         Err(err) => return Err(err)
       }
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1806,7 +2131,10 @@ fn compile_stmt(
 
       // `for ... else`: run else_body only when loop is exhausted (i.e. not broken).
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1869,7 +2197,10 @@ fn compile_stmt(
         Err(err) => return Err(err)
       }
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1899,7 +2230,10 @@ fn compile_stmt(
         bc_patch_jump(b.code, pc, loop_start)
       }
       for s in else_body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth) {
+        match
+          compile_stmt(
+            s, b, span, loop_stack, finally_depth, future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -1994,7 +2328,10 @@ fn compile_stmt(
           None => ()
         }
         for s in case_body {
-          match compile_stmt(s, b, span, loop_stack, finally_depth) {
+          match
+            compile_stmt(
+              s, b, span, loop_stack, finally_depth, future_annotations,
+            ) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -2044,22 +2381,30 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::Assert(condition~, message~) => {
-      match compile_expr(condition, b, span) {
+      let assert_span : Span? = match expr_span(condition) {
+        Some(s) => Some(s)
+        None => span
+      }
+      match compile_expr(condition, b, assert_span) {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      let j_ok = b.emit(BcOp::JumpIfTrue(-1), span)
+      let j_ok = b.emit(BcOp::JumpIfTrue(-1), assert_span)
       match message {
         Some(expr) => {
-          match compile_expr(expr, b, span) {
+          let msg_span : Span? = match expr_span(expr) {
+            Some(s) => Some(s)
+            None => span
+          }
+          match compile_expr(expr, b, msg_span) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
-          let _ = b.emit(BcOp::AssertFail, span)
+          let _ = b.emit(BcOp::AssertFail, assert_span)
 
         }
         None => {
-          let _ = b.emit(BcOp::AssertFailNone, span)
+          let _ = b.emit(BcOp::AssertFailNone, assert_span)
 
         }
       }
@@ -2201,9 +2546,19 @@ fn compile_stmt(
       }
       let template_idx = b.add_const(Value::Function(template))
       let name_idx = b.intern_name(name)
+      // Decorator application happens inside `MakeClass`. Use the outermost
+      // decorator's span so failures report the correct `@decorator` line.
+      let apply_span = if decorators.length() > 0 {
+        match decorators[0] {
+          Expr::WithSpan(span=dec_span, expr=_) => Some(dec_span)
+          _ => span
+        }
+      } else {
+        span
+      }
       let _ = b.emit(
         BcOp::MakeClass(template_idx, name_idx, decorators.length()),
-        span,
+        apply_span,
       )
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
@@ -2211,7 +2566,7 @@ fn compile_stmt(
     Stmt::Try(body~, handlers~, else_body~, finally_body~) =>
       if finally_body.length() == 0 {
         compile_try_except_else(
-          body, handlers, else_body, b, span, loop_stack, finally_depth,
+          body, handlers, else_body, b, span, loop_stack, finally_depth, future_annotations,
         )
       } else {
         let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
@@ -2224,6 +2579,7 @@ fn compile_stmt(
             span,
             loop_stack,
             finally_depth + 1,
+            future_annotations,
           ) {
           Ok(_) => ()
           Err(err) => return Err(err)
@@ -2233,7 +2589,15 @@ fn compile_stmt(
         bc_patch_jump(b.code, setup_pc, finally_pc)
         bc_patch_jump(b.code, enter_pc, finally_pc)
         for s in finally_body {
-          match compile_stmt(s, b, span, loop_stack, finally_depth + 1) {
+          match
+            compile_stmt(
+              s,
+              b,
+              span,
+              loop_stack,
+              finally_depth + 1,
+              future_annotations,
+            ) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -2247,11 +2611,16 @@ fn compile_stmt(
       type_params~,
       params~,
       defaults~,
+      annotations~,
+      return_annotation~,
       body~,
       is_generator~,
       is_async~
     ) => {
-      let _ = type_params
+      // PEP 695 type parameters introduce implicit bindings that are visible to
+      // annotations. MoonPython does not yet model those runtime bindings, so
+      // avoid eagerly evaluating annotations for generic functions (typing.py
+      // uses `def override[F](...) -> F:` patterns).
       // Keep evaluation order aligned with CPython:
       // decorator expressions first, then default expressions, then function creation.
       for dec_expr in decorators {
@@ -2266,6 +2635,53 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
+      let mut ann_tmp_idx : Int? = None
+      let has_annotations = annotations.length() > 0 ||
+        return_annotation is Some(_)
+      let eval_annotations = has_annotations &&
+        !future_annotations &&
+        type_params.length() == 0
+      if eval_annotations {
+        let tmp_name = "$__mpy_fn_annotations$" +
+          b.code.ops.length().to_string()
+        let tmp_idx = b.intern_name(tmp_name)
+        ann_tmp_idx = Some(tmp_idx)
+        let mut pairs = 0
+        for pair in annotations {
+          let key = pair.0
+          let expr = pair.1
+          let key_idx = b.add_const(Value::Str(key))
+          let _ = b.emit(BcOp::LoadConst(key_idx), span)
+          let ann_span : Span? = match expr_span(expr) {
+            Some(s) => Some(s)
+            None => span
+          }
+          match compile_expr(expr, b, ann_span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          pairs = pairs + 1
+        }
+        match return_annotation {
+          Some(expr) => {
+            let key_idx = b.add_const(Value::Str("return".to_string()))
+            let _ = b.emit(BcOp::LoadConst(key_idx), span)
+            let ann_span : Span? = match expr_span(expr) {
+              Some(s) => Some(s)
+              None => span
+            }
+            match compile_expr(expr, b, ann_span) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            pairs = pairs + 1
+          }
+          None => ()
+        }
+        let _ = b.emit(BcOp::BuildMap(pairs), span)
+        let _ = b.emit(BcOp::StoreName(tmp_idx), span)
+
+      }
       let template = FunctionValue::{
         name,
         params,
@@ -2278,8 +2694,28 @@ fn compile_stmt(
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(
         BcOp::MakeFunction(template_idx, defaults.length(), decorators.length()),
-        span,
+        // Decorator application happens inside `MakeFunction`. Use the outermost
+        // decorator's span so failures report the correct `@decorator` line.
+        if decorators.length() > 0 {
+          match decorators[0] {
+            Expr::WithSpan(span=dec_span, expr=_) => Some(dec_span)
+            _ => span
+          }
+        } else {
+          span
+        },
       )
+      match ann_tmp_idx {
+        Some(tmp_idx) => {
+          let ann_attr_idx = b.intern_name("__annotations__")
+          let _ = b.emit(BcOp::DupTop, span)
+          let _ = b.emit(BcOp::LoadName(tmp_idx), span)
+          let _ = b.emit(BcOp::StoreAttr(ann_attr_idx), span)
+          let _ = b.emit(BcOp::DeleteName(tmp_idx), span)
+
+        }
+        None => ()
+      }
       let name_idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
@@ -2311,7 +2747,15 @@ fn compile_stmt(
       }
       let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth + 1) {
+        match
+          compile_stmt(
+            s,
+            b,
+            span,
+            loop_stack,
+            finally_depth + 1,
+            future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -2382,7 +2826,15 @@ fn compile_stmt(
       }
       let setup_pc = b.emit(BcOp::SetupFinally(-1), span)
       for s in body {
-        match compile_stmt(s, b, span, loop_stack, finally_depth + 1) {
+        match
+          compile_stmt(
+            s,
+            b,
+            span,
+            loop_stack,
+            finally_depth + 1,
+            future_annotations,
+          ) {
           Ok(_) => ()
           Err(err) => return Err(err)
         }
@@ -2446,15 +2898,38 @@ pub fn compile_module_to_bc(
 }
 
 ///|
-pub fn compile_stmts_to_bc(
+fn stmts_have_future_annotations(body : Array[Stmt]) -> Bool {
+  for stmt in body {
+    match stmt {
+      Stmt::WithSpan(span=_, stmt=inner) =>
+        if stmts_have_future_annotations([inner]) {
+          return true
+        }
+      Stmt::FromImport(module_name~, names~) =>
+        if module_name == "__future__" {
+          for item in names {
+            if item.0 == "annotations" {
+              return true
+            }
+          }
+        }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+pub fn compile_stmts_to_bc_with_future(
   body : Array[Stmt],
   name : String,
   filename : String,
+  future_annotations : Bool,
 ) -> Result[BcCode, RuntimeError] {
   let b = BcBuilder::new(name, filename)
   let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
   for stmt in body {
-    match compile_stmt(stmt, b, None, loop_stack, 0) {
+    match compile_stmt(stmt, b, None, loop_stack, 0, future_annotations) {
       Ok(_) => ()
       Err(err) => return Err(err)
     }
@@ -2464,4 +2939,14 @@ pub fn compile_stmts_to_bc(
   let _ = b.emit(BcOp::LoadConst(none_idx), None)
   let _ = b.emit(BcOp::ReturnValue, None)
   Ok(b.code)
+}
+
+///|
+pub fn compile_stmts_to_bc(
+  body : Array[Stmt],
+  name : String,
+  filename : String,
+) -> Result[BcCode, RuntimeError] {
+  let future = stmts_have_future_annotations(body)
+  compile_stmts_to_bc_with_future(body, name, filename, future)
 }

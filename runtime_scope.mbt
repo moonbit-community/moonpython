@@ -548,6 +548,8 @@ fn collect_function_local_names(
         type_params~,
         params~,
         defaults~,
+        annotations~,
+        return_annotation~,
         body~,
         is_generator~,
         is_async~
@@ -558,6 +560,14 @@ fn collect_function_local_names(
         }
         for d in defaults {
           walk_expr(d)
+        }
+        for ann in annotations {
+          let _ = ann.0
+          walk_expr(ann.1)
+        }
+        match return_annotation {
+          Some(expr) => walk_expr(expr)
+          None => ()
         }
         let _ = type_params
         let _ = params

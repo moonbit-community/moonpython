@@ -25,6 +25,27 @@ import sys, array, io, os
 from decimal import Decimal
 from fractions import Fraction
 
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonBufferSmokeTests(unittest.TestCase):
+        def test_memoryview_bytes_smoke(self):
+            mv = memoryview(b"abc")
+            self.assertEqual(len(mv), 3)
+            self.assertEqual(mv[0], ord("a"))
+            self.assertEqual(bytes(mv), b"abc")
+
+        def test_memoryview_bytearray_smoke(self):
+            mv = memoryview(bytearray(b"xyz"))
+            self.assertEqual(len(mv), 3)
+            self.assertEqual(mv[0], ord("x"))
+            self.assertEqual(bytes(mv), b"xyz")
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonBufferSmokeTests))
+        return suite
+
 try:
     from _testbuffer import *
 except ImportError:

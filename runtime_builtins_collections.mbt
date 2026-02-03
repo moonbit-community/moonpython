@@ -159,6 +159,72 @@ fn builtin_tuple_new(
 }
 
 ///|
+fn builtin_slice_new(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("slice.__new__", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  // __new__(cls, stop) or __new__(cls, start, stop[, step])
+  if positional.length() < 2 || positional.length() > 4 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "slice.__new__() takes 2 to 4 arguments".to_string(),
+      ),
+    )
+  }
+  let cls = match positional[0] {
+    Value::Class(klass) => klass
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "slice.__new__() expects a type".to_string(),
+        ),
+      )
+  }
+  let (start, stop, step) = if positional.length() == 2 {
+    (Value::None, positional[1], Value::None)
+  } else if positional.length() == 3 {
+    (positional[1], positional[2], Value::None)
+  } else {
+    (positional[1], positional[2], positional[3])
+  }
+  match step {
+    Value::None => ()
+    other => {
+      let step_i = match intlike_to_bigint("slice", other) {
+        Ok(v) => v
+        Err(err) => return Err(err)
+      }
+      if step_i == 0N {
+        return Err(
+          make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "ValueError: slice step cannot be zero".to_string(),
+          ),
+        )
+      }
+    }
+  }
+  let dict : Array[(String, Value)] = [
+    ("hashvalue", Value::Int(fresh_object_hashvalue())),
+    ("start", start),
+    ("stop", stop),
+    ("step", step),
+  ]
+  Ok(Value::Instance(InstanceValue::{ class: cls, dict }))
+}
+
+///|
 fn builtin_slice(
   positional : Array[Value],
   keywords : Array[(String, Value)],

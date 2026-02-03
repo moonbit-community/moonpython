@@ -861,7 +861,9 @@ class _Quoter(dict):
     # of cached keys don't call Python code at all).
     def __init__(self, safe):
         """safe: bytes object."""
-        self.safe = _ALWAYS_SAFE.union(safe)
+        # moonpython: frozenset methods like .union() are not fully implemented
+        # yet. Use a bytes container instead; membership checks still work.
+        self.safe = _ALWAYS_SAFE_BYTES + safe
 
     def __repr__(self):
         return f"<Quoter {dict(self)!r}>"
@@ -959,7 +961,9 @@ def quote_from_bytes(bs, safe='/'):
         return ''
     if isinstance(safe, str):
         # Normalize 'safe' by converting to bytes and removing non-ASCII chars
-        safe = safe.encode('ascii', 'ignore')
+        # moonpython: avoid codecs error handler lookups (e.g. 'ignore') that
+        # are not fully implemented yet; keep only ASCII characters.
+        safe = bytes([ord(ch) for ch in safe if ord(ch) < 128])
     else:
         # List comprehensions are faster than generator expressions.
         safe = bytes([c for c in safe if c < 128])

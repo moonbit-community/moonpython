@@ -249,6 +249,18 @@ fn make_importlib_loader() -> Value {
           closure: [],
         }),
       ),
+      (
+        "get_source",
+        Value::Function(FunctionValue::{
+          name: "__mpython_get_source",
+          params: ["self", "fullname"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
     ],
   }
   Value::Instance(InstanceValue::{
@@ -383,6 +395,7 @@ fn make_time_module(builtins : Array[(String, Value)]) -> Value {
   let tuple_class = builtin_class_from_name("tuple", builtins)
   make_module_instance("time", [
     ("time", module_function_stub("time.time")),
+    ("ctime", module_function_stub("time.ctime")),
     ("monotonic", module_function_stub("time.monotonic")),
     ("perf_counter", module_function_stub("time.perf_counter")),
     ("perf_counter_ns", module_function_stub("time.perf_counter_ns")),
@@ -1001,6 +1014,7 @@ fn make_itertools_module() -> Value {
     ("starmap", module_function_stub("itertools.starmap")),
     ("islice", module_function_stub("itertools.islice")),
     ("permutations", module_function_stub("itertools.permutations")),
+    ("combinations", module_function_stub("itertools.combinations")),
     ("product", module_function_stub("itertools.product")),
   ])
 }
@@ -1375,6 +1389,8 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     ("exec_prefix", prefix_value),
     ("base_exec_prefix", prefix_value),
     ("builtin_module_names", builtin_module_names),
+    // Keep this minimal; used by traceback.py for NameError import suggestions.
+    ("stdlib_module_names", Value::Set([Value::Str("io"), Value::Str("_io")])),
     ("pycache_prefix", Value::None),
     ("modules", Value::Dict(sys_modules_ref.val)),
     ("path", Value::List(path_values)),
@@ -1636,6 +1652,7 @@ fn make_python_module(
         message,
         span: base.span,
         traceback: base.traceback,
+        traceback_envs: base.traceback_envs,
         exc_type: base.exc_type,
         exc_args: [message],
         exc_value: base.exc_value,
@@ -1670,7 +1687,20 @@ fn make_python_module(
   let loader_class = ClassValue::{
     name: "SourceFileLoader",
     bases: [],
-    dict: [],
+    dict: [
+      (
+        "get_source",
+        Value::Function(FunctionValue::{
+          name: "__mpython_get_source",
+          params: ["self", "fullname"],
+          defaults: [],
+          body: [],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }),
+      ),
+    ],
   }
   let loader_value = Value::Instance(InstanceValue::{
     class: loader_class,
@@ -1722,6 +1752,7 @@ fn make_python_module(
     Err(err) => return Err(err)
   }
   push_traceback_frame("<module>".to_string(), filename)
+  set_traceback_frame_env(module_globals, module_globals)
   let _ = match
     eval_block(
       program.body,
@@ -1756,6 +1787,25 @@ fn candidate_module_paths(
   globals : Array[(String, Value)],
   config : Config,
 ) -> Array[String] {
+  fn sys_path_roots() -> Array[String] {
+    let roots : Array[String] = []
+    match module_cache_get("sys") {
+      Some(Value::Instance(inst)) =>
+        match get_named_value(inst.dict, "path") {
+          Some(Value::List(items)) =>
+            for item in items {
+              match item {
+                Value::Str(root) => roots.push(root)
+                _ => ()
+              }
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+    roots
+  }
+
   let rel = module_rel_path(module_name) + ".py"
   let paths : Array[String] = []
   match config.main_path {
@@ -1778,6 +1828,12 @@ fn candidate_module_paths(
     paths.push(@path.Path(root).join(@path.Path(rel)).to_string())
   }
 
+  // `sys.path` is mutable at runtime (e.g. tempfile-based tests). Honor it for
+  // filesystem imports when available.
+  for root in sys_path_roots() {
+    paths.push(@path.Path(root).join(@path.Path(rel)).to_string())
+  }
+
   // Avoid unused warnings.
   let _ = globals
   paths
@@ -1789,6 +1845,25 @@ fn candidate_package_paths(
   globals : Array[(String, Value)],
   config : Config,
 ) -> Array[String] {
+  fn sys_path_roots() -> Array[String] {
+    let roots : Array[String] = []
+    match module_cache_get("sys") {
+      Some(Value::Instance(inst)) =>
+        match get_named_value(inst.dict, "path") {
+          Some(Value::List(items)) =>
+            for item in items {
+              match item {
+                Value::Str(root) => roots.push(root)
+                _ => ()
+              }
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+    roots
+  }
+
   let rel = module_rel_path(module_name)
   let paths : Array[String] = []
   match config.main_path {
@@ -1802,6 +1877,9 @@ fn candidate_package_paths(
   }
   paths.push(resolve_path_from_cwd(rel))
   for root in config.import_paths {
+    paths.push(@path.Path(root).join(@path.Path(rel)).to_string())
+  }
+  for root in sys_path_roots() {
     paths.push(@path.Path(root).join(@path.Path(rel)).to_string())
   }
   let _ = globals
@@ -1905,18 +1983,6 @@ fn import_module(
   io : MockIO,
   config : Config,
 ) -> Result[Value, RuntimeError] {
-  // CPython's test suite imports a number of private C-extension-only helper
-  // modules (e.g. `_testcapi`). moonpython doesn't support C extensions, so
-  // treat these as "skipped" to avoid crashing test modules that assume the
-  // extension exists.
-  if module_name.has_prefix("_test") {
-    return Err(
-      make_runtime_error(
-        RuntimeErrorKind::Runtime,
-        "SkipTest: test module requires CPython C extension " + module_name,
-      ),
-    )
-  }
   if module_name.length() == 0 {
     if !config.allow_filesystem_imports {
       return Err(

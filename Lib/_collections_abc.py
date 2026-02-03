@@ -85,7 +85,8 @@ dict_values = type({}.values())
 dict_items = type({}.items())
 ## misc ##
 mappingproxy = type(type.__dict__)
-generator = type((lambda: (yield))())
+# moonpython: avoid `yield` inside `lambda` (not supported by the parser/compiler yet).
+generator = type((x for x in ()))
 ## coroutine ##
 async def _coro(): pass
 _coro = _coro()

@@ -72,6 +72,15 @@ class Month(IntEnum):
     NOVEMBER = 11
     DECEMBER = 12
 
+if getattr(sys, "implementation", None) and sys.implementation.name == "moonpython":
+    # moonpython injects a per-class identity field ("hashvalue") as an int.
+    # calendar.Month iteration picks up int-valued class attributes; remove the
+    # injected field to keep Month iterable over 1..12 only.
+    try:
+        del Month.hashvalue
+    except Exception:
+        pass
+
 
 # Constants for days
 @global_enum
@@ -83,6 +92,12 @@ class Day(IntEnum):
     FRIDAY = 4
     SATURDAY = 5
     SUNDAY = 6
+
+if getattr(sys, "implementation", None) and sys.implementation.name == "moonpython":
+    try:
+        del Day.hashvalue
+    except Exception:
+        pass
 
 
 # Number of days per month (except for February in leap years)

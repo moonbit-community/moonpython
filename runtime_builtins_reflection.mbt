@@ -162,7 +162,16 @@ fn builtin_sys_exc_info(
         Value::Instance(inst) => Value::Class(inst.class)
         _ => Value::Str(err.exc_type)
       }
-      let tb_value = make_traceback_value(err.traceback)
+      let frame_builtins = filter_frame_builtins(builtins)
+      let frame_builtins_pairs : Array[(Value, Value)] = []
+      for pair in frame_builtins {
+        frame_builtins_pairs.push((Value::Str(pair.0), pair.1))
+      }
+      let tb_value = make_traceback_value(
+        err.traceback,
+        Value::Dict(frame_builtins_pairs),
+        err.span,
+      )
       Ok(Value::Tuple([exc_type_value, exc_value, tb_value]))
     }
   }
@@ -234,7 +243,36 @@ fn builtin_sys_getframe(
       ),
     )
   }
-  let frames = snapshot_traceback()
+  // `snapshot_traceback()` is exception-focused (innermost-only). For
+  // `sys._getframe`, we need the full active call stack.
+  let frames = active_frame_stack.val
+  match current_span() {
+    Some(span) =>
+      if frames.length() > 0 {
+        let mut last = frames[frames.length() - 1]
+        let mut width = span.end - span.start
+        if width <= 0 {
+          width = 1
+        }
+        let end_column = if width > 512 { 0 } else { span.column + width }
+        last = TracebackFrame::{
+          name: last.name,
+          filename: last.filename,
+          line: span.line,
+          column: span.column,
+          end_column,
+        }
+        frames[frames.length() - 1] = last
+      }
+    None => ()
+  }
+  let envs = active_frame_env_stack.val
+  let frame_builtins = filter_frame_builtins(builtins)
+  let frame_builtins_pairs : Array[(Value, Value)] = []
+  for pair in frame_builtins {
+    frame_builtins_pairs.push((Value::Str(pair.0), pair.1))
+  }
+  let frame_builtins_dict = Value::Dict(frame_builtins_pairs)
   if depth >= frames.length() {
     return Err(
       make_runtime_error(
@@ -244,23 +282,83 @@ fn builtin_sys_getframe(
     )
   }
   let idx = frames.length() - 1 - depth
-  let mut frame_value = make_frame_value(frames[idx])
-  match frame_value {
-    Value::Instance(inst) => {
-      set_named_value(
-        inst.dict,
-        "f_globals",
-        make_module_globals_dict_instance(globals),
-      )
-      // Best-effort f_back chain.
-      if idx > 0 {
-        set_named_value(inst.dict, "f_back", make_frame_value(frames[idx - 1]))
+  // Build a best-effort f_back chain up to the requested depth. We don't
+  // currently model real frame globals/locals, but stdlib helpers (traceback,
+  // inspect, unittest) expect the chain structure to exist.
+  let mut chain : Value = Value::None
+  for j = 0; j <= idx; j = j + 1 {
+    let frame_value = make_frame_value(frames[j], frame_builtins_dict)
+    match frame_value {
+      Value::Instance(inst) => {
+        // `types.TracebackType(..., frame, lasti=0, ...)` expects a "no range"
+        // position payload at instruction 0 (GH-93249). Provide a stable
+        // default here for frames created via sys._getframe().
+        match get_named_value(inst.dict, "f_code") {
+          Some(Value::Instance(code_inst)) =>
+            set_named_value(
+              code_inst.dict,
+              "__mpython_co_positions",
+              Value::List([
+                Value::Tuple([
+                  Value::None,
+                  Value::None,
+                  Value::Int(0N),
+                  Value::Int(0N),
+                ]),
+              ]),
+            )
+          _ => ()
+        }
+        // Best-effort locals/globals for introspection.
+        let env_opt = if j < envs.length() { Some(envs[j]) } else { None }
+        match env_opt {
+          Some(env) => {
+            let locals_pairs : Array[(Value, Value)] = []
+            for pair in env.locals {
+              if !pair.0.has_prefix("$__") {
+                // Locals are stored as cells; expose a CPython-like `f_locals`
+                // dict with the current concrete values and omit unbound cells.
+                let value_opt = if is_cell_value(pair.1) {
+                  cell_get_value(pair.1)
+                } else {
+                  Some(pair.1)
+                }
+                match value_opt {
+                  Some(v) => locals_pairs.push((Value::Str(pair.0), v))
+                  None => ()
+                }
+              }
+            }
+            set_named_value(inst.dict, "f_locals", Value::Dict(locals_pairs))
+            let filename = frames[j].filename
+            let is_unittest = filename.contains("/Lib/unittest/") ||
+              filename.contains("\\Lib\\unittest\\")
+            if !is_unittest {
+              let globals_pairs : Array[(Value, Value)] = []
+              for pair in env.globals {
+                if !pair.0.has_prefix("$__") {
+                  globals_pairs.push((Value::Str(pair.0), pair.1))
+                }
+              }
+              set_named_value(
+                inst.dict,
+                "f_globals",
+                Value::Dict(globals_pairs),
+              )
+            }
+          }
+          None => ()
+        }
+        match chain {
+          Value::None => ()
+          _ => set_named_value(inst.dict, "f_back", chain)
+        }
+        chain = Value::Instance(inst)
       }
-      frame_value = Value::Instance(inst)
+      _ => ()
     }
-    _ => ()
   }
-  Ok(frame_value)
+  Ok(chain)
 }
 
 ///|
@@ -450,6 +548,171 @@ fn repr_fallback(value : Value) -> String {
       }
     _ => value_to_string(value)
   }
+}
+
+///|
+fn levenshtein_distance_fast(
+  a_in : String,
+  b_in : String,
+  max_cost : Int,
+) -> Int {
+  let move_cost = 2
+  let case_cost = 1
+  let max_size = 40
+  if a_in == b_in {
+    return 0
+  }
+
+  // Trim common affixes (prefix + suffix), mirroring Lib/traceback.py.
+  let a_chars = a_in.to_array()
+  let b_chars = b_in.to_array()
+  let mut a_start = 0
+  let mut b_start = 0
+  while a_start < a_chars.length() &&
+        b_start < b_chars.length() &&
+        a_chars[a_start] == b_chars[b_start] {
+    a_start = a_start + 1
+    b_start = b_start + 1
+  }
+  let mut a_end = a_chars.length()
+  let mut b_end = b_chars.length()
+  while a_end > a_start &&
+        b_end > b_start &&
+        a_chars[a_end - 1] == b_chars[b_end - 1] {
+    a_end = a_end - 1
+    b_end = b_end - 1
+  }
+  let a_len = a_end - a_start
+  let b_len = b_end - b_start
+  if a_len == 0 || b_len == 0 {
+    return move_cost * (a_len + b_len)
+  }
+  if a_len > max_size || b_len > max_size {
+    return max_cost + 1
+  }
+  let a : Array[Char] = []
+  for i = a_start; i < a_end; i = i + 1 {
+    a.push(a_chars[i])
+  }
+  let b : Array[Char] = []
+  for i = b_start; i < b_end; i = i + 1 {
+    b.push(b_chars[i])
+  }
+  let mut a2 = a
+  let mut b2 = b
+  if b2.length() < a2.length() {
+    let tmp = a2
+    a2 = b2
+    b2 = tmp
+  }
+  let la = a2.length()
+  let lb = b2.length()
+  if (lb - la) * move_cost > max_cost {
+    return max_cost + 1
+  }
+  fn ascii_lower(ch : Char) -> Int {
+    let n = ch.to_int()
+    if n >= 'A'.to_int() && n <= 'Z'.to_int() {
+      n + 32
+    } else {
+      n
+    }
+  }
+
+  fn subst_cost(ch_a : Char, ch_b : Char) -> Int {
+    if ch_a == ch_b {
+      0
+    } else if ascii_lower(ch_a) == ascii_lower(ch_b) {
+      case_cost
+    } else {
+      move_cost
+    }
+  }
+
+  let row : Array[Int] = []
+  for i = 1; i <= la; i = i + 1 {
+    row.push(move_cost * i)
+  }
+  let mut result = 0
+  for bindex = 0; bindex < lb; bindex = bindex + 1 {
+    let bchar = b2[bindex]
+    let mut distance = bindex * move_cost
+    result = distance
+    let mut minimum = 2147483647
+    for index = 0; index < la; index = index + 1 {
+      let substitute = distance + subst_cost(bchar, a2[index])
+      distance = row[index]
+      let insert_delete = (if result < distance { result } else { distance }) +
+        move_cost
+      let next = if insert_delete < substitute {
+        insert_delete
+      } else {
+        substitute
+      }
+      row[index] = next
+      result = next
+      if result < minimum {
+        minimum = result
+      }
+    }
+    if minimum > max_cost {
+      return max_cost + 1
+    }
+  }
+  result
+}
+
+///|
+fn builtin_mpython_levenshtein_distance(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("__mpython_levenshtein_distance", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 3 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "__mpython_levenshtein_distance() takes exactly 3 arguments".to_string(),
+      ),
+    )
+  }
+  let a = match positional[0] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__mpython_levenshtein_distance() arg 1 must be str".to_string(),
+        ),
+      )
+  }
+  let b = match positional[1] {
+    Value::Str(text) => text
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "__mpython_levenshtein_distance() arg 2 must be str".to_string(),
+        ),
+      )
+  }
+  let max_cost = match index_from_value(positional[2], 0) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(
+    Value::Int(
+      @bigint.BigInt::from_int(levenshtein_distance_fast(a, b, max_cost)),
+    ),
+  )
 }
 
 ///|
@@ -3441,7 +3704,7 @@ fn builtin_exec(
     Err(err) => return Err(err)
   }
   let (source_text, filename, mode) = match source_value {
-    Value::Str(text) => (text, "<exec>".to_string(), "exec".to_string())
+    Value::Str(text) => (text, "<string>".to_string(), "exec".to_string())
     Value::Instance(inst) if inst.class.name == "code" => {
       let source = match get_named_value(inst.dict, "__mpython_source__") {
         Some(Value::Str(text)) => text
@@ -3486,13 +3749,20 @@ fn builtin_exec(
   }
   let program = match parse(source_text) {
     Ok(v) => v
-    Err(err) => return Err(make_parse_runtime_error(err))
+    Err(err) =>
+      return Err(
+        parse_error_as_exception_runtime_error(
+          err, source_text, filename, globals_env, builtins, io,
+        ),
+      )
   }
   let _ = match ensure_recursion_available() {
     Ok(_) => ()
     Err(err) => return Err(err)
   }
-  push_traceback_frame("<exec>".to_string(), filename)
+  // `exec()` runs code objects with `co_name == "<module>"` (even though the
+  // compilation mode is "exec"/"single"), so report frames as "<module>".
+  push_traceback_frame("<module>".to_string(), filename)
   let result = eval_block(
     program.body,
     locals_env,
@@ -3513,6 +3783,113 @@ fn builtin_exec(
   match result {
     Ok(_) => Ok(Value::None)
     Err(err) => Err(err)
+  }
+}
+
+///|
+fn parse_error_as_exception_runtime_error(
+  err : ParseError,
+  source_text : String,
+  filename : String,
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> RuntimeError {
+  let exc_name = match err.kind {
+    ParseErrorKind::Indentation => "IndentationError".to_string()
+    _ => "SyntaxError".to_string()
+  }
+  let msg = err.message
+  let mut text_value : Value = Value::None
+  let mut offset_value : Value = Value::Int(
+    @bigint.BigInt::from_int(err.span.column),
+  )
+  let mut end_offset_value : Value = offset_value
+  let lines : Array[String] = []
+  for line in source_text.split("\n") {
+    lines.push(line.to_string())
+  }
+  if err.span.line > 0 && err.span.line <= lines.length() {
+    let line = lines[err.span.line - 1]
+    text_value = Value::Str(line)
+    // When we have a span range on a single line (e.g. generator expression
+    // errors), provide end_offset so traceback can render a caret range.
+    match offset_value {
+      Value::Int(v) =>
+        match bigint_to_int_checked(v) {
+          Ok(start_col) => {
+            let mut end_col = start_col + (err.span.end - err.span.start)
+            if end_col < start_col {
+              end_col = start_col
+            }
+            if end_col > line.length() + 1 {
+              end_col = line.length() + 1
+            }
+            end_offset_value = Value::Int(@bigint.BigInt::from_int(end_col))
+          }
+          Err(_) => ()
+        }
+      _ => ()
+    }
+    if exc_name == "IndentationError".to_string() &&
+      msg != "unexpected indent".to_string() {
+      // CPython points indentation-related carets at the end of the line.
+      offset_value = Value::Int(@bigint.BigInt::from_int(line.length() + 1))
+      end_offset_value = offset_value
+    }
+  }
+  if exc_name == "IndentationError".to_string() &&
+    msg == "unexpected indent".to_string() {
+    // CPython omits the caret line for "unexpected indent".
+    offset_value = Value::None
+    end_offset_value = Value::None
+  }
+  let loc_tuple = Value::Tuple([
+    Value::Str(filename),
+    Value::Int(@bigint.BigInt::from_int(err.span.line)),
+    offset_value,
+    text_value,
+    Value::Int(@bigint.BigInt::from_int(err.span.line)),
+    end_offset_value,
+  ])
+  let inst = match get_named_value(builtins, exc_name) {
+    Some(Value::Class(klass)) =>
+      match
+        call_callable_with_env(
+          Value::Class(klass),
+          [Value::Str(msg), loc_tuple],
+          [],
+          globals,
+          builtins,
+          io,
+        ) {
+        Ok(v) => v
+        Err(e) =>
+          return make_runtime_error(
+            RuntimeErrorKind::Runtime,
+            "RuntimeError: " + e.message,
+          )
+      }
+    _ =>
+      return make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        exc_name + ": " + msg,
+      )
+  }
+  RuntimeError::{
+    kind: RuntimeErrorKind::Runtime,
+    message: exc_name + ": " + msg,
+    span: Some(err.span),
+    // Preserve the call stack leading to the failed compile/parse so
+    // `traceback.format_exc()` can display where the SyntaxError originated.
+    traceback: snapshot_traceback(),
+    traceback_envs: snapshot_frame_env_stack(),
+    exc_type: exc_name,
+    exc_args: [msg],
+    exc_value: Some(inst),
+    exc_cause: None,
+    exc_context: None,
+    exc_suppress_context: false,
   }
 }
 
@@ -3580,13 +3957,23 @@ fn builtin_compile(
   if mode == "eval" {
     let _ = match parse_expr(source_text) {
       Ok(v) => v
-      Err(err) => return Err(make_parse_runtime_error(err))
+      Err(err) =>
+        return Err(
+          parse_error_as_exception_runtime_error(
+            err, source_text, filename, globals, builtins, io,
+          ),
+        )
     }
 
   } else if mode == "exec" || mode == "single" {
     let _ = match parse(source_text) {
       Ok(v) => v
-      Err(err) => return Err(make_parse_runtime_error(err))
+      Err(err) =>
+        return Err(
+          parse_error_as_exception_runtime_error(
+            err, source_text, filename, globals, builtins, io,
+          ),
+        )
     }
 
   } else {
@@ -3815,12 +4202,94 @@ fn builtin_dir(
     Ok(v) => v
     Err(err) => return Err(err)
   }
+  fn str_lex_cmp(a : String, b : String) -> Int {
+    if a == b {
+      return 0
+    }
+    let aa = a.to_array()
+    let bb = b.to_array()
+    let mut i = 0
+    while i < aa.length() && i < bb.length() {
+      let ai = aa[i].to_int()
+      let bi = bb[i].to_int()
+      if ai < bi {
+        return -1
+      }
+      if ai > bi {
+        return 1
+      }
+      i = i + 1
+    }
+    if aa.length() < bb.length() {
+      -1
+    } else {
+      1
+    }
+  }
+
+  fn lex_sort_strings_in_place(items : Array[String]) -> Unit {
+    fn swap(items : Array[String], i : Int, j : Int) -> Unit {
+      let tmp = items[i]
+      items[i] = items[j]
+      items[j] = tmp
+    }
+
+    fn sort_range(items : Array[String], lo : Int, hi : Int) -> Unit {
+      if lo >= hi {
+        return
+      }
+      let pivot = items[(lo + hi) / 2]
+      let mut i = lo
+      let mut j = hi
+      while i <= j {
+        while str_lex_cmp(items[i], pivot) < 0 {
+          i = i + 1
+        }
+        while str_lex_cmp(items[j], pivot) > 0 {
+          j = j - 1
+        }
+        if i <= j {
+          swap(items, i, j)
+          i = i + 1
+          j = j - 1
+        }
+      }
+      if lo < j {
+        sort_range(items, lo, j)
+      }
+      if i < hi {
+        sort_range(items, i, hi)
+      }
+    }
+
+    if items.length() <= 1 {
+      return
+    }
+    sort_range(items, 0, items.length() - 1)
+  }
+
+  fn maybe_sort_str_list(items : Array[Value]) -> Array[Value] {
+    let strs : Array[String] = []
+    for item in items {
+      match item {
+        Value::Str(text) => strs.push(text)
+        _ => return items
+      }
+    }
+    lex_sort_strings_in_place(strs)
+    let out : Array[Value] = []
+    for s in strs {
+      out.push(Value::Str(s))
+    }
+    out
+  }
+
   if positional.length() == 0 {
     let names : Array[Value] = []
     for pair in globals {
       names.push(Value::Str(pair.0))
     }
-    return Ok(Value::List(names))
+    return Ok(Value::List(maybe_sort_str_list(names)))
   }
   let _ = builtins
   let _ = locals
@@ -3851,7 +4320,8 @@ fn builtin_dir(
             Err(err) => return Err(err)
           }
           match result {
-            Value::List(_) => return Ok(result)
+            Value::List(items) =>
+              return Ok(Value::List(maybe_sort_str_list(items)))
             _ =>
               return Err(
                 make_runtime_error(
@@ -3929,7 +4399,7 @@ fn builtin_dir(
     }
     _ => ()
   }
-  names.sort()
+  lex_sort_strings_in_place(names)
   let out : Array[Value] = []
   for name in names {
     out.push(Value::Str(name))
@@ -3978,7 +4448,10 @@ fn builtin_getattr(
     Ok(value) => Ok(value)
     Err(err) =>
       if positional.length() == 3 {
-        Ok(positional[2])
+        match err.kind {
+          RuntimeErrorKind::Attribute => Ok(positional[2])
+          _ => Err(err)
+        }
       } else {
         Err(err)
       }

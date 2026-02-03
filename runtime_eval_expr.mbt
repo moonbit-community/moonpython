@@ -113,6 +113,14 @@ fn eval_expr_with_env(
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
   match expr {
+    Expr::WithSpan(span~, expr~) => {
+      // Expression-level spans are used to provide better caret ranges in
+      // tracebacks (PEP 657 tests in the CPython stdlib).
+      push_active_span(span)
+      let result = eval_expr_with_env(expr, locals, globals, builtins, io)
+      pop_active_span()
+      result
+    }
     Expr::Literal(literal) =>
       match literal {
         Literal::None => Ok(Value::None)

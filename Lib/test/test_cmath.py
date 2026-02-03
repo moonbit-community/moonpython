@@ -1,12 +1,16 @@
+import sys
+import unittest
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: cmath not implemented")
+
 from test.support import requires_IEEE_754, cpython_only, import_helper
 from test.support.testcase import ComplexesAreIdenticalMixin
 from test.test_math import parse_testfile, test_file
 import test.test_math as test_math
-import unittest
 import cmath, math
 from cmath import phase, polar, rect, pi
 import platform
-import sys
 
 
 INF = float('inf')

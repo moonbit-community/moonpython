@@ -95,6 +95,15 @@ pub(all) enum BcOp {
   LoadExceptionTraceback // pushes traceback object value
   HasPendingException // pushes bool; true when a pending exception is being unwound
   ClearPendingException // clears the pending exception (for suppressing in `with`/`async with`)
+  // Exception groups (PEP 654).
+  // Wrap a non-group pending exception into an ExceptionGroup, for `except*`.
+  EnsureExceptionGroup
+  // `except*` handler helpers. These ops operate on the current except handler
+  // block and track remaining/unhandled sub-exceptions.
+  ExceptStarInit
+  ExceptStarMatch // pops handler type value; pushes bool; on match sets current exception to the matched group
+  ExceptStarEndHandler // restores base exception; pushes bool indicating whether remaining exceptions exist
+  ExceptStarRaiseRemaining // raises the remaining (unhandled) ExceptionGroup
   // Raise an exception value (instance or class) using Python's `raise` statement semantics.
   // Uses the VM's current pending exception (if any) as implicit context.
   Raise
@@ -312,6 +321,11 @@ fn bc_op_repr(op : BcOp) -> String {
     BcOp::LoadExceptionTraceback => "LoadExceptionTraceback"
     BcOp::HasPendingException => "HasPendingException"
     BcOp::ClearPendingException => "ClearPendingException"
+    BcOp::EnsureExceptionGroup => "EnsureExceptionGroup"
+    BcOp::ExceptStarInit => "ExceptStarInit"
+    BcOp::ExceptStarMatch => "ExceptStarMatch"
+    BcOp::ExceptStarEndHandler => "ExceptStarEndHandler"
+    BcOp::ExceptStarRaiseRemaining => "ExceptStarRaiseRemaining"
     BcOp::Raise => "Raise"
     BcOp::RaiseFrom => "RaiseFrom"
     BcOp::Reraise => "Reraise"

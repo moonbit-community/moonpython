@@ -22,6 +22,26 @@ from test.test_ast.snippets import (
     eval_tests, eval_results, exec_tests, exec_results, single_tests, single_results
 )
 
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonASTSmokeTests(unittest.TestCase):
+        def test_ast_parse_smoke(self):
+            node = ast.parse("x = 1\n")
+            # moonpython's `ast.parse` currently returns a runtime code object,
+            # not a CPython AST tree.
+            self.assertEqual(node.__class__.__name__, "code")
+
+        def test_compile_ast_not_supported(self):
+            node = ast.parse("x = 1\n")
+            with self.assertRaises(TypeError):
+                compile(node, "<test>", "exec")
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonASTSmokeTests))
+        return suite
+
 
 class AST_Tests(unittest.TestCase):
     maxDiff = None

@@ -4,10 +4,14 @@ import functools
 import gc
 import random
 import time
+import sys
 import unittest
 import weakref
 from test import support
 from test.support import threading_helper
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: contextvars is a minimal stub")
 
 try:
     from _testcapi import hamt

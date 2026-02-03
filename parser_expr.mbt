@@ -51,6 +51,16 @@ fn ExprParser::advance(self : ExprParser) -> Token {
 }
 
 ///|
+fn ExprParser::previous(self : ExprParser) -> Token {
+  let idx = self.index()
+  if idx <= 0 {
+    self.tokens[0]
+  } else {
+    self.tokens[idx - 1]
+  }
+}
+
+///|
 fn ExprParser::expect(
   self : ExprParser,
   kind : TokenKind,
@@ -96,6 +106,46 @@ fn has_keyword_prefix(text : String, keyword : String) -> Bool {
   let chars = text.to_array()
   let next = chars[keyword.length()]
   !(is_alnum(next) || next == '_')
+}
+
+///|
+fn span_from_tokens(start : Token, end : Token) -> Span {
+  Span::{
+    start: start.start,
+    end: end.end,
+    line: start.line,
+    column: start.column,
+  }
+}
+
+///|
+fn span_join(start : Span, end : Span) -> Span {
+  Span::{
+    start: start.start,
+    end: end.end,
+    line: start.line,
+    column: start.column,
+  }
+}
+
+///|
+fn expr_span(expr : Expr) -> Span? {
+  match expr {
+    Expr::WithSpan(span~, expr=_) => Some(span)
+    _ => None
+  }
+}
+
+///|
+fn strip_expr_span(expr : Expr) -> Expr {
+  let mut cur = expr
+  while true {
+    match cur {
+      Expr::WithSpan(span=_, expr=inner) => cur = inner
+      _ => break
+    }
+  }
+  cur
 }
 
 ///|
@@ -227,6 +277,12 @@ fn ExprParser::parse_conditional(self : ExprParser) -> Result[Expr, ParseError] 
       Err(err) => return Err(err)
     }
     match expr {
+      Expr::WithSpan(span~, expr=inner) =>
+        match inner {
+          Expr::Name(name) =>
+            expr = Expr::WithSpan(span~, expr=Expr::NamedExpr(name~, value~))
+          _ => return Err(unexpected_token_error(self.current()))
+        }
       Expr::Name(name) => expr = Expr::NamedExpr(name~, value~)
       _ => return Err(unexpected_token_error(self.current()))
     }
@@ -276,7 +332,15 @@ fn ExprParser::parse_or(self : ExprParser) -> Result[Expr, ParseError] {
   if values.length() == 1 {
     Ok(values[0])
   } else {
-    Ok(Expr::BoolOp(op=BoolOp::Or, values~))
+    let node = Expr::BoolOp(op=BoolOp::Or, values~)
+    let first = values[0]
+    let last = values[values.length() - 1]
+    Ok(
+      match (expr_span(first), expr_span(last)) {
+        (Some(a), Some(b)) => Expr::WithSpan(span=span_join(a, b), expr=node)
+        _ => node
+      },
+    )
   }
 }
 
@@ -297,7 +361,15 @@ fn ExprParser::parse_and(self : ExprParser) -> Result[Expr, ParseError] {
   if values.length() == 1 {
     Ok(values[0])
   } else {
-    Ok(Expr::BoolOp(op=BoolOp::And, values~))
+    let node = Expr::BoolOp(op=BoolOp::And, values~)
+    let first = values[0]
+    let last = values[values.length() - 1]
+    Ok(
+      match (expr_span(first), expr_span(last)) {
+        (Some(a), Some(b)) => Expr::WithSpan(span=span_join(a, b), expr=node)
+        _ => node
+      },
+    )
   }
 }
 
@@ -474,7 +546,14 @@ fn ExprParser::parse_compare(self : ExprParser) -> Result[Expr, ParseError] {
   if ops.length() == 0 {
     Ok(left)
   } else {
-    Ok(Expr::Compare(left~, ops~, comparators~))
+    let node = Expr::Compare(left~, ops~, comparators~)
+    let last = comparators[comparators.length() - 1]
+    Ok(
+      match (expr_span(left), expr_span(last)) {
+        (Some(a), Some(b)) => Expr::WithSpan(span=span_join(a, b), expr=node)
+        _ => node
+      },
+    )
   }
 }
 
@@ -487,20 +566,60 @@ fn ExprParser::parse_sum(self : ExprParser) -> Result[Expr, ParseError] {
   while true {
     match self.view() {
       [{ kind: Plus, .. }, .. rest] => {
+        let op_tok = self.current()
         self.update_view(rest)
         let right = match self.parse_term() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        expr = Expr::Binary(op=BinaryOp::Add, left=expr, right~)
+        let left = expr
+        let node = Expr::Binary(op=BinaryOp::Add, left~, right~)
+        expr = match (expr_span(left), expr_span(right)) {
+          (Some(a), Some(b)) =>
+            if a.line != b.line {
+              // For multi-line expressions, keep the binary op span on the
+              // first line so traceback carets don't attempt to span lines.
+              Expr::WithSpan(
+                span=Span::{
+                  start: a.start,
+                  end: op_tok.end,
+                  line: a.line,
+                  column: a.column,
+                },
+                expr=node,
+              )
+            } else {
+              Expr::WithSpan(span=span_join(a, b), expr=node)
+            }
+          _ => node
+        }
       }
       [{ kind: Minus, .. }, .. rest] => {
+        let op_tok = self.current()
         self.update_view(rest)
         let right = match self.parse_term() {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        expr = Expr::Binary(op=BinaryOp::Sub, left=expr, right~)
+        let left = expr
+        let node = Expr::Binary(op=BinaryOp::Sub, left~, right~)
+        expr = match (expr_span(left), expr_span(right)) {
+          (Some(a), Some(b)) =>
+            if a.line != b.line {
+              Expr::WithSpan(
+                span=Span::{
+                  start: a.start,
+                  end: op_tok.end,
+                  line: a.line,
+                  column: a.column,
+                },
+                expr=node,
+              )
+            } else {
+              Expr::WithSpan(span=span_join(a, b), expr=node)
+            }
+          _ => node
+        }
       }
       _ => break
     }
@@ -515,6 +634,7 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
     Err(err) => return Err(err)
   }
   while true {
+    let op_tok = self.current()
     let op = match self.view() {
       [{ kind: Star, .. }, .. rest] => {
         self.update_view(rest)
@@ -544,7 +664,25 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        expr = Expr::Binary(op=op_value, left=expr, right~)
+        let left = expr
+        let node = Expr::Binary(op=op_value, left~, right~)
+        expr = match (expr_span(left), expr_span(right)) {
+          (Some(a), Some(b)) =>
+            if a.line != b.line {
+              Expr::WithSpan(
+                span=Span::{
+                  start: a.start,
+                  end: op_tok.end,
+                  line: a.line,
+                  column: a.column,
+                },
+                expr=node,
+              )
+            } else {
+              Expr::WithSpan(span=span_join(a, b), expr=node)
+            }
+          _ => node
+        }
       }
       None => break
     }
@@ -556,28 +694,61 @@ fn ExprParser::parse_term(self : ExprParser) -> Result[Expr, ParseError] {
 fn ExprParser::parse_factor(self : ExprParser) -> Result[Expr, ParseError] {
   match self.view() {
     [{ kind: Plus, .. }, .. rest] => {
+      let op_tok = self.current()
       self.update_view(rest)
       let expr = match self.parse_factor() {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      Ok(Expr::Unary(op=UnaryOp::Pos, expr~))
+      let node = Expr::Unary(op=UnaryOp::Pos, expr~)
+      Ok(
+        match expr_span(expr) {
+          Some(end) =>
+            Expr::WithSpan(
+              span=span_join(span_from_tokens(op_tok, op_tok), end),
+              expr=node,
+            )
+          None => node
+        },
+      )
     }
     [{ kind: Minus, .. }, .. rest] => {
+      let op_tok = self.current()
       self.update_view(rest)
       let expr = match self.parse_factor() {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      Ok(Expr::Unary(op=UnaryOp::Neg, expr~))
+      let node = Expr::Unary(op=UnaryOp::Neg, expr~)
+      Ok(
+        match expr_span(expr) {
+          Some(end) =>
+            Expr::WithSpan(
+              span=span_join(span_from_tokens(op_tok, op_tok), end),
+              expr=node,
+            )
+          None => node
+        },
+      )
     }
     [{ kind: Tilde, .. }, .. rest] => {
+      let op_tok = self.current()
       self.update_view(rest)
       let expr = match self.parse_factor() {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      Ok(Expr::Unary(op=UnaryOp::Invert, expr~))
+      let node = Expr::Unary(op=UnaryOp::Invert, expr~)
+      Ok(
+        match expr_span(expr) {
+          Some(end) =>
+            Expr::WithSpan(
+              span=span_join(span_from_tokens(op_tok, op_tok), end),
+              expr=node,
+            )
+          None => node
+        },
+      )
     }
     _ => {
       let mut expr = match self.parse_primary() {
@@ -590,7 +761,12 @@ fn ExprParser::parse_factor(self : ExprParser) -> Result[Expr, ParseError] {
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        expr = Expr::Binary(op=BinaryOp::Pow, left=expr, right~)
+        let left = expr
+        let node = Expr::Binary(op=BinaryOp::Pow, left~, right~)
+        expr = match (expr_span(left), expr_span(right)) {
+          (Some(a), Some(b)) => Expr::WithSpan(span=span_join(a, b), expr=node)
+          _ => node
+        }
       }
       Ok(expr)
     }
@@ -1128,6 +1304,8 @@ fn ExprParser::parse_comp_targets(
 ///|
 fn collect_named_expr_targets(expr : Expr, targets : Array[String]) -> Unit {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      collect_named_expr_targets(inner, targets)
     Expr::Literal(_) => ()
     Expr::Name(_) => ()
     Expr::FString(_) => ()
@@ -1657,7 +1835,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match body {
+      match strip_expr_span(body) {
         Expr::NamedExpr(..) =>
           if !body_started_paren {
             return Err(
@@ -2236,6 +2414,10 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     }
     _ => return Err(unexpected_token_error(token))
   }
+
+  // Default span: cover the token range parsed for the primary expression.
+  let base_end = self.previous()
+  expr = Expr::WithSpan(span=span_from_tokens(token, base_end), expr~)
   while true {
     let kind = self.current().kind
     if kind == LParen {
@@ -2301,11 +2483,40 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 }
                 if self.current().kind == For || self.current().kind == Async {
                   if args.length() > 0 || keywords.length() > 0 {
+                    // Match CPython: point at the start of the generator expression,
+                    // not the `for` keyword.
+                    let mut depth = 0
+                    let mut end_pos = token.end
+                    let mut j = self.index()
+                    while j < self.tokens.length() {
+                      let kind = self.tokens[j].kind
+                      if depth == 0 && (kind == Comma || kind == RParen) {
+                        break
+                      }
+                      if kind == LParen || kind == LBracket || kind == LBrace {
+                        depth += 1
+                      } else if kind == RParen ||
+                        kind == RBracket ||
+                        kind == RBrace {
+                        if depth > 0 {
+                          depth -= 1
+                        }
+                      }
+                      end_pos = self.tokens[j].end
+                      j += 1
+                    }
+                    let err_token = {
+                      kind: Eof,
+                      start: token.start,
+                      end: end_pos,
+                      line: token.line,
+                      column: token.column,
+                    }
                     return Err(
                       make_parse_error(
                         ParseErrorKind::Syntax,
                         "Generator expression must be parenthesized".to_string(),
-                        self.current(),
+                        err_token,
                       ),
                     )
                   }
@@ -2315,11 +2526,24 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                     Err(err) => return Err(err)
                   }
                   if self.current().kind == Comma {
+                    let idx = self.index()
+                    let end_pos = if idx > 0 {
+                      self.tokens[idx - 1].end
+                    } else {
+                      token.end
+                    }
+                    let err_token = {
+                      kind: Eof,
+                      start: token.start,
+                      end: end_pos,
+                      line: token.line,
+                      column: token.column,
+                    }
                     return Err(
                       make_parse_error(
                         ParseErrorKind::Syntax,
                         "Generator expression must be parenthesized".to_string(),
-                        self.current(),
+                        err_token,
                       ),
                     )
                   }
@@ -2348,11 +2572,28 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           break
         }
       }
-      match self.expect(RParen) {
-        Ok(_) => ()
+      let close = match self.expect(RParen) {
+        Ok(tok) => tok
         Err(err) => return Err(err)
       }
-      expr = Expr::Call(callee=expr, args~)
+      let callee = expr
+      let node = Expr::Call(callee~, args~)
+      // When a call spans multiple physical lines, keep the span on the first
+      // line (`callee(`) so traceback carets remain single-line.
+      let call_end = if open.line != close.line { open.end } else { close.end }
+      expr = match expr_span(callee) {
+        Some(start) =>
+          Expr::WithSpan(
+            span=Span::{
+              start: start.start,
+              end: call_end,
+              line: start.line,
+              column: start.column,
+            },
+            expr=node,
+          )
+        None => node
+      }
     } else if kind == LBracket {
       let open = self.advance()
       let items : Array[Expr] = []
@@ -2457,8 +2698,8 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
           ),
         )
       }
-      match self.expect(RBracket) {
-        Ok(_) => ()
+      let close = match self.expect(RBracket) {
+        Ok(tok) => tok
         Err(err) => return Err(err)
       }
       if items.length() == 0 {
@@ -2469,14 +2710,36 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
       } else {
         Expr::Tuple(items)
       }
-      expr = Expr::Subscript(value=expr, index=index_expr)
+      let value = expr
+      let node = Expr::Subscript(value~, index=index_expr)
+      expr = match expr_span(value) {
+        Some(start) =>
+          Expr::WithSpan(
+            span=Span::{
+              start: start.start,
+              end: close.end,
+              line: start.line,
+              column: start.column,
+            },
+            expr=node,
+          )
+        None => node
+      }
     } else if kind == Dot {
       let _ = self.advance()
       let current = self.current()
       match current.kind {
         Ident(name) => {
+          let name_tok = current
           let _ = self.advance()
-          expr = Expr::Attribute(value=expr, attr=name)
+          let value = expr
+          let node = Expr::Attribute(value~, attr=name)
+          // PEP 657 wants attribute errors to point at the attribute name, not
+          // the dot/prefix expression (important for multi-line attribute access).
+          expr = Expr::WithSpan(
+            span=span_from_tokens(name_tok, name_tok),
+            expr=node,
+          )
         }
         _ => return Err(unexpected_token_error(current))
       }

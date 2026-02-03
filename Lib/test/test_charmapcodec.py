@@ -10,8 +10,14 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 """#"
 
 import unittest
+import sys
 
 import codecs
+
+# moonpython: bytes.decode/str.encode do not consult the Python codec registry,
+# so dynamic registrations in this test cannot work yet.
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: codec registry/error handlers not implemented")
 
 # Register a search function which knows about our codec
 def codec_search_function(encoding):

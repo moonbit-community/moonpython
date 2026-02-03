@@ -13,6 +13,21 @@ from test.support import os_helper
 from test.support.testcase import ExceptionIsLikeMixin
 import weakref
 
+if sys.implementation.name == "moonpython":
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_contextmanager(self):
+                @contextmanager
+                def cm():
+                    yield 123
+                with cm() as v:
+                    self.assertEqual(v, 123)
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
+
 
 class TestAbstractContextManager(unittest.TestCase):
 

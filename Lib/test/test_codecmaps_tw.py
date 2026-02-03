@@ -3,8 +3,13 @@
 #   Codec mapping tests for ROC encodings
 #
 
-from test import multibytecodec_support
+import sys
 import unittest
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: codec registry/error handlers not implemented")
+
+from test import multibytecodec_support
 
 class TestBIG5Map(multibytecodec_support.TestBase_Mapping,
                   unittest.TestCase):

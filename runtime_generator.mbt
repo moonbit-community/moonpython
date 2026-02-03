@@ -194,6 +194,7 @@ fn generator_stop_iteration_with_value(value : Value) -> RuntimeError {
     message: err.message,
     span: err.span,
     traceback: err.traceback,
+    traceback_envs: err.traceback_envs,
     exc_type: err.exc_type,
     exc_args: err.exc_args,
     exc_value: Some(value),
@@ -1152,6 +1153,7 @@ fn generator_step_statement(
                 message: err0.message,
                 span: err0.span,
                 traceback: err0.traceback,
+                traceback_envs: err0.traceback_envs,
                 exc_type: err0.exc_type,
                 exc_args: err0.exc_args,
                 exc_value: err0.exc_value,
@@ -1195,6 +1197,7 @@ fn generator_step_statement(
                 message: err1.message,
                 span: err1.span,
                 traceback: err1.traceback,
+                traceback_envs: err1.traceback_envs,
                 exc_type: err1.exc_type,
                 exc_args: err1.exc_args,
                 exc_value: err1.exc_value,
@@ -1445,7 +1448,11 @@ fn generator_dispatch_error(
               Value::Instance(inst) => Value::Class(inst.class)
               _ => Value::Str(current.exc_type)
             }
-            let tb_value = make_traceback_value(current.traceback)
+            let tb_value = make_traceback_value(
+              current.traceback,
+              Value::Dict([]),
+              current.span,
+            )
             let exit_result = match
               call_callable_with_env(
                 exit,

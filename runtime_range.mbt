@@ -270,6 +270,69 @@ fn range_slice_indices(
 }
 
 ///|
+fn builtin_slice_indices(
+  positional : Array[Value],
+  keywords : Array[(String, Value)],
+  locals : Array[(String, Value)],
+  globals : Array[(String, Value)],
+  builtins : Array[(String, Value)],
+  io : MockIO,
+) -> Result[Value, RuntimeError] {
+  touch_env(locals, globals, builtins, io)
+  let _ = match ensure_no_keywords("slice.indices", keywords) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if positional.length() != 2 {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Type,
+        "indices() takes exactly one argument".to_string(),
+      ),
+    )
+  }
+  let slice_inst = match positional[0] {
+    Value::Instance(inst) if inst.class.name == "slice" => inst
+    _ =>
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Type,
+          "slice.indices() expects a slice".to_string(),
+        ),
+      )
+  }
+  let length = match intlike_to_bigint("slice", positional[1]) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  if length < 0N {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ValueError: length should not be negative".to_string(),
+      ),
+    )
+  }
+  let start = match get_named_value(slice_inst.dict, "start") {
+    Some(v) => v
+    None => Value::None
+  }
+  let stop = match get_named_value(slice_inst.dict, "stop") {
+    Some(v) => v
+    None => Value::None
+  }
+  let step = match get_named_value(slice_inst.dict, "step") {
+    Some(v) => v
+    None => Value::None
+  }
+  let (s, e, st) = match range_slice_indices(length, start, stop, step) {
+    Ok(v) => v
+    Err(err) => return Err(err)
+  }
+  Ok(Value::Tuple([Value::Int(s), Value::Int(e), Value::Int(st)]))
+}
+
+///|
 fn range_slice_length(
   start : @bigint.BigInt,
   stop : @bigint.BigInt,

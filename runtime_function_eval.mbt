@@ -89,11 +89,23 @@ fn eval_function_with_kwargs(
     Err(err) => return Err(err)
   }
   push_traceback_frame(func.name, filename)
+  set_traceback_frame_env(locals, active_globals)
   push_closure_env(func.closure)
   push_scope_decls_with_nonlocals(global_names, nonlocal_names)
   // Execute via the bytecode pipeline. If compilation fails, surface the error
   // directly so we don't silently fall back and hide bytecode compiler gaps.
-  let result = match compile_stmts_to_bc(func.body, func.name, filename) {
+  let future_annotations = match
+    get_global_value(active_globals, "__mpython_future_annotations__") {
+    Some(Value::Bool(true)) => true
+    _ => false
+  }
+  let result = match
+    compile_stmts_to_bc_with_future(
+      func.body,
+      func.name,
+      filename,
+      future_annotations,
+    ) {
     Ok(code) => {
       push_active_config(current_config())
       let out = bc_exec(code, locals, active_globals, builtins, io)

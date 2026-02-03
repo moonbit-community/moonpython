@@ -174,7 +174,9 @@ def get_attribute(obj, name):
         return attribute
 
 verbose = 1              # Flag set to 0 by regrtest.py
-use_resources = None     # Flag set to [] by regrtest.py
+# Default to regrtest-like behavior: expensive resources (e.g. "cpu", "network")
+# are disabled unless explicitly enabled by the harness.
+use_resources = []       # Flag set by regrtest.py
 max_memuse = 0           # Disable bigmem tests (they will still be run with
                          # small sizes, to make sure they work.)
 real_max_memuse = 0
@@ -513,9 +515,14 @@ def has_no_debug_ranges():
         import _testinternalcapi
     except (ImportError, unittest.SkipTest):
         # MoonPython does not support CPython's internal C API test helpers.
-        # Treat this as "no debug ranges" so tests can selectively skip the
-        # debug-range-specific assertions instead of skipping the whole module.
-        return True
+        # Fall back to probing co_positions() directly.
+        try:
+            it = iter(sys._getframe().f_code.co_positions())
+            pos = next(it)
+            # PEP 657-style ranges exist when columns are available.
+            return pos[2] is None or pos[3] is None
+        except Exception:
+            return True
     config = _testinternalcapi.get_config()
     return not bool(config['code_debug_ranges'])
 
@@ -1604,9 +1611,14 @@ def check__all__(test_case, module, name_of_module=None, extra=(),
         name_of_module = (name_of_module, )
 
     expected = set(extra)
+    is_moonpython = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
 
     for name in dir(module):
         if name.startswith('_') or name in not_exported:
+            continue
+        if is_moonpython and name == "hashvalue":
+            # moonpython attaches a per-object identity field to module
+            # namespaces; it is an implementation detail, not public API.
             continue
         obj = getattr(module, name)
         if (getattr(obj, '__module__', None) in name_of_module or

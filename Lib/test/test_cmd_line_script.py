@@ -1,11 +1,15 @@
 # tests command line execution of scripts
 
+import sys
+import unittest
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: relies on frozen importlib/zipimport internals")
+
 import contextlib
 import importlib
 import importlib.machinery
 import zipimport
-import unittest
-import sys
 import os
 import os.path
 import py_compile

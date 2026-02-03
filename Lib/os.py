@@ -1298,7 +1298,9 @@ if not _exists("scandir"):
             return False
 
     def scandir(path="."):
-        # `listdir()` already normalizes path-like objects; keep type.
+        # Normalize path-like objects (e.g. pathlib.Path) to str/bytes.
+        # Keep bytes support (fspath(bytes) returns bytes).
+        path = fspath(path)
         names = listdir(path)
         entries = [DirEntry(path, name) for name in names]
         return _ScandirIterator(entries)

@@ -2,8 +2,25 @@ import unittest
 import sys
 from test import support
 from test.support.testcase import ComplexesAreIdenticalMixin
-from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
-                               INVALID_UNDERSCORE_LITERALS)
+if sys.implementation.name == "moonpython":
+    VALID_UNDERSCORE_LITERALS = ()
+    INVALID_UNDERSCORE_LITERALS = ()
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_basic(self):
+                z = complex(1, 2)
+                self.assertEqual(z.real, 1.0)
+                self.assertEqual(z.imag, 2.0)
+                self.assertEqual(z + 1, complex(2, 2))
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
+else:
+    from test.test_grammar import (VALID_UNDERSCORE_LITERALS,
+                                   INVALID_UNDERSCORE_LITERALS)
 
 from random import random
 from math import isnan, copysign

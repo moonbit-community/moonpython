@@ -713,6 +713,10 @@ fn ensure_builtin_defs_ready() -> Unit {
   builtin_defs_ref.val = [
     BuiltinDef::{ name: "__mpython_run", run: builtin_mpython_run },
     BuiltinDef::{
+      name: "__mpython_levenshtein_distance",
+      run: builtin_mpython_levenshtein_distance,
+    },
+    BuiltinDef::{
       name: "__mpython_asyncgenexp_next",
       run: builtin_mpython_asyncgenexp_next,
     },
@@ -769,6 +773,10 @@ fn ensure_builtin_defs_ready() -> Unit {
       run: builtin_mpython_posix_rmdir,
     },
     BuiltinDef::{
+      name: "__mpython_posix_utime",
+      run: builtin_mpython_posix_utime,
+    },
+    BuiltinDef::{
       name: "__mpython_posix_stat",
       run: builtin_mpython_posix_stat,
     },
@@ -800,6 +808,7 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "enum.global_enum", run: builtin_enum_global_enum },
     BuiltinDef::{ name: "platform.machine", run: builtin_platform_machine },
     BuiltinDef::{ name: "time.time", run: builtin_time_time },
+    BuiltinDef::{ name: "time.ctime", run: builtin_time_ctime },
     BuiltinDef::{ name: "time.monotonic", run: builtin_time_monotonic },
     BuiltinDef::{ name: "time.perf_counter", run: builtin_time_perf_counter },
     BuiltinDef::{
@@ -1029,6 +1038,10 @@ fn ensure_builtin_defs_ready() -> Unit {
       name: "itertools.permutations",
       run: builtin_itertools_permutations,
     },
+    BuiltinDef::{
+      name: "itertools.combinations",
+      run: builtin_itertools_combinations,
+    },
     BuiltinDef::{ name: "itertools.product", run: builtin_itertools_product },
     BuiltinDef::{ name: "print", run: builtin_print },
     BuiltinDef::{ name: "len", run: builtin_len },
@@ -1109,6 +1122,8 @@ fn ensure_builtin_defs_ready() -> Unit {
     BuiltinDef::{ name: "tuple", run: builtin_tuple },
     BuiltinDef::{ name: "tuple.__new__", run: builtin_tuple_new },
     BuiltinDef::{ name: "slice", run: builtin_slice },
+    BuiltinDef::{ name: "slice.__new__", run: builtin_slice_new },
+    BuiltinDef::{ name: "slice.indices", run: builtin_slice_indices },
     BuiltinDef::{ name: "set", run: builtin_set },
     BuiltinDef::{ name: "set.copy", run: builtin_set_copy },
     BuiltinDef::{ name: "frozenset", run: builtin_frozenset },

@@ -36,6 +36,19 @@ from html import escape as html_escape
 
 warnings._deprecated(__name__, remove=(3, 13))
 
+def _safe_repr(value):
+    if sys.implementation.name == "moonpython":
+        try:
+            return repr(value)
+        except Exception:
+            return "<unrepresentable>"
+    return pydoc.text.repr(value)
+
+def _safe_html_repr(value):
+    if sys.implementation.name == "moonpython":
+        return html_escape(_safe_repr(value))
+    return pydoc.html.repr(value)
+
 
 def reset():
     """Return a string that resets the CGI and browser to a known state."""
@@ -138,7 +151,7 @@ function calls leading up to the error, in the order they occurred.</p>'''
             call = 'in ' + strong(pydoc.html.escape(func))
             if func != "<module>":
                 call += inspect.formatargvalues(args, varargs, varkw, locals,
-                    formatvalue=lambda value: '=' + pydoc.html.repr(value))
+                    formatvalue=lambda value: '=' + _safe_html_repr(value))
 
         highlight = {}
         def reader(lnum=[lnum]):
@@ -172,7 +185,7 @@ function calls leading up to the error, in the order they occurred.</p>'''
                     name = strong(name)
                 else:
                     name = where + strong(name.split('.')[-1])
-                dump.append('%s&nbsp;= %s' % (name, pydoc.html.repr(value)))
+                dump.append('%s&nbsp;= %s' % (name, _safe_html_repr(value)))
             else:
                 dump.append(name + ' <em>undefined</em>')
 
@@ -185,7 +198,7 @@ function calls leading up to the error, in the order they occurred.</p>'''
                                 pydoc.html.escape(str(evalue)))]
     for name in dir(evalue):
         if name[:1] == '_': continue
-        value = pydoc.html.repr(getattr(evalue, name))
+        value = _safe_html_repr(getattr(evalue, name))
         exception.append('\n<br>%s%s&nbsp;=\n%s' % (indent, name, value))
 
     return head + ''.join(frames) + ''.join(exception) + '''
@@ -222,7 +235,7 @@ function calls leading up to the error, in the order they occurred.
             call = 'in ' + func
             if func != "<module>":
                 call += inspect.formatargvalues(args, varargs, varkw, locals,
-                    formatvalue=lambda value: '=' + pydoc.text.repr(value))
+                    formatvalue=lambda value: '=' + _safe_repr(value))
 
         highlight = {}
         def reader(lnum=[lnum]):
@@ -246,7 +259,7 @@ function calls leading up to the error, in the order they occurred.
             if value is not __UNDEF__:
                 if where == 'global': name = 'global ' + name
                 elif where != 'local': name = where + name.split('.')[-1]
-                dump.append('%s = %s' % (name, pydoc.text.repr(value)))
+                dump.append('%s = %s' % (name, _safe_repr(value)))
             else:
                 dump.append(name + ' undefined')
 
@@ -255,7 +268,7 @@ function calls leading up to the error, in the order they occurred.
 
     exception = ['%s: %s' % (str(etype), str(evalue))]
     for name in dir(evalue):
-        value = pydoc.text.repr(getattr(evalue, name))
+        value = _safe_repr(getattr(evalue, name))
         exception.append('\n%s%s = %s' % (" "*4, name, value))
 
     return head + ''.join(frames) + ''.join(exception) + '''

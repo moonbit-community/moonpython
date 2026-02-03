@@ -68,9 +68,38 @@ fn LineParser::parse_block(
           ),
         )
       }
+      // Remember the indent level we just dedented from. If the next statement
+      // is indented to a level that doesn't match any active block, CPython
+      // reports it as "unindent does not match any outer indentation level".
+      self.last_dedent_from = Some(indent)
       break
     }
     if current_indent > indent {
+      match self.last_dedent_from {
+        Some(prev_indent) =>
+          if current_indent < prev_indent {
+            let error_start = if current_indent > 0 {
+              current_indent - 1
+            } else {
+              0
+            }
+            let token = {
+              kind: Eof,
+              start: self.offsets[self.index] + error_start,
+              end: self.offsets[self.index] + error_start + 1,
+              line: self.index + 1,
+              column: current_indent,
+            }
+            return Err(
+              make_parse_error(
+                ParseErrorKind::Indentation,
+                "unindent does not match any outer indentation level".to_string(),
+                token,
+              ),
+            )
+          }
+        None => ()
+      }
       let error_start = if current_indent > 0 { current_indent - 1 } else { 0 }
       let token = {
         kind: Eof,
@@ -87,6 +116,8 @@ fn LineParser::parse_block(
         ),
       )
     }
+    // At a stable indentation level, clear any dedent marker.
+    self.last_dedent_from = None
     let line_index = self.index
     let raw_line = substring(line, current_indent, line.length()).to_string()
     let mut line_text = raw_line.trim(chars=" \t").to_string()
@@ -136,16 +167,19 @@ fn LineParser::parse_block(
     }
     while has_trailing_line_continuation(line_text) &&
           next_index < self.lines.length() {
+      let next_line = self.lines[next_index]
+      // For explicit `\\` line continuations we drop the backslash and join
+      // with a space. Keeping raw newlines here would break statement/header
+      // parsing for `def ... \\` signatures in the stdlib (e.g. Lib/traceback.py).
       line_text = substring(line_text, 0, line_text.length() - 1)
         .trim(chars=" \t")
         .to_string()
-      let next_line = self.lines[next_index]
       let appended = if find_triple_quote(next_line) is Some(_) {
         next_line
       } else {
         strip_inline_comment(next_line)
       }
-      line_text = line_text + "\n" + appended
+      line_text = line_text + " " + appended
       next_index += 1
       line_text = line_text.trim(chars=" \t").to_string()
     }
@@ -184,9 +218,9 @@ fn LineParser::parse_block(
       balance = bracket_balance(line_text)
     }
     if find_triple_quote(line_text) is None {
-      line_text = replace_newlines_with_spaces(line_text)
-        .trim(chars=" \t")
-        .to_string()
+      // Preserve physical newlines so the lexer can track correct token
+      // line/column offsets for multi-line expressions (PEP 657 caret tests).
+      line_text = line_text.trim(chars=" \t").to_string()
     }
     if pending_decorators.length() > 0 &&
       !line_text.has_prefix("@") &&
@@ -282,7 +316,7 @@ fn LineParser::parse_block(
         } else {
           strip_inline_comment(next_line)
         }
-        expr_text = expr_text + "\n" + appended
+        expr_text = expr_text + " " + appended
         decorator_next_index += 1
         expr_text = expr_text.trim(chars=" \t").to_string()
       }
@@ -299,15 +333,14 @@ fn LineParser::parse_block(
         balance = bracket_balance(expr_text)
       }
       if find_triple_quote(expr_text) is None {
-        expr_text = replace_newlines_with_spaces(expr_text)
-          .trim(chars=" \t")
-          .to_string()
+        expr_text = expr_text.trim(chars=" \t").to_string()
       }
       let tokens = match
         tokenize_expr(
           expr_text,
           decorator_line_index + 1,
           self.offsets[decorator_line_index] + current_indent + 1,
+          current_indent + 2,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -429,6 +462,7 @@ fn LineParser::parse_block(
           target_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 10,
+          current_indent + 11,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -451,6 +485,7 @@ fn LineParser::parse_block(
           iter_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 10 + pos + 4,
+          current_indent + 10 + pos + 4 + 1,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -459,19 +494,20 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let body_text = substring(
-          line_text,
-          colon_pos.unwrap() + 1,
-          line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        line_text,
+        colon_pos.unwrap() + 1,
+        line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       let body : Array[Stmt] = []
       if body_text.length() > 0 {
         let base_offset = self.offsets[self.index] +
           current_indent +
           colon_pos.unwrap() +
-          1
+          1 +
+          body_leading
         let parsed = match
           parse_simple_statement(
             body_text,
@@ -698,6 +734,7 @@ fn LineParser::parse_block(
             context_text,
             self.index + 1,
             self.offsets[self.index] + current_indent + 10,
+            current_indent + 11,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -724,19 +761,20 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let body_text = substring(
-          full_line_text,
-          colon_pos.unwrap() + 1,
-          full_line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        full_line_text,
+        colon_pos.unwrap() + 1,
+        full_line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       if body_text.length() > 0 {
         let body : Array[Stmt] = []
         let base_offset = self.offsets[self.index] +
           current_indent +
           colon_pos.unwrap() +
-          1
+          1 +
+          body_leading
         let parsed = match
           parse_simple_statement(
             body_text,
@@ -848,6 +886,7 @@ fn LineParser::parse_block(
           condition_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 2,
+          current_indent + 3,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -856,13 +895,13 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let body_text = substring(
-          line_text,
-          colon_pos.unwrap() + 1,
-          line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        line_text,
+        colon_pos.unwrap() + 1,
+        line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -873,16 +912,19 @@ fn LineParser::parse_block(
           if segment.length() == 0 {
             continue
           }
-          let base_offset = self.offsets[self.index - 1] +
-            current_indent +
+          // Inline suite statements belong to the physical `if` line (even when
+          // the header spans multiple lines due to bracket continuation).
+          let base_offset = self.offsets[if_line_index] +
+            if_indent +
             colon_pos.unwrap() +
             1 +
+            body_leading +
             offset
           let parsed = match
             parse_simple_statement(
               segment,
-              self.index - 1,
-              self.offsets[self.index - 1],
+              if_line_index,
+              self.offsets[if_line_index],
               base_offset,
               self.async_depth > 0,
             ) {
@@ -945,6 +987,7 @@ fn LineParser::parse_block(
             .to_string()
         }
         if next_text.has_prefix("elif ") || next_text.has_prefix("elif(") {
+          let elif_line_index = self.index
           let mut elif_text = next_text
           let mut elif_next_index = self.index + 1
           while has_trailing_line_continuation(elif_text) &&
@@ -958,7 +1001,7 @@ fn LineParser::parse_block(
             } else {
               strip_inline_comment(next_line)
             }
-            elif_text = elif_text + "\n" + appended
+            elif_text = elif_text + " " + appended
             elif_next_index += 1
             elif_text = elif_text.trim(chars=" \t").to_string()
           }
@@ -975,9 +1018,7 @@ fn LineParser::parse_block(
             balance = bracket_balance(elif_text)
           }
           if find_triple_quote(elif_text) is None {
-            elif_text = replace_newlines_with_spaces(elif_text)
-              .trim(chars=" \t")
-              .to_string()
+            elif_text = elif_text.trim(chars=" \t").to_string()
           }
           let colon_pos = find_top_level_colon(elif_text)
           if colon_pos is None {
@@ -1004,6 +1045,7 @@ fn LineParser::parse_block(
               cond_text,
               self.index + 1,
               self.offsets[self.index] + next_indent + 4,
+              next_indent + 5,
             ) {
             Ok(value) => value
             Err(err) => return Err(err)
@@ -1012,13 +1054,13 @@ fn LineParser::parse_block(
             Ok(value) => value
             Err(err) => return Err(err)
           }
-          let body_text = substring(
-              elif_text,
-              colon_pos.unwrap() + 1,
-              elif_text.length(),
-            )
-            .trim(chars=" \t")
-            .to_string()
+          let raw_body_text = substring(
+            elif_text,
+            colon_pos.unwrap() + 1,
+            elif_text.length(),
+          ).to_string()
+          let body_leading = count_indent(raw_body_text)
+          let body_text = raw_body_text.trim(chars=" \t").to_string()
           self.index = elif_next_index
           if body_text.length() > 0 {
             let elif_body : Array[Stmt] = []
@@ -1029,16 +1071,18 @@ fn LineParser::parse_block(
               if segment.length() == 0 {
                 continue
               }
-              let base_offset = self.offsets[self.index - 1] +
+              // Inline suite statements belong to the physical `elif` line.
+              let base_offset = self.offsets[elif_line_index] +
                 next_indent +
                 colon_pos.unwrap() +
                 1 +
+                body_leading +
                 offset
               let parsed = match
                 parse_simple_statement(
                   segment,
-                  self.index - 1,
-                  self.offsets[self.index - 1],
+                  elif_line_index,
+                  self.offsets[elif_line_index],
                   base_offset,
                   self.async_depth > 0,
                 ) {
@@ -1097,13 +1141,13 @@ fn LineParser::parse_block(
               ),
             )
           }
-          let body_text = substring(
-              next_text,
-              colon_pos.unwrap() + 1,
-              next_text.length(),
-            )
-            .trim(chars=" \t")
-            .to_string()
+          let raw_body_text = substring(
+            next_text,
+            colon_pos.unwrap() + 1,
+            next_text.length(),
+          ).to_string()
+          let body_leading = count_indent(raw_body_text)
+          let body_text = raw_body_text.trim(chars=" \t").to_string()
           self.index += 1
           if body_text.length() > 0 {
             else_body = []
@@ -1118,6 +1162,7 @@ fn LineParser::parse_block(
                 next_indent +
                 colon_pos.unwrap() +
                 1 +
+                body_leading +
                 offset
               let parsed = match
                 parse_simple_statement(
@@ -1286,6 +1331,7 @@ fn LineParser::parse_block(
           target_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 4,
+          current_indent + 5,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -1308,6 +1354,7 @@ fn LineParser::parse_block(
           iter_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 4,
+          current_indent + 5,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -1316,13 +1363,13 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let body_text = substring(
-          line_text,
-          colon_pos.unwrap() + 1,
-          line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        line_text,
+        colon_pos.unwrap() + 1,
+        line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -1337,6 +1384,7 @@ fn LineParser::parse_block(
             current_indent +
             colon_pos.unwrap() +
             1 +
+            body_leading +
             offset
           let parsed = match
             parse_simple_statement(
@@ -1507,6 +1555,7 @@ fn LineParser::parse_block(
           cond_text,
           self.index + 1,
           self.offsets[self.index] + current_indent + 5,
+          current_indent + 6,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -1515,13 +1564,13 @@ fn LineParser::parse_block(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      let body_text = substring(
-          line_text,
-          colon_pos.unwrap() + 1,
-          line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        line_text,
+        colon_pos.unwrap() + 1,
+        line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -1536,6 +1585,7 @@ fn LineParser::parse_block(
             current_indent +
             colon_pos.unwrap() +
             1 +
+            body_leading +
             offset
           let parsed = match
             parse_simple_statement(
@@ -1993,7 +2043,12 @@ fn LineParser::parse_block(
                 current_indent +
                 header_offset
               let tokens = match
-                tokenize_expr(expr_text, header_start_index + 1, base_offset) {
+                tokenize_expr(
+                  expr_text,
+                  header_start_index + 1,
+                  base_offset,
+                  base_offset - self.offsets[header_start_index] + 1,
+                ) {
                 Ok(value) => value
                 Err(err) => return Err(err)
               }
@@ -2078,7 +2133,23 @@ fn LineParser::parse_block(
               handler_body.push(stmt)
             }
           }
+          let start = self.offsets[header_start_index] + current_indent
+          let mut end = if header_start_index + 1 < self.offsets.length() {
+            self.offsets[header_start_index + 1] - 1
+          } else {
+            start + 1
+          }
+          if end <= start {
+            end = start + 1
+          }
+          let header_span = Span::{
+            start,
+            end,
+            line: header_start_index + 1,
+            column: current_indent + 1,
+          }
           handlers.push(ExceptHandler::{
+            span: header_span,
             is_star,
             exc: exc_expr_opt,
             name: name_opt,
@@ -2438,6 +2509,7 @@ fn LineParser::parse_block(
             context_text,
             self.index + 1,
             self.offsets[self.index] + current_indent + 4,
+            current_indent + 5,
           ) {
           Ok(value) => value
           Err(err) => return Err(err)
@@ -2464,13 +2536,13 @@ fn LineParser::parse_block(
           ),
         )
       }
-      let body_text = substring(
-          full_line_text,
-          colon_pos.unwrap() + 1,
-          full_line_text.length(),
-        )
-        .trim(chars=" \t")
-        .to_string()
+      let raw_body_text = substring(
+        full_line_text,
+        colon_pos.unwrap() + 1,
+        full_line_text.length(),
+      ).to_string()
+      let body_leading = count_indent(raw_body_text)
+      let body_text = raw_body_text.trim(chars=" \t").to_string()
       if body_text.length() > 0 {
         let body : Array[Stmt] = []
         let segments = split_statements(body_text)
@@ -2484,6 +2556,7 @@ fn LineParser::parse_block(
             current_indent +
             colon_pos.unwrap() +
             1 +
+            body_leading +
             offset
           let parsed = match
             parse_simple_statement(

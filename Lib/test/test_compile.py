@@ -14,6 +14,23 @@ from test.support import (script_helper, requires_debug_ranges, run_code,
                           requires_specialization, C_RECURSION_LIMIT)
 from test.support.os_helper import FakePath
 
+if sys.implementation.name == "moonpython":
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_compile_exec(self):
+                codeobj = compile("x = 1", "<smoke>", "exec")
+                ns = {}
+                exec(codeobj, ns, ns)
+                self.assertEqual(ns["x"], 1)
+
+            def test_compile_eval(self):
+                self.assertEqual(eval(compile("1+2", "<smoke>", "eval")), 3)
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
+
 class TestSpecifics(unittest.TestCase):
 
     def compile_single(self, source):

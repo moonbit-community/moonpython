@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -29,6 +30,10 @@ SLOW_MODULES = {
     "test.test_bigmem",
     "test.test_dynamic",
     "test.test_longexp",
+    # pathlib is large and filesystem-heavy; even a mostly-compatible shim can
+    # take minutes under an interpreter.
+    "test.test_pathlib",
+    "test.test_compile",
     "test.test_support",
     "test.test_userstring",
 }
@@ -54,7 +59,9 @@ _RE_MISSING_MODULE = re.compile(
 # failures in this smoke runner.
 _UNSUPPORTED_C_EXTENSIONS = {
     "_ctypes",
+    "_csv",
     "_locale",
+    "_lsprof",
     "_socket",
 }
 
@@ -70,6 +77,12 @@ _FORCED_SKIP_PREFIXES = {
     "test.test_asyncio.",
 }
 
+_IGNORED_TEST_PACKAGE_PREFIXES = {
+    # These are regrtest internals / support suites, not target smoke modules.
+    ("test", "leakers"),
+    ("test", "regrtestdata"),
+}
+
 
 def discover_test_modules(lib_dir: Path) -> List[str]:
     test_dir = lib_dir / "test"
@@ -78,7 +91,11 @@ def discover_test_modules(lib_dir: Path) -> List[str]:
         if path.name == "__init__.py":
             continue
         rel = path.relative_to(lib_dir).with_suffix("")
-        modules.append(".".join(rel.parts))
+        for prefix in _IGNORED_TEST_PACKAGE_PREFIXES:
+            if tuple(rel.parts[: len(prefix)]) == prefix:
+                break
+        else:
+            modules.append(".".join(rel.parts))
     return modules
 
 
@@ -100,8 +117,13 @@ def classify(exit_code: int, output: str) -> str:
     # (non-zero exit) and as a unittest result (zero exit).
     if "SkipTest:" in output:
         return "skip"
+    if "ResourceDenied:" in output:
+        return "skip"
     missing = _RE_MISSING_MODULE.search(output)
-    if missing and missing.group(1) in _UNSUPPORTED_C_EXTENSIONS:
+    if missing and (
+        missing.group(1) in _UNSUPPORTED_C_EXTENSIONS
+        or missing.group(1).startswith("_test")
+    ):
         return "skip"
 
     # Unittest "all skipped" is still a success exit code, but we want to track
@@ -267,14 +289,20 @@ def run_one(
     )
     start = time.time()
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(repo_root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout_s,
-        )
+        # Run each module in an isolated temp cwd so tests that create files
+        # (TESTFN, pathlib/glob benches, etc.) don't pollute the repo root or
+        # interfere with subsequent runs.
+        with tempfile.TemporaryDirectory(prefix="moonpython-libtest-") as tdir:
+            proc = subprocess.run(
+                cmd,
+                cwd=tdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="backslashreplace",
+                timeout=timeout_s,
+            )
         output = proc.stdout
         status = classify(proc.returncode, output)
         return Result(

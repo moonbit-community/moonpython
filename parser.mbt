@@ -432,7 +432,7 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
     }
     expr_source = line_text
   }
-  let tokens = match tokenize_expr(expr_source, 1, 0) {
+  let tokens = match tokenize_expr(expr_source, 1, 0, 1) {
     Ok(value) => value
     Err(err) => return Err(err)
   }

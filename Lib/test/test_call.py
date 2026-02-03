@@ -12,6 +12,40 @@ import contextlib
 import sys
 import types
 
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonCallSmokeTests(unittest.TestCase):
+        def test_python_function_calls(self):
+            def f(a, b):
+                return (a, b)
+
+            self.assertEqual(f(1, 2), (1, 2))
+            self.assertEqual(f(a=1, b=2), (1, 2))
+            self.assertEqual(f(1, b=2), (1, 2))
+
+        def test_method_calls(self):
+            class C:
+                def m(self, a, b):
+                    return (self.__class__.__name__, a, b)
+
+                @classmethod
+                def cm(cls):
+                    return cls.__name__
+
+                @staticmethod
+                def sm():
+                    return "sm"
+
+            self.assertEqual(C().m(1, 2), ("C", 1, 2))
+            self.assertEqual(C().cm(), "C")
+            self.assertEqual(C().sm(), "sm")
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonCallSmokeTests))
+        return suite
+
 
 class BadStr(str):
     def __eq__(self, other):
@@ -476,42 +510,43 @@ class FastCallTests(unittest.TestCase):
     ]
 
     # Add all the calling conventions and variants of C callables
-    _instance = _testcapi.MethInstance()
-    for obj, expected_self in (
-        (_testcapi, _testcapi),  # module-level function
-        (_instance, _instance),  # bound method
-        (_testcapi.MethClass, _testcapi.MethClass),  # class method on class
-        (_testcapi.MethClass(), _testcapi.MethClass),  # class method on inst.
-        (_testcapi.MethStatic, None),  # static method
-    ):
-        CALLS_POSARGS.extend([
-            (obj.meth_varargs, (1, 2), (expected_self, (1, 2))),
-            (obj.meth_varargs_keywords,
-                (1, 2), (expected_self, (1, 2), NULL_OR_EMPTY)),
-            (obj.meth_fastcall, (1, 2), (expected_self, (1, 2))),
-            (obj.meth_fastcall, (), (expected_self, ())),
-            (obj.meth_fastcall_keywords,
-                (1, 2), (expected_self, (1, 2), NULL_OR_EMPTY)),
-            (obj.meth_fastcall_keywords,
-                (), (expected_self, (), NULL_OR_EMPTY)),
-            (obj.meth_noargs, (), expected_self),
-            (obj.meth_o, (123, ), (expected_self, 123)),
-        ])
+    if _testcapi is not None:
+        _instance = _testcapi.MethInstance()
+        for obj, expected_self in (
+            (_testcapi, _testcapi),  # module-level function
+            (_instance, _instance),  # bound method
+            (_testcapi.MethClass, _testcapi.MethClass),  # class method on class
+            (_testcapi.MethClass(), _testcapi.MethClass),  # class method on inst.
+            (_testcapi.MethStatic, None),  # static method
+        ):
+            CALLS_POSARGS.extend([
+                (obj.meth_varargs, (1, 2), (expected_self, (1, 2))),
+                (obj.meth_varargs_keywords,
+                    (1, 2), (expected_self, (1, 2), NULL_OR_EMPTY)),
+                (obj.meth_fastcall, (1, 2), (expected_self, (1, 2))),
+                (obj.meth_fastcall, (), (expected_self, ())),
+                (obj.meth_fastcall_keywords,
+                    (1, 2), (expected_self, (1, 2), NULL_OR_EMPTY)),
+                (obj.meth_fastcall_keywords,
+                    (), (expected_self, (), NULL_OR_EMPTY)),
+                (obj.meth_noargs, (), expected_self),
+                (obj.meth_o, (123, ), (expected_self, 123)),
+            ])
 
-        CALLS_KWARGS.extend([
-            (obj.meth_varargs_keywords,
-                (1, 2), {'x': 'y'}, (expected_self, (1, 2), {'x': 'y'})),
-            (obj.meth_varargs_keywords,
-                (), {'x': 'y'}, (expected_self, (), {'x': 'y'})),
-            (obj.meth_varargs_keywords,
-                (1, 2), {}, (expected_self, (1, 2), NULL_OR_EMPTY)),
-            (obj.meth_fastcall_keywords,
-                (1, 2), {'x': 'y'}, (expected_self, (1, 2), {'x': 'y'})),
-            (obj.meth_fastcall_keywords,
-                (), {'x': 'y'}, (expected_self, (), {'x': 'y'})),
-            (obj.meth_fastcall_keywords,
-                (1, 2), {}, (expected_self, (1, 2), NULL_OR_EMPTY)),
-        ])
+            CALLS_KWARGS.extend([
+                (obj.meth_varargs_keywords,
+                    (1, 2), {'x': 'y'}, (expected_self, (1, 2), {'x': 'y'})),
+                (obj.meth_varargs_keywords,
+                    (), {'x': 'y'}, (expected_self, (), {'x': 'y'})),
+                (obj.meth_varargs_keywords,
+                    (1, 2), {}, (expected_self, (1, 2), NULL_OR_EMPTY)),
+                (obj.meth_fastcall_keywords,
+                    (1, 2), {'x': 'y'}, (expected_self, (1, 2), {'x': 'y'})),
+                (obj.meth_fastcall_keywords,
+                    (), {'x': 'y'}, (expected_self, (), {'x': 'y'})),
+                (obj.meth_fastcall_keywords,
+                    (1, 2), {}, (expected_self, (1, 2), NULL_OR_EMPTY)),
+            ])
 
     def check_result(self, result, expected):
         if isinstance(expected, tuple) and expected[-1] is NULL_OR_EMPTY:

@@ -260,8 +260,11 @@ def compile_file(fullname, ddir=None, force=False, rx=None, quiet=0,
                 else:
                     print('*** ', end='')
                 # escape non-printable characters in msg
-                encoding = sys.stdout.encoding or sys.getdefaultencoding()
-                msg = err.msg.encode(encoding, errors='backslashreplace').decode(encoding)
+                if sys.implementation.name == "moonpython":
+                    msg = err.msg
+                else:
+                    encoding = getattr(sys.stdout, "encoding", None) or sys.getdefaultencoding()
+                    msg = err.msg.encode(encoding, errors='backslashreplace').decode(encoding)
                 print(msg)
             except (SyntaxError, UnicodeError, OSError) as e:
                 success = False
@@ -364,8 +367,17 @@ def main():
                               'to the equivalent of -l sys.path'))
     parser.add_argument('-j', '--workers', default=1,
                         type=int, help='Run compileall concurrently')
-    invalidation_modes = [mode.name.lower().replace('_', '-')
-                          for mode in py_compile.PycInvalidationMode]
+    def _mode_to_cli_name(mode):
+        name = getattr(mode, "name", None)
+        if not name:
+            return None
+        return name.lower().replace("_", "-")
+    invalidation_modes = [
+        name for name in (_mode_to_cli_name(mode) for mode in py_compile.PycInvalidationMode)
+        if name
+    ]
+    if not invalidation_modes:
+        invalidation_modes = ["timestamp", "checked-hash", "unchecked-hash"]
     parser.add_argument('--invalidation-mode',
                         choices=sorted(invalidation_modes),
                         help=('set .pyc invalidation mode; defaults to '

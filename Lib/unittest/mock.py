@@ -1392,7 +1392,8 @@ class _patch(object):
         def patched(*args, **keywargs):
             with self.decoration_helper(patched,
                                         args,
-                                        keywargs) as (newargs, newkeywargs):
+                                        keywargs) as new_args_kwargs:
+                newargs, newkeywargs = new_args_kwargs
                 return func(*newargs, **newkeywargs)
 
         patched.patchings = [self]
@@ -1409,7 +1410,8 @@ class _patch(object):
         async def patched(*args, **keywargs):
             with self.decoration_helper(patched,
                                         args,
-                                        keywargs) as (newargs, newkeywargs):
+                                        keywargs) as new_args_kwargs:
+                newargs, newkeywargs = new_args_kwargs
                 return await func(*newargs, **newkeywargs)
 
         patched.patchings = [self]

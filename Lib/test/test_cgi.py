@@ -7,6 +7,9 @@ from io import StringIO, BytesIO
 from test import support
 from test.support import warnings_helper
 
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: cgi/file IO/error message semantics not implemented")
+
 cgi = warnings_helper.import_deprecated("cgi")
 
 

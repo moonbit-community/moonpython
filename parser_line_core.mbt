@@ -8,6 +8,7 @@ priv struct LineParser {
   offsets : Array[Int]
   mut func_depth : Int
   mut async_depth : Int
+  mut last_dedent_from : Int?
 }
 
 ///|
@@ -22,7 +23,14 @@ fn LineParser::new(source : String) -> LineParser {
     offsets.push(offset)
     offset += line.length() + 1
   }
-  LineParser::{ lines, index: 0, offsets, func_depth: 0, async_depth: 0 }
+  LineParser::{
+    lines,
+    index: 0,
+    offsets,
+    func_depth: 0,
+    async_depth: 0,
+    last_dedent_from: None,
+  }
 }
 
 ///|

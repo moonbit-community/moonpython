@@ -61,6 +61,11 @@ from test.support import import_helper
 from test.support import os_helper
 from test.support import patch_list
 
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    raise unittest.SkipTest("bdb requires tracing/frame support (sys.settrace)")
+
 
 class BdbException(Exception): pass
 class BdbError(BdbException): """Error raised by the Bdb instance."""

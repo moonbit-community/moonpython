@@ -16,6 +16,8 @@ pub fn compile_module_to_bc(Module, String) -> Result[BcCode, RuntimeError]
 
 pub fn compile_stmts_to_bc(Array[Stmt], String, String) -> Result[BcCode, RuntimeError]
 
+pub fn compile_stmts_to_bc_with_future(Array[Stmt], String, String, Bool) -> Result[BcCode, RuntimeError]
+
 pub fn coroutine_await(Value) -> Result[Value, RuntimeError]
 
 pub fn coroutine_is_active() -> Bool
@@ -114,6 +116,11 @@ pub(all) enum BcOp {
   LoadExceptionTraceback
   HasPendingException
   ClearPendingException
+  EnsureExceptionGroup
+  ExceptStarInit
+  ExceptStarMatch
+  ExceptStarEndHandler
+  ExceptStarRaiseRemaining
   Raise
   RaiseFrom
   Reraise
@@ -214,6 +221,7 @@ pub fn Config::with_bytecode_strict(Self, Bool) -> Self
 pub impl ToJson for Config
 
 pub struct ExceptHandler {
+  span : Span
   is_star : Bool
   exc : Expr?
   name : String?
@@ -250,6 +258,7 @@ pub enum Expr {
   Binary(op~ : BinaryOp, left~ : Expr, right~ : Expr)
   BoolOp(op~ : BoolOp, values~ : Array[Expr])
   Compare(left~ : Expr, ops~ : Array[CompareOp], comparators~ : Array[Expr])
+  WithSpan(span~ : Span, expr~ : Expr)
 }
 pub impl ToJson for Expr
 
@@ -292,6 +301,7 @@ pub fn Interpreter::new() -> Self
 pub fn Interpreter::new_spec() -> Self
 pub fn Interpreter::set_global(Self, String, Value) -> Unit
 pub fn Interpreter::set_global_str(Self, String, String) -> Unit
+pub fn Interpreter::set_main_module_spec(Self, String, String, String, Bool) -> Unit
 pub fn Interpreter::with_builtins(Array[(String, Value)], Config) -> Self
 pub fn Interpreter::with_config(Config) -> Self
 pub fn Interpreter::with_io(Config, MockIO) -> Self
@@ -362,6 +372,7 @@ pub(all) struct RuntimeError {
   message : String
   span : Span?
   traceback : Array[TracebackFrame]
+  traceback_envs : Array[TracebackEnv]
   exc_type : String
   exc_args : Array[String]
   exc_value : Value?
@@ -407,7 +418,7 @@ pub enum Stmt {
   AsyncFor(target~ : Target, iter~ : Expr, body~ : Array[Stmt], else_body~ : Array[Stmt])
   Break
   Continue
-  Function(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], params~ : Array[String], defaults~ : Array[Expr], body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
+  Function(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], params~ : Array[String], defaults~ : Array[Expr], annotations~ : Array[(String, Expr)], return_annotation~ : Expr?, body~ : Array[Stmt], is_generator~ : Bool, is_async~ : Bool)
   Pass
   Global(Array[String])
   Nonlocal(Array[String])
@@ -441,11 +452,18 @@ pub struct TestResult {
 }
 pub impl ToJson for TestResult
 
+pub(all) struct TracebackEnv {
+  locals : Array[(String, Value)]
+  globals : Array[(String, Value)]
+}
+pub impl ToJson for TracebackEnv
+
 pub(all) struct TracebackFrame {
   name : String
   filename : String
   line : Int
   column : Int
+  end_column : Int
 }
 pub impl ToJson for TracebackFrame
 

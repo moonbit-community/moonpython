@@ -573,15 +573,18 @@ def NamedTemporaryFile(mode='w+b', buffering=-1, encoding=None,
     if "b" not in mode:
         encoding = _io.text_encoding(encoding)
 
+    # moonpython: builtins/io.open does not support the `opener=` keyword yet.
+    # Emulate it by creating the file with mkstemp, closing the fd, and then
+    # opening by pathname.
     name = None
-    def opener(*args):
-        nonlocal name
-        fd, name = _mkstemp_inner(dir, prefix, suffix, flags, output_type)
-        return fd
     try:
-        file = _io.open(dir, mode, buffering=buffering,
-                        newline=newline, encoding=encoding, errors=errors,
-                        opener=opener)
+        fd, name = _mkstemp_inner(dir, prefix, suffix, flags, output_type)
+        try:
+            _os.close(fd)
+        except Exception:
+            pass
+        file = _io.open(name, mode, buffering=buffering,
+                        newline=newline, encoding=encoding, errors=errors)
         try:
             raw = getattr(file, 'buffer', file)
             raw = getattr(raw, 'raw', raw)

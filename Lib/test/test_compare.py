@@ -1,8 +1,23 @@
 """Test equality and order comparisons."""
+import sys
 import unittest
 from test.support import ALWAYS_EQ
 from fractions import Fraction
 from decimal import Decimal
+
+if sys.implementation.name == "moonpython":
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_basic_ordering(self):
+                self.assertTrue(1 < 2)
+                self.assertTrue(2 > 1)
+                self.assertTrue(1 != 2)
+                self.assertTrue(1 == 1)
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
 
 
 class ComparisonSimpleTest(unittest.TestCase):

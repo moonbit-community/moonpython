@@ -172,6 +172,7 @@ fn expr_has_async_comprehension(expr : Expr) -> Bool {
 ///|
 fn expr_has_yield_or_await(expr : Expr) -> Bool {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) => expr_has_yield_or_await(inner)
     Expr::Yield(_) | Expr::YieldFrom(_) | Expr::Await(_) => true
     Expr::ListComp(elt~, clauses~, filters~)
     | Expr::SetComp(elt~, clauses~, filters~)
@@ -1041,6 +1042,7 @@ fn parse_pattern(
 ///|
 fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) => target_from_expr(inner, token)
     Expr::Name(name) => Ok(Target::Name(name))
     Expr::Attribute(value~, attr~) => Ok(Target::Attribute(value~, attr~))
     Expr::Subscript(value~, index~) => Ok(Target::Subscript(value~, index~))
@@ -1260,7 +1262,14 @@ fn finalize_simple_statement(
 ///|
 fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
   let start = offsets[line_index] + indent
-  Span::{ start, end: start + 1, line: line_index + 1, column: indent + 1 }
+  // Best-effort: span covers the whole physical line (excluding the trailing '\n').
+  // This is used for tracebacks/caret diagnostics (PEP 657 tests in Lib/test).
+  let end = if line_index + 1 < offsets.length() {
+    offsets[line_index + 1] - 1
+  } else {
+    start + 1
+  }
+  Span::{ start, end, line: line_index + 1, column: indent + 1 }
 }
 
 ///|
@@ -1281,9 +1290,23 @@ fn parse_simple_statement(
   base_offset : Int,
   allow_async_comprehensions : Bool,
 ) -> Result[Array[Stmt], ParseError] {
+  // `line_text` may be a sliced inline statement (e.g. after `:` in a one-liner
+  // suite), so its end offset is relative to `base_offset`, not `line_start_offset`.
+  // `line_text` can include physical newlines due to bracket continuation.
+  // Keep statement spans on the first physical line so traceback caret ranges
+  // don't become "very long single-line" offsets.
+  let mut line_len = line_text.length()
+  match line_text.find("\n") {
+    Some(idx) => line_len = idx
+    None => ()
+  }
+  if line_len <= 0 {
+    line_len = 1
+  }
+  let line_end_offset = base_offset + line_len
   let span = Span::{
     start: base_offset,
-    end: base_offset + 1,
+    end: line_end_offset,
     line: line_index + 1,
     column: base_offset - line_start_offset + 1,
   }
@@ -1344,7 +1367,13 @@ fn parse_simple_statement(
         ),
       )
     }
-    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 10) {
+    let tokens = match
+      tokenize_expr(
+        rest,
+        line_index + 1,
+        base_offset + 10,
+        base_offset + 10 - line_start_offset + 1,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -1367,7 +1396,13 @@ fn parse_simple_statement(
         stmts, allow_async_comprehensions, span, base_offset,
       )
     }
-    let tokens = match tokenize_expr(rest, line_index + 1, base_offset + 5) {
+    let tokens = match
+      tokenize_expr(
+        rest,
+        line_index + 1,
+        base_offset + 5,
+        base_offset + 5 - line_start_offset + 1,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -1420,7 +1455,12 @@ fn parse_simple_statement(
         .trim(chars=" \t")
         .to_string()
       let tokens = match
-        tokenize_expr(value_text, line_index + 1, base_offset + end_key + 2) {
+        tokenize_expr(
+          value_text,
+          line_index + 1,
+          base_offset + end_key + 2,
+          base_offset + end_key + 2 - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1798,7 +1838,12 @@ fn parse_simple_statement(
       }
       let value_offset = base_offset + 5 + eq_pos + 1 + value_leading
       let tokens = match
-        tokenize_expr(value_text, line_index + 1, value_offset) {
+        tokenize_expr(
+          value_text,
+          line_index + 1,
+          value_offset,
+          value_offset - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1813,12 +1858,14 @@ fn parse_simple_statement(
     }
   }
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
-    let rest = substring(trimmed, 6, trimmed.length())
-      .trim(chars=" \t")
-      .to_string()
+    let raw_rest = substring(trimmed, 6, trimmed.length()).to_string()
+    let rest_leading = count_indent(raw_rest)
+    let rest = raw_rest.trim(chars=" \t").to_string()
+    let rest_base = base_offset + 6 + rest_leading
+    let rest_column = rest_base - line_start_offset + 1
     if rest.has_prefix("(") {
       let condition_tokens = match
-        tokenize_expr(rest, line_index + 1, base_offset + 6) {
+        tokenize_expr(rest, line_index + 1, rest_base, rest_column) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1873,8 +1920,21 @@ fn parse_simple_statement(
         substring(rest, idx + 1, rest.length()).trim(chars=" \t").to_string()
       None => ""
     }
+    let condition_leading = count_indent(
+      match comma_index {
+        Some(idx) => substring(rest, 0, idx).to_string()
+        None => rest
+      },
+    )
+    let condition_base = rest_base + condition_leading
+    let condition_column = condition_base - line_start_offset + 1
     let condition_tokens = match
-      tokenize_expr(condition_text, line_index + 1, base_offset + 6) {
+      tokenize_expr(
+        condition_text,
+        line_index + 1,
+        condition_base,
+        condition_column,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -1886,8 +1946,24 @@ fn parse_simple_statement(
       let message : Expr? = None
       stmts.push(Stmt::Assert(condition~, message~))
     } else {
+      let message_leading = count_indent(
+        match comma_index {
+          Some(idx) => substring(rest, idx + 1, rest.length()).to_string()
+          None => rest
+        },
+      )
+      let message_base = match comma_index {
+        Some(idx) => rest_base + idx + 1 + message_leading
+        None => rest_base + message_leading
+      }
+      let message_column = message_base - line_start_offset + 1
       let message_tokens = match
-        tokenize_expr(message_text, line_index + 1, base_offset + 6) {
+        tokenize_expr(
+          message_text,
+          line_index + 1,
+          message_base,
+          message_column,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1951,7 +2027,12 @@ fn parse_simple_statement(
       }
     }
     let exc_tokens = match
-      tokenize_expr(exc_text, line_index + 1, base_offset + 5) {
+      tokenize_expr(
+        exc_text,
+        line_index + 1,
+        base_offset + 5,
+        base_offset + 5 - line_start_offset + 1,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -1961,7 +2042,12 @@ fn parse_simple_statement(
     }
     let cause_expr = if cause_text.length() > 0 {
       let cause_tokens = match
-        tokenize_expr(cause_text, line_index + 1, base_offset + 5) {
+        tokenize_expr(
+          cause_text,
+          line_index + 1,
+          base_offset + 5,
+          base_offset + 5 - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1988,7 +2074,12 @@ fn parse_simple_statement(
         continue
       }
       let tokens = match
-        tokenize_expr(text, line_index + 1, base_offset + prefix_len) {
+        tokenize_expr(
+          text,
+          line_index + 1,
+          base_offset + prefix_len,
+          base_offset + prefix_len - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -1997,6 +2088,28 @@ fn parse_simple_statement(
         Err(err) => return Err(err)
       }
       match expr {
+        Expr::WithSpan(span=_, expr=inner) =>
+          match inner {
+            Expr::Name(name) => targets.push(Target::Name(name))
+            Expr::Attribute(value~, attr~) =>
+              targets.push(Target::Attribute(value~, attr~))
+            Expr::Subscript(value~, index~) =>
+              targets.push(Target::Subscript(value~, index~))
+            _ =>
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  {
+                    kind: Eof,
+                    start: base_offset,
+                    end: base_offset + 1,
+                    line: line_index + 1,
+                    column: 1,
+                  },
+                ),
+              )
+          }
         Expr::Name(name) => targets.push(Target::Name(name))
         Expr::Attribute(value~, attr~) =>
           targets.push(Target::Attribute(value~, attr~))
@@ -2040,14 +2153,18 @@ fn parse_simple_statement(
     )
   }
   if has_keyword_prefix(trimmed, "return") {
-    let expr_text = substring(trimmed, 6, trimmed.length())
-      .trim(chars=" \t")
-      .to_string()
+    let raw_expr_text = substring(trimmed, 6, trimmed.length()).to_string()
+    let expr_text = raw_expr_text.trim(chars=" \t").to_string()
     if expr_text.length() == 0 {
       stmts.push(Stmt::Return(None))
     } else {
       let tokens = match
-        tokenize_expr(expr_text, line_index + 1, base_offset + 6) {
+        tokenize_expr(
+          raw_expr_text,
+          line_index + 1,
+          base_offset + 6,
+          base_offset + 6 - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -2074,7 +2191,12 @@ fn parse_simple_statement(
         // and `if x:`: only treat it as an annotation when the left side parses
         // as an assignment target.
         let left_target = match
-          tokenize_expr(left_text, line_index + 1, base_offset) {
+          tokenize_expr(
+            left_text,
+            line_index + 1,
+            base_offset,
+            base_offset - line_start_offset + 1,
+          ) {
           Ok(tokens) =>
             match parse_tokens_expr(tokens) {
               Ok(expr) =>
@@ -2140,6 +2262,7 @@ fn parse_simple_statement(
                 annotation_text,
                 line_index + 1,
                 base_offset + colon_pos + 1,
+                base_offset + colon_pos + 1 - line_start_offset + 1,
               ) {
               Ok(value) => value
               Err(err) => return Err(err)
@@ -2187,7 +2310,12 @@ fn parse_simple_statement(
             .trim(chars=" \t")
             .to_string()
           let left_expr = match
-            tokenize_expr(left_text, line_index + 1, base_offset) {
+            tokenize_expr(
+              left_text,
+              line_index + 1,
+              base_offset,
+              base_offset - line_start_offset + 1,
+            ) {
             Ok(tokens) =>
               match parse_tokens_expr(tokens) {
                 Ok(expr) => Some(expr)
@@ -2256,6 +2384,7 @@ fn parse_simple_statement(
                       annotation_text,
                       line_index + 1,
                       base_offset + colon_pos + 1,
+                      base_offset + colon_pos + 1 - line_start_offset + 1,
                     ) {
                     Ok(value) => value
                     Err(err) => return Err(err)
@@ -2282,6 +2411,7 @@ fn parse_simple_statement(
                       value_text,
                       line_index + 1,
                       base_offset + eq_pos + 1,
+                      base_offset + eq_pos + 1 - line_start_offset + 1,
                     ) {
                     Ok(value) => value
                     Err(err) => return Err(err)
@@ -2311,7 +2441,13 @@ fn parse_simple_statement(
     }
   }
   if has_keyword_prefix(trimmed, "lambda") {
-    let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
+    let tokens = match
+      tokenize_expr(
+        trimmed,
+        line_index + 1,
+        base_offset,
+        base_offset - line_start_offset + 1,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -2351,7 +2487,12 @@ fn parse_simple_statement(
         )
       }
       let left_tokens = match
-        tokenize_expr(left_text, line_index + 1, base_offset) {
+        tokenize_expr(
+          left_text,
+          line_index + 1,
+          base_offset,
+          base_offset - line_start_offset + 1,
+        ) {
         Ok(value) => value
         Err(err) => return Err(err)
       }
@@ -2392,6 +2533,7 @@ fn parse_simple_statement(
           right_text,
           line_index + 1,
           base_offset + pos + op_text.length(),
+          base_offset + pos + op_text.length() - line_start_offset + 1,
         ) {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -2423,7 +2565,13 @@ fn parse_simple_statement(
     }
     None => ()
   }
-  let tokens = match tokenize_expr(trimmed, line_index + 1, base_offset) {
+  let tokens = match
+    tokenize_expr(
+      trimmed,
+      line_index + 1,
+      base_offset,
+      base_offset - line_start_offset + 1,
+    ) {
     Ok(value) => value
     Err(err) => return Err(err)
   }

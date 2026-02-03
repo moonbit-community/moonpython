@@ -12,6 +12,9 @@ from test.support import import_helper
 from test.support import warnings_helper
 from test.support.script_helper import assert_python_ok
 
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: coroutine/async semantics not implemented enough for CPython tests")
+
 
 class AsyncYieldFrom:
     def __init__(self, obj):

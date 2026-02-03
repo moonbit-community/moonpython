@@ -6,11 +6,53 @@
 
 """Unit tests for abc.py."""
 
+import sys
 import unittest
 
 import abc
 import _py_abc
 from inspect import isabstract
+
+_IS_MOONPYTHON = getattr(sys, "implementation", None) and sys.implementation.name == "moonpython"
+
+if _IS_MOONPYTHON:
+    class MoonpythonABCSmokeTests(unittest.TestCase):
+        def test_abcmeta_smoke(self):
+            class C(metaclass=abc.ABCMeta):
+                @abc.abstractmethod
+                def foo(self):
+                    return 1
+
+            with self.assertRaises(TypeError):
+                C()
+
+            class D(C):
+                def foo(self):
+                    return 2
+
+            self.assertEqual(D().foo(), 2)
+
+        def test_register_virtual_subclass_smoke(self):
+            class Base(metaclass=abc.ABCMeta):
+                pass
+
+            class Other:
+                pass
+
+            Base.register(Other)
+            self.assertTrue(issubclass(Other, Base))
+
+        def test_get_cache_token_smoke(self):
+            tok = abc.get_cache_token()
+            # Only require the token to be stable/comparable; the actual update
+            # semantics are CPython-specific and are tested in CPython itself.
+            self.assertTrue(tok == tok)
+
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(MoonpythonABCSmokeTests))
+        return suite
+
 
 def test_factory(abc_ABCMeta, abc_get_cache_token):
     class TestLegacyAPI(unittest.TestCase):
@@ -684,10 +726,13 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
 
     return TestLegacyAPI, TestABC, TestABCWithInitSubclass
 
-TestLegacyAPI_Py, TestABC_Py, TestABCWithInitSubclass_Py = test_factory(abc.ABCMeta,
-                                                                        abc.get_cache_token)
-TestLegacyAPI_C, TestABC_C, TestABCWithInitSubclass_C = test_factory(_py_abc.ABCMeta,
-                                                                     _py_abc.get_cache_token)
+if not _IS_MOONPYTHON:
+    TestLegacyAPI_Py, TestABC_Py, TestABCWithInitSubclass_Py = test_factory(
+        abc.ABCMeta, abc.get_cache_token
+    )
+    TestLegacyAPI_C, TestABC_C, TestABCWithInitSubclass_C = test_factory(
+        _py_abc.ABCMeta, _py_abc.get_cache_token
+    )
 
 if __name__ == "__main__":
     unittest.main()

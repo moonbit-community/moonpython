@@ -62,7 +62,8 @@ fn truthy_from_value_with_env(
   match value {
     Value::Instance(_) => {
       // __bool__()
-      match get_attr_from_value(value, "__bool__", globals, builtins, io) {
+      // Special-method lookup should not invoke instance-level __getattr__.
+      match get_attr_raw_from_value(value, "__bool__", globals, builtins, io) {
         Ok(callable) => {
           let result = match
             call_callable_with_env(callable, [], [], globals, builtins, io) {
@@ -88,7 +89,7 @@ fn truthy_from_value_with_env(
       }
 
       // __len__()
-      match get_attr_from_value(value, "__len__", globals, builtins, io) {
+      match get_attr_raw_from_value(value, "__len__", globals, builtins, io) {
         Ok(callable) => {
           let result = match
             call_callable_with_env(callable, [], [], globals, builtins, io) {
@@ -118,7 +119,28 @@ fn truthy_from_value_with_env(
         }
         Err(err) =>
           match err.kind {
-            RuntimeErrorKind::Attribute => ()
+            RuntimeErrorKind::Attribute =>
+              // Built-in container subclasses (e.g. `class X(list)`) inherit
+              // length semantics even though the intrinsic `__len__` descriptor
+              // is not materialized in the class dict. Fall back to the
+              // internal storage when present.
+              match value {
+                Value::Instance(inst) => {
+                  match get_named_value(inst.dict, list_storage_name) {
+                    Some(Value::List(values)) => return Ok(values.length() != 0)
+                    _ => ()
+                  }
+                  match get_named_value(inst.dict, dict_storage_name) {
+                    Some(Value::Dict(values)) => return Ok(values.length() != 0)
+                    _ => ()
+                  }
+                  match get_named_value(inst.dict, set_storage_name) {
+                    Some(Value::Set(values)) => return Ok(values.length() != 0)
+                    _ => ()
+                  }
+                }
+                _ => ()
+              }
             _ => return Err(err)
           }
       }
@@ -315,6 +337,38 @@ fn get_attr_raw_from_value(
         // `module.__dict__` must be a live mapping so stdlib helpers like
         // `sys.modules[mod].__dict__.update(...)` can mutate module globals.
         return Ok(make_module_globals_dict_instance(inst.dict))
+      }
+      if inst.class.name == "code" && attr == "co_positions" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "code.co_positions",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if inst.class.name == "slice" && attr == "indices" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "slice.indices",
+              params: ["self", "length"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
       }
       if inst.class.name == "file" && attr == "closed" {
         match get_named_value(inst.dict, "__closed__") {
@@ -1009,7 +1063,10 @@ fn get_attr_raw_from_value(
         Some(Value::Function(func)) =>
           if func.body.length() == 0 &&
             !func.name.has_prefix("__") &&
-            !func.name.contains(".") {
+            !func.name.contains(".") &&
+            // BaseException.add_note is an intrinsic method but should still be
+            // bound like a normal instance method.
+            func.name != "add_note" {
             // Builtin function objects don't participate in method binding in
             // CPython (e.g. `open` assigned as a class attribute).
             Ok(Value::Function(func))
@@ -2030,6 +2087,22 @@ fn get_attr_raw_from_value(
               name: "decode",
               params: ["self", "encoding", "errors"],
               defaults: [Value::Str("utf-8"), Value::Str("strict")],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
+          }),
+        )
+      }
+      if attr == "strip" {
+        return Ok(
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "strip",
+              params: ["self", "bytes"],
+              defaults: [Value::None],
               body: [],
               is_generator: false,
               is_async: false,
@@ -3126,12 +3199,66 @@ fn get_attr_raw_from_value(
           } else if func.is_async {
             flags = flags + 128N // CO_COROUTINE
           }
+          // Provide enough metadata for inspect.Signature to model positional-only
+          // args (/), kw-only args (*), and varargs/kwargs.
+          let mut has_posonly_marker = false
+          for param in func.params {
+            if param_is_posonly_marker(param) {
+              has_posonly_marker = true
+              break
+            }
+          }
+          let mut saw_posonly_marker = false
+          let mut saw_kw_only_marker = false
+          let mut posonlyargcount = 0
+          let mut pos_or_kw_count = 0
+          let mut kwonlyargcount = 0
+          let mut varargs = false
+          let mut varkw = false
+          let varnames : Array[String] = []
+          for param in func.params {
+            if param_is_posonly_marker(param) {
+              saw_posonly_marker = true
+              continue
+            }
+            if param_is_kw_only_marker(param) {
+              saw_kw_only_marker = true
+              continue
+            }
+            if param_is_vararg(param) {
+              varargs = true
+            }
+            if param_is_kwarg(param) {
+              varkw = true
+            }
+            match normalize_param_name(param) {
+              Some(name) => varnames.push(name)
+              None => ()
+            }
+            // Only count "real" arguments (exclude *args/**kwargs from argcount).
+            if param_is_vararg(param) || param_is_kwarg(param) {
+              continue
+            }
+            if saw_kw_only_marker {
+              kwonlyargcount += 1
+            } else if has_posonly_marker && !saw_posonly_marker {
+              posonlyargcount += 1
+            } else {
+              pos_or_kw_count += 1
+            }
+          }
+          if varargs {
+            flags = flags + 4N // CO_VARARGS
+          }
+          if varkw {
+            flags = flags + 8N // CO_VARKEYWORDS
+          }
           let firstlineno = match
             get_named_value(func.closure, firstlineno_capture_name) {
             Some(Value::Int(v)) => v
             _ => 1N
           }
-          let argcount = func.params.length()
+          let argcount = posonlyargcount + pos_or_kw_count
           Ok(
             make_code_instance_with_meta(
               flags,
@@ -3139,9 +3266,9 @@ fn get_attr_raw_from_value(
               func.name,
               firstlineno,
               argcount,
-              0,
-              0,
-              func.params,
+              posonlyargcount,
+              kwonlyargcount,
+              varnames,
             ),
           )
         } else if attr == "__closure__" {
@@ -3801,6 +3928,84 @@ fn get_attr_from_value(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[Value, RuntimeError] {
+  fn enrich_attribute_error(err0 : RuntimeError) -> RuntimeError {
+    match err0.kind {
+      RuntimeErrorKind::Attribute => ()
+      _ => return err0
+    }
+    match err0.exc_value {
+      Some(Value::Instance(inst)) => {
+        let need_name = match get_named_value(inst.dict, "name") {
+          Some(Value::Str(_)) => false
+          _ => true
+        }
+        let need_obj = match get_named_value(inst.dict, "obj") {
+          Some(Value::None) | None => true
+          Some(_) => false
+        }
+        if need_name {
+          set_named_value(inst.dict, "name", Value::Str(attr))
+        }
+        if need_obj {
+          set_named_value(inst.dict, "obj", target)
+        }
+        // If we injected metadata, ensure the raised value is the enriched instance.
+        if need_name || need_obj {
+          return RuntimeError::{
+            kind: err0.kind,
+            message: err0.message,
+            span: err0.span,
+            traceback: err0.traceback,
+            traceback_envs: err0.traceback_envs,
+            exc_type: err0.exc_type,
+            exc_args: err0.exc_args,
+            exc_value: Some(Value::Instance(inst)),
+            exc_cause: err0.exc_cause,
+            exc_context: err0.exc_context,
+            exc_suppress_context: err0.exc_suppress_context,
+          }
+        }
+        return err0
+      }
+      Some(_) => return err0
+      None => ()
+    }
+    // Populate AttributeError.obj / AttributeError.name so traceback.py can
+    // compute "Did you mean" suggestions via dir(obj).
+    match get_named_value(builtins, "AttributeError") {
+      Some(Value::Class(klass)) =>
+        match
+          call_callable_with_env(
+            Value::Class(klass),
+            [Value::Str(err0.message)],
+            [],
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(Value::Instance(inst)) => {
+            set_named_value(inst.dict, "name", Value::Str(attr))
+            set_named_value(inst.dict, "obj", target)
+            RuntimeError::{
+              kind: err0.kind,
+              message: err0.message,
+              span: err0.span,
+              traceback: err0.traceback,
+              traceback_envs: err0.traceback_envs,
+              exc_type: err0.exc_type,
+              exc_args: err0.exc_args,
+              exc_value: Some(Value::Instance(inst)),
+              exc_cause: err0.exc_cause,
+              exc_context: err0.exc_context,
+              exc_suppress_context: err0.exc_suppress_context,
+            }
+          }
+          _ => err0
+        }
+      _ => err0
+    }
+  }
+
   // 1) If instance defines __getattribute__, use it.
   // 2) Otherwise do the default lookup.
   // 3) If default lookup fails and instance defines __getattr__, call it.
@@ -3832,7 +4037,7 @@ fn get_attr_from_value(
                   match lookup_class_attr(inst.class, "__getattr__") {
                     Ok(Some(Value::Function(f2))) => {
                       let name_val2 = Value::Str(attr)
-                      return (eval_function_with_kwargs_ref.val)(
+                      let out = (eval_function_with_kwargs_ref.val)(
                         f2,
                         [target, name_val2],
                         [],
@@ -3840,6 +4045,10 @@ fn get_attr_from_value(
                         builtins,
                         io,
                       )
+                      return match out {
+                        Ok(v) => Ok(v)
+                        Err(e) => Err(enrich_attribute_error(e))
+                      }
                     }
                     Ok(Some(_)) =>
                       return Err(
@@ -3848,7 +4057,7 @@ fn get_attr_from_value(
                           "__getattr__ must be a function".to_string(),
                         ),
                       )
-                    Ok(None) => return Err(err0)
+                    Ok(None) => return Err(enrich_attribute_error(err0))
                     Err(err) => return Err(err)
                   }
                 _ => return Err(err0)
@@ -3875,7 +4084,7 @@ fn get_attr_from_value(
           match lookup_class_attr(inst.class, "__getattr__") {
             Ok(Some(Value::Function(f))) => {
               let name_val = Value::Str(attr)
-              (eval_function_with_kwargs_ref.val)(
+              let out = (eval_function_with_kwargs_ref.val)(
                 f,
                 [target, name_val],
                 [],
@@ -3883,6 +4092,10 @@ fn get_attr_from_value(
                 builtins,
                 io,
               )
+              match out {
+                Ok(v) => Ok(v)
+                Err(e) => Err(enrich_attribute_error(e))
+              }
             }
             Ok(Some(_)) =>
               Err(
@@ -3891,7 +4104,7 @@ fn get_attr_from_value(
                   "__getattr__ must be a function".to_string(),
                 ),
               )
-            Ok(None) => Err(err0)
+            Ok(None) => Err(enrich_attribute_error(err0))
             Err(err) => Err(err)
           }
       }

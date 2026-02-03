@@ -6,6 +6,9 @@ import sys
 import unicodedata
 import unittest
 
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: codec error handlers not implemented")
+
 
 class PosReturn:
     # this can be used for configurable callbacks

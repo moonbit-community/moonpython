@@ -14,6 +14,9 @@ from test import support
 import types
 import unittest
 
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: collections requires full dict/set semantics")
+
 from collections import namedtuple, Counter, OrderedDict, _count_elements
 from collections import UserDict, UserString, UserList
 from collections import ChainMap

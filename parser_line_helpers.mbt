@@ -1484,7 +1484,13 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
         continue
       }
       let base_offset = offsets[index] + current_indent + offset
-      match tokenize_expr(segment, index + 1, base_offset) {
+      match
+        tokenize_expr(
+          segment,
+          index + 1,
+          base_offset,
+          base_offset - offsets[index] + 1,
+        ) {
         Ok(_) => ()
         Err(err) =>
           match err.kind {

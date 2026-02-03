@@ -70,7 +70,7 @@ fn builtin_str(
   let value = positional[0]
   match value {
     Value::Str(text) => Ok(Value::Str(text))
-    Value::Instance(_) =>
+    Value::Instance(inst) =>
       match get_attr_from_value(value, "__str__", globals, builtins, io) {
         Ok(callable) =>
           match callable {
@@ -95,8 +95,33 @@ fn builtin_str(
                     )
                   Err(err) => Err(err)
                 }
-              } else {
+                // For most objects, object.__str__ falls back to __repr__.
+                // Exceptions are special-cased to keep BaseException.__str__
+                // compatible with CPython (message from `.args`).
+              } else if is_base_exception_class_value(inst.class) {
                 Ok(Value::Str(value_to_string(value)))
+              } else {
+                match
+                  eval_builtin_call(
+                    "repr",
+                    [value],
+                    [],
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(Value::Str(text))) => Ok(Value::Str(text))
+                  Ok(Some(_)) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__repr__ returned non-string".to_string(),
+                      ),
+                    )
+                  Ok(None) => Ok(Value::Str(value_to_string(value)))
+                  Err(err) => Err(err)
+                }
               }
             Value::Function(func) =>
               if func.body.length() > 0 {
@@ -119,15 +144,61 @@ fn builtin_str(
                     )
                   Err(err) => Err(err)
                 }
-              } else {
+              } else if is_base_exception_class_value(inst.class) {
                 Ok(Value::Str(value_to_string(value)))
+              } else {
+                match
+                  eval_builtin_call(
+                    "repr",
+                    [value],
+                    [],
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(Value::Str(text))) => Ok(Value::Str(text))
+                  Ok(Some(_)) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__repr__ returned non-string".to_string(),
+                      ),
+                    )
+                  Ok(None) => Ok(Value::Str(value_to_string(value)))
+                  Err(err) => Err(err)
+                }
               }
             _ => Ok(Value::Str(value_to_string(value)))
           }
         Err(err) =>
           match err.kind {
             RuntimeErrorKind::Attribute =>
-              Ok(Value::Str(value_to_string(value)))
+              if is_base_exception_class_value(inst.class) {
+                Ok(Value::Str(value_to_string(value)))
+              } else {
+                match
+                  eval_builtin_call(
+                    "repr",
+                    [value],
+                    [],
+                    locals,
+                    globals,
+                    builtins,
+                    io,
+                  ) {
+                  Ok(Some(Value::Str(text))) => Ok(Value::Str(text))
+                  Ok(Some(_)) =>
+                    Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__repr__ returned non-string".to_string(),
+                      ),
+                    )
+                  Ok(None) => Ok(Value::Str(value_to_string(value)))
+                  Err(err) => Err(err)
+                }
+              }
             _ => Err(err)
           }
       }
@@ -915,6 +986,15 @@ fn decode_bytes_utf8(
         i += 1
         continue
       }
+      if errors == "replace" {
+        buf.write_char((65533).to_char().unwrap())
+        i += 1
+        continue
+      }
+      if errors == "ignore" {
+        i += 1
+        continue
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -933,6 +1013,13 @@ fn decode_bytes_utf8(
         }
         break
       }
+      if errors == "replace" {
+        buf.write_char((65533).to_char().unwrap())
+        break
+      }
+      if errors == "ignore" {
+        break
+      }
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -948,6 +1035,17 @@ fn decode_bytes_utf8(
         if errors == "surrogateescape" {
           // Bad continuation: treat the lead byte as undecodable and retry from next byte.
           buf.write_char(surrogateescape_char_from_byte(b0))
+          i += 1
+          bad_lead = true
+          break
+        }
+        if errors == "replace" {
+          buf.write_char((65533).to_char().unwrap())
+          i += 1
+          bad_lead = true
+          break
+        }
+        if errors == "ignore" {
           i += 1
           bad_lead = true
           break
@@ -984,6 +1082,13 @@ fn decode_bytes_ascii(
     if v > 0x7F {
       if errors == "surrogateescape" {
         buf.write_char(surrogateescape_char_from_byte(v))
+        continue
+      }
+      if errors == "replace" {
+        buf.write_char((65533).to_char().unwrap())
+        continue
+      }
+      if errors == "ignore" {
         continue
       }
       return Err(
@@ -1059,7 +1164,9 @@ fn decode_bytes_with_encoding(
   if encoding == "utf-8" || encoding == "utf8" {
     if errors != "strict" &&
       errors != "surrogateescape" &&
-      errors != "surrogatepass" {
+      errors != "surrogatepass" &&
+      errors != "ignore" &&
+      errors != "replace" {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -1073,7 +1180,9 @@ fn decode_bytes_with_encoding(
     encoding == "usascii" {
     if errors != "strict" &&
       errors != "surrogateescape" &&
-      errors != "surrogatepass" {
+      errors != "surrogatepass" &&
+      errors != "ignore" &&
+      errors != "replace" {
       return Err(
         make_runtime_error(
           RuntimeErrorKind::Runtime,
@@ -1377,7 +1486,41 @@ fn builtin_bytes(
             "string argument without an encoding".to_string(),
           ),
         )
-      other =>
+      other => {
+        // CPython: bytes(x) first tries x.__bytes__() if present.
+        match other {
+          Value::Instance(_) => {
+            let maybe_bytes = match
+              call_method0_on_instance(
+                other, "__bytes__", globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) =>
+                match err.kind {
+                  RuntimeErrorKind::Attribute => None
+                  _ => return Err(err)
+                }
+            }
+            match maybe_bytes {
+              Some(v) =>
+                match v {
+                  Value::Bytes(values)
+                  | Value::ByteArray(values)
+                  | Value::MemoryView(values) =>
+                    return Ok(Value::Bytes(copy_ints(values)))
+                  _ =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "__bytes__ returned non-bytes".to_string(),
+                      ),
+                    )
+                }
+              None => ()
+            }
+          }
+          _ => ()
+        }
         return Ok(
           Value::Bytes(
             match bytes_from_iterable("bytes", other, globals, builtins, io) {
@@ -1386,6 +1529,7 @@ fn builtin_bytes(
             },
           ),
         )
+      }
     }
   }
   match positional[0] {

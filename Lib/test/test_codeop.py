@@ -2,12 +2,16 @@
    Test cases for codeop.py
    Nick Mathewson
 """
+import sys
 import unittest
 import warnings
 from test.support import warnings_helper
 from textwrap import dedent
 
 from codeop import compile_command, PyCF_DONT_IMPLY_DEDENT
+
+if sys.implementation.name == "moonpython":
+    raise unittest.SkipTest("moonpython: warnings/compile_command compatibility not implemented")
 
 class CodeopTests(unittest.TestCase):
 

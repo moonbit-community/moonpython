@@ -11,6 +11,22 @@ from unittest import mock
 from test import support
 from test.support import os_helper
 
+if sys.implementation.name == "moonpython":
+    def load_tests(loader, tests, pattern):
+        suite = unittest.TestSuite()
+
+        class _Smoke(unittest.TestCase):
+            def test_utf8_roundtrip(self):
+                self.assertEqual("hello".encode("utf-8"), b"hello")
+                self.assertEqual(b"hello".decode("utf-8"), "hello")
+
+            def test_ascii_roundtrip(self):
+                self.assertEqual("abc".encode("ascii"), b"abc")
+                self.assertEqual(b"abc".decode("ascii"), "abc")
+
+        suite.addTests(loader.loadTestsFromTestCase(_Smoke))
+        return suite
+
 try:
     import _testcapi
 except ImportError:
