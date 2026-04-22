@@ -644,7 +644,10 @@ fn format_hex_value(
     Value::Int(v) => {
       let neg = v < 0N
       let abs_value = if neg { -v } else { v }
-      let mut out = abs_value.to_hex(uppercase~)
+      let mut out = abs_value.to_string(radix=16)
+      if uppercase {
+        out = out.to_upper()
+      }
       if neg {
         out = "-" + out
       }
