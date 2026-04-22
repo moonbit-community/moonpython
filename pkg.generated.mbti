@@ -3,6 +3,7 @@ package "moonbit-community/moonpython"
 
 import {
   "moonbitlang/core/bigint",
+  "moonbitlang/core/ref",
 }
 
 // Values
@@ -162,34 +163,29 @@ pub enum BinaryOp {
   BitAnd
   BitXor
   BitOr
-}
-pub impl ToJson for BinaryOp
+} derive(ToJson)
 
 pub enum BoolOp {
   And
   Or
-}
-pub impl ToJson for BoolOp
+} derive(ToJson)
 
 pub struct BoundMethodValue {
   function : FunctionValue
   self : Value
-}
-pub impl ToJson for BoundMethodValue
+} derive(ToJson)
 
 pub struct ClassValue {
   name : String
   bases : Array[Value]
   dict : Array[(String, Value)]
-}
-pub impl ToJson for ClassValue
+} derive(ToJson)
 
 pub struct CompClause {
   is_async : Bool
   targets : Array[String]
   iter : Expr
-}
-pub impl ToJson for CompClause
+} derive(ToJson)
 
 pub enum CompareOp {
   Eq
@@ -202,8 +198,7 @@ pub enum CompareOp {
   NotIn
   Is
   IsNot
-}
-pub impl ToJson for CompareOp
+} derive(ToJson)
 
 pub struct Config {
   max_recursion : Int
@@ -214,11 +209,10 @@ pub struct Config {
   import_paths : Array[String]
   argv : Array[String]
   main_path : String?
-}
+} derive(ToJson)
 pub fn Config::default() -> Self
 pub fn Config::for_cli(Array[String], String?, Array[String]) -> Self
 pub fn Config::with_bytecode_strict(Self, Bool) -> Self
-pub impl ToJson for Config
 
 pub struct ExceptHandler {
   span : Span
@@ -226,8 +220,7 @@ pub struct ExceptHandler {
   exc : Expr?
   name : String?
   body : Array[Stmt]
-}
-pub impl ToJson for ExceptHandler
+} derive(ToJson)
 
 pub enum Expr {
   Literal(Literal)
@@ -259,8 +252,7 @@ pub enum Expr {
   BoolOp(op~ : BoolOp, values~ : Array[Expr])
   Compare(left~ : Expr, ops~ : Array[CompareOp], comparators~ : Array[Expr])
   WithSpan(span~ : Span, expr~ : Expr)
-}
-pub impl ToJson for Expr
+} derive(ToJson)
 
 pub struct FunctionValue {
   name : String
@@ -270,8 +262,7 @@ pub struct FunctionValue {
   is_generator : Bool
   is_async : Bool
   closure : Array[(String, Value)]
-}
-pub impl ToJson for FunctionValue
+} derive(ToJson)
 
 pub(all) struct GenExpSpec {
   elt : Expr
@@ -282,8 +273,7 @@ pub(all) struct GenExpSpec {
 pub struct InstanceValue {
   class : ClassValue
   dict : Array[(String, Value)]
-}
-pub impl ToJson for InstanceValue
+} derive(ToJson)
 
 pub struct Interpreter {
   config : Config
@@ -314,12 +304,11 @@ pub enum Literal {
   Complex(Double, Double)
   Str(String)
   Bytes(Array[Int])
-}
-pub impl ToJson for Literal
+} derive(ToJson)
 
 pub struct MockIO {
   stdin : Array[String]
-  stdin_pos : Ref[Int]
+  stdin_pos : @ref.Ref[Int]
   stdout : StringBuilder
   stderr : StringBuilder
 }
@@ -332,23 +321,20 @@ pub fn MockIO::write_stdout(Self, String) -> Unit
 
 pub struct Module {
   body : Array[Stmt]
-}
-pub impl ToJson for Module
+} derive(ToJson)
 
 pub(all) struct ParseError {
   kind : ParseErrorKind
   message : String
   span : Span
-}
-pub impl ToJson for ParseError
+} derive(ToJson)
 
 pub(all) enum ParseErrorKind {
   Syntax
   Indentation
   UnexpectedToken
   UnexpectedEof
-}
-pub impl ToJson for ParseErrorKind
+} derive(ToJson)
 
 pub enum Pattern {
   Wildcard
@@ -356,16 +342,14 @@ pub enum Pattern {
   Name(String)
   TypeCapture(type_name~ : String, name~ : String)
   Tuple(Array[Pattern])
-}
-pub impl ToJson for Pattern
+} derive(ToJson)
 
 pub struct RunResult {
   value : Value
   stdout : String
   stderr : String
   globals : Array[(String, Value)]
-}
-pub impl ToJson for RunResult
+} derive(ToJson)
 
 pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
@@ -379,8 +363,7 @@ pub(all) struct RuntimeError {
   exc_cause : Value?
   exc_context : Value?
   exc_suppress_context : Bool
-}
-pub impl ToJson for RuntimeError
+} derive(ToJson)
 
 pub(all) enum RuntimeErrorKind {
   Name
@@ -391,16 +374,14 @@ pub(all) enum RuntimeErrorKind {
   ZeroDivision
   NotImplemented
   Runtime
-}
-pub impl ToJson for RuntimeErrorKind
+} derive(ToJson)
 
 pub(all) struct Span {
   start : Int
   end : Int
   line : Int
   column : Int
-}
-pub impl ToJson for Span
+} derive(ToJson)
 
 pub enum Stmt {
   ExprStmt(Expr)
@@ -432,8 +413,7 @@ pub enum Stmt {
   Try(body~ : Array[Stmt], handlers~ : Array[ExceptHandler], else_body~ : Array[Stmt], finally_body~ : Array[Stmt])
   Class(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
   WithSpan(span~ : Span, stmt~ : Stmt)
-}
-pub impl ToJson for Stmt
+} derive(ToJson)
 
 pub enum Target {
   Name(String)
@@ -442,21 +422,18 @@ pub enum Target {
   Starred(Target)
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
-}
-pub impl ToJson for Target
+} derive(ToJson)
 
 pub struct TestResult {
   passed : Int
   failed : Int
   errors : Array[String]
-}
-pub impl ToJson for TestResult
+} derive(ToJson)
 
 pub(all) struct TracebackEnv {
   locals : Array[(String, Value)]
   globals : Array[(String, Value)]
-}
-pub impl ToJson for TracebackEnv
+} derive(ToJson)
 
 pub(all) struct TracebackFrame {
   name : String
@@ -464,16 +441,14 @@ pub(all) struct TracebackFrame {
   line : Int
   column : Int
   end_column : Int
-}
-pub impl ToJson for TracebackFrame
+} derive(ToJson)
 
 pub enum UnaryOp {
   Pos
   Neg
   Not
   Invert
-}
-pub impl ToJson for UnaryOp
+} derive(ToJson)
 
 pub enum Value {
   None
@@ -493,8 +468,7 @@ pub enum Value {
   Class(ClassValue)
   Instance(InstanceValue)
   BoundMethod(BoundMethodValue)
-}
-pub impl ToJson for Value
+} derive(ToJson)
 
 // Type aliases
 
