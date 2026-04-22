@@ -375,7 +375,7 @@ fn format_string_with_args(
           }
         }
         if is_number {
-          let index = @strconv.parse_int(field_name) catch {
+          let index = @string.parse_int(field_name) catch {
             _ =>
               return Err(
                 make_runtime_error(
