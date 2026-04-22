@@ -1158,14 +1158,12 @@ fn eval_binary_op_values(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           for item in right {
             let _ = match set_add_unique(values, item) {
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           Ok(Value::Set(values))
         }
@@ -1196,14 +1194,12 @@ fn eval_binary_op_values(
                   Ok(_) => ()
                   Err(err) => return Err(err)
                 }
-
               }
               for item in right_values {
                 let _ = match set_add_unique(values, item) {
                   Ok(_) => ()
                   Err(err) => return Err(err)
                 }
-
               }
               if left_inst.class.name == "frozenset" {
                 let klass = builtin_class_from_name("frozenset", builtins)
@@ -1254,14 +1250,12 @@ fn eval_binary_op_values(
                   Ok(_) => ()
                   Err(err) => return Err(err)
                 }
-
               }
               for item in right {
                 let _ = match set_add_unique(values, item) {
                   Ok(_) => ()
                   Err(err) => return Err(err)
                 }
-
               }
               Ok(Value::Set(values))
             }
@@ -1284,7 +1278,6 @@ fn eval_binary_op_values(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           Ok(Value::Dict(out))
         }

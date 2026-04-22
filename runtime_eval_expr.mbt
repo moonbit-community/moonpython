@@ -482,7 +482,6 @@ fn eval_expr_with_env(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
-
       }
       Ok(Value::Set(unique))
     }
@@ -571,7 +570,6 @@ fn eval_expr_with_env(
                     Ok(v) => v
                     Err(err) => return Err(err)
                   }
-
                 }
               _ =>
                 return Err(
@@ -597,7 +595,6 @@ fn eval_expr_with_env(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
         }
       }
@@ -622,7 +619,6 @@ fn eval_expr_with_env(
                 Ok(_) => ()
                 Err(err) => return Err(err)
               }
-
             }
           }
           _ => {
@@ -635,7 +631,6 @@ fn eval_expr_with_env(
               Ok(_) => ()
               Err(err) => return Err(err)
             }
-
           }
         }
       }

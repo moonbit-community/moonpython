@@ -424,7 +424,6 @@ fn call_callable_with_env(
                     while i > 0 {
                       i = i - 1
                       let _ = pairs.remove(i)
-
                     }
                     for item in next {
                       pairs.push(item)
@@ -690,7 +689,6 @@ fn call_callable_with_env(
               Some(Value::Dict(pairs)) =>
                 while pairs.length() > 0 {
                   let _ = pairs.remove(pairs.length() - 1)
-
                 }
               _ => set_named_value(inst.dict, "f_locals", Value::Dict([]))
             }
@@ -1253,7 +1251,6 @@ fn call_callable_with_env(
                         Ok(v) => v
                         Err(err) => return Err(err)
                       }
-
                     }
                     Err(_) => ()
                   }
@@ -1882,7 +1879,6 @@ fn call_callable_with_env(
                             while i > 0 {
                               i = i - 1
                               let _ = values.remove(indices[i])
-
                             }
                             return Ok(Value::None)
                           } else {
@@ -2044,7 +2040,6 @@ fn call_callable_with_env(
                       while i > 0 {
                         i = i - 1
                         let _ = values.remove(i)
-
                       }
                       return Ok(Value::None)
                     }
@@ -4578,7 +4573,6 @@ fn call_callable_with_env(
                   while i > 0 {
                     i = i - 1
                     let _ = values.remove(i)
-
                   }
                   return Ok(Value::None)
                 }
@@ -5371,7 +5365,6 @@ fn call_callable_with_env(
                     Ok(v) => v
                     Err(err) => return Err(err)
                   }
-
                 }
                 return Ok(Value::None)
               }
@@ -5388,7 +5381,6 @@ fn call_callable_with_env(
                 while i > 0 {
                   i = i - 1
                   let _ = pairs.remove(i)
-
                 }
                 return Ok(Value::None)
               }
@@ -5615,7 +5607,6 @@ fn call_callable_with_env(
                   while i > 0 {
                     i = i - 1
                     let _ = values.remove(i)
-
                   }
                   return Ok(Value::None)
                 }
@@ -5709,7 +5700,6 @@ fn call_callable_with_env(
                         Ok(_) => ()
                         Err(err) => return Err(err)
                       }
-
                     }
                   }
                   return Ok(Value::Set(out))
@@ -5752,7 +5742,6 @@ fn call_callable_with_env(
                   }
                   if index is Some(_) {
                     let _ = values.remove(i)
-
                   }
                 }
                 return Ok(Value::None)
@@ -5798,7 +5787,6 @@ fn call_callable_with_env(
                         Ok(_) => ()
                         Err(err) => return Err(err)
                       }
-
                     }
                   }
                   return Ok(Value::Set(out))
@@ -5844,7 +5832,6 @@ fn call_callable_with_env(
                       Ok(_) => ()
                       Err(err) => return Err(err)
                     }
-
                   }
                 }
                 replace_array_values(values, next)
@@ -7333,7 +7320,6 @@ fn call_callable_with_env(
                 Ok(v) => v
                 Err(err) => return Err(err)
               }
-
             }
           _ => ()
         }
@@ -7446,7 +7432,6 @@ fn call_callable_with_env(
                   while i > 0 {
                     i = i - 1
                     let _ = pairs.remove(i)
-
                   }
                   for item in next {
                     pairs.push(item)
@@ -7508,7 +7493,6 @@ fn call_callable_with_env(
                     Ok(_) => ()
                     Err(err) => return Err(err)
                   }
-
                 }
                 replace_array_values(values, unique)
               }
@@ -7537,7 +7521,6 @@ fn call_callable_with_env(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-
               }
             _ => ()
           }

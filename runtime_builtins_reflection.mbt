@@ -2421,7 +2421,6 @@ fn builtin_type_new(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-
         }
         None => ()
       }
@@ -2637,7 +2636,6 @@ fn builtin_type(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-
         }
         None => ()
       }
@@ -3964,7 +3962,6 @@ fn builtin_compile(
           ),
         )
     }
-
   } else if mode == "exec" || mode == "single" {
     let _ = match parse(source_text) {
       Ok(v) => v
@@ -3975,7 +3972,6 @@ fn builtin_compile(
           ),
         )
     }
-
   } else {
     return Err(
       make_runtime_error(

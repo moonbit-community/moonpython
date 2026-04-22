@@ -224,7 +224,6 @@ fn pop_traceback_frame() -> Unit {
     let _ = active_frame_env_stack.val.remove(
       active_frame_env_stack.val.length() - 1,
     )
-
   }
 }
 

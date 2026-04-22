@@ -751,7 +751,6 @@ fn set_subscr_value(
             }
             while bytes.length() > 0 {
               let _ = bytes.remove(bytes.length() - 1)
-
             }
             for b in merged {
               bytes.push(b)
@@ -1038,7 +1037,6 @@ fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
     let blk = blocks.remove(blocks.length() - 1)
     while stack.length() > blk.stack_height {
       let _ = stack.remove(stack.length() - 1)
-
     }
     match blk.kind {
       VmBlockKind::Finally(target) => {
@@ -1059,7 +1057,6 @@ fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
       | VmBlockKind::FinallyHandler => {
         if blk.pushed_exc {
           let _ = active_exception_stack.val.pop()
-
         }
         continue
       }
@@ -2240,7 +2237,6 @@ pub fn bc_exec(
                 next_pc = target
               } else {
                 let _ = stack.remove(stack.length() - 1)
-
               }
               Ok(())
             }
@@ -2263,7 +2259,6 @@ pub fn bc_exec(
                 next_pc = target
               } else {
                 let _ = stack.remove(stack.length() - 1)
-
               }
               Ok(())
             }
@@ -2359,7 +2354,6 @@ pub fn bc_exec(
             VmBlockKind::ExceptHandler => {
               if blk.pushed_exc {
                 let _ = active_exception_stack.val.pop()
-
               }
               pending_exc = None
               Ok(())
@@ -2387,7 +2381,6 @@ pub fn bc_exec(
             VmBlockKind::FinallyHandler => {
               if blk.pushed_exc {
                 let _ = active_exception_stack.val.pop()
-
               }
               match pending_return {
                 Some(v) =>
@@ -3262,7 +3255,6 @@ pub fn bc_exec(
                             set_scoped_value(locals, globals, name, value)
                           } else {
                             let _ = delete_scoped_value(locals, globals, name)
-
                           }
                         }
                       }
@@ -4286,7 +4278,6 @@ pub fn bc_exec(
                                 abstract_names,
                                 Value::Str(pair.0),
                               )
-
                             }
                           }
                           let mut has_abstractmethods_attr = false
@@ -4320,7 +4311,6 @@ pub fn bc_exec(
                                                   abstract_names,
                                                   Value::Str(name),
                                                 )
-
                                               }
                                             }
                                             _ => ()
@@ -4382,7 +4372,6 @@ pub fn bc_exec(
                                 Ok(value) => value
                                 Err(err) => return Err(err)
                               }
-
                             }
                             None => ()
                           }
@@ -4843,7 +4832,6 @@ pub fn bc_exec(
           let blk = blocks.remove(blocks.length() - 1)
           while stack.length() > blk.stack_height {
             let _ = stack.remove(stack.length() - 1)
-
           }
           match blk.kind {
             VmBlockKind::Except(target) => {
@@ -4878,7 +4866,6 @@ pub fn bc_exec(
               // An exception raised while already in an except path.
               if blk.pushed_exc {
                 let _ = active_exception_stack.val.pop()
-
               }
               pending_exc = None
               continue
@@ -4887,7 +4874,6 @@ pub fn bc_exec(
               // An exception raised while already in a finally path.
               if blk.pushed_exc {
                 let _ = active_exception_stack.val.pop()
-
               }
               pending_exc = None
               continue

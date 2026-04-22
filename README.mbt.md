@@ -170,7 +170,7 @@ Notes:
 
 If you want to call the interpreter from MoonBit code:
 
-```moonbit
+```moonbit nocheck
 let source = "print(\"hi\")\n"
 let result = @mpython.Interpreter::new().exec_source(source)
 match result {

@@ -1488,7 +1488,6 @@ fn eval_block_flow(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           _ => ()
         }
@@ -1506,7 +1505,6 @@ fn eval_block_flow(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           None => ()
         }
@@ -1557,7 +1555,6 @@ fn eval_block_flow(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           Target::Subscript(value~, index~) => {
             let container = match
@@ -1820,7 +1817,6 @@ fn eval_block_flow(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           match return_annotation {
             Some(expr) => {
@@ -1838,7 +1834,6 @@ fn eval_block_flow(
                 Ok(v) => v
                 Err(err) => return Err(err)
               }
-
             }
             None => ()
           }
@@ -1873,7 +1868,6 @@ fn eval_block_flow(
                 Ok(v) => v
                 Err(err) => return Err(err)
               }
-
             }
             _ => ()
           }
@@ -2064,7 +2058,6 @@ fn eval_block_flow(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-
         }
         last = Value::None
       }
@@ -3113,7 +3106,6 @@ fn eval_block_flow(
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-
               }
               None => ()
             }
@@ -3514,7 +3506,6 @@ fn eval_block_flow(
                   set_scoped_value(locals, globals, prev.0, value)
                 } else {
                   let _ = delete_scoped_value(locals, globals, prev.0)
-
                 }
               }
             }

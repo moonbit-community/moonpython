@@ -209,7 +209,6 @@ fn compile_expr(
           }
         } else {
           let _ = b.emit(BcOp::Compare(op), span)
-
         }
       }
       let j_done = b.emit(BcOp::Jump(-1), span)
@@ -267,7 +266,6 @@ fn compile_expr(
         }
         if kw_names.length() == 0 {
           let _ = b.emit(BcOp::CallFunction(pos_args.length()), span)
-
         } else {
           let name_values : Array[Value] = []
           for name in kw_names {
@@ -276,7 +274,6 @@ fn compile_expr(
           let kw_tuple_idx = b.add_const(Value::Tuple(name_values))
           let _ = b.emit(BcOp::LoadConst(kw_tuple_idx), span)
           let _ = b.emit(BcOp::CallFunctionKw(pos_args.length()), span)
-
         }
         Ok(())
       } else {
@@ -299,7 +296,6 @@ fn compile_expr(
               }
               let _ = b.emit(BcOp::BuildTuple(2), span)
               let _ = b.emit(BcOp::ListAppend, span)
-
             }
             Expr::DoubleStarred(value~) => {
               match compile_expr(value, b, span) {
@@ -307,7 +303,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::KwListExtendFromDict, span)
-
             }
             Expr::Starred(value~) => {
               // Swap keyword list / positional list to make positional list the target.
@@ -318,7 +313,6 @@ fn compile_expr(
               }
               let _ = b.emit(BcOp::ListExtend, span)
               let _ = b.emit(BcOp::RotTwo, span)
-
             }
             _ => {
               let _ = b.emit(BcOp::RotTwo, span)
@@ -328,7 +322,6 @@ fn compile_expr(
               }
               let _ = b.emit(BcOp::ListAppend, span)
               let _ = b.emit(BcOp::RotTwo, span)
-
             }
           }
         }
@@ -366,7 +359,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::ListExtend, span)
-
             }
             _ => {
               match compile_expr(item, b, span) {
@@ -374,7 +366,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::ListAppend, span)
-
             }
           }
         }
@@ -397,7 +388,6 @@ fn compile_expr(
           ),
           span,
         )
-
       }
       let res_name = "__mpy_comp_res$" + b.code.ops.length().to_string()
       let res_init = Stmt::Assign(
@@ -606,10 +596,8 @@ fn compile_expr(
           let aiter_idx = b.intern_name("__aiter__")
           let _ = b.emit(BcOp::LoadAttr(aiter_idx), span)
           let _ = b.emit(BcOp::CallFunction(0), span)
-
         } else {
           let _ = b.emit(BcOp::GetIter, span)
-
         }
         let iter_name = "__mpy_genexp_iter$" + b.code.ops.length().to_string()
         let iter_name_idx = b.intern_name(iter_name)
@@ -632,7 +620,6 @@ fn compile_expr(
             BcOp::AsyncGenExpNew(spec_idx, iter_name_idx, target_names_idx),
             span,
           )
-
         } else {
           let body = genexp_to_generator_body(elt, adjusted, filters)
           let template = FunctionValue::{
@@ -649,7 +636,6 @@ fn compile_expr(
             BcOp::GenExpNew(template_idx, iter_name_idx, target_names_idx),
             span,
           )
-
         }
         Ok(())
       }
@@ -669,7 +655,6 @@ fn compile_expr(
           ),
           span,
         )
-
       }
       let res_name = "__mpy_comp_res$" + b.code.ops.length().to_string()
       // set comprehensions use a dedicated set object, independent of any `set` binding.
@@ -813,7 +798,6 @@ fn compile_expr(
           ),
           span,
         )
-
       }
       let res_name = "__mpy_comp_res$" + b.code.ops.length().to_string()
       let res_init = Stmt::Assign(
@@ -968,7 +952,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::ListExtend, span)
-
             }
             _ => {
               match compile_expr(item, b, span) {
@@ -976,7 +959,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::ListAppend, span)
-
             }
           }
         }
@@ -1018,7 +1000,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::DictUpdate, span)
-
             }
             _ => {
               match compile_expr(pair.0, b, span) {
@@ -1030,7 +1011,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::DictSetItem, span)
-
             }
           }
         }
@@ -1067,7 +1047,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::SetUpdate, span)
-
             }
             _ => {
               match compile_expr(item, b, span) {
@@ -1075,7 +1054,6 @@ fn compile_expr(
                 Err(err) => return Err(err)
               }
               let _ = b.emit(BcOp::SetAdd, span)
-
             }
           }
         }
@@ -1121,7 +1099,6 @@ fn compile_expr(
         None => {
           let idx = b.add_const(Value::None)
           let _ = b.emit(BcOp::LoadConst(idx), span)
-
         }
       }
       match end {
@@ -1133,7 +1110,6 @@ fn compile_expr(
         None => {
           let idx = b.add_const(Value::None)
           let _ = b.emit(BcOp::LoadConst(idx), span)
-
         }
       }
       match step {
@@ -1145,7 +1121,6 @@ fn compile_expr(
         None => {
           let idx = b.add_const(Value::None)
           let _ = b.emit(BcOp::LoadConst(idx), span)
-
         }
       }
       let _ = b.emit(BcOp::BuildSlice, span)
@@ -1569,7 +1544,6 @@ fn compile_try_except_else(
     let star_span = caretless_span(star_span)
     let _ = b.emit(BcOp::EnsureExceptionGroup, star_span)
     let _ = b.emit(BcOp::ExceptStarInit, star_span)
-
   }
   let handler_done_jumps : Array[Int] = []
   if has_star {
@@ -1785,7 +1759,6 @@ fn compile_stmt(
           }
           let name_idx = b.intern_name(name)
           let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
-
         }
         _ => ()
       }
@@ -2216,7 +2189,6 @@ fn compile_stmt(
             let no_match_pc = b.code.ops.length()
             bc_patch_jump(b.code, j_no_match, no_match_pc)
             let _ = b.emit(BcOp::PopTop, span)
-
           }
         }
       }
@@ -2258,11 +2230,9 @@ fn compile_stmt(
             Err(err) => return Err(err)
           }
           let _ = b.emit(BcOp::AssertFail, assert_span)
-
         }
         None => {
           let _ = b.emit(BcOp::AssertFailNone, assert_span)
-
         }
       }
       let ok_pc = b.code.ops.length()
@@ -2279,7 +2249,6 @@ fn compile_stmt(
         None => {
           let idx = b.add_const(Value::None)
           let _ = b.emit(BcOp::LoadConst(idx), span)
-
         }
       }
       let _ = b.emit(BcOp::ReturnValue, span)
@@ -2366,7 +2335,6 @@ fn compile_stmt(
               Err(err) => return Err(err)
             }
             let _ = b.emit(BcOp::BuildTuple(2), span)
-
           }
           _ => {
             let flag_idx = b.add_const(Value::Bool(false))
@@ -2376,7 +2344,6 @@ fn compile_stmt(
               Err(err) => return Err(err)
             }
             let _ = b.emit(BcOp::BuildTuple(2), span)
-
           }
         }
       }
@@ -2389,7 +2356,6 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
         let _ = b.emit(BcOp::BuildTuple(2), span)
-
       }
       let _ = b.emit(BcOp::BuildList(keywords.length()), span)
       let template = FunctionValue::{
@@ -2537,7 +2503,6 @@ fn compile_stmt(
         }
         let _ = b.emit(BcOp::BuildMap(pairs), span)
         let _ = b.emit(BcOp::StoreName(tmp_idx), span)
-
       }
       let template = FunctionValue::{
         name,
@@ -2569,7 +2534,6 @@ fn compile_stmt(
           let _ = b.emit(BcOp::LoadName(tmp_idx), span)
           let _ = b.emit(BcOp::StoreAttr(ann_attr_idx), span)
           let _ = b.emit(BcOp::DeleteName(tmp_idx), span)
-
         }
         None => ()
       }

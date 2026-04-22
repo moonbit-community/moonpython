@@ -1180,7 +1180,6 @@ fn replace_newlines_with_spaces(text : String) -> String {
           if c == '\n' {
             if out.length() > 0 && out[out.length() - 1] == '\\' {
               let _ = out.pop()
-
             }
             escape = false
             i += 1
@@ -1254,7 +1253,6 @@ fn replace_newlines_with_spaces(text : String) -> String {
           // Explicit line continuation outside strings: `\\\n` disappears.
           if out.length() > 0 && out[out.length() - 1] == '\\' {
             let _ = out.pop()
-
           } else {
             out.push(' ')
           }
