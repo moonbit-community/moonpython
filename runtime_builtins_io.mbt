@@ -112,7 +112,6 @@ fn builtin_input(
           builtins,
           io,
         )
-
       }
       Err(_) => ()
     }
@@ -1323,7 +1322,6 @@ fn builtin_file_close(
                   ),
                 )
             }
-
           }
           (false, Value::Str(text)) => {
             let _ = @fs.write_string_to_file(path, text) catch {
@@ -1335,7 +1333,6 @@ fn builtin_file_close(
                   ),
                 )
             }
-
           }
           _ => ()
         }
@@ -1568,7 +1565,6 @@ fn builtin_open(
       item.0 == "buffering" ||
       item.0 == "closefd" {
       let _ = item.1
-
     } else {
       return Err(
         make_runtime_error(

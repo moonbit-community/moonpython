@@ -39,7 +39,6 @@ fn module_cache_delete(name : String) -> Unit {
       Value::Str(text) =>
         if text == name {
           let _ = sys_modules_ref.val.remove(j)
-
         }
       _ => ()
     }
@@ -2013,7 +2012,6 @@ fn import_module(
         Ok(v) => v
         Err(err) => return Err(err)
       }
-
     }
     match module_cache_get(module_name) {
       Some(v) => {

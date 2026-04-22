@@ -323,7 +323,6 @@ fn generator_unwind_to_loop(
         // Drop everything above the loop frame.
         while frames.length() > i + 1 {
           let _ = frames.pop()
-
         }
         if is_break {
           frames[i] = GenFrame::For(
@@ -344,7 +343,6 @@ fn generator_unwind_to_loop(
         let _ = done
         while frames.length() > i + 1 {
           let _ = frames.pop()
-
         }
         if is_break {
           frames[i] = GenFrame::While(
@@ -570,7 +568,6 @@ fn generator_step_statement(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-
         }
         _ => ()
       }
@@ -1292,7 +1289,6 @@ fn generator_step_statement(
                   state.val.globals,
                   prev.0,
                 )
-
               }
             }
           }
@@ -1340,7 +1336,6 @@ fn generator_step_statement(
           Ok(v) => v
           Err(err) => return Err(err)
         }
-
       }
       Ok(None)
     }
@@ -1432,7 +1427,6 @@ fn generator_dispatch_error(
         // Unwind everything above the cleanup frame.
         while state.val.frames.length() > idx + 1 {
           let _ = state.val.frames.pop()
-
         }
         match state.val.frames[idx] {
           GenFrame::WithExit(exit~) => {
@@ -1497,7 +1491,6 @@ fn generator_dispatch_error(
             // If we're leaving an except handler, clear the active exception.
             if handler_active && active_exception_stack.val.length() > 0 {
               let _ = active_exception_stack.val.pop()
-
             }
 
             // `phase` tracks which block is currently active: 0=body, 1=else,
@@ -1946,7 +1939,6 @@ fn generator_resume_inner(
         if phase == 1 || phase == 2 {
           if handler_active && active_exception_stack.val.length() > 0 {
             let _ = active_exception_stack.val.pop()
-
           }
           if finally_body.length() > 0 {
             state.val.frames[top_index] = GenFrame::Try(

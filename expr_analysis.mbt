@@ -107,8 +107,7 @@ fn expr_has_await(expr : Expr) -> Bool {
     }
     Expr::Subscript(value~, index~) =>
       expr_has_await(value) || expr_has_await(index)
-    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
-      expr_has_await(value)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) => expr_has_await(value)
     Expr::Unary(op~, expr~) => {
       let _ = op
       expr_has_await(expr)

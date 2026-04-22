@@ -1144,7 +1144,6 @@ fn push_closure_env(env : Array[(String, Value)]) -> Unit {
 fn pop_closure_env() -> Unit {
   if closure_env_stack.val.length() > 0 {
     let _ = closure_env_stack.val.pop()
-
   }
 }
 
@@ -1176,7 +1175,6 @@ fn pop_active_config() -> Unit {
     return
   }
   let _ = active_config_stack.val.pop()
-
 }
 
 ///|
@@ -1351,7 +1349,6 @@ fn push_scope_decls_with_nonlocals(
 fn pop_scope_decls() -> Unit {
   if scope_decls_stack.val.length() > 0 {
     let _ = scope_decls_stack.val.pop()
-
   }
 }
 

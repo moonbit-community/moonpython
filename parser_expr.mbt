@@ -978,7 +978,6 @@ fn ExprParser::skip_comp_target_until(
       _ => ()
     }
     let _ = self.advance()
-
   }
   Ok(())
 }
@@ -1064,7 +1063,6 @@ fn ExprParser::parse_comp_target_group(
       _ => ()
     }
     let _ = self.advance()
-
   }
   if targets.length() == 0 {
     targets.push("_")
@@ -1191,7 +1189,6 @@ fn ExprParser::parse_comp_targets(
             }
             targets.push(next_name)
             let _ = self.advance()
-
           }
           LParen => {
             let open_target = self.advance()
@@ -1812,7 +1809,6 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
               saw_slash = true
               params.push("/")
               let _ = self.advance()
-
             }
             _ => return Err(unexpected_token_error(current))
           }

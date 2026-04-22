@@ -36,7 +36,6 @@ fn touch_env(
   let _ = globals
   let _ = builtins
   let _ = io
-
 }
 
 ///|
@@ -219,7 +218,6 @@ fn sync_env_to_dict(
 ) -> Unit {
   while pairs.length() > 0 {
     let _ = pairs.pop()
-
   }
   for pair in env {
     pairs.push((Value::Str(pair.0), pair.1))

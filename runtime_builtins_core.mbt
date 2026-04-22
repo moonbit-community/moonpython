@@ -170,7 +170,6 @@ fn builtin_print(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           Err(err) =>
             match err.kind {

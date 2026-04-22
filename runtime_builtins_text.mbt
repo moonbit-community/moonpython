@@ -275,7 +275,6 @@ fn builtin_str_maketrans(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-
         }
         Ok(Value::Dict(out))
       }
@@ -326,7 +325,6 @@ fn builtin_str_maketrans(
         Ok(v) => v
         Err(err) => return Err(err)
       }
-
     }
     if positional.length() == 3 {
       let delete_text = match positional[2] {
@@ -346,7 +344,6 @@ fn builtin_str_maketrans(
           Ok(v) => v
           Err(err) => return Err(err)
         }
-
       }
     }
     Ok(Value::Dict(out))
@@ -2432,7 +2429,6 @@ fn builtin_bytearray_setitem(
           }
           while values.length() > 0 {
             let _ = values.remove(values.length() - 1)
-
           }
           for b in out {
             values.push(b & 0xFF)
@@ -2565,7 +2561,6 @@ fn builtin_bytearray_delitem(
           }
           while values.length() > 0 {
             let _ = values.remove(values.length() - 1)
-
           }
           for b in out {
             values.push(b & 0xFF)
@@ -2594,7 +2589,6 @@ fn builtin_bytearray_delitem(
         while i > 0 {
           i = i - 1
           let _ = values.remove(idxs[i])
-
         }
         return Ok(Value::None)
       }

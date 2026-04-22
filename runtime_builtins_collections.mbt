@@ -289,7 +289,6 @@ fn builtin_set(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-
     }
     Ok(Value::Set(unique))
   }
@@ -371,7 +370,6 @@ fn builtin_frozenset(
       Ok(_) => ()
       Err(err) => return Err(err)
     }
-
   }
   let klass = builtin_class_from_name("frozenset", builtins)
   let dict : Array[(String, Value)] = [
@@ -415,7 +413,6 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-
               } else {
                 return Err(
                   make_runtime_error(
@@ -475,7 +472,6 @@ fn builtin_dict(
                   Ok(v) => v
                   Err(err) => return Err(err)
                 }
-
               } else {
                 return Err(
                   make_runtime_error(
@@ -501,7 +497,6 @@ fn builtin_dict(
       Ok(v) => v
       Err(err) => return Err(err)
     }
-
   }
   Ok(Value::Dict(pairs))
 }
@@ -599,7 +594,6 @@ fn builtin_dict_fromkeys(
       Ok(v) => v
       Err(err) => return Err(err)
     }
-
   }
   Ok(Value::Dict(pairs))
 }
@@ -973,7 +967,6 @@ fn builtin_dict_update(
       Ok(v) => v
       Err(err) => return Err(err)
     }
-
   }
   Ok(Value::None)
 }
@@ -1008,7 +1001,6 @@ fn builtin_dict_clear(
   while i > 0 {
     i = i - 1
     let _ = pairs.remove(i)
-
   }
   Ok(Value::None)
 }

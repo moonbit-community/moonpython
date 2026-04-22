@@ -311,7 +311,6 @@ fn eval_list_comp_walk(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-
     }
   } else {
     let iterator = match
@@ -348,7 +347,6 @@ fn eval_list_comp_walk(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-
     }
   }
   Ok(())
@@ -385,7 +383,6 @@ fn eval_dict_comp_walk(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-
     }
     return Ok(())
   }
@@ -446,7 +443,6 @@ fn eval_dict_comp_walk(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-
     }
   } else {
     let iterator = match
@@ -484,7 +480,6 @@ fn eval_dict_comp_walk(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-
     }
   }
   Ok(())

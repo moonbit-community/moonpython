@@ -7,7 +7,6 @@ fn replace_array_values(values : Array[Value], next : Array[Value]) -> Unit {
   while i > 0 {
     i = i - 1
     let _ = values.remove(i)
-
   }
   for item in next {
     values.push(item)
@@ -141,7 +140,6 @@ fn assign_target_with_env(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           Ok(())
         }
@@ -172,7 +170,6 @@ fn assign_target_with_env(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           for i = 0; i < right_count; i = i + 1 {
             let src = items.length() - right_count + i
@@ -189,7 +186,6 @@ fn assign_target_with_env(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-
           }
           let mid : Array[Value] = []
           let end_mid = items.length() - right_count
@@ -561,7 +557,6 @@ fn delete_target_with_env(
           Ok(v) => v
           Err(err) => return Err(err)
         }
-
       }
       Ok(())
     }

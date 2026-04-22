@@ -298,7 +298,6 @@ fn collect_function_local_names(
           walk_expr(d)
         }
         let _ = body
-
       }
       Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) =>
         for item in items {
@@ -574,7 +573,6 @@ fn collect_function_local_names(
         let _ = body
         let _ = is_generator
         let _ = is_async
-
       }
       Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
         add_local(name)
@@ -590,7 +588,6 @@ fn collect_function_local_names(
         }
         let _ = type_params
         let _ = body
-
       }
       _ => ()
     }

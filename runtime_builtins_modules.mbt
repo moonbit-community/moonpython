@@ -1960,7 +1960,6 @@ fn builtin_thread_rlock_acquire(
     } else if kw.0 == "timeout" {
       has_timeout = true
       let _ = kw
-
     } else {
       return Err(
         make_runtime_error(
@@ -6308,11 +6307,9 @@ fn builtin_warnings_filters_mutated(
   touch_env(locals, globals, builtins, io)
   if positional.length() > 0 {
     let _ = positional[0]
-
   }
   if keywords.length() > 0 {
     let _ = keywords[0]
-
   }
   Ok(Value::None)
 }
@@ -6376,7 +6373,6 @@ fn builtin_warnings_warn(
     } else if key == "source" || key == "skip_file_prefixes" {
       // ignored
       let _ = value
-
     } else {
       return Err(
         make_runtime_error(
