@@ -363,7 +363,7 @@ fn builtin_int_new(
       Value::Bool(v) => if v { 1N } else { 0N }
       Value::Float(v) => @bigint.BigInt::from_int64(v.to_int64())
       Value::Str(text) => {
-        let parsed = @strconv.parse_int(text) catch {
+        let parsed = @string.parse_int(text) catch {
           _ =>
             return Err(
               make_runtime_error(
@@ -1110,7 +1110,7 @@ fn builtin_float(
         Ok(Value::Float(converted))
       }
       Value::Str(text) => {
-        let parsed = @strconv.parse_double(text) catch {
+        let parsed = @string.parse_double(text) catch {
           _ =>
             return Err(
               make_runtime_error(
