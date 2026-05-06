@@ -430,14 +430,14 @@ fn bracket_balance(line : String) -> Int {
           // lexically inside a quoted literal. Treat them as bracket balance
           // so we can join physical lines like:
           //   f"abc{a # comment }\n+ 3}"
-          if i + 1 < chars.length() && chars[i + 1] == '{' {
+          if fexpr_depth == 0 && i + 1 < chars.length() && chars[i + 1] == '{' {
             i += 2
             continue
           }
           fexpr_depth += 1
           balance += 1
         } else if in_fstring && c == '}' {
-          if i + 1 < chars.length() && chars[i + 1] == '}' {
+          if fexpr_depth == 0 && i + 1 < chars.length() && chars[i + 1] == '}' {
             i += 2
             continue
           }
