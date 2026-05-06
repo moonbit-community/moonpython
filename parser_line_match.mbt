@@ -2,6 +2,212 @@
 /// Match/case parsing for line blocks.
 
 ///|
+fn make_case_syntax_error(
+  parser : LineParser,
+  line_index : Int,
+  indent : Int,
+) -> ParseError {
+  make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+    kind: Eof,
+    start: parser.offsets[line_index] + indent,
+    end: parser.offsets[line_index] + indent + 1,
+    line: line_index + 1,
+    column: indent + 1,
+  })
+}
+
+///|
+fn is_simple_pattern_capture_name(text : String) -> Bool {
+  if text.length() == 0 ||
+    text == "_" ||
+    text == "True" ||
+    text == "False" ||
+    text == "None" {
+    return false
+  }
+  let chars = text.to_array()
+  for i = 0; i < chars.length(); i = i + 1 {
+    let c = chars[i]
+    if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit {
+  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  if trimmed.length() == 0 {
+    return
+  }
+  if is_simple_pattern_capture_name(trimmed) {
+    names.push(trimmed)
+    return
+  }
+  let top_parts = split_top_level_commas(trimmed)
+  if top_parts.length() > 1 {
+    for part in top_parts {
+      match_pattern_collect_captures(part, names)
+    }
+    return
+  }
+  if trimmed.length() >= 2 {
+    let chars = trimmed.to_array()
+    if chars[0] == '(' && chars[chars.length() - 1] == ')' {
+      match find_top_level_paren_span(trimmed) {
+        Some(span) =>
+          if span.0 == 0 && span.1 == trimmed.length() - 1 {
+            let inner = substring(trimmed, 1, trimmed.length() - 1)
+              .trim(chars=" \t\n\r")
+              .to_string()
+            for part in split_top_level_commas(inner) {
+              match_pattern_collect_captures(part, names)
+            }
+            return
+          }
+        None => ()
+      }
+    }
+    if chars[0] == '[' && chars[chars.length() - 1] == ']' {
+      let inner = substring(trimmed, 1, trimmed.length() - 1)
+        .trim(chars=" \t\n\r")
+        .to_string()
+      for part in split_top_level_commas(inner) {
+        match_pattern_collect_captures(part, names)
+      }
+      return
+    }
+    if chars[0] == '{' && chars[chars.length() - 1] == '}' {
+      let inner = substring(trimmed, 1, trimmed.length() - 1)
+        .trim(chars=" \t\n\r")
+        .to_string()
+      for raw_part in split_top_level_commas(inner) {
+        let part = raw_part.trim(chars=" \t\n\r").to_string()
+        match find_top_level_colon(part) {
+          Some(pos) => {
+            let value = substring(part, pos + 1, part.length())
+              .trim(chars=" \t\n\r")
+              .to_string()
+            match_pattern_collect_captures(value, names)
+          }
+          None => ()
+        }
+      }
+      return
+    }
+  }
+  match find_top_level_paren_span(trimmed) {
+    Some(span) =>
+      if span.0 > 0 && span.1 == trimmed.length() - 1 {
+        let inner = substring(trimmed, span.0 + 1, span.1)
+          .trim(chars=" \t\n\r")
+          .to_string()
+        for raw_part in split_top_level_commas(inner) {
+          let part = raw_part.trim(chars=" \t\n\r").to_string()
+          match find_top_level_char(part, '=') {
+            Some(pos) => {
+              let value = substring(part, pos + 1, part.length())
+                .trim(chars=" \t\n\r")
+                .to_string()
+              match_pattern_collect_captures(value, names)
+            }
+            None => match_pattern_collect_captures(part, names)
+          }
+        }
+      }
+    None => ()
+  }
+}
+
+///|
+fn match_pattern_has_duplicate_capture(text : String) -> Bool {
+  let names : Array[String] = []
+  match_pattern_collect_captures(text, names)
+  for i = 0; i < names.length(); i = i + 1 {
+    for j = i + 1; j < names.length(); j = j + 1 {
+      if names[i] == names[j] {
+        return true
+      }
+    }
+  }
+  false
+}
+
+///|
+fn normalize_match_mapping_key(key : String) -> String {
+  let trimmed = key.trim(chars=" \t\n\r").to_string()
+  if trimmed == "0" ||
+    trimmed == "False" ||
+    trimmed == "0.0" ||
+    trimmed == "-0" ||
+    trimmed == "0j" ||
+    trimmed == "-0j" {
+    return "zero"
+  }
+  trimmed
+}
+
+///|
+fn match_pattern_has_duplicate_mapping_key(text : String) -> Bool {
+  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  if trimmed.length() < 2 {
+    return false
+  }
+  let chars = trimmed.to_array()
+  if chars[0] != '{' || chars[chars.length() - 1] != '}' {
+    return false
+  }
+  let inner = substring(trimmed, 1, trimmed.length() - 1)
+    .trim(chars=" \t\n\r")
+    .to_string()
+  let keys : Array[String] = []
+  for raw_part in split_top_level_commas(inner) {
+    let part = raw_part.trim(chars=" \t\n\r").to_string()
+    if part.length() == 0 {
+      continue
+    }
+    match find_top_level_colon(part) {
+      Some(pos) => {
+        let key = normalize_match_mapping_key(
+          substring(part, 0, pos).to_string(),
+        )
+        for existing in keys {
+          if existing == key {
+            return true
+          }
+        }
+        keys.push(key)
+      }
+      None => ()
+    }
+  }
+  false
+}
+
+///|
+fn match_pattern_has_invalid_syntax(text : String) -> Bool {
+  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  if trimmed.contains("|") ||
+    trimmed.contains("+") ||
+    trimmed.contains("*") ||
+    trimmed.contains(" as ") ||
+    trimmed.contains("=") ||
+    trimmed.contains("f\"") ||
+    trimmed.contains("f'") {
+    return true
+  }
+  match_pattern_has_duplicate_capture(trimmed) ||
+  match_pattern_has_duplicate_mapping_key(trimmed)
+}
+
+///|
+fn match_pattern_is_irrefutable(text : String) -> Bool {
+  is_simple_pattern_capture_name(text.trim(chars=" \t\n\r").to_string()) ||
+  text.trim(chars=" \t\n\r").to_string() == "_"
+}
+
+///|
 fn parse_match_stmt(
   parser : LineParser,
   stmts : Array[Stmt],
@@ -60,6 +266,8 @@ fn parse_match_stmt(
     )
   }
   let cases : Array[(Pattern, Expr?, Array[Stmt])] = []
+  let mut irrefutable_case_line : Int? = None
+  let mut irrefutable_case_indent = 0
   while parser.index < parser.lines.length() {
     let case_line = parser.lines[parser.index]
     let case_trimmed = case_line.trim(chars=" \t").to_owned()
@@ -145,6 +353,20 @@ fn parse_match_stmt(
         pattern_text = parts[0].trim(chars=" \t").to_owned()
         guard_text = Some(parts[1].trim(chars=" \t").to_owned())
       }
+    }
+    if match_pattern_has_invalid_syntax(pattern_text) {
+      return Err(make_case_syntax_error(parser, parser.index, case_indent))
+    }
+    match irrefutable_case_line {
+      Some(line) =>
+        return Err(
+          make_case_syntax_error(parser, line, irrefutable_case_indent),
+        )
+      None => ()
+    }
+    if guard_text is None && match_pattern_is_irrefutable(pattern_text) {
+      irrefutable_case_line = Some(parser.index)
+      irrefutable_case_indent = case_indent
     }
     let base_offset = parser.offsets[parser.index] + case_indent + 4
     let pattern = match parse_pattern(pattern_text, parser.index, base_offset) {
