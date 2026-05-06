@@ -618,6 +618,9 @@ fn parse_def_stmt(
             Ok(value) => value
             Err(err) => return Err(err)
           }
+          if expr_has_illegal_await(expr, false) {
+            return Err(parser.invalid_syntax_at_line(parser.index + 1))
+          }
           defaults.push(expr)
         }
         None => ()
