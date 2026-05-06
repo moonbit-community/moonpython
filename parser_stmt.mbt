@@ -1331,6 +1331,90 @@ fn stmts_have_class_body_comprehension_name(
 }
 
 ///|
+fn stmt_first_param_nonlocal_line(
+  stmt : Stmt,
+  fallback_line : Int,
+  params : Array[String],
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_param_nonlocal_line(inner, span.line, params)
+    Stmt::Nonlocal(names) => {
+      for name in names {
+        for param in params {
+          match normalize_param_name_for_compare(param) {
+            Some(param_name) =>
+              if param_name == name {
+                return Some(fallback_line)
+              }
+            None => ()
+          }
+        }
+      }
+      None
+    }
+    Stmt::If(condition=_, body~, else_body~)
+    | Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_param_nonlocal_line(body, params) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_param_nonlocal_line(else_body, params)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_param_nonlocal_line(body, params) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_param_nonlocal_line(else_body, params)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_param_nonlocal_line(body, params)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_param_nonlocal_line(body, params) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_param_nonlocal_line(handler.body, params) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_param_nonlocal_line(else_body, params) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_param_nonlocal_line(finally_body, params)
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case_item in cases {
+        match stmts_first_param_nonlocal_line(case_item.2, params) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(..) | Stmt::Class(..) => None
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_param_nonlocal_line(stmts : Array[Stmt], params : Array[String]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_param_nonlocal_line(stmt, 1, params) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 fn stmt_first_function_import_star_line(
   stmt : Stmt,
   fallback_line : Int,
