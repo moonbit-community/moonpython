@@ -123,6 +123,12 @@ test "protocol/constructors_accept_custom_iterable" {
     #|print(dict(Pairs()))
   inspect(
     run_stdout(source),
-    content="[1, 2, 3]\n(1, 2, 3)\n{1, 2, 3}\n{a: 1, b: 2}\n",
+    content=(
+      #|[1, 2, 3]
+      #|(1, 2, 3)
+      #|{1, 2, 3}
+      #|{'a': 1, 'b': 2}
+      #|
+    ),
   )
 }
