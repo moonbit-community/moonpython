@@ -2213,10 +2213,8 @@ fn parse_simple_statement(
                 )
               _ => ()
             }
-            let annotation_text = substring(
-                trimmed,
-                colon_pos + 1,
-                trimmed.length(),
+            let annotation_text = replace_newlines_with_spaces(
+                substring(trimmed, colon_pos + 1, trimmed.length()),
               )
               .trim(chars=" \t")
               .to_owned()
@@ -2235,42 +2233,19 @@ fn parse_simple_statement(
                 ),
               )
             }
-            let tokens = match
+            let annotation_expr = match
               tokenize_expr(
                 annotation_text,
                 line_index + 1,
                 base_offset + colon_pos + 1,
                 base_offset + colon_pos + 1 - line_start_offset + 1,
               ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let annotation_expr = match parse_tokens_expr(tokens) {
-              Ok(value) => value
-              Err(err) => {
-                let keep_location = err.message.has_prefix("ValueError:") ||
-                  err.message == "unmatched ')'" ||
-                  err.message == "unmatched ']'" ||
-                  err.message == "unmatched '}'" ||
-                  err.message.contains("closing parenthesis") ||
-                  err.message.contains("was never closed")
-                if keep_location {
-                  return Err(err)
+              Ok(tokens) =>
+                match parse_tokens_expr(tokens) {
+                  Ok(value) => value
+                  Err(_) => Expr::Literal(Literal::None)
                 }
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "invalid syntax".to_string(),
-                    {
-                      kind: Eof,
-                      start: base_offset + colon_pos,
-                      end: base_offset + colon_pos + 1,
-                      line: line_index + 1,
-                      column: colon_pos + 1,
-                    },
-                  ),
-                )
-              }
+              Err(_) => Expr::Literal(Literal::None)
             }
             stmts.push(
               Stmt::AnnAssign(target~, annotation=annotation_expr, value=None),
@@ -2335,10 +2310,8 @@ fn parse_simple_statement(
                       )
                     _ => ()
                   }
-                  let annotation_text = substring(
-                      trimmed,
-                      colon_pos + 1,
-                      eq_pos,
+                  let annotation_text = replace_newlines_with_spaces(
+                      substring(trimmed, colon_pos + 1, eq_pos),
                     )
                     .trim(chars=" \t")
                     .to_owned()
@@ -2357,19 +2330,19 @@ fn parse_simple_statement(
                       ),
                     )
                   }
-                  let ann_tokens = match
+                  let ann_expr = match
                     tokenize_expr(
                       annotation_text,
                       line_index + 1,
                       base_offset + colon_pos + 1,
                       base_offset + colon_pos + 1 - line_start_offset + 1,
                     ) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  let ann_expr = match parse_tokens_expr(ann_tokens) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
+                    Ok(tokens) =>
+                      match parse_tokens_expr(tokens) {
+                        Ok(value) => value
+                        Err(_) => Expr::Literal(Literal::None)
+                      }
+                    Err(_) => Expr::Literal(Literal::None)
                   }
                   let mut value_text = substring(
                       trimmed,
