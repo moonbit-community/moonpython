@@ -2080,7 +2080,9 @@ fn LineParser::parse_block(
               let raw_name = parts[1].trim(chars=" \t").to_owned()
               if raw_name.length() > 0 {
                 if !is_simple_except_alias(raw_name) {
-                  return Err(self.invalid_syntax_at_line(header_start_index + 1))
+                  return Err(
+                    self.invalid_syntax_at_line(header_start_index + 1),
+                  )
                 }
                 name_opt = Some(raw_name)
               }

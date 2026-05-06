@@ -4003,11 +4003,10 @@ pub fn bc_exec(
                           _ => ()
                         }
                       }
-                      if get_scoped_value(locals, globals, "__class__") is
-                        Some(_) &&
+                      if get_scoped_value(locals, globals, "__class__")
+                        is Some(_) &&
                         stmts_have_class_body_comprehension_name(
-                          body,
-                          "__class__",
+                          body, "__class__",
                         ) {
                         return Err(
                           make_runtime_error(
