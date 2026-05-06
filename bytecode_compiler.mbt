@@ -18,6 +18,13 @@ fn literal_to_value(lit : Literal) -> Value {
 }
 
 ///|
+fn emit_pep695_typing_import(b : BcBuilder, span : Span?) -> Unit {
+  let mod_idx = b.add_const(Value::Str("typing"))
+  let _ = b.emit(BcOp::ImportName(mod_idx, -1), span)
+  let _ = b.emit(BcOp::PopTop, span)
+}
+
+///|
 priv struct LoopCtx {
   has_iter : Bool
   break_jumps : Array[Int]
@@ -2540,7 +2547,9 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
-      let _ = type_params
+      if type_params.length() > 0 {
+        emit_pep695_typing_import(b, span)
+      }
       let _ = annotations
       let _ = return_annotation
       let _ = future_annotations
