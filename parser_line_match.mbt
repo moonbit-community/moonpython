@@ -37,7 +37,7 @@ fn is_simple_pattern_capture_name(text : String) -> Bool {
 
 ///|
 fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit {
-  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  let trimmed = text.trim(chars=" \t\n\r").to_owned()
   if trimmed.length() == 0 {
     return
   }
@@ -60,7 +60,7 @@ fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit 
           if span.0 == 0 && span.1 == trimmed.length() - 1 {
             let inner = substring(trimmed, 1, trimmed.length() - 1)
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             for part in split_top_level_commas(inner) {
               match_pattern_collect_captures(part, names)
             }
@@ -72,7 +72,7 @@ fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit 
     if chars[0] == '[' && chars[chars.length() - 1] == ']' {
       let inner = substring(trimmed, 1, trimmed.length() - 1)
         .trim(chars=" \t\n\r")
-        .to_string()
+        .to_owned()
       for part in split_top_level_commas(inner) {
         match_pattern_collect_captures(part, names)
       }
@@ -81,14 +81,14 @@ fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit 
     if chars[0] == '{' && chars[chars.length() - 1] == '}' {
       let inner = substring(trimmed, 1, trimmed.length() - 1)
         .trim(chars=" \t\n\r")
-        .to_string()
+        .to_owned()
       for raw_part in split_top_level_commas(inner) {
-        let part = raw_part.trim(chars=" \t\n\r").to_string()
+        let part = raw_part.trim(chars=" \t\n\r").to_owned()
         match find_top_level_colon(part) {
           Some(pos) => {
             let value = substring(part, pos + 1, part.length())
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             match_pattern_collect_captures(value, names)
           }
           None => ()
@@ -102,14 +102,14 @@ fn match_pattern_collect_captures(text : String, names : Array[String]) -> Unit 
       if span.0 > 0 && span.1 == trimmed.length() - 1 {
         let inner = substring(trimmed, span.0 + 1, span.1)
           .trim(chars=" \t\n\r")
-          .to_string()
+          .to_owned()
         for raw_part in split_top_level_commas(inner) {
-          let part = raw_part.trim(chars=" \t\n\r").to_string()
+          let part = raw_part.trim(chars=" \t\n\r").to_owned()
           match find_top_level_char(part, '=') {
             Some(pos) => {
               let value = substring(part, pos + 1, part.length())
                 .trim(chars=" \t\n\r")
-                .to_string()
+                .to_owned()
               match_pattern_collect_captures(value, names)
             }
             None => match_pattern_collect_captures(part, names)
@@ -136,7 +136,7 @@ fn match_pattern_has_duplicate_capture(text : String) -> Bool {
 
 ///|
 fn normalize_match_mapping_key(key : String) -> String {
-  let trimmed = key.trim(chars=" \t\n\r").to_string()
+  let trimmed = key.trim(chars=" \t\n\r").to_owned()
   if trimmed == "0" ||
     trimmed == "False" ||
     trimmed == "0.0" ||
@@ -150,7 +150,7 @@ fn normalize_match_mapping_key(key : String) -> String {
 
 ///|
 fn match_pattern_has_duplicate_mapping_key(text : String) -> Bool {
-  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  let trimmed = text.trim(chars=" \t\n\r").to_owned()
   if trimmed.length() < 2 {
     return false
   }
@@ -160,10 +160,10 @@ fn match_pattern_has_duplicate_mapping_key(text : String) -> Bool {
   }
   let inner = substring(trimmed, 1, trimmed.length() - 1)
     .trim(chars=" \t\n\r")
-    .to_string()
+    .to_owned()
   let keys : Array[String] = []
   for raw_part in split_top_level_commas(inner) {
-    let part = raw_part.trim(chars=" \t\n\r").to_string()
+    let part = raw_part.trim(chars=" \t\n\r").to_owned()
     if part.length() == 0 {
       continue
     }
@@ -187,7 +187,7 @@ fn match_pattern_has_duplicate_mapping_key(text : String) -> Bool {
 
 ///|
 fn match_pattern_has_invalid_syntax(text : String) -> Bool {
-  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  let trimmed = text.trim(chars=" \t\n\r").to_owned()
   if trimmed.contains("|") ||
     trimmed.contains("+") ||
     trimmed.contains("*") ||
@@ -203,8 +203,8 @@ fn match_pattern_has_invalid_syntax(text : String) -> Bool {
 
 ///|
 fn match_pattern_is_irrefutable(text : String) -> Bool {
-  is_simple_pattern_capture_name(text.trim(chars=" \t\n\r").to_string()) ||
-  text.trim(chars=" \t\n\r").to_string() == "_"
+  is_simple_pattern_capture_name(text.trim(chars=" \t\n\r").to_owned()) ||
+  text.trim(chars=" \t\n\r").to_owned() == "_"
 }
 
 ///|

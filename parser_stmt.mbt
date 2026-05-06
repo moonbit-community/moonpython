@@ -2883,7 +2883,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("[") && trimmed.contains("\n") {
     let parts : Array[String] = []
     for part in trimmed.split("\n") {
-      parts.push(part.trim(chars=" \t").to_string())
+      parts.push(part.trim(chars=" \t").to_owned())
     }
     if parts.length() >= 3 &&
       parts[0] == "[" &&
@@ -3724,7 +3724,7 @@ fn parse_simple_statement(
     // Treat async constructs as no-ops so spec-generated blocks can parse.
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if has_keyword_prefix(rest, "def") ||
       has_keyword_prefix(rest, "for") ||
       has_keyword_prefix(rest, "with") {

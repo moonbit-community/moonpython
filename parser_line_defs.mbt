@@ -1149,7 +1149,7 @@ fn parse_def_stmt(
     let mut continuation_text = "".to_string()
     while idx < parser.lines.length() {
       let body_line = parser.lines[idx]
-      let trimmed = body_line.trim(chars=" \t").to_string()
+      let trimmed = body_line.trim(chars=" \t").to_owned()
       if trimmed.length() == 0 || trimmed.has_prefix("#") {
         idx += 1
         continue
@@ -1165,7 +1165,7 @@ fn parse_def_stmt(
         idx += 1
         while idx < parser.lines.length() {
           let next_line = parser.lines[idx]
-          let next_trimmed = next_line.trim(chars=" \t").to_string()
+          let next_trimmed = next_line.trim(chars=" \t").to_owned()
           if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
             idx += 1
             continue
