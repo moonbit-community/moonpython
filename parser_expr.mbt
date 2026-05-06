@@ -2590,6 +2590,23 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 } else {
                   args.push(first)
                 }
+                let current_idx = self.index()
+                let next_kind = if current_idx + 1 < self.tokens.length() {
+                  self.tokens[current_idx + 1].kind
+                } else {
+                  Eof
+                }
+                match (self.current().kind, next_kind) {
+                  (Ident(_), Assign) =>
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        token,
+                      ),
+                    )
+                  _ => ()
+                }
               }
             }
           }
