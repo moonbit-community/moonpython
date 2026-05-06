@@ -1244,14 +1244,17 @@ fn get_attr_raw_from_value(
       }
       if attr == "__hash__" {
         return Ok(
-          Value::Function(FunctionValue::{
-            name: "__hash__",
-            params: [],
-            defaults: [],
-            body: [],
-            is_generator: false,
-            is_async: false,
-            closure: [],
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__hash__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
           }),
         )
       }
