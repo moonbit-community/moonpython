@@ -3217,13 +3217,6 @@ fn parse_simple_statement(
     if module_name == "." {
       module_name = ""
     }
-    if module_name == "__future__" {
-      // Treat future imports as no-ops so CPython's stdlib/tests can parse.
-      // (We currently do not implement future feature toggles.)
-      return finalize_simple_statement(
-        stmts, allow_async_comprehensions, span, base_offset,
-      )
-    }
     if module_name == ".__future__" {
       if parts.length() >= 4 {
         let feature = parts[3]
