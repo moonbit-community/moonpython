@@ -4652,7 +4652,12 @@ pub fn bc_exec(
             ),
           )
         }
-        match resolve_relative_module_name(module_name, globals) {
+        let resolved_result = if module_name.length() == 0 {
+          Ok(module_name)
+        } else {
+          resolve_relative_module_name(module_name, globals)
+        }
+        match resolved_result {
           Ok(resolved_name) => {
             if resolved_name == "__future__" {
               for item in names {
