@@ -584,7 +584,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
     "print", "len", "range", "str", "bytes", "bytearray", "memoryview", "int", "float",
     "complex", "list", "dict", "set", "frozenset", "tuple", "enumerate", "zip", "map",
     "filter", "any", "all", "sum", "property", "staticmethod", "classmethod", "delattr",
-    "super", "compile", "eval", "exec", "ascii", "open", "__import__",
+    "compile", "eval", "exec", "ascii", "open", "__import__",
   ]
   for fn_name in builtin_fn_names {
     builtins.push((fn_name, function_stub(fn_name)))
