@@ -2087,10 +2087,13 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::FromImport(module_name~, names~) => {
-        let resolved_name = match
-          resolve_relative_module_name(module_name, globals) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        let resolved_name = if module_name.length() == 0 {
+          module_name
+        } else {
+          match resolve_relative_module_name(module_name, globals) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
         }
         if resolved_name == "__future__" {
           for item in names {
