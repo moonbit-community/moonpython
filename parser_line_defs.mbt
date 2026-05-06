@@ -664,14 +664,14 @@ fn parse_def_stmt(
           1 +
           ann_leading +
           1
-        let tokens = match
+        let expr = match
           tokenize_expr(ann_text, parser.index + 1, ann_offset, ann_column) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        let expr = match parse_tokens_expr(tokens) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+          Ok(tokens) =>
+            match parse_tokens_expr(tokens) {
+              Ok(value) => value
+              Err(_) => Expr::Literal(Literal::None)
+            }
+          Err(_) => Expr::Literal(Literal::None)
         }
         annotations.push((name, expr))
       }
@@ -759,14 +759,14 @@ fn parse_def_stmt(
         2 +
         ret_leading +
         1
-      let tokens = match
+      let expr = match
         tokenize_expr(ret_text, parser.index + 1, ret_offset, ret_column) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      let expr = match parse_tokens_expr(tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+        Ok(tokens) =>
+          match parse_tokens_expr(tokens) {
+            Ok(value) => value
+            Err(_) => Expr::Literal(Literal::None)
+          }
+        Err(_) => Expr::Literal(Literal::None)
       }
       return_annotation = Some(expr)
     }
