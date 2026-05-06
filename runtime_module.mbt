@@ -1998,6 +1998,14 @@ fn import_module(
       ),
     )
   }
+  if !config.allow_filesystem_imports && module_name != "builtins" {
+    return Err(
+      make_runtime_error(
+        RuntimeErrorKind::Runtime,
+        "ImportError: module " + module_name + " is not allowed",
+      ),
+    )
+  }
   match module_cache_get(module_name) {
     Some(v) => {
       register_module_hierarchy(module_name, v)
