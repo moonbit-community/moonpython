@@ -242,7 +242,11 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
           let message = "'" + open.0.to_string() + "' was never closed"
           Err(make_parse_error(ParseErrorKind::Syntax, message, token))
         }
-        None => Ok(Module::{ body, })
+        None =>
+          match stmts_first_invalid_control_flow_line(body, false, 0) {
+            Some(line) => Err(parser.invalid_syntax_at_line(line))
+            None => Ok(Module::{ body, })
+          }
       }
     Err(err) =>
       match err.kind {
