@@ -1004,7 +1004,10 @@ fn stmt_first_invalid_control_flow_line(
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_invalid_control_flow_line(
-        inner, span.line, in_function, loop_depth,
+        inner,
+        span.line,
+        in_function,
+        loop_depth,
       )
     Stmt::Return(_) | Stmt::Yield(_) | Stmt::YieldFrom(_) =>
       if in_function {
@@ -1019,18 +1022,16 @@ fn stmt_first_invalid_control_flow_line(
         Some(fallback_line)
       }
     Stmt::If(condition=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
         Some(line) => return Some(line)
         None => ()
       }
       stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
     }
     Stmt::While(condition=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth + 1,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1038,9 +1039,8 @@ fn stmt_first_invalid_control_flow_line(
     }
     Stmt::For(target=_, iter=_, body~, else_body~)
     | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth + 1,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1050,23 +1050,26 @@ fn stmt_first_invalid_control_flow_line(
     | Stmt::AsyncWith(context=_, target=_, body~) =>
       stmts_first_invalid_control_flow_line(body, in_function, loop_depth)
     Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
         Some(line) => return Some(line)
         None => ()
       }
       for handler in handlers {
-        match stmts_first_invalid_control_flow_line(
-          handler.body, in_function, loop_depth,
-        ) {
+        match
+          stmts_first_invalid_control_flow_line(
+            handler.body,
+            in_function,
+            loop_depth,
+          ) {
           Some(line) => return Some(line)
           None => ()
         }
       }
-      match stmts_first_invalid_control_flow_line(
-        else_body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(
+          else_body, in_function, loop_depth,
+        ) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1076,9 +1079,8 @@ fn stmt_first_invalid_control_flow_line(
     }
     Stmt::Match(subject=_, cases~) => {
       for case in cases {
-        match stmts_first_invalid_control_flow_line(
-          case.2, in_function, loop_depth,
-        ) {
+        match
+          stmts_first_invalid_control_flow_line(case.2, in_function, loop_depth) {
           Some(line) => return Some(line)
           None => ()
         }
@@ -1100,9 +1102,8 @@ fn stmts_first_invalid_control_flow_line(
   loop_depth : Int,
 ) -> Int? {
   for stmt in stmts {
-    match stmt_first_invalid_control_flow_line(
-      stmt, 1, in_function, loop_depth,
-    ) {
+    match
+      stmt_first_invalid_control_flow_line(stmt, 1, in_function, loop_depth) {
       Some(line) => return Some(line)
       None => ()
     }
@@ -1121,13 +1122,17 @@ fn collect_target_names_for_global_check(
       for item in items {
         collect_target_names_for_global_check(item, names)
       }
-    Target::Starred(inner) => collect_target_names_for_global_check(inner, names)
+    Target::Starred(inner) =>
+      collect_target_names_for_global_check(inner, names)
     _ => ()
   }
 }
 
 ///|
-fn collect_expr_names_for_global_check(expr : Expr, names : Array[String]) -> Unit {
+fn collect_expr_names_for_global_check(
+  expr : Expr,
+  names : Array[String],
+) -> Unit {
   match expr {
     Expr::WithSpan(span=_, expr=inner) =>
       collect_expr_names_for_global_check(inner, names)
@@ -1235,10 +1240,7 @@ fn collect_expr_names_for_global_check(expr : Expr, names : Array[String]) -> Un
 fn params_have_global_check_name(params : Array[String], name : String) -> Bool {
   for param in params {
     match normalize_param_name_for_compare(param) {
-      Some(param_name) =>
-        if param_name == name {
-          return true
-        }
+      Some(param_name) => if param_name == name { return true }
       None => ()
     }
   }
@@ -1365,7 +1367,8 @@ fn stmt_first_invalid_global_line(
           Some(name) => append_unique_name(seen_names, name)
           None => ()
         }
-        match stmts_first_invalid_global_line(handler.body, params, seen_names) {
+        match
+          stmts_first_invalid_global_line(handler.body, params, seen_names) {
           Some(line) => return Some(line)
           None => ()
         }
@@ -2890,17 +2893,13 @@ fn parse_simple_statement(
       !parts[2].has_prefix("]") &&
       !parts[2].contains(",") {
       return Err(
-        make_parse_error(
-          ParseErrorKind::Syntax,
-          "invalid syntax".to_string(),
-          {
-            kind: Eof,
-            start: base_offset,
-            end: base_offset + 1,
-            line: line_index + 2,
-            column: 1,
-          },
-        ),
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 2,
+          column: 1,
+        }),
       )
     }
   }

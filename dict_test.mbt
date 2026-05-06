@@ -19,13 +19,16 @@ test "dict/pop" {
     #|print(d)
     #|print(d.pop("missing", 9))
     #|print(d)
-  inspect(run_stdout(source), content=(
-    #|1
-    #|{'b': 2}
-    #|9
-    #|{'b': 2}
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|1
+      #|{'b': 2}
+      #|9
+      #|{'b': 2}
+      #|
+    ),
+  )
 }
 
 ///|
@@ -44,13 +47,16 @@ test "dict/setdefault" {
     #|print(d)
     #|print(d.setdefault("a", 2))
     #|print(d)
-  inspect(run_stdout(source), content=(
-    #|1
-    #|{'a': 1}
-    #|1
-    #|{'a': 1}
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|1
+      #|{'a': 1}
+      #|1
+      #|{'a': 1}
+      #|
+    ),
+  )
 }
 
 ///|
@@ -60,12 +66,15 @@ test "dict/keys_values_items" {
     #|print(list(d.keys()))
     #|print(list(d.values()))
     #|print(list(d.items()))
-  inspect(run_stdout(source), content=(
-    #|['a', 'b']
-    #|[1, 2]
-    #|[('a', 1), ('b', 2)]
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|['a', 'b']
+      #|[1, 2]
+      #|[('a', 1), ('b', 2)]
+      #|
+    ),
+  )
 }
 
 ///|
@@ -79,12 +88,15 @@ test "dict/update_clear" {
     #|print(d)
     #|d.clear()
     #|print(d)
-  inspect(run_stdout(source), content=(
-    #|None
-    #|{'a': 2, 'b': 3, 'c': 4}
-    #|{}
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|None
+      #|{'a': 2, 'b': 3, 'c': 4}
+      #|{}
+      #|
+    ),
+  )
 }
 
 ///|
@@ -95,13 +107,16 @@ test "dict/numeric_key_dedupe" {
     #|print(d[1])
     #|print(d[True])
     #|print(d[1.0])
-  inspect(run_stdout(source), content=(
-    #|{1: 'c'}
-    #|c
-    #|c
-    #|c
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|{1: 'c'}
+      #|c
+      #|c
+      #|c
+      #|
+    ),
+  )
 }
 
 ///|

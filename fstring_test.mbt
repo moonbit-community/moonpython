@@ -18,12 +18,15 @@ test "fstring/conversion_r_s_a" {
     #|print(f"{x!r}")
     #|print(f"{x!s}")
     #|print(f"{y!a}")
-  inspect(run_stdout_fstring(source), content=(
-    #|'a'
-    #|a
-    #|'\u30c6'
-    #|
-  ))
+  inspect(
+    run_stdout_fstring(source),
+    content=(
+      #|'a'
+      #|a
+      #|'\u30c6'
+      #|
+    ),
+  )
 }
 
 ///|

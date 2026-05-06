@@ -208,10 +208,13 @@ test "async/for_else" {
     #|    log = log + ["done"]
     #|  return str(log)
     #|print(__mpython_run(f()))
-  inspect(run_stdout(source), content=(
-    #|[1, 2, 'done']
-    #|
-  ))
+  inspect(
+    run_stdout(source),
+    content=(
+      #|[1, 2, 'done']
+      #|
+    ),
+  )
 }
 
 ///|
