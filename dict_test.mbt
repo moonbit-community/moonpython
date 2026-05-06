@@ -95,7 +95,13 @@ test "dict/numeric_key_dedupe" {
     #|print(d[1])
     #|print(d[True])
     #|print(d[1.0])
-  inspect(run_stdout(source), content="{1: c}\nc\nc\nc\n")
+  inspect(run_stdout(source), content=(
+    #|{1: 'c'}
+    #|c
+    #|c
+    #|c
+    #|
+  ))
 }
 
 ///|
