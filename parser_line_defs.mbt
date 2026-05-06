@@ -1049,6 +1049,8 @@ fn parse_def_stmt(
     (parsed, false)
   } else {
     let mut idx = parser.index
+    let mut continuation_start : Int? = None
+    let mut continuation_text = "".to_string()
     while idx < parser.lines.length() {
       let body_line = parser.lines[idx]
       let trimmed = body_line.trim(chars=" \t").to_string()
@@ -1080,7 +1082,25 @@ fn parse_def_stmt(
         continue
       }
       if line_has_async_for_keyword(trimmed) {
-        return Err(parser.invalid_syntax_at_line(idx + 1))
+        let line = match continuation_start {
+          Some(line) => line
+          None => idx + 1
+        }
+        return Err(parser.invalid_syntax_at_line(line))
+      }
+      match continuation_start {
+        Some(_) => {
+          continuation_text = continuation_text + "\n" + trimmed
+          if bracket_balance(continuation_text) == 0 {
+            continuation_start = None
+            continuation_text = "".to_string()
+          }
+        }
+        None =>
+          if bracket_balance(trimmed) > 0 {
+            continuation_start = Some(idx + 1)
+            continuation_text = trimmed
+          }
       }
       idx += 1
     }
