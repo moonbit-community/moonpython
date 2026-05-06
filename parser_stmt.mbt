@@ -1284,6 +1284,9 @@ fn stmt_first_invalid_global_line(
     }
     Stmt::Nonlocal(names) => {
       for name in names {
+        if params_have_global_check_name(params, name) {
+          return Some(fallback_line)
+        }
         append_unique_name(seen_names, name)
       }
       None
