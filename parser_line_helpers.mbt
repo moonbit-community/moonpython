@@ -1430,6 +1430,17 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     if current_indent > 0 && !allow_indented && !saw_syntax_error {
       return Ok(())
     }
+    if current_indent == 0 && trimmed.has_prefix("(?") {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: offsets[index],
+          end: offsets[index] + 1,
+          line: index + 1,
+          column: 1,
+        }),
+      )
+    }
     if saw_syntax_error {
       match first_unclosed_single_line_string_column(raw_line) {
         Some(column) =>
