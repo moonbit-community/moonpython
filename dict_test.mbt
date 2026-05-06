@@ -79,7 +79,12 @@ test "dict/update_clear" {
     #|print(d)
     #|d.clear()
     #|print(d)
-  inspect(run_stdout(source), content="None\n{a: 2, b: 3, c: 4}\n{}\n")
+  inspect(run_stdout(source), content=(
+    #|None
+    #|{'a': 2, 'b': 3, 'c': 4}
+    #|{}
+    #|
+  ))
 }
 
 ///|
