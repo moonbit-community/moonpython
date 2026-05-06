@@ -1311,6 +1311,57 @@ fn has_trailing_line_continuation(text : String) -> Bool {
 }
 
 ///|
+fn line_has_backslash_comment(text : String) -> Bool {
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          i += 1
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          i += 1
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if c == '#' {
+      return false
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      i += 1
+      continue
+    }
+    if c == '\\' {
+      let mut j = i + 1
+      while j < chars.length() && (chars[j] == ' ' || chars[j] == '\t') {
+        j += 1
+      }
+      if j < chars.length() && chars[j] == '#' {
+        return true
+      }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 /// Return whether `text` ends inside a non-triple-quoted string literal and the
 /// last character is a backslash (i.e. `\\` followed by a physical newline in
 /// source, used as a line continuation inside the string literal).
@@ -1431,6 +1482,17 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       return Ok(())
     }
     if current_indent == 0 && trimmed.has_prefix("(?") {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: offsets[index],
+          end: offsets[index] + 1,
+          line: index + 1,
+          column: 1,
+        }),
+      )
+    }
+    if line_has_backslash_comment(raw_line) {
       return Err(
         make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
           kind: Eof,
