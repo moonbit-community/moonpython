@@ -225,6 +225,9 @@ fn parse_class_stmt(
       ),
     )
   }
+  if is_async_await_reserved_name(name) {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
+  }
   let body_text = strip_inline_comment(
       substring(line_text, colon_pos.unwrap() + 1, line_text.length()).to_string(),
     )
@@ -397,6 +400,9 @@ fn parse_def_stmt(
       )
     }
   }
+  if is_async_await_reserved_name(name) {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
+  }
   let name_end = match paren_span {
     Some(span) => span.0
     None => 0
@@ -519,6 +525,9 @@ fn parse_def_stmt(
     }
     if name.length() == 0 {
       return Ok(())
+    }
+    if is_async_await_reserved_name(name) {
+      return Err(parser.invalid_syntax_at_line(parser.index + 1))
     }
     let param_offset = param_start + leading
     for existing in seen {

@@ -335,6 +335,11 @@ fn parse_type_param_header(
 }
 
 ///|
+fn is_async_await_reserved_name(name : String) -> Bool {
+  name == "async" || name == "await"
+}
+
+///|
 fn split_statements(line : String) -> Array[(String, Int)] {
   let segments : Array[(String, Int)] = []
   let chars = line.to_array()
