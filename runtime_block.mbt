@@ -662,8 +662,10 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     RuntimeErrorKind::Runtime =>
       if message.length() > 0 {
         inst.class.name + ": " + message
-      } else {
+      } else if inst.class.name == "Exception" {
         inst.class.name + ": "
+      } else {
+        inst.class.name
       }
     _ => message
   }
