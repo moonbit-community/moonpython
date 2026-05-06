@@ -4338,7 +4338,8 @@ fn builtin_dir(
   let names : Array[String] = []
   fn push_name(names : Array[String], name : String) -> Unit {
     if name == "__class__" ||
-      name == "__mpython_metaclass__" ||
+      name == "hashvalue" ||
+      name.has_prefix("__mpython_") ||
       name == "__name__" ||
       name == "__qualname__" {
       // Hide internal or compatibility-only attributes from `dir()`.
