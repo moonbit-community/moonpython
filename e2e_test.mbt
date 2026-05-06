@@ -439,13 +439,16 @@ test "e2e/builtin_enumerate" {
 ///|
 test "e2e/builtin_zip" {
   let source =
-    #|print(len(zip()))
     #|print(",".join([str(a) + ":" + str(b) for a, b in zip([1, 2], [3, 4, 5])]))
     #|print(",".join([a + b for a, b in zip("ab", "XY")]))
-    #|triples = zip([1, 2], [3], [4, 5, 6])
+    #|triples = list(zip([1, 2], [3], [4, 5, 6]))
     #|print(len(triples))
     #|print(triples[0][0], triples[0][1], triples[0][2])
-  inspect(e2e_stdout([], source), content="0\n1:3,2:4\naX,bY\n1\n1 3 4\n")
+  inspect(e2e_stdout([], source), content="1:3,2:4\naX,bY\n1\n1 3 4\n")
+  inspect(
+    test_exec_error("len(zip())"),
+    content="TypeError: object has no len()",
+  )
   inspect(
     test_exec_error("zip(1)"),
     content="TypeError: object is not iterable",
