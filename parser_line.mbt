@@ -1529,6 +1529,9 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("while ") {
+      if self.block_depth >= 20 {
+        return Err(self.invalid_syntax_at_line(self.index + 1))
+      }
       let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
@@ -1623,7 +1626,10 @@ fn LineParser::parse_block(
             ),
           )
         }
-        body = match self.parse_block(next_indent) {
+        self.block_depth += 1
+        let parsed_body = self.parse_block(next_indent)
+        self.block_depth -= 1
+        body = match parsed_body {
           Ok(value) => value
           Err(err) => return Err(err)
         }
