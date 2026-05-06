@@ -19,7 +19,13 @@ test "dict/pop" {
     #|print(d)
     #|print(d.pop("missing", 9))
     #|print(d)
-  inspect(run_stdout(source), content="1\n{b: 2}\n9\n{b: 2}\n")
+  inspect(run_stdout(source), content=(
+    #|1
+    #|{'b': 2}
+    #|9
+    #|{'b': 2}
+    #|
+  ))
 }
 
 ///|
