@@ -2480,9 +2480,35 @@ fn parse_simple_statement(
               Ok(tokens) =>
                 match parse_tokens_expr(tokens) {
                   Ok(value) => value
-                  Err(_) => Expr::Literal(Literal::None)
+                  Err(_) =>
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        {
+                          kind: Eof,
+                          start: base_offset,
+                          end: base_offset + 1,
+                          line: line_index + 1,
+                          column: 1,
+                        },
+                      ),
+                    )
                 }
-              Err(_) => Expr::Literal(Literal::None)
+              Err(_) =>
+                return Err(
+                  make_parse_error(
+                    ParseErrorKind::Syntax,
+                    "invalid syntax".to_string(),
+                    {
+                      kind: Eof,
+                      start: base_offset,
+                      end: base_offset + 1,
+                      line: line_index + 1,
+                      column: 1,
+                    },
+                  ),
+                )
             }
             stmts.push(
               Stmt::AnnAssign(target~, annotation=annotation_expr, value=None),
