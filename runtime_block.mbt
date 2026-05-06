@@ -2825,6 +2825,17 @@ fn eval_block_flow(
             _ => ()
           }
         }
+        if get_scoped_value(locals, globals, "__class__") is Some(_) &&
+          stmts_have_class_body_comprehension_name(body, "__class__") {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SystemError: compiler_lookup_arg(name='__class__') with reftype=1 failed in <module>; freevars of code " +
+              name +
+              ": ('__class__',)",
+            ),
+          )
+        }
         let module_name_value = get_global_value(globals, "__name__")
         if module_name_value is None {
           return Err(

@@ -1651,6 +1651,354 @@ fn stmts_first_invalid_class_body_line(stmts : Array[Stmt]) -> Int? {
 }
 
 ///|
+fn expr_contains_name_for_class_comp(expr : Expr, wanted : String) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_contains_name_for_class_comp(inner, wanted)
+    Expr::Name(name) => name == wanted
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_contains_name_for_class_comp(item, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_contains_name_for_class_comp(item.0, wanted) ||
+          expr_contains_name_for_class_comp(item.1, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_contains_name_for_class_comp(condition, wanted) ||
+      expr_contains_name_for_class_comp(then_expr, wanted) ||
+      expr_contains_name_for_class_comp(else_expr, wanted)
+    Expr::NamedExpr(name~, value~) =>
+      name == wanted || expr_contains_name_for_class_comp(value, wanted)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_contains_name_for_class_comp(value, wanted)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_contains_name_for_class_comp(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_contains_name_for_class_comp(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_contains_name_for_class_comp(value, wanted)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Subscript(value~, index~) =>
+      expr_contains_name_for_class_comp(value, wanted) ||
+      expr_contains_name_for_class_comp(index, wanted)
+    Expr::Call(callee~, args~) => {
+      if expr_contains_name_for_class_comp(callee, wanted) {
+        return true
+      }
+      for arg in args {
+        if expr_contains_name_for_class_comp(arg, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Unary(op=_, expr~) => expr_contains_name_for_class_comp(expr, wanted)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_contains_name_for_class_comp(left, wanted) ||
+      expr_contains_name_for_class_comp(right, wanted)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_contains_name_for_class_comp(value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_contains_name_for_class_comp(left, wanted) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_contains_name_for_class_comp(cmp, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body~) => {
+      for default_value in defaults {
+        if expr_contains_name_for_class_comp(default_value, wanted) {
+          return true
+        }
+      }
+      expr_contains_name_for_class_comp(body, wanted)
+    }
+    _ => false
+  }
+}
+
+///|
+fn expr_has_class_body_comprehension_name(expr : Expr, wanted : String) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_class_body_comprehension_name(inner, wanted)
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      if expr_contains_name_for_class_comp(elt, wanted) {
+        return true
+      }
+      for clause in clauses {
+        if expr_contains_name_for_class_comp(clause.iter, wanted) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_contains_name_for_class_comp(filter, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      if expr_contains_name_for_class_comp(key, wanted) ||
+        expr_contains_name_for_class_comp(value, wanted) {
+        return true
+      }
+      for clause in clauses {
+        if expr_contains_name_for_class_comp(clause.iter, wanted) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_contains_name_for_class_comp(filter, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_name(item, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_name(item.0, wanted) ||
+          expr_has_class_body_comprehension_name(item.1, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_class_body_comprehension_name(condition, wanted) ||
+      expr_has_class_body_comprehension_name(then_expr, wanted) ||
+      expr_has_class_body_comprehension_name(else_expr, wanted)
+    Expr::NamedExpr(name=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_has_class_body_comprehension_name(value, wanted)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_has_class_body_comprehension_name(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_has_class_body_comprehension_name(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_has_class_body_comprehension_name(value, wanted)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_name(value, wanted) ||
+      expr_has_class_body_comprehension_name(index, wanted)
+    Expr::Call(callee~, args~) => {
+      if expr_has_class_body_comprehension_name(callee, wanted) {
+        return true
+      }
+      for arg in args {
+        if expr_has_class_body_comprehension_name(arg, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Unary(op=_, expr~) =>
+      expr_has_class_body_comprehension_name(expr, wanted)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_has_class_body_comprehension_name(left, wanted) ||
+      expr_has_class_body_comprehension_name(right, wanted)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_has_class_body_comprehension_name(value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_has_class_body_comprehension_name(left, wanted) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_has_class_body_comprehension_name(cmp, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body=_) => {
+      for default_value in defaults {
+        if expr_has_class_body_comprehension_name(default_value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn stmt_has_class_body_comprehension_name(stmt : Stmt, wanted : String) -> Bool {
+  match stmt {
+    Stmt::WithSpan(span=_, stmt=inner) =>
+      stmt_has_class_body_comprehension_name(inner, wanted)
+    Stmt::ExprStmt(expr) => expr_has_class_body_comprehension_name(expr, wanted)
+    Stmt::Assign(target=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Stmt::AnnAssign(target=_, annotation~, value~) => {
+      if expr_has_class_body_comprehension_name(annotation, wanted) {
+        return true
+      }
+      match value {
+        Some(expr) => expr_has_class_body_comprehension_name(expr, wanted)
+        None => false
+      }
+    }
+    Stmt::AugAssign(target=_, op=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_class_body_comprehension_name(condition, wanted) {
+        return true
+      }
+      stmts_have_class_body_comprehension_name(body, wanted) ||
+      stmts_have_class_body_comprehension_name(else_body, wanted)
+    }
+    Stmt::For(target=_, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter~, body~, else_body~) =>
+      expr_has_class_body_comprehension_name(iter, wanted) ||
+      stmts_have_class_body_comprehension_name(body, wanted) ||
+      stmts_have_class_body_comprehension_name(else_body, wanted)
+    Stmt::With(context~, target=_, body~)
+    | Stmt::AsyncWith(context~, target=_, body~) =>
+      expr_has_class_body_comprehension_name(context, wanted) ||
+      stmts_have_class_body_comprehension_name(body, wanted)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      if stmts_have_class_body_comprehension_name(body, wanted) {
+        return true
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_name(expr, wanted) {
+              return true
+            }
+          None => ()
+        }
+        if stmts_have_class_body_comprehension_name(handler.body, wanted) {
+          return true
+        }
+      }
+      stmts_have_class_body_comprehension_name(else_body, wanted) ||
+      stmts_have_class_body_comprehension_name(finally_body, wanted)
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_class_body_comprehension_name(subject, wanted) {
+        return true
+      }
+      for case in cases {
+        match case.1 {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_name(expr, wanted) {
+              return true
+            }
+          None => ()
+        }
+        if stmts_have_class_body_comprehension_name(case.2, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Function(..) | Stmt::Class(..) => false
+    _ => false
+  }
+}
+
+///|
+fn stmts_have_class_body_comprehension_name(
+  stmts : Array[Stmt],
+  wanted : String,
+) -> Bool {
+  for stmt in stmts {
+    if stmt_has_class_body_comprehension_name(stmt, wanted) {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn target_has_async_comprehension(target : Target) -> Bool {
   match target {
     Target::Tuple(items) | Target::List(items) => {
