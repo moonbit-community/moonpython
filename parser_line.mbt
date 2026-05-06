@@ -2146,6 +2146,12 @@ fn LineParser::parse_block(
             line: header_start_index + 1,
             column: current_indent + 1,
           }
+          if is_star {
+            match stmts_first_except_star_control_flow_line(handler_body) {
+              Some(line) => return Err(self.invalid_syntax_at_line(line))
+              None => ()
+            }
+          }
           handlers.push(ExceptHandler::{
             span: header_span,
             is_star,

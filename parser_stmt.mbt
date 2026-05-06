@@ -914,6 +914,75 @@ fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int? {
 }
 
 ///|
+fn stmt_first_except_star_control_flow_line(
+  stmt : Stmt,
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_except_star_control_flow_line(inner, span.line)
+    Stmt::Break | Stmt::Continue | Stmt::Return(_) => Some(fallback_line)
+    Stmt::If(condition=_, body~, else_body~)
+    | Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(else_body)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(else_body)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_except_star_control_flow_line(body)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_except_star_control_flow_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_except_star_control_flow_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(finally_body)
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case in cases {
+        match stmts_first_except_star_control_flow_line(case.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_except_star_control_flow_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 fn target_has_async_comprehension(target : Target) -> Bool {
   match target {
     Target::Tuple(items) | Target::List(items) => {
