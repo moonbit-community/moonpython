@@ -259,6 +259,10 @@ fn parse_class_stmt(
         body.push(stmt)
       }
     }
+    match stmts_first_illegal_await_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
     stmts.push(
       wrap_stmt_for_line(
         parser.offsets,
@@ -294,6 +298,10 @@ fn parse_class_stmt(
   let body = match parser.parse_block(next_indent) {
     Ok(value) => value
     Err(err) => return Err(err)
+  }
+  match stmts_first_illegal_await_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
   }
   stmts.push(
     wrap_stmt_for_line(
@@ -898,6 +906,12 @@ fn parse_def_stmt(
         _ => ()
       }
     }
+    if !is_async_def {
+      match stmts_first_illegal_await_line(body) {
+        Some(line) => return Err(parser.invalid_syntax_at_line(line))
+        None => ()
+      }
+    }
     let mut is_generator = false
     for stmt in body {
       match stmt {
@@ -1037,6 +1051,12 @@ fn parse_def_stmt(
   let has_yield_ref : Ref[Bool] = { val: false }
   let has_yield_from_ref : Ref[Bool] = { val: false }
   let has_return_value_ref : Ref[Bool] = { val: false }
+  if !is_async_def {
+    match stmts_first_illegal_await_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
+  }
   fn scan_expr_for_yield(
     expr : Expr,
     has_yield_ref : Ref[Bool],
