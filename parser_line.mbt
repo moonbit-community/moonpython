@@ -2030,6 +2030,20 @@ fn LineParser::parse_block(
           }
           let mut exc_expr_opt : Expr? = None
           let mut name_opt : String? = None
+          fn is_simple_except_alias(text : String) -> Bool {
+            if text.length() == 0 {
+              return false
+            }
+            let chars = text.to_array()
+            for i = 0; i < chars.length(); i = i + 1 {
+              let c = chars[i]
+              if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+                return false
+              }
+            }
+            true
+          }
+
           if header_text.length() > 0 {
             let parts : Array[String] = []
             for part in header_text.split(" as ") {
@@ -2059,6 +2073,9 @@ fn LineParser::parse_block(
             if parts.length() > 1 {
               let raw_name = parts[1].trim(chars=" \t").to_owned()
               if raw_name.length() > 0 {
+                if !is_simple_except_alias(raw_name) {
+                  return Err(self.invalid_syntax_at_line(header_start_index + 1))
+                }
                 name_opt = Some(raw_name)
               }
             }
