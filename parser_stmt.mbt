@@ -983,6 +983,340 @@ fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
 }
 
 ///|
+fn collect_target_names_for_global_check(
+  target : Target,
+  names : Array[String],
+) -> Unit {
+  match target {
+    Target::Name(name) => append_unique_name(names, name)
+    Target::Tuple(items) | Target::List(items) =>
+      for item in items {
+        collect_target_names_for_global_check(item, names)
+      }
+    Target::Starred(inner) => collect_target_names_for_global_check(inner, names)
+    _ => ()
+  }
+}
+
+///|
+fn collect_expr_names_for_global_check(expr : Expr, names : Array[String]) -> Unit {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      collect_expr_names_for_global_check(inner, names)
+    Expr::Name(name) => append_unique_name(names, name)
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) =>
+      for item in items {
+        collect_expr_names_for_global_check(item, names)
+      }
+    Expr::Dict(items) =>
+      for item in items {
+        collect_expr_names_for_global_check(item.0, names)
+        collect_expr_names_for_global_check(item.1, names)
+      }
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      collect_expr_names_for_global_check(elt, names)
+      for clause in clauses {
+        collect_expr_names_for_global_check(clause.iter, names)
+      }
+      for filter in filters {
+        collect_expr_names_for_global_check(filter, names)
+      }
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      collect_expr_names_for_global_check(key, names)
+      collect_expr_names_for_global_check(value, names)
+      for clause in clauses {
+        collect_expr_names_for_global_check(clause.iter, names)
+      }
+      for filter in filters {
+        collect_expr_names_for_global_check(filter, names)
+      }
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+      collect_expr_names_for_global_check(condition, names)
+      collect_expr_names_for_global_check(then_expr, names)
+      collect_expr_names_for_global_check(else_expr, names)
+    }
+    Expr::NamedExpr(name~, value~) => {
+      append_unique_name(names, name)
+      collect_expr_names_for_global_check(value, names)
+    }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+      match end {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+      match step {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Subscript(value~, index~) => {
+      collect_expr_names_for_global_check(value, names)
+      collect_expr_names_for_global_check(index, names)
+    }
+    Expr::Call(callee~, args~) => {
+      collect_expr_names_for_global_check(callee, names)
+      for arg in args {
+        collect_expr_names_for_global_check(arg, names)
+      }
+    }
+    Expr::Keyword(name=_, value~) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Unary(op=_, expr~) => collect_expr_names_for_global_check(expr, names)
+    Expr::Binary(op=_, left~, right~) => {
+      collect_expr_names_for_global_check(left, names)
+      collect_expr_names_for_global_check(right, names)
+    }
+    Expr::BoolOp(op=_, values~) =>
+      for value in values {
+        collect_expr_names_for_global_check(value, names)
+      }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      collect_expr_names_for_global_check(left, names)
+      for comparator in comparators {
+        collect_expr_names_for_global_check(comparator, names)
+      }
+    }
+    Expr::Lambda(params=_, defaults~, body~) => {
+      for default_value in defaults {
+        collect_expr_names_for_global_check(default_value, names)
+      }
+      collect_expr_names_for_global_check(body, names)
+    }
+    _ => ()
+  }
+}
+
+///|
+fn params_have_global_check_name(params : Array[String], name : String) -> Bool {
+  for param in params {
+    match normalize_param_name_for_compare(param) {
+      Some(param_name) =>
+        if param_name == name {
+          return true
+        }
+      None => ()
+    }
+  }
+  false
+}
+
+///|
+fn stmt_first_invalid_global_line(
+  stmt : Stmt,
+  params : Array[String],
+  seen_names : Array[String],
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_global_line(inner, params, seen_names, span.line)
+    Stmt::Global(names) => {
+      for name in names {
+        if params_have_global_check_name(params, name) ||
+          name_in_list(seen_names, name) {
+          return Some(fallback_line)
+        }
+      }
+      None
+    }
+    Stmt::ExprStmt(expr) => {
+      collect_expr_names_for_global_check(expr, seen_names)
+      None
+    }
+    Stmt::Assign(target~, value~) => {
+      collect_expr_names_for_global_check(value, seen_names)
+      collect_target_names_for_global_check(target, seen_names)
+      None
+    }
+    Stmt::AnnAssign(target~, annotation~, value~) => {
+      collect_target_names_for_global_check(target, seen_names)
+      collect_expr_names_for_global_check(annotation, seen_names)
+      match value {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::AugAssign(target~, op=_, value~) => {
+      collect_target_names_for_global_check(target, seen_names)
+      collect_expr_names_for_global_check(value, seen_names)
+      None
+    }
+    Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) => {
+      match expr_opt {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::YieldFrom(expr) => {
+      collect_expr_names_for_global_check(expr, seen_names)
+      None
+    }
+    Stmt::Assert(condition~, message~) => {
+      collect_expr_names_for_global_check(condition, seen_names)
+      match message {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::Raise(exc~, cause~) => {
+      match exc {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      match cause {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::Del(targets) => {
+      for target in targets {
+        collect_target_names_for_global_check(target, seen_names)
+      }
+      None
+    }
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      collect_expr_names_for_global_check(condition, seen_names)
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(else_body, params, seen_names)
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      collect_expr_names_for_global_check(iter, seen_names)
+      collect_target_names_for_global_check(target, seen_names)
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(else_body, params, seen_names)
+    }
+    Stmt::With(context~, target~, body~)
+    | Stmt::AsyncWith(context~, target~, body~) => {
+      collect_expr_names_for_global_check(context, seen_names)
+      match target {
+        Some(name) => append_unique_name(seen_names, name)
+        None => ()
+      }
+      stmts_first_invalid_global_line(body, params, seen_names)
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+          None => ()
+        }
+        match handler.name {
+          Some(name) => append_unique_name(seen_names, name)
+          None => ()
+        }
+        match stmts_first_invalid_global_line(handler.body, params, seen_names) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_invalid_global_line(else_body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(finally_body, params, seen_names)
+    }
+    Stmt::Match(subject~, cases~) => {
+      collect_expr_names_for_global_check(subject, seen_names)
+      for case in cases {
+        match case.1 {
+          Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+          None => ()
+        }
+        match stmts_first_invalid_global_line(case.2, params, seen_names) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(name~, ..) | Stmt::Class(name~, ..) => {
+      append_unique_name(seen_names, name)
+      None
+    }
+    Stmt::Import(module_name~, alias_name~) => {
+      match alias_name {
+        Some(name) => append_unique_name(seen_names, name)
+        None => append_unique_name(seen_names, module_name)
+      }
+      None
+    }
+    Stmt::FromImport(module_name=_, names~) => {
+      for item in names {
+        match item.1 {
+          Some(import_alias) => append_unique_name(seen_names, import_alias)
+          None => append_unique_name(seen_names, item.0)
+        }
+      }
+      None
+    }
+    Stmt::Nonlocal(names) => {
+      for name in names {
+        append_unique_name(seen_names, name)
+      }
+      None
+    }
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_global_line(
+  stmts : Array[Stmt],
+  params : Array[String],
+  seen_names : Array[String],
+) -> Int? {
+  for stmt in stmts {
+    match stmt_first_invalid_global_line(stmt, params, seen_names, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn function_body_first_invalid_global_line(
+  body : Array[Stmt],
+  params : Array[String],
+) -> Int? {
+  let seen_names : Array[String] = []
+  stmts_first_invalid_global_line(body, params, seen_names)
+}
+
+///|
 fn target_has_async_comprehension(target : Target) -> Bool {
   match target {
     Target::Tuple(items) | Target::List(items) => {

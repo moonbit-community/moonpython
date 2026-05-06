@@ -846,6 +846,10 @@ fn parse_def_stmt(
         body.push(stmt)
       }
     }
+    match function_body_first_invalid_global_line(body, params) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
     for stmt in body {
       match stmt {
         Stmt::WithSpan(span=_, stmt=inner) =>
@@ -1554,6 +1558,10 @@ fn parse_def_stmt(
         idx += 1
       }
     }
+  }
+  match function_body_first_invalid_global_line(body, params) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
   }
   for stmt in body {
     match stmt {
