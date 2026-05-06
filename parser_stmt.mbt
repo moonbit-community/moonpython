@@ -516,19 +516,19 @@ fn expr_first_illegal_await_line(
     Expr::ListComp(elt~, clauses~, filters~)
     | Expr::SetComp(elt~, clauses~, filters~) => {
       match expr_first_illegal_await_line(elt, in_genexp, fallback_line) {
-        Some(line) => return Some(line)
+        Some(_) => return Some(fallback_line)
         None => ()
       }
       for clause in clauses {
         match
           expr_first_illegal_await_line(clause.iter, in_genexp, fallback_line) {
-          Some(line) => return Some(line)
+          Some(_) => return Some(fallback_line)
           None => ()
         }
       }
       for filter in filters {
         match expr_first_illegal_await_line(filter, in_genexp, fallback_line) {
-          Some(line) => return Some(line)
+          Some(_) => return Some(fallback_line)
           None => ()
         }
       }
@@ -536,23 +536,23 @@ fn expr_first_illegal_await_line(
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
       match expr_first_illegal_await_line(key, in_genexp, fallback_line) {
-        Some(line) => return Some(line)
+        Some(_) => return Some(fallback_line)
         None => ()
       }
       match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
-        Some(line) => return Some(line)
+        Some(_) => return Some(fallback_line)
         None => ()
       }
       for clause in clauses {
         match
           expr_first_illegal_await_line(clause.iter, in_genexp, fallback_line) {
-          Some(line) => return Some(line)
+          Some(_) => return Some(fallback_line)
           None => ()
         }
       }
       for filter in filters {
         match expr_first_illegal_await_line(filter, in_genexp, fallback_line) {
-          Some(line) => return Some(line)
+          Some(_) => return Some(fallback_line)
           None => ()
         }
       }
