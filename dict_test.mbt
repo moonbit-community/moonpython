@@ -44,7 +44,13 @@ test "dict/setdefault" {
     #|print(d)
     #|print(d.setdefault("a", 2))
     #|print(d)
-  inspect(run_stdout(source), content="1\n{a: 1}\n1\n{a: 1}\n")
+  inspect(run_stdout(source), content=(
+    #|1
+    #|{'a': 1}
+    #|1
+    #|{'a': 1}
+    #|
+  ))
 }
 
 ///|
