@@ -2549,9 +2549,7 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
-      if type_params.length() > 0 {
-        emit_pep695_typing_import(b, span)
-      }
+      let _ = type_params
       let _ = annotations
       let _ = return_annotation
       let _ = future_annotations
