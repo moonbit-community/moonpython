@@ -1359,6 +1359,14 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
 }
 
 ///|
+fn target_allows_annotation(target : Target) -> Bool {
+  match target {
+    Target::Name(_) | Target::Attribute(_) | Target::Subscript(_) => true
+    _ => false
+  }
+}
+
+///|
 /// Parse assignment targets from a token slice. This is more permissive than
 /// expression parsing: it supports `a, *rest = ...` where `*rest` is only valid
 /// in assignment target context.
@@ -2466,6 +2474,21 @@ fn parse_simple_statement(
                 )
               _ => ()
             }
+            if !target_allows_annotation(target) {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  {
+                    kind: Eof,
+                    start: base_offset,
+                    end: base_offset + 1,
+                    line: line_index + 1,
+                    column: 1,
+                  },
+                ),
+              )
+            }
             let annotation_text = replace_newlines_with_spaces(
                 substring(trimmed, colon_pos + 1, trimmed.length()),
               )
@@ -2588,6 +2611,21 @@ fn parse_simple_statement(
                         ),
                       )
                     _ => ()
+                  }
+                  if !target_allows_annotation(target) {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        {
+                          kind: Eof,
+                          start: base_offset,
+                          end: base_offset + 1,
+                          line: line_index + 1,
+                          column: 1,
+                        },
+                      ),
+                    )
                   }
                   let annotation_text = replace_newlines_with_spaces(
                       substring(trimmed, colon_pos + 1, eq_pos),
