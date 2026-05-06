@@ -776,7 +776,7 @@ fn parse_def_stmt(
             }
           Err(_) => Expr::Literal(Literal::None)
         }
-        if expr_has_illegal_await(expr, false) {
+        if expr_is_invalid_annotation_value(expr) {
           return Err(parser.invalid_syntax_at_line(parser.index + 1))
         }
         annotations.push((name, expr))
@@ -879,6 +879,9 @@ fn parse_def_stmt(
             Err(_) => Expr::Literal(Literal::None)
           }
         Err(_) => Expr::Literal(Literal::None)
+      }
+      if expr_is_invalid_annotation_value(expr) {
+        return Err(parser.invalid_syntax_at_line(parser.index + 1))
       }
       return_annotation = Some(expr)
     }

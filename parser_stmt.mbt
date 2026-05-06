@@ -314,6 +314,18 @@ fn expr_has_yield_or_await(expr : Expr) -> Bool {
 }
 
 ///|
+fn expr_has_named_expr(expr : Expr) -> Bool {
+  let targets : Array[String] = []
+  collect_named_expr_targets(expr, targets)
+  targets.length() > 0
+}
+
+///|
+fn expr_is_invalid_annotation_value(expr : Expr) -> Bool {
+  expr_has_yield_or_await(expr) || expr_has_named_expr(expr)
+}
+
+///|
 fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
   match expr {
     Expr::WithSpan(span=_, expr=inner) =>
