@@ -60,7 +60,12 @@ test "dict/keys_values_items" {
     #|print(list(d.keys()))
     #|print(list(d.values()))
     #|print(list(d.items()))
-  inspect(run_stdout(source), content="[a, b]\n[1, 2]\n[(a, 1), (b, 2)]\n")
+  inspect(run_stdout(source), content=(
+    #|['a', 'b']
+    #|[1, 2]
+    #|[('a', 1), ('b', 2)]
+    #|
+  ))
 }
 
 ///|
