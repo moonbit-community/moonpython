@@ -394,6 +394,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::List([]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
 
       // Build the innermost statement: res.append(elt)
       let append_stmt = Stmt::ExprStmt(
@@ -463,8 +487,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         // When targets are "_" or unpacking, bind into a temp and then assign.
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
@@ -509,7 +533,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<listcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -518,7 +545,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
@@ -663,6 +701,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::Call(callee=Expr::Name("set"), args=[]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
       let add_stmt = Stmt::ExprStmt(
         Expr::Call(
           callee=Expr::Attribute(value=Expr::Name(res_name), attr="add"),
@@ -726,8 +788,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
           Target::Name(clause.targets[0])
@@ -771,7 +833,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<setcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -780,7 +845,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
@@ -804,6 +880,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::Dict([]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
       let set_stmt = Stmt::Assign(
         target=Target::Subscript(value=Expr::Name(res_name), index=key),
         value~,
@@ -865,8 +965,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
           Target::Name(clause.targets[0])
@@ -910,7 +1010,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<dictcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -919,7 +1022,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::List(items) => {
