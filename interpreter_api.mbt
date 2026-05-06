@@ -646,7 +646,7 @@ pub fn Interpreter::new_spec() -> Interpreter {
   )
   let builtin_type_names : Array[String] = [
     "int", "bool", "float", "complex", "str", "bytes", "bytearray", "memoryview",
-    "list", "tuple", "dict", "set", "frozenset", "range", "type", "property", "staticmethod",
+    "list", "tuple", "dict", "set", "frozenset", "range", "property", "staticmethod",
     "classmethod",
   ]
   for type_name in builtin_type_names {
