@@ -1509,42 +1509,9 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AnnAssign(target~, annotation~, value~) => {
+        let _ = annotation
         match target {
-          Target::Name(name) => {
-            // Only simple-name annotations contribute to __annotations__.
-            // For attribute/subscript targets (e.g. `self.x: T = ...`), CPython
-            // does not evaluate/store the annotation at runtime.
-            let ann_value = match
-              eval_expr_with_env(annotation, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let pairs = match
-              get_scoped_value(locals, globals, "__annotations__") {
-              Some(Value::Dict(pairs)) => pairs
-              Some(_) =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    "__annotations__ must be a dict".to_string(),
-                  ),
-                )
-              None => {
-                let pairs : Array[(Value, Value)] = []
-                set_scoped_value(
-                  locals,
-                  globals,
-                  "__annotations__",
-                  Value::Dict(pairs),
-                )
-                pairs
-              }
-            }
-            let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
+          Target::Name(_) => ()
           _ => ()
         }
         match value {
@@ -1854,46 +1821,8 @@ fn eval_block_flow(
           }
           default_values.push(value)
         }
-        let ann_pairs : Array[(Value, Value)] = []
-        let future_on = match
-          get_global_value(globals, "__mpython_future_annotations__") {
-          Some(Value::Bool(true)) => true
-          _ => false
-        }
-        if !future_on {
-          for ann in annotations {
-            let key = ann.0
-            let expr = ann.1
-            let value = match
-              eval_expr_with_env(expr, locals, globals, builtins, io) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            let _ = match dict_set_item(ann_pairs, Value::Str(key), value) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
-          match return_annotation {
-            Some(expr) => {
-              let value = match
-                eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-              let _ = match
-                dict_set_item(
-                  ann_pairs,
-                  Value::Str("return".to_string()),
-                  value,
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-            }
-            None => ()
-          }
-        }
+        let _ = annotations
+        let _ = return_annotation
         let template = FunctionValue::{
           name,
           params,
@@ -1910,23 +1839,6 @@ fn eval_block_flow(
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
-        }
-        if ann_pairs.length() > 0 {
-          match defined {
-            Value::Function(func) => {
-              let pairs = function_attr_dict(func)
-              let _ = match
-                dict_set_item(
-                  pairs,
-                  Value::Str("__annotations__".to_string()),
-                  Value::Dict(ann_pairs),
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-            }
-            _ => ()
-          }
         }
         set_scoped_value(locals, globals, name, defined)
         last = Value::None

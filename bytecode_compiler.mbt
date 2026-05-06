@@ -1865,17 +1865,7 @@ fn compile_stmt(
       }
     }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      match target {
-        Target::Name(name) => {
-          match compile_expr(annotation, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          let name_idx = b.intern_name(name)
-          let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
-        }
-        _ => ()
-      }
+      let _ = annotation
       match value {
         Some(expr) =>
           match
@@ -2572,52 +2562,10 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
-      let mut ann_tmp_idx : Int? = None
-      let has_annotations = annotations.length() > 0 ||
-        return_annotation is Some(_)
-      let eval_annotations = has_annotations &&
-        !future_annotations &&
-        type_params.length() == 0
-      if eval_annotations {
-        let tmp_name = "$__mpy_fn_annotations$" +
-          b.code.ops.length().to_string()
-        let tmp_idx = b.intern_name(tmp_name)
-        ann_tmp_idx = Some(tmp_idx)
-        let mut pairs = 0
-        for pair in annotations {
-          let key = pair.0
-          let expr = pair.1
-          let key_idx = b.add_const(Value::Str(key))
-          let _ = b.emit(BcOp::LoadConst(key_idx), span)
-          let ann_span : Span? = match expr_span(expr) {
-            Some(s) => Some(s)
-            None => span
-          }
-          match compile_expr(expr, b, ann_span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          pairs = pairs + 1
-        }
-        match return_annotation {
-          Some(expr) => {
-            let key_idx = b.add_const(Value::Str("return".to_string()))
-            let _ = b.emit(BcOp::LoadConst(key_idx), span)
-            let ann_span : Span? = match expr_span(expr) {
-              Some(s) => Some(s)
-              None => span
-            }
-            match compile_expr(expr, b, ann_span) {
-              Ok(_) => ()
-              Err(err) => return Err(err)
-            }
-            pairs = pairs + 1
-          }
-          None => ()
-        }
-        let _ = b.emit(BcOp::BuildMap(pairs), span)
-        let _ = b.emit(BcOp::StoreName(tmp_idx), span)
-      }
+      let _ = type_params
+      let _ = annotations
+      let _ = return_annotation
+      let _ = future_annotations
       let template = FunctionValue::{
         name,
         params,
@@ -2641,16 +2589,6 @@ fn compile_stmt(
           span
         },
       )
-      match ann_tmp_idx {
-        Some(tmp_idx) => {
-          let ann_attr_idx = b.intern_name("__annotations__")
-          let _ = b.emit(BcOp::DupTop, span)
-          let _ = b.emit(BcOp::LoadName(tmp_idx), span)
-          let _ = b.emit(BcOp::StoreAttr(ann_attr_idx), span)
-          let _ = b.emit(BcOp::DeleteName(tmp_idx), span)
-        }
-        None => ()
-      }
       let name_idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
