@@ -983,6 +983,122 @@ fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
 }
 
 ///|
+fn stmt_first_invalid_control_flow_line(
+  stmt : Stmt,
+  fallback_line : Int,
+  in_function : Bool,
+  loop_depth : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_control_flow_line(
+        inner, span.line, in_function, loop_depth,
+      )
+    Stmt::Return(_) | Stmt::Yield(_) | Stmt::YieldFrom(_) =>
+      if in_function {
+        None
+      } else {
+        Some(fallback_line)
+      }
+    Stmt::Break | Stmt::Continue =>
+      if loop_depth > 0 {
+        None
+      } else {
+        Some(fallback_line)
+      }
+    Stmt::If(condition=_, body~, else_body~) => {
+      match stmts_first_invalid_control_flow_line(
+        body, in_function, loop_depth,
+      ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_invalid_control_flow_line(
+        body, in_function, loop_depth + 1,
+      ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_invalid_control_flow_line(
+        body, in_function, loop_depth + 1,
+      ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_invalid_control_flow_line(body, in_function, loop_depth)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_invalid_control_flow_line(
+        body, in_function, loop_depth,
+      ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_invalid_control_flow_line(
+          handler.body, in_function, loop_depth,
+        ) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_invalid_control_flow_line(
+        else_body, in_function, loop_depth,
+      ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(
+        finally_body, in_function, loop_depth,
+      )
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case in cases {
+        match stmts_first_invalid_control_flow_line(
+          case.2, in_function, loop_depth,
+        ) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(body~, ..) =>
+      stmts_first_invalid_control_flow_line(body, true, 0)
+    Stmt::Class(body~, ..) =>
+      stmts_first_invalid_control_flow_line(body, false, 0)
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_control_flow_line(
+  stmts : Array[Stmt],
+  in_function : Bool,
+  loop_depth : Int,
+) -> Int? {
+  for stmt in stmts {
+    match stmt_first_invalid_control_flow_line(
+      stmt, 1, in_function, loop_depth,
+    ) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 fn collect_target_names_for_global_check(
   target : Target,
   names : Array[String],
