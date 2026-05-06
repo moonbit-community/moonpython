@@ -299,6 +299,17 @@ fn make_code_instance_with_meta(
       ("co_varnames", Value::Tuple(var_tuple)),
       ("co_freevars", Value::Tuple([])),
       ("co_cellvars", Value::Tuple([])),
+      (
+        "__mpython_co_positions",
+        Value::List([
+          Value::Tuple([
+            Value::Int(firstlineno),
+            Value::Int(firstlineno),
+            Value::Int(0N),
+            Value::Int(0N),
+          ]),
+        ]),
+      ),
     ],
   })
 }
