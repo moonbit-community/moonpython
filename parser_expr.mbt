@@ -2085,6 +2085,29 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                 ),
               )
             }
+            if self.current().kind != RBracket {
+              let err_line = match expr_span(first) {
+                Some(span) => span.line
+                None => open.line
+              }
+              let err_start = match expr_span(first) {
+                Some(span) => span.start
+                None => open.start
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  {
+                    kind: Eof,
+                    start: err_start,
+                    end: err_start + 1,
+                    line: err_line,
+                    column: 1,
+                  },
+                ),
+              )
+            }
             match self.expect(RBracket) {
               Ok(_) => ()
               Err(err) => return Err(err)

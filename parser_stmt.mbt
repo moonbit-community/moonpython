@@ -1987,6 +1987,33 @@ fn parse_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
+  if trimmed.has_prefix("[") && trimmed.contains("\n") {
+    let parts : Array[String] = []
+    for part in trimmed.split("\n") {
+      parts.push(part.trim(chars=" \t").to_string())
+    }
+    if parts.length() >= 3 &&
+      parts[0] == "[" &&
+      parts[1].length() > 0 &&
+      !parts[1].contains(",") &&
+      parts[2].length() > 0 &&
+      !parts[2].has_prefix("]") &&
+      !parts[2].contains(",") {
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          {
+            kind: Eof,
+            start: base_offset,
+            end: base_offset + 1,
+            line: line_index + 2,
+            column: 1,
+          },
+        ),
+      )
+    }
+  }
   match find_top_level_char(trimmed, '=') {
     Some(eq_pos) => {
       let chars = trimmed.to_array()
