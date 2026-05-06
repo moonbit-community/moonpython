@@ -3347,11 +3347,23 @@ fn get_attr_raw_from_value(
               other => other
             }
           }
+          fn unwrap_expr(node : Expr) -> Expr {
+            match node {
+              Expr::WithSpan(span~, expr~) => {
+                let _ = span
+                unwrap_expr(expr)
+              }
+              other => other
+            }
+          }
 
           if func.body.length() > 0 {
             match unwrap_stmt(func.body[0]) {
-              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
-                Ok(Value::Str(text))
+              Stmt::ExprStmt(expr) =>
+                match unwrap_expr(expr) {
+                  Expr::Literal(Literal::Str(text)) => Ok(Value::Str(text))
+                  _ => Ok(Value::None)
+                }
               _ => Ok(Value::None)
             }
           } else {
