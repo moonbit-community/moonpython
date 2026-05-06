@@ -2087,35 +2087,9 @@ fn parse_simple_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match expr {
-        Expr::WithSpan(span=_, expr=inner) =>
-          match inner {
-            Expr::Name(name) => targets.push(Target::Name(name))
-            Expr::Attribute(value~, attr~) =>
-              targets.push(Target::Attribute(value~, attr~))
-            Expr::Subscript(value~, index~) =>
-              targets.push(Target::Subscript(value~, index~))
-            _ =>
-              return Err(
-                make_parse_error(
-                  ParseErrorKind::Syntax,
-                  "invalid syntax".to_string(),
-                  {
-                    kind: Eof,
-                    start: base_offset,
-                    end: base_offset + 1,
-                    line: line_index + 1,
-                    column: 1,
-                  },
-                ),
-              )
-          }
-        Expr::Name(name) => targets.push(Target::Name(name))
-        Expr::Attribute(value~, attr~) =>
-          targets.push(Target::Attribute(value~, attr~))
-        Expr::Subscript(value~, index~) =>
-          targets.push(Target::Subscript(value~, index~))
-        _ =>
+      let target = match target_from_expr(expr, tokens[0]) {
+        Ok(value) => value
+        Err(_) =>
           return Err(
             make_parse_error(
               ParseErrorKind::Syntax,
@@ -2130,6 +2104,7 @@ fn parse_simple_statement(
             ),
           )
       }
+      targets.push(target)
     }
     stmts.push(Stmt::Del(targets))
     return finalize_simple_statement(
