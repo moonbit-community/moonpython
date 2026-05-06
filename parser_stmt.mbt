@@ -1999,6 +1999,83 @@ fn stmts_have_class_body_comprehension_name(
 }
 
 ///|
+fn stmt_first_function_import_star_line(
+  stmt : Stmt,
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_function_import_star_line(inner, span.line)
+    Stmt::FromImport(module_name=_, names~) => {
+      for item in names {
+        if item.0 == "*" {
+          return Some(fallback_line)
+        }
+      }
+      None
+    }
+    Stmt::If(condition=_, body~, else_body~)
+    | Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(else_body)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(else_body)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_function_import_star_line(body)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_function_import_star_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_function_import_star_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(finally_body)
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case_item in cases {
+        match stmts_first_function_import_star_line(case_item.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(..) | Stmt::Class(..) => None
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_function_import_star_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_function_import_star_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 fn target_has_async_comprehension(target : Target) -> Bool {
   match target {
     Target::Tuple(items) | Target::List(items) => {

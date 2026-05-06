@@ -1652,6 +1652,10 @@ fn parse_def_stmt(
     Some(line) => return Err(parser.invalid_syntax_at_line(line))
     None => ()
   }
+  match stmts_first_function_import_star_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
   for stmt in body {
     match stmt {
       Stmt::Global(names) =>
