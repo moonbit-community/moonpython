@@ -663,7 +663,7 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
       if message.length() > 0 {
         inst.class.name + ": " + message
       } else {
-        inst.class.name
+        inst.class.name + ": "
       }
     _ => message
   }
