@@ -416,6 +416,8 @@ fn parse_def_stmt(
   let mut default_seen = false
   let mut kw_only = false
   let mut seen_posonly_marker = false
+  let mut seen_bare_star = false
+  let mut bare_star_has_kwonly_name = false
   let params_chars = params_text.to_array()
   let mut param_start = 0
   let mut idx = 0
@@ -423,6 +425,23 @@ fn parse_def_stmt(
   let mut escaped = false
   let mut depth = 0
   let param_base = current_indent + 4 + name_end + 1
+  fn is_valid_param_name(text : String) -> Bool {
+    if text.length() == 0 {
+      return false
+    }
+    if text == "None" || text == "True" || text == "False" {
+      return false
+    }
+    let chars = text.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      let c = chars[i]
+      if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+        return false
+      }
+    }
+    true
+  }
+
   fn consume_param_segment(end_idx : Int) -> Result[Unit, ParseError] {
     let raw_param = substring(params_text, param_start, end_idx)
     let mut leading = 0
@@ -510,6 +529,30 @@ fn parse_def_stmt(
       return Ok(())
     }
     if name == "*" {
+      if seen_bare_star || kw_only {
+        let token = {
+          kind: Eof,
+          start: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading,
+          end: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading +
+          1,
+          line: parser.index + 1,
+          column: param_base + param_start + leading + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      seen_bare_star = true
       kw_only = true
       params.push("*")
       name = ""
@@ -526,10 +569,42 @@ fn parse_def_stmt(
     if name.length() == 0 {
       return Ok(())
     }
+    let param_offset = param_start + leading
+    if seen_bare_star && star_count == 2 && !bare_star_has_kwonly_name {
+      let token = {
+        kind: Eof,
+        start: parser.offsets[parser.index] + param_base + param_offset,
+        end: parser.offsets[parser.index] + param_base + param_offset + 1,
+        line: parser.index + 1,
+        column: param_base + param_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
     if is_async_await_reserved_name(name) {
       return Err(parser.invalid_syntax_at_line(parser.index + 1))
     }
-    let param_offset = param_start + leading
+    if !is_valid_param_name(name) {
+      let token = {
+        kind: Eof,
+        start: parser.offsets[parser.index] + param_base + param_offset,
+        end: parser.offsets[parser.index] + param_base + param_offset + 1,
+        line: parser.index + 1,
+        column: param_base + param_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
     for existing in seen {
       if existing == name {
         let token = {
@@ -709,6 +784,9 @@ fn parse_def_stmt(
     } else if has_default {
       encoded = name + "="
     }
+    if seen_bare_star && star_count == 0 {
+      bare_star_has_kwonly_name = true
+    }
     params.push(encoded)
     Ok(())
   }
@@ -746,6 +824,9 @@ fn parse_def_stmt(
   let _ = match consume_param_segment(params_chars.length()) {
     Ok(_) => ()
     Err(err) => return Err(err)
+  }
+  if seen_bare_star && !bare_star_has_kwonly_name {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
   }
   let return_slice = substring(
     header,
