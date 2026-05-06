@@ -3741,6 +3741,37 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
+      BcOp::MakeTypeAlias(name_idx) =>
+        match pop_stack(stack) {
+          Ok(value_func) =>
+            match value_func {
+              Value::Function(_) => {
+                let name = code.names[name_idx]
+                stack.push(
+                  Value::Instance(InstanceValue::{
+                    class: ClassValue::{
+                      name: "TypeAlias",
+                      bases: [],
+                      dict: [],
+                    },
+                    dict: [
+                      ("__name__", Value::Str(name)),
+                      ("__value_func__", value_func),
+                    ],
+                  }),
+                )
+                Ok(())
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "bytecode vm: MakeTypeAlias expects function".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
+        }
       BcOp::MakeClass(template, name_idx, decorator_count) =>
         match pop_stack(stack) {
           Ok(keyword_specs_val) =>
