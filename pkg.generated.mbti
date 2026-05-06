@@ -138,6 +138,7 @@ pub(all) enum BcOp {
   CallFunctionVar
   MakeFunction(Int, Int, Int)
   MakeClass(Int, Int, Int)
+  MakeTypeAlias(Int)
   StoreAnnotation(Int)
   AugAssignName(Int, BinaryOp)
   AugAssignAttr(Int, BinaryOp)

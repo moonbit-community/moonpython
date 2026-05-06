@@ -214,10 +214,13 @@ test "except_star_handles_groups" {
     #|except* KeyError:
     #|  log.append("key")
     #|print(log)
-  inspect(run_stdout_try(source), content=(
-    #|['value', 'key']
-    #|
-  ))
+  inspect(
+    run_stdout_try(source),
+    content=(
+      #|['value', 'key']
+      #|
+    ),
+  )
 }
 
 ///|
@@ -232,10 +235,13 @@ test "except_star_reraises_remaining" {
     #|except* KeyError:
     #|  log.append("key")
     #|print(log)
-  inspect(run_stdout_try(source), content=(
-    #|['value', 'key']
-    #|
-  ))
+  inspect(
+    run_stdout_try(source),
+    content=(
+      #|['value', 'key']
+      #|
+    ),
+  )
 }
 
 ///|

@@ -992,7 +992,10 @@ fn stmt_first_invalid_control_flow_line(
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_invalid_control_flow_line(
-        inner, span.line, in_function, loop_depth,
+        inner,
+        span.line,
+        in_function,
+        loop_depth,
       )
     Stmt::Return(_) | Stmt::Yield(_) | Stmt::YieldFrom(_) =>
       if in_function {
@@ -1007,18 +1010,16 @@ fn stmt_first_invalid_control_flow_line(
         Some(fallback_line)
       }
     Stmt::If(condition=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
         Some(line) => return Some(line)
         None => ()
       }
       stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
     }
     Stmt::While(condition=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth + 1,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1026,9 +1027,8 @@ fn stmt_first_invalid_control_flow_line(
     }
     Stmt::For(target=_, iter=_, body~, else_body~)
     | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth + 1,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1038,23 +1038,26 @@ fn stmt_first_invalid_control_flow_line(
     | Stmt::AsyncWith(context=_, target=_, body~) =>
       stmts_first_invalid_control_flow_line(body, in_function, loop_depth)
     Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-      match stmts_first_invalid_control_flow_line(
-        body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
         Some(line) => return Some(line)
         None => ()
       }
       for handler in handlers {
-        match stmts_first_invalid_control_flow_line(
-          handler.body, in_function, loop_depth,
-        ) {
+        match
+          stmts_first_invalid_control_flow_line(
+            handler.body,
+            in_function,
+            loop_depth,
+          ) {
           Some(line) => return Some(line)
           None => ()
         }
       }
-      match stmts_first_invalid_control_flow_line(
-        else_body, in_function, loop_depth,
-      ) {
+      match
+        stmts_first_invalid_control_flow_line(
+          else_body, in_function, loop_depth,
+        ) {
         Some(line) => return Some(line)
         None => ()
       }
@@ -1064,9 +1067,8 @@ fn stmt_first_invalid_control_flow_line(
     }
     Stmt::Match(subject=_, cases~) => {
       for case in cases {
-        match stmts_first_invalid_control_flow_line(
-          case.2, in_function, loop_depth,
-        ) {
+        match
+          stmts_first_invalid_control_flow_line(case.2, in_function, loop_depth) {
           Some(line) => return Some(line)
           None => ()
         }
@@ -1088,9 +1090,8 @@ fn stmts_first_invalid_control_flow_line(
   loop_depth : Int,
 ) -> Int? {
   for stmt in stmts {
-    match stmt_first_invalid_control_flow_line(
-      stmt, 1, in_function, loop_depth,
-    ) {
+    match
+      stmt_first_invalid_control_flow_line(stmt, 1, in_function, loop_depth) {
       Some(line) => return Some(line)
       None => ()
     }
