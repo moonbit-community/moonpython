@@ -1998,7 +1998,9 @@ fn import_module(
       ),
     )
   }
-  if !config.allow_filesystem_imports && module_name != "builtins" {
+  if !config.allow_filesystem_imports &&
+    module_name != "builtins" &&
+    module_name != "math" {
     return Err(
       make_runtime_error(
         RuntimeErrorKind::Runtime,
