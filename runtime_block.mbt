@@ -78,6 +78,56 @@ fn is_base_exception_class(klass : ClassValue) -> Result[Bool, RuntimeError] {
 }
 
 ///|
+fn runtime_error_type_matches_handler_name(
+  err_type : String,
+  handler_name : String,
+) -> Bool {
+  if err_type == handler_name {
+    return true
+  }
+  match handler_name {
+    "BaseException" => true
+    "Exception" =>
+      err_type != "BaseException" &&
+      err_type != "BaseExceptionGroup" &&
+      err_type != "SystemExit" &&
+      err_type != "KeyboardInterrupt" &&
+      err_type != "GeneratorExit"
+    "ArithmeticError" =>
+      err_type == "ZeroDivisionError" ||
+      err_type == "OverflowError" ||
+      err_type == "FloatingPointError"
+    "LookupError" => err_type == "IndexError" || err_type == "KeyError"
+    "NameError" => err_type == "UnboundLocalError"
+    "ValueError" =>
+      err_type == "UnicodeError" ||
+      err_type == "UnicodeDecodeError" ||
+      err_type == "UnicodeEncodeError" ||
+      err_type == "UnicodeTranslateError"
+    "OSError" =>
+      err_type == "BlockingIOError" ||
+      err_type == "ChildProcessError" ||
+      err_type == "ConnectionError" ||
+      err_type == "BrokenPipeError" ||
+      err_type == "ConnectionAbortedError" ||
+      err_type == "ConnectionRefusedError" ||
+      err_type == "ConnectionResetError" ||
+      err_type == "InterruptedError" ||
+      err_type == "ProcessLookupError" ||
+      err_type == "TimeoutError" ||
+      err_type == "FileNotFoundError" ||
+      err_type == "FileExistsError" ||
+      err_type == "PermissionError" ||
+      err_type == "IsADirectoryError" ||
+      err_type == "NotADirectoryError"
+    "ImportError" => err_type == "ModuleNotFoundError"
+    "RuntimeError" => err_type == "RecursionError"
+    "SyntaxError" => err_type == "IndentationError" || err_type == "TabError"
+    _ => false
+  }
+}
+
+///|
 fn ensure_exception_instance_from_value(
   value : Value,
   globals : Array[(String, Value)],
@@ -181,7 +231,13 @@ fn exception_matches_handler(
       }
       Ok(false)
     }
-    _ => Ok(handler_class.name == err.exc_type)
+    _ =>
+      Ok(
+        runtime_error_type_matches_handler_name(
+          err.exc_type,
+          handler_class.name,
+        ),
+      )
   }
 }
 
