@@ -3100,7 +3100,7 @@ fn parse_simple_statement(
     // Treat async constructs as no-ops so spec-generated blocks can parse.
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if has_keyword_prefix(rest, "def") ||
       has_keyword_prefix(rest, "for") ||
       has_keyword_prefix(rest, "with") {
