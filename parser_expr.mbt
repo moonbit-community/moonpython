@@ -1256,13 +1256,32 @@ fn ExprParser::parse_comp_targets(
     }
     LParen => {
       let open_target = self.advance()
-      self.parse_comp_target_group(
-        RParen,
-        open_target,
-        "'(' was never closed".to_string(),
-        walrus_targets,
-        has_previous_clause,
-      )
+      let targets = match
+        self.parse_comp_target_group(
+          RParen,
+          open_target,
+          "'(' was never closed".to_string(),
+          walrus_targets,
+          has_previous_clause,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if self.current().kind != Comma && self.current().kind != In {
+        let _ = match
+          self.skip_comp_target_until(
+            In,
+            In,
+            open,
+            unclosed_message.to_string(),
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        Ok(["_"])
+      } else {
+        Ok(targets)
+      }
     }
     LBracket =>
       if self.looks_like_destructuring_list() {
