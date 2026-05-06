@@ -18,6 +18,13 @@ fn literal_to_value(lit : Literal) -> Value {
 }
 
 ///|
+fn emit_pep695_typing_import(b : BcBuilder, span : Span?) -> Unit {
+  let mod_idx = b.add_const(Value::Str("typing"))
+  let _ = b.emit(BcOp::ImportName(mod_idx, -1), span)
+  let _ = b.emit(BcOp::PopTop, span)
+}
+
+///|
 priv struct LoopCtx {
   has_iter : Bool
   break_jumps : Array[Int]
@@ -2408,7 +2415,6 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
-      let _ = type_params
       // Keep evaluation order aligned with CPython:
       // decorator expressions first, then base/keyword expressions, then class creation.
       for dec_expr in decorators {
@@ -2416,6 +2422,9 @@ fn compile_stmt(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
+      }
+      if type_params.length() > 0 {
+        emit_pep695_typing_import(b, span)
       }
       for base in bases {
         match base {
