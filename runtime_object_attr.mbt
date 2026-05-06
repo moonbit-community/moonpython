@@ -381,6 +381,20 @@ fn get_attr_raw_from_value(
         // `obj.__dict__["x"] = 1` reflect as instance attributes.
         return Ok(make_module_globals_dict_instance(inst.dict))
       }
+      if inst.class.name == "TypeAlias" && attr == "__value__" {
+        match get_named_value(inst.dict, "__value_func__") {
+          Some(value_func) =>
+            return call_callable_with_env(
+              value_func,
+              [],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          None => ()
+        }
+      }
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
         return Ok(value)

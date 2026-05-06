@@ -1768,8 +1768,40 @@ fn eval_block_flow(
       }
       Stmt::TypeAlias(name~, type_params~, value~) => {
         let _ = type_params
-        let _ = value
-        set_scoped_value(locals, globals, name, Value::None)
+        let template = FunctionValue::{
+          name: "<type_alias:" + name + ">",
+          params: [],
+          defaults: [],
+          body: [Stmt::Return(Some(value))],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }
+        let value_func = match
+          make_function_from_template_with_env(
+            template,
+            [],
+            [],
+            locals,
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        set_scoped_value(
+          locals,
+          globals,
+          name,
+          Value::Instance(InstanceValue::{
+            class: ClassValue::{ name: "TypeAlias", bases: [], dict: [] },
+            dict: [
+              ("__name__", Value::Str(name)),
+              ("__value_func__", value_func),
+            ],
+          }),
+        )
         last = Value::None
       }
       Stmt::Return(expr) => {

@@ -1871,10 +1871,19 @@ fn compile_stmt(
     }
     Stmt::TypeAlias(name~, type_params~, value~) => {
       let _ = type_params
-      let _ = value
-      let idx = b.add_const(Value::None)
-      let _ = b.emit(BcOp::LoadConst(idx), span)
+      let template = FunctionValue::{
+        name: "<type_alias:" + name + ">",
+        params: [],
+        defaults: [],
+        body: [Stmt::Return(Some(value))],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }
+      let template_idx = b.add_const(Value::Function(template))
+      let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
       let name_idx = b.intern_name(name)
+      let _ = b.emit(BcOp::MakeTypeAlias(name_idx), span)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
     }
