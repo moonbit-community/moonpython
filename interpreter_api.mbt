@@ -502,11 +502,6 @@ pub fn Interpreter::new_spec() -> Interpreter {
     bases: [Value::Class(exception_class)],
     dict: [],
   }
-  let blocking_io_error_class = ClassValue::{
-    name: "BlockingIOError",
-    bases: [Value::Class(os_error_class)],
-    dict: [],
-  }
   let child_process_error_class = ClassValue::{
     name: "ChildProcessError",
     bases: [Value::Class(os_error_class)],
@@ -625,7 +620,6 @@ pub fn Interpreter::new_spec() -> Interpreter {
   builtins.push(("EncodingWarning", Value::Class(encoding_warning_class)))
   builtins.push(("SystemError", Value::Class(system_error_class)))
   builtins.push(("OSError", Value::Class(os_error_class)))
-  builtins.push(("BlockingIOError", Value::Class(blocking_io_error_class)))
   builtins.push(("ChildProcessError", Value::Class(child_process_error_class)))
   builtins.push(("ConnectionError", Value::Class(connection_error_class)))
   builtins.push(("BrokenPipeError", Value::Class(broken_pipe_error_class)))
