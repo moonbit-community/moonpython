@@ -2353,9 +2353,25 @@ fn parse_simple_statement(
   }
   if has_keyword_prefix(trimmed, "async") {
     // Treat async constructs as no-ops so spec-generated blocks can parse.
-    stmts.push(Stmt::Pass)
-    return finalize_simple_statement(
-      stmts, allow_async_comprehensions, span, base_offset,
+    let rest = substring(trimmed, 5, trimmed.length())
+      .trim(chars=" \t")
+      .to_string()
+    if has_keyword_prefix(rest, "def") ||
+      has_keyword_prefix(rest, "for") ||
+      has_keyword_prefix(rest, "with") {
+      stmts.push(Stmt::Pass)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, span, base_offset,
+      )
+    }
+    return Err(
+      make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: 1,
+      }),
     )
   }
   if has_keyword_prefix(trimmed, "type") &&
