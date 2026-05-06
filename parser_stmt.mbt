@@ -1317,6 +1317,340 @@ fn function_body_first_invalid_global_line(
 }
 
 ///|
+fn expr_has_class_body_comprehension_walrus(expr : Expr) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_class_body_comprehension_walrus(inner)
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      let targets : Array[String] = []
+      collect_named_expr_targets(elt, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.iter, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+      targets.length() > 0
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      let targets : Array[String] = []
+      collect_named_expr_targets(key, targets)
+      collect_named_expr_targets(value, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.iter, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+      targets.length() > 0
+    }
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_walrus(item) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_walrus(item.0) ||
+          expr_has_class_body_comprehension_walrus(item.1) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_class_body_comprehension_walrus(condition) ||
+      expr_has_class_body_comprehension_walrus(then_expr) ||
+      expr_has_class_body_comprehension_walrus(else_expr)
+    Expr::NamedExpr(name=_, value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_has_class_body_comprehension_walrus(value)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_has_class_body_comprehension_walrus(value) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_has_class_body_comprehension_walrus(value) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_has_class_body_comprehension_walrus(value)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_walrus(value) ||
+      expr_has_class_body_comprehension_walrus(index)
+    Expr::Call(callee~, args~) => {
+      if expr_has_class_body_comprehension_walrus(callee) {
+        return true
+      }
+      for arg in args {
+        if expr_has_class_body_comprehension_walrus(arg) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Unary(op=_, expr~) => expr_has_class_body_comprehension_walrus(expr)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_has_class_body_comprehension_walrus(left) ||
+      expr_has_class_body_comprehension_walrus(right)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_has_class_body_comprehension_walrus(value) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_has_class_body_comprehension_walrus(left) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_has_class_body_comprehension_walrus(cmp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body=_) => {
+      for default_value in defaults {
+        if expr_has_class_body_comprehension_walrus(default_value) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn target_has_class_body_comprehension_walrus(target : Target) -> Bool {
+  match target {
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        if target_has_class_body_comprehension_walrus(item) {
+          return true
+        }
+      }
+      false
+    }
+    Target::Starred(inner) => target_has_class_body_comprehension_walrus(inner)
+    Target::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Target::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_walrus(value) ||
+      expr_has_class_body_comprehension_walrus(index)
+    _ => false
+  }
+}
+
+///|
+fn stmt_first_invalid_class_body_line(stmt : Stmt, fallback_line : Int) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_class_body_line(inner, span.line)
+    Stmt::Nonlocal(_) => Some(fallback_line)
+    Stmt::ExprStmt(expr) =>
+      if expr_has_class_body_comprehension_walrus(expr) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Assign(target~, value~) =>
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(value) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::AnnAssign(target~, annotation~, value~) => {
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(annotation) {
+        return Some(fallback_line)
+      }
+      match value {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::AugAssign(target~, op=_, value~) =>
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(value) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) =>
+      match expr_opt {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    Stmt::YieldFrom(expr) =>
+      if expr_has_class_body_comprehension_walrus(expr) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Assert(condition~, message~) => {
+      if expr_has_class_body_comprehension_walrus(condition) {
+        return Some(fallback_line)
+      }
+      match message {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::Raise(exc~, cause~) => {
+      match exc {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            return Some(fallback_line)
+          }
+        None => ()
+      }
+      match cause {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_class_body_comprehension_walrus(condition) {
+        return Some(fallback_line)
+      }
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(else_body)
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(iter) {
+        return Some(fallback_line)
+      }
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(else_body)
+    }
+    Stmt::With(context~, target=_, body~)
+    | Stmt::AsyncWith(context~, target=_, body~) => {
+      if expr_has_class_body_comprehension_walrus(context) {
+        return Some(fallback_line)
+      }
+      stmts_first_invalid_class_body_line(body)
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_walrus(expr) {
+              return Some(fallback_line)
+            }
+          None => ()
+        }
+        match stmts_first_invalid_class_body_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_invalid_class_body_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(finally_body)
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_class_body_comprehension_walrus(subject) {
+        return Some(fallback_line)
+      }
+      for case in cases {
+        match case.1 {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_walrus(expr) {
+              return Some(fallback_line)
+            }
+          None => ()
+        }
+        match stmts_first_invalid_class_body_line(case.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(..) | Stmt::Class(..) => None
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_class_body_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_invalid_class_body_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
 fn target_has_async_comprehension(target : Target) -> Bool {
   match target {
     Target::Tuple(items) | Target::List(items) => {

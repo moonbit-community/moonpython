@@ -1482,6 +1482,9 @@ fn validate_comprehension_walrus(
     collect_named_expr_targets(expr, walrus_targets)
   }
   for name in walrus_targets {
+    if name.has_prefix("__") && !name.has_suffix("__") {
+      continue
+    }
     for b in bound {
       if name == b {
         return Err(

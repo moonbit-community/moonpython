@@ -266,6 +266,10 @@ fn parse_class_stmt(
       Some(line) => return Err(parser.invalid_syntax_at_line(line))
       None => ()
     }
+    match stmts_first_invalid_class_body_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
     stmts.push(
       wrap_stmt_for_line(
         parser.offsets,
@@ -303,6 +307,10 @@ fn parse_class_stmt(
     Err(err) => return Err(err)
   }
   match stmts_first_illegal_await_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
+  match stmts_first_invalid_class_body_line(body) {
     Some(line) => return Err(parser.invalid_syntax_at_line(line))
     None => ()
   }
