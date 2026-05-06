@@ -5,6 +5,7 @@
 ///|
 fn expr_has_async_comprehension(expr : Expr) -> Bool {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) => expr_has_async_comprehension(inner)
     Expr::ListComp(elt~, clauses~, filters~)
     | Expr::SetComp(elt~, clauses~, filters~) => {
       for clause in clauses {
@@ -315,6 +316,8 @@ fn expr_has_yield_or_await(expr : Expr) -> Bool {
 ///|
 fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_illegal_await(inner, in_genexp)
     Expr::Await(_) => !in_genexp
     Expr::GenExp(elt~, clauses~, filters~) => {
       // `await` is permitted inside generator expressions (it makes the genexp
