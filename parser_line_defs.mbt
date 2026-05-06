@@ -1048,6 +1048,42 @@ fn parse_def_stmt(
     parser.async_depth = prev_async_depth
     (parsed, false)
   } else {
+    let mut idx = parser.index
+    while idx < parser.lines.length() {
+      let body_line = parser.lines[idx]
+      let trimmed = body_line.trim(chars=" \t").to_string()
+      if trimmed.length() == 0 || trimmed.has_prefix("#") {
+        idx += 1
+        continue
+      }
+      let body_indent = count_indent(body_line)
+      if body_indent < next_indent {
+        break
+      }
+      if trimmed.has_prefix("def ") ||
+        trimmed.has_prefix("async def ") ||
+        trimmed.has_prefix("class ") {
+        let def_indent = body_indent
+        idx += 1
+        while idx < parser.lines.length() {
+          let next_line = parser.lines[idx]
+          let next_trimmed = next_line.trim(chars=" \t").to_string()
+          if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+            idx += 1
+            continue
+          }
+          if count_indent(next_line) <= def_indent {
+            break
+          }
+          idx += 1
+        }
+        continue
+      }
+      if line_has_async_for_keyword(trimmed) {
+        return Err(parser.invalid_syntax_at_line(idx + 1))
+      }
+      idx += 1
+    }
     let prev_async_depth = parser.async_depth
     parser.async_depth = 0
     parser.func_depth += 1
@@ -1067,6 +1103,18 @@ fn parse_def_stmt(
   let has_yield_from_ref : Ref[Bool] = { val: false }
   let has_return_value_ref : Ref[Bool] = { val: false }
   if !is_async_def {
+    for stmt in body {
+      match stmt {
+        Stmt::WithSpan(span~, stmt=inner) =>
+          if stmt_has_async_comprehension(inner) {
+            return Err(parser.invalid_syntax_at_line(span.line))
+          }
+        _ =>
+          if stmt_has_async_comprehension(stmt) {
+            return Err(parser.invalid_syntax_at_line(parser.index + 1))
+          }
+      }
+    }
     match stmts_first_illegal_await_line(body) {
       Some(line) => return Err(parser.invalid_syntax_at_line(line))
       None => ()

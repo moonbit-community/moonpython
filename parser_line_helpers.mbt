@@ -1774,6 +1774,59 @@ fn line_has_await_keyword(line : String) -> Bool {
 }
 
 ///|
+fn line_has_async_for_keyword(line : String) -> Bool {
+  let chars = line.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        } else if c == 'a' && i + 4 < chars.length() {
+          if chars[i + 1] == 's' &&
+            chars[i + 2] == 'y' &&
+            chars[i + 3] == 'n' &&
+            chars[i + 4] == 'c' {
+            let before_ok = i == 0 || !is_ascii_ident_char(chars[i - 1])
+            let mut j = i + 5
+            while j < chars.length() && (chars[j] == ' ' || chars[j] == '\t') {
+              j += 1
+            }
+            if before_ok &&
+              j + 2 < chars.length() &&
+              chars[j] == 'f' &&
+              chars[j + 1] == 'o' &&
+              chars[j + 2] == 'r' {
+              let after_pos = j + 3
+              let after_ok = after_pos >= chars.length() ||
+                !is_ascii_ident_char(chars[after_pos])
+              if after_ok {
+                return true
+              }
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 
 ///|
 fn has_bare_assign(text : String) -> Bool {
