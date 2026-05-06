@@ -1043,6 +1043,8 @@ fn parse_def_stmt(
     has_yield_from_ref : Ref[Bool],
   ) -> Unit {
     match expr {
+      Expr::WithSpan(span=_, expr=inner) =>
+        scan_expr_for_yield(inner, has_yield_ref, has_yield_from_ref)
       Expr::Yield(value) => {
         has_yield_ref.val = true
         match value {
