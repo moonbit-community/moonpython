@@ -1349,6 +1349,46 @@ fn has_unclosed_string_line_continuation(text : String) -> Bool {
 }
 
 ///|
+fn first_unclosed_single_line_string_column(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut quote_column = 0
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          // Ignore triple-quoted strings: those are handled separately.
+          if i + 2 < chars.length() && chars[i + 1] == c && chars[i + 2] == c {
+            i += 3
+            continue
+          }
+          quote = Some(c)
+          quote_column = i + 1
+          escape = false
+        } else if c == '#' {
+          break
+        }
+    }
+    i += 1
+  }
+  match quote {
+    Some(_) => Some(quote_column)
+    None => None
+  }
+}
+
+///|
 fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
   let lines : Array[String] = []
   for line in source.split("\n") {
@@ -1389,6 +1429,25 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     }
     if current_indent > 0 && !allow_indented && !saw_syntax_error {
       return Ok(())
+    }
+    if saw_syntax_error {
+      match first_unclosed_single_line_string_column(raw_line) {
+        Some(column) =>
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: offsets[index] + current_indent + column - 1,
+                end: offsets[index] + current_indent + column,
+                line: index + 1,
+                column,
+              },
+            ),
+          )
+        None => ()
+      }
     }
     let mut next_index = index + 1
     let mut line_text = raw_line
