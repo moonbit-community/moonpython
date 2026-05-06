@@ -2661,20 +2661,9 @@ fn LineParser::parse_block(
       ),
     )
   }
-  if self.async_depth == 0 {
+  if self.async_depth == 0 && indent == 0 {
     match stmts_first_illegal_await_line(stmts) {
-      Some(line) => {
-        let line_index = if line <= 0 { 0 } else { line - 1 }
-        let base = self.offsets[line_index]
-        let token = { kind: Eof, start: base, end: base + 1, line, column: 1 }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            token,
-          ),
-        )
-      }
+      Some(line) => return Err(self.invalid_syntax_at_line(line))
       None => ()
     }
   }
