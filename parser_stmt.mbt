@@ -1387,6 +1387,19 @@ fn target_from_assignment_tokens(
   // `tokens` are expected to include an Eof at the end (see assignment parsing below).
   let body_end = if tokens.length() > 0 { tokens.length() - 1 } else { 0 }
   let body = slice_tokens(tokens, 0, body_end)
+  if body.length() > 0 && body[0].kind == LBrace {
+    for token in body {
+      if token.kind == For || token.kind == Async {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+    }
+  }
   let mut has_top_comma = false
   let mut depth = 0
   for t in body {
@@ -1570,6 +1583,42 @@ fn parse_simple_statement(
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
+  }
+  match find_top_level_char(trimmed, '=') {
+    Some(eq_pos) => {
+      let chars = trimmed.to_array()
+      let prev = if eq_pos > 0 { chars[eq_pos - 1] } else { '\u{0}' }
+      let next = if eq_pos + 1 < chars.length() {
+        chars[eq_pos + 1]
+      } else {
+        '\u{0}'
+      }
+      let plain_assign = prev != '=' &&
+        prev != '<' &&
+        prev != '>' &&
+        prev != '!' &&
+        prev != ':' &&
+        next != '='
+      if plain_assign && trimmed.has_prefix("{") {
+        let left_text = substring(trimmed, 0, eq_pos).to_string()
+        if left_text.contains(" for ") || left_text.contains("\nfor ") {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: base_offset,
+                end: base_offset + 1,
+                line: line_index + 1,
+                column: 1,
+              },
+            ),
+          )
+        }
+      }
+    }
+    None => ()
   }
   if trimmed == "..." {
     stmts.push(Stmt::Pass)
