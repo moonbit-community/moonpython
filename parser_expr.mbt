@@ -1674,6 +1674,15 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     }
     Await => {
       let _ = self.advance()
+      if self.current().kind == Await {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            self.current(),
+          ),
+        )
+      }
       let expr = match self.parse_primary() {
         Ok(value) => value
         Err(err) => return Err(err)
