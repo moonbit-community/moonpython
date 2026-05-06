@@ -1808,8 +1808,8 @@ fn compile_stmt(
     }
     Stmt::Assign(target~, value~) => {
       // Match CPython/MicroPython evaluation order:
-      // - For attribute/subscript targets, evaluate the target object (and index)
-      //   before evaluating the RHS.
+      // - Evaluate the RHS first, then assign into the target from left to
+      //   right. `compile_target_store` consumes the already-stacked value.
       let rhs = value
       match target {
         Target::Name(_) => {
@@ -1826,34 +1826,12 @@ fn compile_stmt(
           }
           compile_target_store(target, b, span)
         }
-        Target::Attribute(value~, attr~) => {
-          match compile_expr(value, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
+        Target::Attribute(_) | Target::Subscript(_) => {
           match compile_expr(rhs, b, span) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
-          let idx = b.intern_name(attr)
-          let _ = b.emit(BcOp::StoreAttr(idx), span)
-          Ok(())
-        }
-        Target::Subscript(value~, index~) => {
-          match compile_expr(value, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          match compile_expr(index, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          match compile_expr(rhs, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          let _ = b.emit(BcOp::StoreSubscr, span)
-          Ok(())
+          compile_target_store(target, b, span)
         }
         _ =>
           Err(
