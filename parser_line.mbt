@@ -17,7 +17,7 @@ fn LineParser::parse_block(
   let mut pending_decorator_token : Token? = None
   while self.index < self.lines.length() {
     let line = self.lines[self.index]
-    let trimmed = line.trim(chars=" \t").to_string()
+    let trimmed = line.trim(chars=" \t").to_owned()
     if trimmed.length() == 0 || trimmed.has_prefix("#") {
       self.index += 1
       continue
@@ -120,9 +120,9 @@ fn LineParser::parse_block(
     self.last_dedent_from = None
     let line_index = self.index
     let raw_line = substring(line, current_indent, line.length()).to_string()
-    let mut line_text = raw_line.trim(chars=" \t").to_string()
+    let mut line_text = raw_line.trim(chars=" \t").to_owned()
     if find_triple_quote(raw_line) is None {
-      line_text = strip_inline_comment(line_text).trim(chars=" \t").to_string()
+      line_text = strip_inline_comment(line_text).trim(chars=" \t").to_owned()
     }
     if line_text.has_prefix("async for(") {
       line_text = "async for " + substring(line_text, 9, line_text.length())
@@ -173,7 +173,7 @@ fn LineParser::parse_block(
       // parsing for `def ... \\` signatures in the stdlib (e.g. Lib/traceback.py).
       line_text = substring(line_text, 0, line_text.length() - 1)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let appended = if find_triple_quote(next_line) is Some(_) {
         next_line
       } else {
@@ -181,7 +181,7 @@ fn LineParser::parse_block(
       }
       line_text = line_text + " " + appended
       next_index += 1
-      line_text = line_text.trim(chars=" \t").to_string()
+      line_text = line_text.trim(chars=" \t").to_owned()
     }
     match unclosed_triple_quote(line_text) {
       None => ()
@@ -220,7 +220,7 @@ fn LineParser::parse_block(
     if find_triple_quote(line_text) is None {
       // Preserve physical newlines so the lexer can track correct token
       // line/column offsets for multi-line expressions (PEP 657 caret tests).
-      line_text = line_text.trim(chars=" \t").to_string()
+      line_text = line_text.trim(chars=" \t").to_owned()
     }
     if pending_decorators.length() > 0 &&
       !line_text.has_prefix("@") &&
@@ -287,7 +287,7 @@ fn LineParser::parse_block(
       let decorator_line_index = self.index
       let mut expr_text = substring(line_text, 1, line_text.length())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if expr_text.length() == 0 {
         let token = {
           kind: Eof,
@@ -309,7 +309,7 @@ fn LineParser::parse_block(
             decorator_next_index < self.lines.length() {
         expr_text = substring(expr_text, 0, expr_text.length() - 1)
           .trim(chars=" \t")
-          .to_string()
+          .to_owned()
         let next_line = self.lines[decorator_next_index]
         let appended = if find_triple_quote(next_line) is Some(_) {
           next_line
@@ -318,7 +318,7 @@ fn LineParser::parse_block(
         }
         expr_text = expr_text + " " + appended
         decorator_next_index += 1
-        expr_text = expr_text.trim(chars=" \t").to_string()
+        expr_text = expr_text.trim(chars=" \t").to_owned()
       }
       let mut balance = bracket_balance(expr_text)
       while balance > 0 && decorator_next_index < self.lines.length() {
@@ -333,7 +333,7 @@ fn LineParser::parse_block(
         balance = bracket_balance(expr_text)
       }
       if find_triple_quote(expr_text) is None {
-        expr_text = expr_text.trim(chars=" \t").to_string()
+        expr_text = expr_text.trim(chars=" \t").to_owned()
       }
       let tokens = match
         tokenize_expr(
@@ -415,7 +415,7 @@ fn LineParser::parse_block(
       }
       let mut header_text = substring(line_text, 10, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       header_text = strip_wrapping_parens(header_text)
       let in_pos = header_text.find(" in ")
       if in_pos is None {
@@ -437,10 +437,10 @@ fn LineParser::parse_block(
       let pos = in_pos.unwrap()
       let target_text = substring(header_text, 0, pos)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let iter_text = substring(header_text, pos + 4, header_text.length())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if target_text.length() == 0 {
         let token = {
           kind: Eof,
@@ -500,7 +500,7 @@ fn LineParser::parse_block(
         line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       let body : Array[Stmt] = []
       if body_text.length() > 0 {
         let base_offset = self.offsets[self.index] +
@@ -556,7 +556,7 @@ fn LineParser::parse_block(
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {
         let else_line = self.lines[self.index]
-        let else_trimmed = else_line.trim(chars=" \t").to_string()
+        let else_trimmed = else_line.trim(chars=" \t").to_owned()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
           let colon_pos = find_top_level_colon(else_trimmed)
@@ -582,7 +582,7 @@ fn LineParser::parse_block(
                 substring(else_trimmed, pos + 1, else_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index += 1
@@ -661,7 +661,7 @@ fn LineParser::parse_block(
       if colon_pos is None {
         let mut scan = next_index
         while scan < self.lines.length() {
-          let part = self.lines[scan].trim(chars=" \t").to_string()
+          let part = self.lines[scan].trim(chars=" \t").to_owned()
           full_line_text = full_line_text + "\n" + part
           colon_pos = find_top_level_colon(full_line_text)
           scan += 1
@@ -689,14 +689,14 @@ fn LineParser::parse_block(
       }
       let header_text = substring(full_line_text, 10, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let mut item_text = header_text
       if item_text.has_prefix("(") && item_text.has_suffix(")") {
         item_text = substring(item_text, 1, item_text.length() - 1).to_string()
       }
       let with_items : Array[(Expr, String?)] = []
       for raw_item in split_top_level_commas(item_text) {
-        let item = raw_item.trim(chars=" \t\n\r").to_string()
+        let item = raw_item.trim(chars=" \t\n\r").to_owned()
         if item.length() == 0 {
           // Allow trailing commas inside `async with (...)`.
           continue
@@ -707,21 +707,21 @@ fn LineParser::parse_block(
           Some(pos) => {
             context_text = substring(item, 0, pos)
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             let mut name_text = substring(item, pos + 2, item.length())
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             let comma_pos = find_char(name_text, ',')
             if comma_pos is Some(pos) {
               name_text = substring(name_text, 0, pos)
                 .trim(chars=" \t")
-                .to_string()
+                .to_owned()
             }
             let close_pos = find_char(name_text, ')')
             if close_pos is Some(pos) {
               name_text = substring(name_text, 0, pos)
                 .trim(chars=" \t")
-                .to_string()
+                .to_owned()
             }
             if name_text.length() > 0 {
               target = Some(name_text)
@@ -767,7 +767,7 @@ fn LineParser::parse_block(
         full_line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       if body_text.length() > 0 {
         let body : Array[Stmt] = []
         let base_offset = self.offsets[self.index] +
@@ -880,7 +880,7 @@ fn LineParser::parse_block(
       }
       let condition_text = substring(line_text, 2, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let condition_tokens = match
         tokenize_expr(
           condition_text,
@@ -901,7 +901,7 @@ fn LineParser::parse_block(
         line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -965,7 +965,7 @@ fn LineParser::parse_block(
       let mut else_body : Array[Stmt] = []
       while self.index < self.lines.length() {
         let next_line = self.lines[self.index]
-        let next_trimmed = next_line.trim(chars=" \t").to_string()
+        let next_trimmed = next_line.trim(chars=" \t").to_owned()
         if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
           self.index += 1
           continue
@@ -980,11 +980,11 @@ fn LineParser::parse_block(
             next_line.length(),
           )
           .trim(chars=" \t")
-          .to_string()
+          .to_owned()
         if find_triple_quote(next_text) is None {
           next_text = strip_inline_comment(next_text)
             .trim(chars=" \t")
-            .to_string()
+            .to_owned()
         }
         if next_text.has_prefix("elif ") || next_text.has_prefix("elif(") {
           let elif_line_index = self.index
@@ -994,7 +994,7 @@ fn LineParser::parse_block(
                 elif_next_index < self.lines.length() {
             elif_text = substring(elif_text, 0, elif_text.length() - 1)
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             let next_line = self.lines[elif_next_index]
             let appended = if find_triple_quote(next_line) is Some(_) {
               next_line
@@ -1003,7 +1003,7 @@ fn LineParser::parse_block(
             }
             elif_text = elif_text + " " + appended
             elif_next_index += 1
-            elif_text = elif_text.trim(chars=" \t").to_string()
+            elif_text = elif_text.trim(chars=" \t").to_owned()
           }
           let mut balance = bracket_balance(elif_text)
           while balance > 0 && elif_next_index < self.lines.length() {
@@ -1018,7 +1018,7 @@ fn LineParser::parse_block(
             balance = bracket_balance(elif_text)
           }
           if find_triple_quote(elif_text) is None {
-            elif_text = elif_text.trim(chars=" \t").to_string()
+            elif_text = elif_text.trim(chars=" \t").to_owned()
           }
           let colon_pos = find_top_level_colon(elif_text)
           if colon_pos is None {
@@ -1039,7 +1039,7 @@ fn LineParser::parse_block(
           }
           let cond_text = substring(elif_text, 4, colon_pos.unwrap())
             .trim(chars=" \t")
-            .to_string()
+            .to_owned()
           let cond_tokens = match
             tokenize_expr(
               cond_text,
@@ -1060,7 +1060,7 @@ fn LineParser::parse_block(
             elif_text.length(),
           ).to_string()
           let body_leading = count_indent(raw_body_text)
-          let body_text = raw_body_text.trim(chars=" \t").to_string()
+          let body_text = raw_body_text.trim(chars=" \t").to_owned()
           self.index = elif_next_index
           if body_text.length() > 0 {
             let elif_body : Array[Stmt] = []
@@ -1147,7 +1147,7 @@ fn LineParser::parse_block(
             next_text.length(),
           ).to_string()
           let body_leading = count_indent(raw_body_text)
-          let body_text = raw_body_text.trim(chars=" \t").to_string()
+          let body_text = raw_body_text.trim(chars=" \t").to_owned()
           self.index += 1
           if body_text.length() > 0 {
             else_body = []
@@ -1284,7 +1284,7 @@ fn LineParser::parse_block(
       }
       let mut header_text = substring(line_text, 4, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       header_text = strip_wrapping_parens(header_text)
       let in_pos = header_text.find(" in ")
       if in_pos is None {
@@ -1306,10 +1306,10 @@ fn LineParser::parse_block(
       let pos = in_pos.unwrap()
       let target_text = substring(header_text, 0, pos)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let iter_text = substring(header_text, pos + 4, header_text.length())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if target_text.length() == 0 {
         let token = {
           kind: Eof,
@@ -1369,7 +1369,7 @@ fn LineParser::parse_block(
         line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -1430,7 +1430,7 @@ fn LineParser::parse_block(
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {
         let else_line = self.lines[self.index]
-        let else_trimmed = else_line.trim(chars=" \t").to_string()
+        let else_trimmed = else_line.trim(chars=" \t").to_owned()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
           let colon_pos = find_top_level_colon(else_trimmed)
@@ -1456,7 +1456,7 @@ fn LineParser::parse_block(
                 substring(else_trimmed, pos + 1, else_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index += 1
@@ -1548,7 +1548,7 @@ fn LineParser::parse_block(
       }
       let mut cond_text = substring(line_text, 5, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       cond_text = strip_wrapping_parens(cond_text)
       let cond_tokens = match
         tokenize_expr(
@@ -1570,7 +1570,7 @@ fn LineParser::parse_block(
         line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       self.index = next_index
       let mut body : Array[Stmt] = []
       if body_text.length() > 0 {
@@ -1631,7 +1631,7 @@ fn LineParser::parse_block(
       let else_body : Array[Stmt] = []
       if self.index < self.lines.length() {
         let else_line = self.lines[self.index]
-        let else_trimmed = else_line.trim(chars=" \t").to_string()
+        let else_trimmed = else_line.trim(chars=" \t").to_owned()
         let else_indent = count_indent(else_line)
         if else_indent == current_indent && else_trimmed.has_prefix("else") {
           let colon_pos = find_top_level_colon(else_trimmed)
@@ -1657,7 +1657,7 @@ fn LineParser::parse_block(
                 substring(else_trimmed, pos + 1, else_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index += 1
@@ -1779,7 +1779,7 @@ fn LineParser::parse_block(
           substring(line_text, colon_pos.unwrap() + 1, line_text.length()).to_string(),
         )
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if body_text.length() > 0 {
         let segments = split_statements(body_text)
         for segment_pair in segments {
@@ -1849,7 +1849,7 @@ fn LineParser::parse_block(
       let mut saw_finally = false
       while self.index < self.lines.length() {
         let next_line = self.lines[self.index]
-        let next_trimmed = next_line.trim(chars=" \t").to_string()
+        let next_trimmed = next_line.trim(chars=" \t").to_owned()
         let next_indent = count_indent(next_line)
         if next_indent != current_indent {
           break
@@ -1897,9 +1897,7 @@ fn LineParser::parse_block(
           let mut header_end_index = self.index + 1
           let mut balance = bracket_balance(full_header)
           while balance > 0 && header_end_index < self.lines.length() {
-            let part = self.lines[header_end_index]
-              .trim(chars=" \t")
-              .to_string()
+            let part = self.lines[header_end_index].trim(chars=" \t").to_owned()
             full_header = full_header + "\n" + part
             header_end_index += 1
             balance = bracket_balance(full_header)
@@ -1994,7 +1992,7 @@ fn LineParser::parse_block(
             Some(pos) =>
               substring(next_trimmed, header_offset, pos)
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => "".to_string()
           }
           if is_star && header_text.length() == 0 {
@@ -2014,7 +2012,7 @@ fn LineParser::parse_block(
             )
           }
           if has_top_level_comma(header_text) &&
-            !header_text.trim(chars=" \t").to_string().has_prefix("(") {
+            !header_text.trim(chars=" \t").to_owned().has_prefix("(") {
             let token = {
               kind: Eof,
               start: self.offsets[header_start_index] + current_indent,
@@ -2035,9 +2033,9 @@ fn LineParser::parse_block(
           if header_text.length() > 0 {
             let parts : Array[String] = []
             for part in header_text.split(" as ") {
-              parts.push(part.to_string())
+              parts.push(part.to_owned())
             }
-            let expr_text = parts[0].trim(chars=" \t").to_string()
+            let expr_text = parts[0].trim(chars=" \t").to_owned()
             if expr_text.length() > 0 {
               let base_offset = self.offsets[header_start_index] +
                 current_indent +
@@ -2059,7 +2057,7 @@ fn LineParser::parse_block(
               exc_expr_opt = Some(expr)
             }
             if parts.length() > 1 {
-              let raw_name = parts[1].trim(chars=" \t").to_string()
+              let raw_name = parts[1].trim(chars=" \t").to_owned()
               if raw_name.length() > 0 {
                 name_opt = Some(raw_name)
               }
@@ -2071,7 +2069,7 @@ fn LineParser::parse_block(
                 substring(next_trimmed, pos + 1, next_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index = header_end_index
@@ -2199,7 +2197,7 @@ fn LineParser::parse_block(
                 substring(next_trimmed, pos + 1, next_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index += 1
@@ -2319,7 +2317,7 @@ fn LineParser::parse_block(
                 substring(next_trimmed, pos + 1, next_trimmed.length()).to_string(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             None => ""
           }
           self.index += 1
@@ -2432,7 +2430,7 @@ fn LineParser::parse_block(
       if colon_pos is None {
         let mut scan = next_index
         while scan < self.lines.length() {
-          let part = self.lines[scan].trim(chars=" \t").to_string()
+          let part = self.lines[scan].trim(chars=" \t").to_owned()
           full_line_text = full_line_text + "\n" + part
           colon_pos = find_top_level_colon(full_line_text)
           scan += 1
@@ -2460,7 +2458,7 @@ fn LineParser::parse_block(
       }
       let header_text = substring(full_line_text, 4, colon_pos.unwrap())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let mut item_text = header_text
       match find_top_level_paren_span(item_text) {
         Some(span) =>
@@ -2471,7 +2469,7 @@ fn LineParser::parse_block(
       }
       let with_items : Array[(Expr, String?)] = []
       for raw_item in split_top_level_commas(item_text) {
-        let item = raw_item.trim(chars=" \t\n\r").to_string()
+        let item = raw_item.trim(chars=" \t\n\r").to_owned()
         if item.length() == 0 {
           // Allow trailing commas inside `with (...)`.
           continue
@@ -2482,21 +2480,21 @@ fn LineParser::parse_block(
           Some(pos) => {
             context_text = substring(item, 0, pos)
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             let mut name_text = substring(item, pos + 2, item.length())
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             let comma_pos = find_char(name_text, ',')
             if comma_pos is Some(pos) {
               name_text = substring(name_text, 0, pos)
                 .trim(chars=" \t")
-                .to_string()
+                .to_owned()
             }
             let close_pos = find_char(name_text, ')')
             if close_pos is Some(pos) {
               name_text = substring(name_text, 0, pos)
                 .trim(chars=" \t")
-                .to_string()
+                .to_owned()
             }
             if name_text.length() > 0 {
               target = Some(name_text)
@@ -2542,7 +2540,7 @@ fn LineParser::parse_block(
         full_line_text.length(),
       ).to_string()
       let body_leading = count_indent(raw_body_text)
-      let body_text = raw_body_text.trim(chars=" \t").to_string()
+      let body_text = raw_body_text.trim(chars=" \t").to_owned()
       if body_text.length() > 0 {
         let body : Array[Stmt] = []
         let segments = split_statements(body_text)

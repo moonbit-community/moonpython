@@ -149,7 +149,7 @@ fn print_usage() -> Unit {
 fn module_rel_path(name : String) -> String {
   let parts : Array[String] = []
   for part in name.split(".") {
-    let p = part.to_string()
+    let p = part.to_owned()
     if p.length() > 0 {
       parts.push(p)
     }
@@ -169,7 +169,7 @@ fn module_rel_path(name : String) -> String {
 fn module_parent_name(name : String) -> String {
   let parts : Array[String] = []
   for part in name.split(".") {
-    let p = part.to_string()
+    let p = part.to_owned()
     if p.length() > 0 {
       parts.push(p)
     }

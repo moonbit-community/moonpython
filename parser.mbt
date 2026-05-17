@@ -305,7 +305,7 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
   if expr_source.contains("\n") {
     let lines : Array[String] = []
     for part in expr_source.split("\n") {
-      lines.push(part.to_string())
+      lines.push(part.to_owned())
     }
     // Skip leading blank/comment-only lines.
     let mut start_index = 0
@@ -326,9 +326,9 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
       )
     }
     let raw_line = lines[start_index]
-    let mut line_text = raw_line.trim(chars=" \t").to_string()
+    let mut line_text = raw_line.trim(chars=" \t").to_owned()
     if find_triple_quote(raw_line) is None {
-      line_text = strip_inline_comment(line_text).trim(chars=" \t").to_string()
+      line_text = strip_inline_comment(line_text).trim(chars=" \t").to_owned()
     }
     let mut next_index = start_index + 1
     match unclosed_triple_quote(raw_line) {
@@ -362,7 +362,7 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
           next_index < lines.length() {
       line_text = substring(line_text, 0, line_text.length() - 1)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let next_line = lines[next_index]
       let appended = if find_triple_quote(next_line) is Some(_) {
         next_line
@@ -371,7 +371,7 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
       }
       line_text = line_text + "\n" + appended
       next_index += 1
-      line_text = line_text.trim(chars=" \t").to_string()
+      line_text = line_text.trim(chars=" \t").to_owned()
     }
     match unclosed_triple_quote(line_text) {
       None => ()
@@ -409,7 +409,7 @@ pub fn parse_expr(source : String) -> Result[Expr, ParseError] {
     if find_triple_quote(line_text) is None {
       line_text = replace_newlines_with_spaces(line_text)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
     }
     // Reject additional non-empty lines that are not part of a continued
     // expression (eval-mode).

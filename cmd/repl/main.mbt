@@ -140,7 +140,7 @@ fn print_run(run : @mpython.RunResult) -> Unit {
 
 ///|
 fn run_line(interpreter : @mpython.Interpreter, line : String) -> Unit {
-  let trimmed = line.trim(chars=" \t").to_string()
+  let trimmed = line.trim(chars=" \t").to_owned()
   if trimmed.length() == 0 {
     return
   }
@@ -188,6 +188,6 @@ fn main {
   let config = @mpython.Config::for_cli(stdlib_paths, None, [""])
   let interpreter = @mpython.Interpreter::with_config(config)
   for line in source.split("\n") {
-    run_line(interpreter, line.to_string())
+    run_line(interpreter, line.to_owned())
   }
 }

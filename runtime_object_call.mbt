@@ -3936,7 +3936,7 @@ fn call_callable_with_env(
                 let mut replaced = 0
                 for part in text.split(old) {
                   if first {
-                    builder.write_string(part.to_string())
+                    builder.write_string(part.to_owned())
                     first = false
                     continue
                   }
@@ -3946,7 +3946,7 @@ fn call_callable_with_env(
                   } else {
                     builder.write_string(old)
                   }
-                  builder.write_string(part.to_string())
+                  builder.write_string(part.to_owned())
                 }
                 return Ok(Value::Str(builder.to_string()))
               }
@@ -4152,7 +4152,7 @@ fn call_callable_with_env(
                     }
                     let raw_parts : Array[String] = []
                     for part in text.split(sep) {
-                      raw_parts.push(part.to_string())
+                      raw_parts.push(part.to_owned())
                     }
                     if maxsplit < 0 || raw_parts.length() <= maxsplit + 1 {
                       let parts : Array[Value] = []
@@ -4264,7 +4264,7 @@ fn call_callable_with_env(
                     }
                     let raw_parts : Array[String] = []
                     for part in text.split(sep) {
-                      raw_parts.push(part.to_string())
+                      raw_parts.push(part.to_owned())
                     }
                     if maxsplit < 0 || raw_parts.length() <= maxsplit + 1 {
                       let parts : Array[Value] = []

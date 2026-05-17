@@ -19,7 +19,7 @@ fn parse_match_stmt(
   }
   let subject_text = substring(line_text, 5, colon_pos.unwrap())
     .trim(chars=" \t")
-    .to_string()
+    .to_owned()
   let subject_tokens = match
     tokenize_expr(
       subject_text,
@@ -62,7 +62,7 @@ fn parse_match_stmt(
   let cases : Array[(Pattern, Expr?, Array[Stmt])] = []
   while parser.index < parser.lines.length() {
     let case_line = parser.lines[parser.index]
-    let case_trimmed = case_line.trim(chars=" \t").to_string()
+    let case_trimmed = case_line.trim(chars=" \t").to_owned()
     if case_trimmed.length() == 0 || case_trimmed.has_prefix("#") {
       parser.index += 1
       continue
@@ -89,7 +89,7 @@ fn parse_match_stmt(
     }
     let mut case_text = substring(case_line, case_indent, case_line.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     let mut case_next_index = parser.index + 1
     let mut balance = bracket_balance(case_text)
     while balance > 0 && case_next_index < parser.lines.length() {
@@ -133,17 +133,17 @@ fn parse_match_stmt(
     }
     let header = substring(case_no_comment, 4, colon_pos.unwrap())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     let mut pattern_text = header
     let mut guard_text : String? = None
     if header.contains(" if ") {
       let parts : Array[String] = []
       for part in header.split(" if ") {
-        parts.push(part.to_string())
+        parts.push(part.to_owned())
       }
       if parts.length() >= 2 {
-        pattern_text = parts[0].trim(chars=" \t").to_string()
-        guard_text = Some(parts[1].trim(chars=" \t").to_string())
+        pattern_text = parts[0].trim(chars=" \t").to_owned()
+        guard_text = Some(parts[1].trim(chars=" \t").to_owned())
       }
     }
     let base_offset = parser.offsets[parser.index] + case_indent + 4
@@ -184,7 +184,7 @@ fn parse_match_stmt(
         ).to_string(),
       )
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     }
     parser.index = case_next_index
     if body_text.length() > 0 {

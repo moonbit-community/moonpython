@@ -567,7 +567,7 @@ fn builtin_breakpoint(
     }
     let parts : Array[String] = []
     for part in path.split(".") {
-      parts.push(part.to_string())
+      parts.push(part.to_owned())
     }
     if parts.length() == 0 {
       return None

@@ -376,11 +376,11 @@ fn eval_fstring_text(
             }
           }
           (
-            substring(expr_raw, 0, pos).trim(chars=" \t").to_string(),
+            substring(expr_raw, 0, pos).trim(chars=" \t").to_owned(),
             Some(substring(expr_raw, 0, prefix_end)),
           )
         }
-        None => (expr_raw.trim(chars=" \t").to_string(), None)
+        None => (expr_raw.trim(chars=" \t").to_owned(), None)
       }
       let expr = match parse_expr(expr_text) {
         Ok(value) => value

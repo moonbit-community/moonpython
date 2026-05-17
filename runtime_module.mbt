@@ -49,7 +49,7 @@ fn module_cache_delete(name : String) -> Unit {
 fn module_name_parts(name : String) -> Array[String] {
   let out : Array[String] = []
   for part in name.split(".") {
-    let text = part.to_string()
+    let text = part.to_owned()
     if text.length() > 0 {
       out.push(text)
     }

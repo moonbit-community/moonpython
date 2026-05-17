@@ -15,7 +15,7 @@ priv struct LineParser {
 fn LineParser::new(source : String) -> LineParser {
   let lines : Array[String] = []
   for line in source.split("\n") {
-    lines.push(line.to_string())
+    lines.push(line.to_owned())
   }
   let offsets : Array[Int] = []
   let mut offset = 0
@@ -40,7 +40,7 @@ fn LineParser::peek_next_indent(self : LineParser) -> Int {
   let mut idx = self.index
   while idx < self.lines.length() {
     let line = self.lines[idx]
-    let trimmed = line.trim(chars=" \t").to_string()
+    let trimmed = line.trim(chars=" \t").to_owned()
     if trimmed.length() == 0 || trimmed.has_prefix("#") {
       idx += 1
       continue
@@ -55,7 +55,7 @@ fn LineParser::peek_next_significant_index(self : LineParser) -> Int? {
   let mut idx = self.index
   while idx < self.lines.length() {
     let line = self.lines[idx]
-    let trimmed = line.trim(chars=" \t").to_string()
+    let trimmed = line.trim(chars=" \t").to_owned()
     if trimmed.length() == 0 || trimmed.has_prefix("#") {
       idx += 1
       continue

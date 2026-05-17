@@ -327,7 +327,7 @@ fn format_string_with_args(
         Some(pos) => substring(field, 0, pos)
         None => field
       }
-      let head_trimmed = head.trim(chars=" \t").to_string()
+      let head_trimmed = head.trim(chars=" \t").to_owned()
       let head_chars = head_trimmed.to_array()
       let mut bang : Int? = None
       for j = 0; j < head_chars.length(); j = j + 1 {
@@ -340,7 +340,7 @@ fn format_string_with_args(
         Some(pos) => {
           let name = substring(head_trimmed, 0, pos)
             .trim(chars=" \t")
-            .to_string()
+            .to_owned()
           let conv_char = if pos + 1 < head_chars.length() {
             Some(head_chars[pos + 1])
           } else {
