@@ -3580,7 +3580,7 @@ fn builtin_gc_collect(
     )
   }
   // Mark phase.
-  let marked : @hashset.HashSet[Int] = @hashset.new()
+  let marked : @hashset.HashSet[Int] = @hashset.HashSet([])
   gc_mark_env(locals, marked)
   // Marking a full module globals table can be extremely expensive (e.g.
   // `test.support` imports a large portion of the stdlib). Keep `gc.collect()`
