@@ -1561,7 +1561,7 @@ fn builtin_string_formatter_parser(
       let field_value : Value = if field_name.length() == 0 {
         Value::Str("")
       } else {
-        Value::Str(field_name.trim(chars=" \t").to_string())
+        Value::Str(field_name.trim(chars=" \t").to_owned())
       }
       out.push(
         Value::Tuple([

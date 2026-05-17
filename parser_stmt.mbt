@@ -879,7 +879,7 @@ fn parse_pattern(
   line_index : Int,
   base_offset : Int,
 ) -> Result[Pattern, ParseError] {
-  let trimmed = text.trim(chars=" \t\n\r").to_string()
+  let trimmed = text.trim(chars=" \t\n\r").to_owned()
   if trimmed.length() == 0 {
     return Err(
       make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
@@ -960,10 +960,10 @@ fn parse_pattern(
       if open_pos > 0 && close_pos == trimmed.length() - 1 {
         let type_name = substring(trimmed, 0, open_pos)
           .trim(chars=" \t\n\r")
-          .to_string()
+          .to_owned()
         let inner = substring(trimmed, open_pos + 1, close_pos)
           .trim(chars=" \t\n\r")
-          .to_string()
+          .to_owned()
         if is_valid_qualified_ident(type_name) {
           // `TypeName()` is treated like `TypeName(_)` (match by type only).
           if inner.length() == 0 {
@@ -984,7 +984,7 @@ fn parse_pattern(
         if span.0 == 0 && span.1 == trimmed.length() - 1 {
           let inner = substring(trimmed, 1, trimmed.length() - 1)
             .trim(chars=" \t\n\r")
-            .to_string()
+            .to_owned()
           if inner.length() == 0 {
             return Ok(Pattern::Tuple([]))
           }
@@ -994,7 +994,7 @@ fn parse_pattern(
           }
           let patterns : Array[Pattern] = []
           for raw_part in inner_parts {
-            let part = raw_part.trim(chars=" \t\n\r").to_string()
+            let part = raw_part.trim(chars=" \t\n\r").to_owned()
             if part.length() == 0 {
               continue
             }
@@ -1013,7 +1013,7 @@ fn parse_pattern(
   if raw_parts.length() > 1 {
     let patterns : Array[Pattern] = []
     for raw_part in raw_parts {
-      let part = raw_part.trim(chars=" \t\n\r").to_string()
+      let part = raw_part.trim(chars=" \t\n\r").to_owned()
       if part.length() == 0 {
         continue
       }
@@ -1311,13 +1311,13 @@ fn parse_simple_statement(
     column: base_offset - line_start_offset + 1,
   }
   let stmts : Array[Stmt] = []
-  let mut trimmed = line_text.trim(chars=" \t").to_string()
+  let mut trimmed = line_text.trim(chars=" \t").to_owned()
   if trimmed.length() == 0 {
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
   }
-  trimmed = strip_inline_comment(trimmed).trim(chars=" \t").to_string()
+  trimmed = strip_inline_comment(trimmed).trim(chars=" \t").to_owned()
   if trimmed.length() == 0 {
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
@@ -1350,7 +1350,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("yield from") {
     let rest = substring(trimmed, 10, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if rest.length() == 0 {
       let token = {
         kind: Eof,
@@ -1389,7 +1389,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("yield ") || trimmed.has_prefix("yield\t") {
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if rest.length() == 0 {
       stmts.push(Stmt::Yield(None))
       return finalize_simple_statement(
@@ -1450,10 +1450,10 @@ fn parse_simple_statement(
   if trimmed.has_prefix("__builtins__['") && trimmed.contains("]=") {
     let end_key = find_char(trimmed, ']')
     if end_key is Some(end_key) {
-      let key = substring(trimmed, 14, end_key).trim(chars="'\"").to_string()
+      let key = substring(trimmed, 14, end_key).trim(chars="'\"").to_owned()
       let value_text = substring(trimmed, end_key + 2, trimmed.length())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let tokens = match
         tokenize_expr(
           value_text,
@@ -1502,7 +1502,7 @@ fn parse_simple_statement(
     let names : Array[String] = []
     let rest = substring(trimmed, 7, trimmed.length())
     for part in rest.split(",") {
-      let name = part.trim(chars=" \t").to_string()
+      let name = part.trim(chars=" \t").to_owned()
       if name.length() > 0 {
         names.push(name)
       }
@@ -1516,7 +1516,7 @@ fn parse_simple_statement(
     let names : Array[String] = []
     let rest = substring(trimmed, 9, trimmed.length())
     for part in rest.split(",") {
-      let name = part.trim(chars=" \t").to_string()
+      let name = part.trim(chars=" \t").to_owned()
       if name.length() > 0 {
         names.push(name)
       }
@@ -1529,9 +1529,9 @@ fn parse_simple_statement(
   if trimmed.has_prefix("import ") {
     let module_text = substring(trimmed, 7, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     for item in module_text.split(",") {
-      let part = item.trim(chars=" \t").to_string()
+      let part = item.trim(chars=" \t").to_owned()
       if part.length() == 0 {
         continue
       }
@@ -1541,7 +1541,7 @@ fn parse_simple_statement(
         let pieces : Array[String] = []
         for p in part.split(" as ") {
           if p.length() > 0 {
-            pieces.push(p.trim(chars=" \t").to_string())
+            pieces.push(p.trim(chars=" \t").to_owned())
           }
         }
         if pieces.length() == 2 {
@@ -1563,7 +1563,7 @@ fn parse_simple_statement(
     )
   }
   if trimmed.has_prefix("from ") {
-    let tail_check = trimmed.trim(chars=" \t").to_string()
+    let tail_check = trimmed.trim(chars=" \t").to_owned()
     if tail_check.has_suffix(",") && !tail_check.contains("(") {
       let comma_pos = find_last_char(tail_check, ',')
       match comma_pos {
@@ -1589,7 +1589,7 @@ fn parse_simple_statement(
     let parts : Array[String] = []
     for part in trimmed.split(" ") {
       if part.length() > 0 {
-        parts.push(part.to_string())
+        parts.push(part.to_owned())
       }
     }
     let token = {
@@ -1660,18 +1660,18 @@ fn parse_simple_statement(
     }
     let mut imported = substring(trimmed, import_pos + 6, trimmed.length())
       .trim(chars=" \t\n\r")
-      .to_string()
+      .to_owned()
     if imported.has_prefix("(") && imported.has_suffix(")") {
       imported = substring(imported, 1, imported.length() - 1)
         .trim(chars=" \t\n\r")
-        .to_string()
+        .to_owned()
     }
     let names : Array[(String, String?)] = []
     if imported == "*" {
       names.push(("*", (None : String?)))
     } else {
       for item in imported.split(",") {
-        let part = item.trim(chars=" \t\n\r").to_string()
+        let part = item.trim(chars=" \t\n\r").to_owned()
         if part.length() == 0 {
           continue
         }
@@ -1679,7 +1679,7 @@ fn parse_simple_statement(
           let pieces : Array[String] = []
           for p in part.split(" as ") {
             if p.length() > 0 {
-              pieces.push(p.trim(chars=" \t\n\r").to_string())
+              pieces.push(p.trim(chars=" \t\n\r").to_owned())
             }
           }
           if pieces.length() != 2 {
@@ -1705,7 +1705,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("type ") {
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if !rest.has_prefix("=") {
       if rest.length() == 0 {
         let token = {
@@ -1780,14 +1780,14 @@ fn parse_simple_statement(
             name_raw_chars[name_leading] == ' ' {
         name_leading += 1
       }
-      let name_text = name_raw.trim(chars=" \t").to_string()
+      let name_text = name_raw.trim(chars=" \t").to_owned()
       let mut value_leading = 0
       let value_raw_chars = value_raw.to_array()
       while value_leading < value_raw_chars.length() &&
             value_raw_chars[value_leading] == ' ' {
         value_leading += 1
       }
-      let value_text = value_raw.trim(chars=" \t").to_string()
+      let value_text = value_raw.trim(chars=" \t").to_owned()
       if name_text.length() == 0 || value_text.length() == 0 {
         let token = {
           kind: Eof,
@@ -1860,7 +1860,7 @@ fn parse_simple_statement(
   if trimmed.has_prefix("assert ") || trimmed.has_prefix("assert(") {
     let raw_rest = substring(trimmed, 6, trimmed.length()).to_string()
     let rest_leading = count_indent(raw_rest)
-    let rest = raw_rest.trim(chars=" \t").to_string()
+    let rest = raw_rest.trim(chars=" \t").to_owned()
     let rest_base = base_offset + 6 + rest_leading
     let rest_column = rest_base - line_start_offset + 1
     if rest.has_prefix("(") {
@@ -1912,12 +1912,12 @@ fn parse_simple_statement(
       }
     }
     let condition_text = match comma_index {
-      Some(idx) => substring(rest, 0, idx).trim(chars=" \t").to_string()
-      None => rest.trim(chars=" \t").to_string()
+      Some(idx) => substring(rest, 0, idx).trim(chars=" \t").to_owned()
+      None => rest.trim(chars=" \t").to_owned()
     }
     let message_text = match comma_index {
       Some(idx) =>
-        substring(rest, idx + 1, rest.length()).trim(chars=" \t").to_string()
+        substring(rest, idx + 1, rest.length()).trim(chars=" \t").to_owned()
       None => ""
     }
     let condition_leading = count_indent(
@@ -1980,7 +1980,7 @@ fn parse_simple_statement(
   if has_keyword_prefix(trimmed, "raise") {
     let rest = substring(trimmed, 5, trimmed.length())
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
     if rest.length() == 0 {
       stmts.push(Stmt::Raise(exc=None, cause=None))
       return finalize_simple_statement(
@@ -2006,10 +2006,10 @@ fn parse_simple_statement(
           ),
         )
       }
-      exc_text = substring(rest, 0, idx).trim(chars=" \t").to_string()
+      exc_text = substring(rest, 0, idx).trim(chars=" \t").to_owned()
       cause_text = substring(rest, idx + 4, rest.length())
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if exc_text.length() == 0 || cause_text.length() == 0 {
         return Err(
           make_parse_error(
@@ -2069,7 +2069,7 @@ fn parse_simple_statement(
     let rest = substring(trimmed, prefix_len, trimmed.length())
     let targets : Array[Target] = []
     for part in split_top_level_commas(rest) {
-      let text = part.trim(chars=" \t").to_string()
+      let text = part.trim(chars=" \t").to_owned()
       if text.length() == 0 {
         continue
       }
@@ -2154,7 +2154,7 @@ fn parse_simple_statement(
   }
   if has_keyword_prefix(trimmed, "return") {
     let raw_expr_text = substring(trimmed, 6, trimmed.length()).to_string()
-    let expr_text = raw_expr_text.trim(chars=" \t").to_string()
+    let expr_text = raw_expr_text.trim(chars=" \t").to_owned()
     if expr_text.length() == 0 {
       stmts.push(Stmt::Return(None))
     } else {
@@ -2186,7 +2186,7 @@ fn parse_simple_statement(
       (Some(colon_pos), None) => {
         let left_text = substring(trimmed, 0, colon_pos)
           .trim(chars=" \t")
-          .to_string()
+          .to_owned()
         // Avoid swallowing other colon-terminated statements like `match x:`
         // and `if x:`: only treat it as an annotation when the left side parses
         // as an assignment target.
@@ -2241,7 +2241,7 @@ fn parse_simple_statement(
                 trimmed.length(),
               )
               .trim(chars=" \t")
-              .to_string()
+              .to_owned()
             if annotation_text.length() == 0 {
               return Err(
                 make_parse_error(
@@ -2308,7 +2308,7 @@ fn parse_simple_statement(
         if colon_pos < eq_pos {
           let left_text = substring(trimmed, 0, colon_pos)
             .trim(chars=" \t")
-            .to_string()
+            .to_owned()
           let left_expr = match
             tokenize_expr(
               left_text,
@@ -2363,7 +2363,7 @@ fn parse_simple_statement(
                       eq_pos,
                     )
                     .trim(chars=" \t")
-                    .to_string()
+                    .to_owned()
                   if annotation_text.length() == 0 {
                     return Err(
                       make_parse_error(
@@ -2399,12 +2399,12 @@ fn parse_simple_statement(
                       trimmed.length(),
                     )
                     .trim(chars=" \t")
-                    .to_string()
+                    .to_owned()
                   let comma_pos = find_char(value_text, ',')
                   if value_text.contains("*") && comma_pos is Some(comma_pos) {
                     value_text = substring(value_text, 0, comma_pos)
                       .trim(chars=" \t")
-                      .to_string()
+                      .to_owned()
                   }
                   let tokens = match
                     tokenize_expr(
@@ -2462,14 +2462,14 @@ fn parse_simple_statement(
   }
   match find_top_level_augassign(trimmed) {
     Some((pos, op_text)) => {
-      let left_text = substring(trimmed, 0, pos).trim(chars=" \t").to_string()
+      let left_text = substring(trimmed, 0, pos).trim(chars=" \t").to_owned()
       let right_text = substring(
           trimmed,
           pos + op_text.length(),
           trimmed.length(),
         )
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       if left_text.length() == 0 || right_text.length() == 0 {
         let token = {
           kind: Eof,

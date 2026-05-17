@@ -3805,7 +3805,7 @@ fn parse_error_as_exception_runtime_error(
   let mut end_offset_value : Value = offset_value
   let lines : Array[String] = []
   for line in source_text.split("\n") {
-    lines.push(line.to_string())
+    lines.push(line.to_owned())
   }
   if err.span.line > 0 && err.span.line <= lines.length() {
     let line = lines[err.span.line - 1]

@@ -233,7 +233,7 @@ fn parse_type_param_header(
   header : String,
   token : Token,
 ) -> Result[(String, Array[String]), ParseError] {
-  let trimmed = header.trim(chars=" \t").to_string()
+  let trimmed = header.trim(chars=" \t").to_owned()
   let open = find_char(trimmed, '[')
   if open is None {
     return Ok((trimmed, []))
@@ -285,7 +285,7 @@ fn parse_type_param_header(
   let close = close.unwrap()
   let tail = substring(trimmed, close + 1, trimmed.length())
     .trim(chars=" \t")
-    .to_string()
+    .to_owned()
   if tail.length() > 0 {
     return Err(
       make_parse_error(
@@ -295,7 +295,7 @@ fn parse_type_param_header(
       ),
     )
   }
-  let name = substring(trimmed, 0, open).trim(chars=" \t").to_string()
+  let name = substring(trimmed, 0, open).trim(chars=" \t").to_owned()
   if name.length() == 0 {
     return Err(
       make_parse_error(
@@ -307,7 +307,7 @@ fn parse_type_param_header(
   }
   let params_text = substring(trimmed, open + 1, close)
     .trim(chars=" \t\n\r")
-    .to_string()
+    .to_owned()
   if params_text.length() == 0 {
     return Err(
       make_parse_error(
@@ -319,7 +319,7 @@ fn parse_type_param_header(
   }
   let params : Array[String] = []
   for part in split_top_level_commas(params_text) {
-    let param = part.trim(chars=" \t\n\r").to_string()
+    let param = part.trim(chars=" \t\n\r").to_owned()
     if param.length() == 0 {
       return Err(
         make_parse_error(
@@ -380,16 +380,14 @@ fn split_statements(line : String) -> Array[(String, Int)] {
         } else if c == '\'' || c == '"' {
           quote = Some(c)
         } else if c == ';' {
-          let segment = substring(line, start, i).trim(chars=" \t").to_string()
+          let segment = substring(line, start, i).trim(chars=" \t").to_owned()
           segments.push((segment, start))
           start = i + 1
         }
     }
     i += 1
   }
-  let tail = substring(line, start, chars.length())
-    .trim(chars=" \t")
-    .to_string()
+  let tail = substring(line, start, chars.length()).trim(chars=" \t").to_owned()
   segments.push((tail, start))
   segments
 }
@@ -699,7 +697,7 @@ fn find_top_level_as_pos(text : String) -> Int? {
 
 ///|
 fn strip_wrapping_parens(text : String) -> String {
-  let trimmed = text.trim(chars=" \t").to_string()
+  let trimmed = text.trim(chars=" \t").to_owned()
   if !trimmed.has_prefix("(") || !trimmed.has_suffix(")") {
     return trimmed
   }
@@ -735,7 +733,7 @@ fn strip_wrapping_parens(text : String) -> String {
     }
   }
   if depth == 0 {
-    substring(trimmed, 1, trimmed.length() - 1).trim(chars=" \t").to_string()
+    substring(trimmed, 1, trimmed.length() - 1).trim(chars=" \t").to_owned()
   } else {
     trimmed
   }
@@ -1349,7 +1347,7 @@ fn has_unclosed_string_line_continuation(text : String) -> Bool {
 fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
   let lines : Array[String] = []
   for line in source.split("\n") {
-    lines.push(line.to_string())
+    lines.push(line.to_owned())
   }
   let offsets : Array[Int] = []
   let mut offset = 0
@@ -1365,7 +1363,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     let line = lines[index]
     let current_indent = count_indent(line)
     let raw_line = substring(line, current_indent, line.length()).to_string()
-    let trimmed = raw_line.trim(chars=" \t").to_string()
+    let trimmed = raw_line.trim(chars=" \t").to_owned()
     if trimmed.length() == 0 {
       index += 1
       continue
@@ -1425,7 +1423,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
           next_index < lines.length() {
       line_text = substring(line_text, 0, line_text.length() - 1)
         .trim(chars=" \t")
-        .to_string()
+        .to_owned()
       let next_line = lines[next_index]
       let appended = if find_triple_quote(next_line) is Some(_) {
         next_line
@@ -1434,7 +1432,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       }
       line_text = line_text + "\n" + appended
       next_index += 1
-      line_text = line_text.trim(chars=" \t").to_string()
+      line_text = line_text.trim(chars=" \t").to_owned()
     }
     match unclosed_triple_quote(line_text) {
       None => ()
@@ -1477,7 +1475,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
       if segment.length() == 0 {
         continue
       }
-      let segment_trimmed = segment.trim(chars=" \t").to_string()
+      let segment_trimmed = segment.trim(chars=" \t").to_owned()
       if has_keyword_prefix(segment_trimmed, "yield") {
         continue
       }
@@ -1499,7 +1497,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     }
     if current_indent == 0 && !saw_syntax_error {
       for segment_pair in segments {
-        let segment = segment_pair.0.trim(chars=" \t").to_string()
+        let segment = segment_pair.0.trim(chars=" \t").to_owned()
         if segment.length() == 0 {
           continue
         }
@@ -1539,7 +1537,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     }
     allow_indented = strip_inline_comment(line_text)
       .trim(chars=" \t")
-      .to_string()
+      .to_owned()
       .has_suffix(":")
     index = next_index
   }

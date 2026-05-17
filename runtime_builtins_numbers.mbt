@@ -42,7 +42,7 @@ fn parse_bigint_from_string(
   text : String,
   base_in : Int,
 ) -> Result[@bigint.BigInt, RuntimeError] {
-  let trimmed = text.trim().to_string()
+  let trimmed = text.trim().to_owned()
   let chars = trimmed.to_array()
   if chars.length() == 0 {
     return Err(

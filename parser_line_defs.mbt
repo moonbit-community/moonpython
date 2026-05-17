@@ -37,10 +37,10 @@ fn parse_class_stmt(
   }
   let header = substring(line_text, 6, colon_pos.unwrap())
     .trim(chars=" \t\n\r")
-    .to_string()
+    .to_owned()
   let paren_span = find_top_level_paren_span(header)
   let name_part = match paren_span {
-    Some(span) => substring(header, 0, span.0).trim(chars=" \t\n\r").to_string()
+    Some(span) => substring(header, 0, span.0).trim(chars=" \t\n\r").to_owned()
     None => header
   }
   let name_token = {
@@ -62,7 +62,7 @@ fn parse_class_stmt(
     let close_pos = span.1
     let tail = substring(header, close_pos + 1, header.length())
       .trim(chars=" \t\n\r")
-      .to_string()
+      .to_owned()
     if tail.length() > 0 {
       return Err(
         make_parse_error(
@@ -74,18 +74,18 @@ fn parse_class_stmt(
     }
     let bases_text = substring(header, open_pos + 1, close_pos)
       .trim(chars=" \t\n\r")
-      .to_string()
+      .to_owned()
     if bases_text.length() > 0 {
       let base_parts = split_top_level_commas(bases_text)
       for part in base_parts {
-        let expr_text = part.trim(chars=" \t\n\r").to_string()
+        let expr_text = part.trim(chars=" \t\n\r").to_owned()
         if expr_text.length() == 0 {
           continue
         }
         if expr_text.has_prefix("**") {
           let inner = substring(expr_text, 2, expr_text.length())
             .trim(chars=" \t\n\r")
-            .to_string()
+            .to_owned()
           if inner.length() == 0 {
             return Err(
               make_parse_error(
@@ -111,7 +111,7 @@ fn parse_class_stmt(
         if expr_text.has_prefix("*") {
           let inner = substring(expr_text, 1, expr_text.length())
             .trim(chars=" \t\n\r")
-            .to_string()
+            .to_owned()
           if inner.length() == 0 {
             return Err(
               make_parse_error(
@@ -139,14 +139,14 @@ fn parse_class_stmt(
           if eq_pos is Some(eq_idx) {
             let key = substring(expr_text, 0, eq_idx)
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             let value_text = substring(
                 expr_text,
                 eq_idx + 1,
                 expr_text.length(),
               )
               .trim(chars=" \t\n\r")
-              .to_string()
+              .to_owned()
             if key.length() == 0 || value_text.length() == 0 {
               let token = {
                 kind: Eof,
@@ -229,7 +229,7 @@ fn parse_class_stmt(
       substring(line_text, colon_pos.unwrap() + 1, line_text.length()).to_string(),
     )
     .trim(chars=" \t")
-    .to_string()
+    .to_owned()
   if body_text.length() > 0 {
     let body : Array[Stmt] = []
     let segments = split_statements(body_text)
@@ -354,7 +354,7 @@ fn parse_def_stmt(
     )
   }
   let name_part = match paren_span {
-    Some(span) => substring(header, 0, span.0).trim(chars=" \t").to_string()
+    Some(span) => substring(header, 0, span.0).trim(chars=" \t").to_owned()
     None => "".to_string()
   }
   let name_token = {
@@ -416,7 +416,7 @@ fn parse_def_stmt(
     while leading < raw_chars.length() && raw_chars[leading] == ' ' {
       leading += 1
     }
-    let trimmed_param = raw_param.trim(chars=" \t\n\r").to_string()
+    let trimmed_param = raw_param.trim(chars=" \t\n\r").to_owned()
     if trimmed_param.length() == 0 {
       return Ok(())
     }
@@ -465,7 +465,7 @@ fn parse_def_stmt(
     }
     let mut name = substring(raw_param, 0, name_end_idx)
       .trim(chars=" \t\n\r")
-      .to_string()
+      .to_owned()
     let has_default = eq_idx_opt is Some(_)
     if name == "/" {
       if has_default || kw_only || seen_posonly_marker {
@@ -504,7 +504,7 @@ fn parse_def_stmt(
     while name.has_prefix("*") {
       star_count += 1
       name = substring(name, 1, name.length()).to_string()
-      name = name.trim(chars=" \t\n\r").to_string()
+      name = name.trim(chars=" \t\n\r").to_owned()
     }
     if star_count > 0 {
       kw_only = true
@@ -591,7 +591,7 @@ fn parse_def_stmt(
               raw_param.length(),
             )
             .trim(chars=" \t\n\r")
-            .to_string()
+            .to_owned()
           let tokens = match
             tokenize_expr(
               default_text,
@@ -627,7 +627,7 @@ fn parse_def_stmt(
           None => raw_param.length()
         }
         let ann_raw = substring(raw_param, colon_idx + 1, ann_end).to_string()
-        let ann_text = ann_raw.trim(chars=" \t\n\r").to_string()
+        let ann_text = ann_raw.trim(chars=" \t\n\r").to_owned()
         if ann_text.length() == 0 {
           let token = {
             kind: Eof,
@@ -732,7 +732,7 @@ fn parse_def_stmt(
   match return_slice.find("->") {
     Some(pos) => {
       let raw_ret = substring(return_slice, pos + 2, return_slice.length()).to_string()
-      let ret_text = raw_ret.trim(chars=" \t\n\r").to_string()
+      let ret_text = raw_ret.trim(chars=" \t\n\r").to_owned()
       if ret_text.length() == 0 {
         return Err(
           make_parse_error(
@@ -776,7 +776,7 @@ fn parse_def_stmt(
       substring(header, colon_pos.unwrap() + 1, header.length()).to_string(),
     )
     .trim(chars=" \t")
-    .to_string()
+    .to_owned()
   if !is_async_def && line_has_await_keyword(body_text) {
     let token = {
       kind: Eof,
@@ -958,7 +958,7 @@ fn parse_def_stmt(
     let mut idx = parser.index
     while idx < parser.lines.length() {
       let body_line = parser.lines[idx]
-      let trimmed = body_line.trim(chars=" \t").to_string()
+      let trimmed = body_line.trim(chars=" \t").to_owned()
       if trimmed.length() == 0 || trimmed.has_prefix("#") {
         idx += 1
         continue
@@ -974,7 +974,7 @@ fn parse_def_stmt(
         idx += 1
         while idx < parser.lines.length() {
           let next_line = parser.lines[idx]
-          let next_trimmed = next_line.trim(chars=" \t").to_string()
+          let next_trimmed = next_line.trim(chars=" \t").to_owned()
           if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
             idx += 1
             continue
@@ -1351,7 +1351,7 @@ fn parse_def_stmt(
       let mut idx = body_start_index
       while idx < parser.lines.length() {
         let body_line = parser.lines[idx]
-        let trimmed = body_line.trim(chars=" \t").to_string()
+        let trimmed = body_line.trim(chars=" \t").to_owned()
         if trimmed.length() == 0 || trimmed.has_prefix("#") {
           idx += 1
           continue
@@ -1367,7 +1367,7 @@ fn parse_def_stmt(
           idx += 1
           while idx < parser.lines.length() {
             let next_line = parser.lines[idx]
-            let next_trimmed = next_line.trim(chars=" \t").to_string()
+            let next_trimmed = next_line.trim(chars=" \t").to_owned()
             if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
               idx += 1
               continue
@@ -1402,7 +1402,7 @@ fn parse_def_stmt(
       let mut idx = body_start_index
       while idx < parser.lines.length() {
         let body_line = parser.lines[idx]
-        let trimmed = body_line.trim(chars=" \t").to_string()
+        let trimmed = body_line.trim(chars=" \t").to_owned()
         if trimmed.length() == 0 || trimmed.has_prefix("#") {
           idx += 1
           continue
@@ -1418,7 +1418,7 @@ fn parse_def_stmt(
           idx += 1
           while idx < parser.lines.length() {
             let next_line = parser.lines[idx]
-            let next_trimmed = next_line.trim(chars=" \t").to_string()
+            let next_trimmed = next_line.trim(chars=" \t").to_owned()
             if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
               idx += 1
               continue

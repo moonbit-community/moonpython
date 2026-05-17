@@ -36,19 +36,19 @@ fn runtime_error_exc(
       }
       for prefix in prefixes {
         if message.has_prefix(prefix) {
-          let mut type_name = prefix.trim(chars=":").to_string()
+          let mut type_name = prefix.trim(chars=":").to_owned()
           if type_name == "struct.error" {
             // `struct.error` is exposed as an exception class named `error` from
             // the `_struct` module. Matching relies on class names.
             type_name = "error".to_string()
           }
           let mut rest = match message.strip_prefix(prefix) {
-            Some(view) => view.to_string()
+            Some(view) => view.to_owned()
             None => "".to_string()
           }
           if rest.has_prefix(" ") {
             rest = match rest.strip_prefix(" ") {
-              Some(view) => view.to_string()
+              Some(view) => view.to_owned()
               None => rest
             }
           }
