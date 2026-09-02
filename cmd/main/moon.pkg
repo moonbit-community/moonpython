@@ -3,6 +3,7 @@ import {
   "moonbitlang/x/fs",
   "moonbitlang/x/path",
   "moonbitlang/x/sys",
+  "moonbitlang/core/env",
 }
 
 pkgtype(kind: "executable")

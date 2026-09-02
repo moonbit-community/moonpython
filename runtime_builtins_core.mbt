@@ -112,7 +112,7 @@ fn builtin_print(
         )
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < positional.length(); i = i + 1 {
     if i > 0 {
       buf.write_string(sep)

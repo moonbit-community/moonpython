@@ -393,7 +393,7 @@ fn bigint_to_base_string(
     chars.push(digits.to_array()[d])
     n = n / b
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(sign)
   buf.write_string(prefix)
   for i = chars.length() - 1; i >= 0; i = i - 1 {
@@ -407,7 +407,7 @@ fn bigint_to_base_string(
 
 ///|
 fn escape_string_for_repr_with_quote(text : String, quote : Char) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for ch in text.to_array() {
     if ch == '\\' {
       buf.write_string("\\\\")
@@ -463,17 +463,17 @@ fn repr_fallback(value : Value) -> String {
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
     Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
     Value::List(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       write_joined(buf, values, "[", "]", false)
       buf.to_string()
     }
     Value::Tuple(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       write_joined(buf, values, "(", ")", true)
       buf.to_string()
     }
     Value::Dict(pairs) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('{')
       for i = 0; i < pairs.length(); i = i + 1 {
         if i > 0 {
@@ -490,7 +490,7 @@ fn repr_fallback(value : Value) -> String {
       if values.length() == 0 {
         "set()"
       } else {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         write_joined(buf, values, "{", "}", false)
         buf.to_string()
       }
@@ -509,7 +509,7 @@ fn repr_fallback(value : Value) -> String {
                       if values.length() == 0 {
                         inst.class.name + "()"
                       } else {
-                        let buf = StringBuilder::new()
+                        let buf = StringBuilder()
                         buf.write_string(inst.class.name)
                         buf.write_char('(')
                         write_joined(buf, values, "{", "}", false)
@@ -1584,7 +1584,7 @@ fn builtin_repr(
           }
           Ok(Value::Str(inst.class.name + "(" + part + ")"))
         } else {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           buf.write_string(inst.class.name)
           buf.write_char('(')
           for i = 0; i < args.length(); i = i + 1 {

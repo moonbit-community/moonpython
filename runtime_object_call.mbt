@@ -3641,7 +3641,7 @@ fn call_callable_with_env(
                   tabsize = 0
                 }
                 let chars = text.to_array()
-                let buf = StringBuilder::new()
+                let buf = StringBuilder()
                 let mut col = 0
                 for c in chars {
                   if c == '\t' {
@@ -3684,7 +3684,7 @@ fn call_callable_with_env(
                     )
                 }
                 let chars = text.to_array()
-                let buf = StringBuilder::new()
+                let buf = StringBuilder()
                 for c in chars {
                   let code = c.to_int()
                   let idx = match
@@ -3826,7 +3826,7 @@ fn call_callable_with_env(
                   left = left + 1
                 }
                 let right = padding - left
-                let builder = StringBuilder::new()
+                let builder = StringBuilder()
                 for _i = 0; _i < left; _i = _i + 1 {
                   builder.write_string(fill)
                 }
@@ -3917,7 +3917,7 @@ fn call_callable_with_env(
                   } else {
                     count
                   }
-                  let builder = StringBuilder::new()
+                  let builder = StringBuilder()
                   let mut inserted = 0
                   for i = 0; i < chars.length(); i = i + 1 {
                     if inserted < limit {
@@ -3931,7 +3931,7 @@ fn call_callable_with_env(
                   }
                   return Ok(Value::Str(builder.to_string()))
                 }
-                let builder = StringBuilder::new()
+                let builder = StringBuilder()
                 let mut first = true
                 let mut replaced = 0
                 for part in text.split(old) {
@@ -4167,7 +4167,7 @@ fn call_callable_with_env(
                     for i = 0; i < maxsplit; i = i + 1 {
                       parts.push(Value::Str(raw_parts[i]))
                     }
-                    let builder = StringBuilder::new()
+                    let builder = StringBuilder()
                     let mut first_tail = true
                     for i = maxsplit; i < raw_parts.length(); i = i + 1 {
                       if !first_tail {
@@ -4274,7 +4274,7 @@ fn call_callable_with_env(
                       return Ok(Value::List(parts))
                     }
                     let left_end = raw_parts.length() - (maxsplit + 1)
-                    let builder = StringBuilder::new()
+                    let builder = StringBuilder()
                     let mut first_left = true
                     for i = 0; i <= left_end; i = i + 1 {
                       if !first_left {
@@ -4406,7 +4406,7 @@ fn call_callable_with_env(
                 }
                 let lines : Array[Value] = []
                 let chars = text.to_array()
-                let mut builder = StringBuilder::new()
+                let mut builder = StringBuilder()
                 let mut has_text = false
                 let mut i = 0
                 while i < chars.length() {
@@ -4426,7 +4426,7 @@ fn call_callable_with_env(
                       i += 1
                     }
                     lines.push(Value::Str(builder.to_string()))
-                    builder = StringBuilder::new()
+                    builder = StringBuilder()
                     has_text = false
                   } else {
                     builder.write_char(c)
@@ -6352,7 +6352,7 @@ fn call_callable_with_env(
                   )
                 }
                 let hex = "0123456789abcdef".to_array()
-                let buf = StringBuilder::new()
+                let buf = StringBuilder()
                 if sep.length() == 0 {
                   for b in values {
                     let v = b & 0xFF
@@ -6986,7 +6986,7 @@ fn call_callable_with_env(
               names[best] = tmp
             }
           }
-          let builder = StringBuilder::new()
+          let builder = StringBuilder()
           for i = 0; i < names.length(); i = i + 1 {
             if i > 0 {
               builder.write_string(", ")

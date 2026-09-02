@@ -1257,7 +1257,7 @@ fn exception_value_from_runtime_error(
       if end < 0 || end < start {
         return None
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for k = start; k < end; k = k + 1 {
         buf.write_char(chars[k])
       }
@@ -1366,7 +1366,7 @@ fn exception_value_from_runtime_error(
                         }
                       }
                       if end2 > start2 {
-                        let buf = StringBuilder::new()
+                        let buf = StringBuilder()
                         for k = start2; k < end2; k = k + 1 {
                           buf.write_char(chars[k])
                         }

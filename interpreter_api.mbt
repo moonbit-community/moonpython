@@ -68,8 +68,8 @@ pub fn MockIO::new(stdin : Array[String]) -> MockIO {
   MockIO::{
     stdin,
     stdin_pos: { val: 0, },
-    stdout: StringBuilder::new(),
-    stderr: StringBuilder::new(),
+    stdout: StringBuilder(),
+    stderr: StringBuilder(),
   }
 }
 
