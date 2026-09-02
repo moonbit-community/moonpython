@@ -8,7 +8,7 @@ pub(all) struct BcBuilder {
 
 ///|
 pub fn BcBuilder::new(name : String, filename : String) -> BcBuilder {
-  BcBuilder::{ code: BcCode::empty(name, filename) }
+  BcBuilder::{ code: BcCode::empty(name, filename), }
 }
 
 ///|

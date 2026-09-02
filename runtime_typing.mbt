@@ -34,7 +34,9 @@ fn union_args_from_value(
         None
       }
     Value::None =>
-      Some([Value::Class(ClassValue::{ name: "NoneType", bases: [], dict: [] })])
+      Some([
+        Value::Class(ClassValue::{ name: "NoneType", bases: [], dict: [], }),
+      ])
     _ => None
   }
 }

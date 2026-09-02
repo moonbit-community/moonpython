@@ -374,7 +374,7 @@ fn assign_target_with_env(
                   dict.push(("stop", end_value))
                   dict.push(("step", step_value))
                   let klass = builtin_class_from_name("slice", builtins)
-                  Value::Instance(InstanceValue::{ class: klass, dict })
+                  Value::Instance(InstanceValue::{ class: klass, dict, })
                 }
                 _ =>
                   match
@@ -451,7 +451,7 @@ fn assign_target_with_env(
               dict.push(("stop", end_value))
               dict.push(("step", step_value))
               let klass = builtin_class_from_name("slice", builtins)
-              Value::Instance(InstanceValue::{ class: klass, dict })
+              Value::Instance(InstanceValue::{ class: klass, dict, })
             }
             _ =>
               match eval_expr_with_env(index, locals, globals, builtins, io) {
@@ -694,7 +694,7 @@ fn delete_target_with_env(
               dict.push(("stop", end_value))
               dict.push(("step", step_value))
               let klass = builtin_class_from_name("slice", builtins)
-              Value::Instance(InstanceValue::{ class: klass, dict })
+              Value::Instance(InstanceValue::{ class: klass, dict, })
             }
             _ =>
               match eval_expr_with_env(index, locals, globals, builtins, io) {

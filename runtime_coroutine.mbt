@@ -18,10 +18,10 @@ priv struct CoroutineState {
 }
 
 ///|
-let coroutine_registry : Ref[Array[Ref[CoroutineState]]] = { val: [] }
+let coroutine_registry : Ref[Array[Ref[CoroutineState]]] = { val: [], }
 
 ///|
-let coroutine_active_depth : Ref[Int] = { val: 0 }
+let coroutine_active_depth : Ref[Int] = { val: 0, }
 
 ///|
 pub fn coroutine_is_active() -> Bool {
@@ -41,7 +41,7 @@ fn coroutine_leave_context() -> Unit {
 ///|
 fn make_coroutine_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "coroutine", bases: [], dict: [] },
+    class: ClassValue::{ name: "coroutine", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }

@@ -53,7 +53,7 @@ fn not_callable_message(value : Value) -> String {
 }
 
 ///|
-let object_hash_counter : Ref[@bigint.BigInt] = { val: 1N }
+let object_hash_counter : Ref[@bigint.BigInt] = { val: 1N, }
 
 ///|
 fn fresh_object_hashvalue() -> @bigint.BigInt {

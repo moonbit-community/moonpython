@@ -67,7 +67,7 @@ pub fn Config::with_bytecode_strict(self : Config, strict : Bool) -> Config {
 pub fn MockIO::new(stdin : Array[String]) -> MockIO {
   MockIO::{
     stdin,
-    stdin_pos: { val: 0 },
+    stdin_pos: { val: 0, },
     stdout: StringBuilder::new(),
     stderr: StringBuilder::new(),
   }
@@ -661,7 +661,7 @@ pub fn Interpreter::with_builtins(
   builtins : Array[(String, Value)],
   config : Config,
 ) -> Interpreter {
-  Interpreter::{ config, globals: [], builtins, io: MockIO::new([]) }
+  Interpreter::{ config, globals: [], builtins, io: MockIO::new([]), }
 }
 
 ///|
@@ -1428,7 +1428,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
     ("__loader__", Value::None),
     ("__spec__", Value::None),
   ]
-  let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+  let module_class = ClassValue::{ name: "module", bases: [], dict: [], }
   let main_module = Value::Instance(InstanceValue::{
     class: module_class,
     dict: globals,
@@ -1438,7 +1438,7 @@ pub fn Interpreter::with_io(config : Config, io : MockIO) -> Interpreter {
   // `unittest.mock.patch("pdb.set_trace")` don't import CPython's full pdb
   // implementation (which requires many unsupported modules).
   module_cache_set("pdb", make_pdb_module(builtins))
-  Interpreter::{ config, globals, builtins, io }
+  Interpreter::{ config, globals, builtins, io, }
 }
 
 ///|
@@ -1533,7 +1533,7 @@ pub fn Interpreter::execute_test_dir(
     )
     raise MpythonError::MpythonError(err)
   }
-  TestResult::{ passed: 0, failed: 0, errors: [] }
+  TestResult::{ passed: 0, failed: 0, errors: [], }
 }
 
 ///|
@@ -1658,7 +1658,7 @@ pub fn Interpreter::set_main_module_spec(
       set_named_value(loader_inst.dict, "path", Value::Str(origin))
     _ => ()
   }
-  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [], }
   let spec_name = if is_package_main {
     module_name + ".__main__"
   } else {

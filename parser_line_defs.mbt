@@ -1148,9 +1148,9 @@ fn parse_def_stmt(
     parser.async_depth = prev_async_depth
     (parsed, false)
   }
-  let has_yield_ref : Ref[Bool] = { val: false }
-  let has_yield_from_ref : Ref[Bool] = { val: false }
-  let has_return_value_ref : Ref[Bool] = { val: false }
+  let has_yield_ref : Ref[Bool] = { val: false, }
+  let has_yield_from_ref : Ref[Bool] = { val: false, }
+  let has_return_value_ref : Ref[Bool] = { val: false, }
   if !is_async_def {
     match stmts_first_illegal_await_line(body) {
       Some(line) => return Err(parser.invalid_syntax_at_line(line))

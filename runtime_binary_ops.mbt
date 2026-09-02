@@ -1207,7 +1207,7 @@ fn eval_binary_op_values(
                   ("hashvalue", Value::Int(fresh_object_hashvalue())),
                   (set_storage_name, Value::Set(values)),
                 ]
-                Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+                Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
               } else {
                 Ok(Value::Set(values))
               }

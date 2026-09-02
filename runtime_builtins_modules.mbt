@@ -116,7 +116,7 @@ fn builtin_platform_machine(
 }
 
 ///|
-let enum_auto_counter : Ref[Int] = { val: 0 }
+let enum_auto_counter : Ref[Int] = { val: 0, }
 
 ///|
 fn builtin_enum_auto(
@@ -146,7 +146,7 @@ fn builtin_enum_auto(
   ]
   Ok(
     Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "auto", bases: [], dict: [] },
+      class: ClassValue::{ name: "auto", bases: [], dict: [], },
       dict,
     }),
   )
@@ -649,7 +649,7 @@ fn builtin_socket_create_connection(
     ("connected", Value::Bool(true)),
     ("address", positional[0]),
   ]
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -1462,7 +1462,7 @@ fn builtin_time_get_clock_info(
         ),
       )
   }
-  let info_class = ClassValue::{ name: "clock_info", bases: [], dict: [] }
+  let info_class = ClassValue::{ name: "clock_info", bases: [], dict: [], }
   Ok(
     Value::Instance(InstanceValue::{
       class: info_class,
@@ -2109,7 +2109,7 @@ fn builtin_thread_rlock_at_fork_reinit(
 }
 
 ///|
-let weakref_registry : Ref[Array[Array[(String, Value)]]] = { val: [] }
+let weakref_registry : Ref[Array[Array[(String, Value)]]] = { val: [], }
 
 ///|
 fn make_weakref_instance(value : Value, klass_opt : ClassValue?) -> Value {
@@ -2124,9 +2124,9 @@ fn make_weakref_instance(value : Value, klass_opt : ClassValue?) -> Value {
   weakref_registry.val.push(dict)
   let klass = match klass_opt {
     Some(value) => value
-    None => ClassValue::{ name: "weakref", bases: [], dict: [] }
+    None => ClassValue::{ name: "weakref", bases: [], dict: [], }
   }
-  Value::Instance(InstanceValue::{ class: klass, dict })
+  Value::Instance(InstanceValue::{ class: klass, dict, })
 }
 
 ///|
@@ -3279,10 +3279,10 @@ fn builtin_struct_struct_calcsize(
 }
 
 ///|
-let gc_enabled_ref : Ref[Bool] = { val: true }
+let gc_enabled_ref : Ref[Bool] = { val: true, }
 
 ///|
-let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10) }
+let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10), }
 
 ///|
 // Best-effort GC/finalization support.
@@ -3292,7 +3292,7 @@ let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10) }
 // `gc.collect()`. We approximate this by keeping a registry of created Python
 // instances (keyed by their `hashvalue`) and running a mark-and-sweep rooted at
 // the current Python environments and module graph.
-let gc_instance_registry : Ref[Array[Value]] = { val: [] }
+let gc_instance_registry : Ref[Array[Value]] = { val: [], }
 
 ///|
 fn gc_instance_id(value : Value) -> @bigint.BigInt? {
@@ -4997,7 +4997,7 @@ fn builtin_binascii_b2a_qp(
     col_ref.val = 0
   }
 
-  let col_ref : Ref[Int] = { val: 0 }
+  let col_ref : Ref[Int] = { val: 0, }
   let mut i = 0
   while i < bytes.length() {
     let b = bytes[i] & 0xFF

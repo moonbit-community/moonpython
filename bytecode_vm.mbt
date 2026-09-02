@@ -1530,7 +1530,7 @@ pub fn bc_exec(
                     dict.push(("step", step))
                     let klass = builtin_class_from_name("slice", builtins)
                     stack.push(
-                      Value::Instance(InstanceValue::{ class: klass, dict }),
+                      Value::Instance(InstanceValue::{ class: klass, dict, }),
                     )
                     Ok(())
                   }

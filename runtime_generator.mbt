@@ -56,12 +56,12 @@ priv struct GeneratorState {
 }
 
 ///|
-let generator_registry : Ref[Array[Ref[GeneratorState]]] = { val: [] }
+let generator_registry : Ref[Array[Ref[GeneratorState]]] = { val: [], }
 
 ///|
 fn make_generator_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "generator", bases: [], dict: [] },
+    class: ClassValue::{ name: "generator", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }
@@ -69,7 +69,7 @@ fn make_generator_instance(id : Int) -> Value {
 ///|
 fn make_async_generator_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "async_generator", bases: [], dict: [] },
+    class: ClassValue::{ name: "async_generator", bases: [], dict: [], },
     dict: [("gen_id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }
