@@ -22,7 +22,7 @@ fn bytes_hex_digit(n : Int) -> Char {
 
 ///|
 fn bytes_hex_byte(value : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let hi = (value >> 4) & 0xF
   let lo = value & 0xF
   buf.write_char(bytes_hex_digit(hi))
@@ -32,7 +32,7 @@ fn bytes_hex_byte(value : Int) -> String {
 
 ///|
 fn bytes_repr(values : Array[Int]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("b'")
   for byte in values {
     let v = byte & 0xFF
@@ -85,7 +85,7 @@ fn test_value_repr(value : Value) -> String {
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
     Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
     Value::List(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('[')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {

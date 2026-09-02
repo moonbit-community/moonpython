@@ -972,7 +972,7 @@ fn slice_ints_by_indices(
 
 ///|
 fn slice_string_by_indices(chars : Array[Char], indices : Array[Int]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for idx in indices {
     if idx >= 0 && idx < chars.length() {
       buf.write_char(chars[idx])
