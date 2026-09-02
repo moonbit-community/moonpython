@@ -1608,7 +1608,7 @@ fn eval_expr_with_env(
                       ),
                     )
                 }
-                let buf = StringBuilder::new()
+                let buf = StringBuilder()
                 let mut first = true
                 while true {
                   match

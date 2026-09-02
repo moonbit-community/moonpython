@@ -347,7 +347,7 @@ pub fn format_runtime_error_with_traceback(
   if limit == 0 || error.traceback.length() == 0 {
     return format_runtime_error(error)
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("Traceback (most recent call last):\n")
   let start = if error.traceback.length() > limit {
     error.traceback.length() - limit

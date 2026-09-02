@@ -9,7 +9,7 @@ fn bytes_hex_digit(n : Int) -> Char {
 
 ///|
 fn bytes_hex_byte(value : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let hi = (value >> 4) & 0xF
   let lo = value & 0xF
   buf.write_char(bytes_hex_digit(hi))
@@ -19,7 +19,7 @@ fn bytes_hex_byte(value : Int) -> String {
 
 ///|
 fn bytes_repr(values : Array[Int]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("b'")
   for byte in values {
     let v = byte & 0xFF
@@ -73,7 +73,7 @@ fn value_to_string(value : @mpython.Value) -> String {
     @mpython.Value::MemoryView(values) =>
       "memoryview(" + bytes_repr(values) + ")"
     @mpython.Value::List(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('[')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
@@ -85,7 +85,7 @@ fn value_to_string(value : @mpython.Value) -> String {
       buf.to_string()
     }
     @mpython.Value::Tuple(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('(')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
@@ -101,7 +101,7 @@ fn value_to_string(value : @mpython.Value) -> String {
     }
     @mpython.Value::Dict(_) => "{}"
     @mpython.Value::Set(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('{')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
@@ -160,7 +160,7 @@ fn print_usage() -> Unit {
 
 ///|
 fn main {
-  let args = @sys.get_cli_args()
+  let args = @env.args()
   let stdlib_paths : Array[String] = []
   let mut i = 1
   while i < args.length() {

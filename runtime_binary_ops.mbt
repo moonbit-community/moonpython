@@ -406,7 +406,7 @@ fn eval_binary_op_values(
           if count <= 0N {
             Ok(Value::Str(""))
           } else {
-            let buf = StringBuilder::new()
+            let buf = StringBuilder()
             let count_i = match bigint_to_int_checked(count) {
               Ok(v) => v
               Err(err) => return Err(err)

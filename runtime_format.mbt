@@ -25,7 +25,7 @@ fn hex_digit(n : Int) -> Char {
 
 ///|
 fn hex_width(codepoint : Int, width : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < width {
     let shift = 4 * (width - 1 - i)
@@ -38,7 +38,7 @@ fn hex_width(codepoint : Int, width : Int) -> String {
 
 ///|
 fn ascii_escape(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for ch in text.to_array() {
     let code = ch.to_int()
     if code < 0x80 {
@@ -146,7 +146,7 @@ fn format_string_width(
     _ => 0
   }
   let right = pad - left
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < left; i = i + 1 {
     buf.write_char(fill)
   }
@@ -189,7 +189,7 @@ fn fstring_int_to_base_string(
     digits.push(table[d])
     n = n / b
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = digits.length()
   while i > 0 {
     i = i - 1
@@ -254,7 +254,7 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
     if chars.length() <= 3 {
       return text
     }
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     let mut i = 0
     let rem = chars.length() % 3
     let first = if rem == 0 { 3 } else { rem }
@@ -286,7 +286,7 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
   if width > 0 && core.length() < width {
     let pad = width - core.length()
     if zero_pad {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string(sign)
       buf.write_string(alt_prefix)
       for i = 0; i < pad; i = i + 1 {
@@ -295,7 +295,7 @@ fn format_int_with_spec(value : @bigint.BigInt, spec : String) -> String? {
       buf.write_string(digits)
       core = buf.to_string()
     } else {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for i = 0; i < pad; i = i + 1 {
         buf.write_char(' ')
       }
@@ -314,7 +314,7 @@ fn eval_fstring_text(
   builtins : Array[(String, Value)],
   io : MockIO,
 ) -> Result[String, RuntimeError] {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let chars = text.to_array()
   let mut i = 0
   while i < chars.length() {
@@ -561,7 +561,7 @@ fn pad_left(text : String, width : Int, pad_char : Char) -> String {
   if width <= text.length() {
     text
   } else {
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     let pad_len = width - text.length()
     for _i = 0; _i < pad_len; _i = _i + 1 {
       buf.write_char(pad_char)
@@ -576,7 +576,7 @@ fn pad_right(text : String, width : Int, pad_char : Char) -> String {
   if width <= text.length() {
     text
   } else {
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     buf.write_string(text)
     let pad_len = width - text.length()
     for _i = 0; _i < pad_len; _i = _i + 1 {
@@ -606,7 +606,7 @@ fn pad_numeric(text : String, width : Int, zero_pad : Bool) -> String {
       if pad_len <= 0 {
         text
       } else {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         buf.write_char('-')
         for _i = 0; _i < pad_len; _i = _i + 1 {
           buf.write_char('0')
@@ -770,7 +770,7 @@ fn format_percent_string(
     }
     _ => [value]
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let chars = format.to_array()
   let mut arg_index = 0
   let mut used_positional = false

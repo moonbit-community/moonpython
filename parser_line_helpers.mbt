@@ -930,7 +930,7 @@ fn find_top_level_char(text : String, target : Char) -> Int? {
 ///|
 fn strip_inline_comment(text : String) -> String {
   let chars = text.to_array()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   let mut quote : Char? = None
   let mut triple : Char? = None
@@ -1266,7 +1266,7 @@ fn replace_newlines_with_spaces(text : String) -> String {
     }
     i += 1
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for ch in out {
     buf.write_char(ch)
   }

@@ -433,7 +433,7 @@ fn builtin_str_join(
         ),
       )
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut first = true
   while true {
     match iterator_next(iterator_value, None, globals, builtins, io) {
@@ -831,7 +831,7 @@ fn encode_string_with_encoding(
   fn normalize_encoding_name(raw : String) -> String {
     // CPython normalizes encoding names case-insensitively and treats "_" as "-".
     let lower = raw.to_lower()
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     for ch in lower {
       if ch == '_' {
         buf.write_char('-')
@@ -961,7 +961,7 @@ fn decode_bytes_utf8(
   errors : String,
 ) -> Result[String, RuntimeError] {
   let _ = name
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < bytes.length() {
     let b0 = bytes[i] & 0xFF
@@ -1073,7 +1073,7 @@ fn decode_bytes_ascii(
   errors : String,
 ) -> Result[String, RuntimeError] {
   let _ = name
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for b in bytes {
     let v = b & 0xFF
     if v > 0x7F {
@@ -1108,7 +1108,7 @@ fn decode_bytes_latin1(
 ) -> Result[String, RuntimeError] {
   let _ = name
   let _ = errors
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for b in bytes {
     let v = b & 0xFF
     buf.write_char(v.to_char().unwrap())
@@ -1125,7 +1125,7 @@ fn decode_bytes_with_encoding(
 ) -> Result[String, RuntimeError] {
   fn normalize_encoding_name(raw : String) -> String {
     let lower = raw.to_lower()
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     for ch in lower {
       if ch == '_' {
         buf.write_char('-')
@@ -1236,7 +1236,7 @@ fn decode_bytes_with_encoding(
       Some(acc)
     }
 
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     let mut i = 0
     while i < bytes.length() {
       let b0 = bytes[i] & 0xFF

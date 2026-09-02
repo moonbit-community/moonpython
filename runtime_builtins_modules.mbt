@@ -1362,7 +1362,7 @@ fn builtin_time_strftime(
   }
 
   let chars = format.to_array()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
@@ -1511,7 +1511,7 @@ fn builtin_string_formatter_parser(
   let out : Array[Value] = []
   let chars = text.to_array()
   let mut i = 0
-  let mut lit = StringBuilder::new()
+  let mut lit = StringBuilder()
   while i < chars.length() {
     let c = chars[i]
     if c == '{' {
@@ -1522,7 +1522,7 @@ fn builtin_string_formatter_parser(
       }
       // Flush literal then parse field.
       let literal_text = lit.to_string()
-      lit = StringBuilder::new()
+      lit = StringBuilder()
       let mut j = i + 1
       while j < chars.length() && chars[j] != '}' {
         j += 1
@@ -2716,7 +2716,7 @@ fn builtin_struct_calcsize(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -2759,7 +2759,7 @@ fn builtin_struct_pack(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -2970,7 +2970,7 @@ fn builtin_struct_unpack(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -6014,7 +6014,7 @@ fn builtin_itertools_permutations(
     Value::Str(text) => {
       let out : Array[Value] = []
       for ch in text.to_array() {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         buf.write_char(ch)
         out.push(Value::Str(buf.to_string()))
       }
@@ -6119,7 +6119,7 @@ fn builtin_itertools_combinations(
     Value::Str(text) => {
       let out : Array[Value] = []
       for ch in text.to_array() {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         buf.write_char(ch)
         out.push(Value::Str(buf.to_string()))
       }
@@ -6241,7 +6241,7 @@ fn builtin_itertools_product(
       Value::Str(text) => {
         let out : Array[Value] = []
         for ch in text.to_array() {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           buf.write_char(ch)
           out.push(Value::Str(buf.to_string()))
         }

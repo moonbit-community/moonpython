@@ -400,7 +400,7 @@ fn bc_op_repr(op : BcOp) -> String {
 
 ///|
 pub fn bc_disassemble(code : BcCode) -> String {
-  let b = StringBuilder::new()
+  let b = StringBuilder()
   b.write_string("BcCode(" + code.name + ")\n")
   for i = 0; i < code.ops.length(); i = i + 1 {
     let op = code.ops[i]
