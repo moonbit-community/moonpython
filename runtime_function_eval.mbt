@@ -493,7 +493,7 @@ fn eval_generator_with_kwargs(
 }
 
 ///|
-let runtime_callbacks_ready : Ref[Bool] = { val: false }
+let runtime_callbacks_ready : Ref[Bool] = { val: false, }
 
 ///|
 fn ensure_runtime_callbacks_ready() -> Unit {

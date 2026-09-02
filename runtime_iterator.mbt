@@ -2,28 +2,28 @@
 /// Iterator protocol helpers (internal).
 
 ///|
-let iterator_class_ref : Ref[ClassValue?] = { val: None }
+let iterator_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let repeat_class_ref : Ref[ClassValue?] = { val: None }
+let repeat_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let count_class_ref : Ref[ClassValue?] = { val: None }
+let count_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let enumerate_class_ref : Ref[ClassValue?] = { val: None }
+let enumerate_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let rangeiter_class_ref : Ref[ClassValue?] = { val: None }
+let rangeiter_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let cycle_class_ref : Ref[ClassValue?] = { val: None }
+let cycle_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let seqiter_class_ref : Ref[ClassValue?] = { val: None }
+let seqiter_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
-let zip_class_ref : Ref[ClassValue?] = { val: None }
+let zip_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
 fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
@@ -73,7 +73,7 @@ fn internal_iter_class(name : String, cache : Ref[ClassValue?]) -> ClassValue {
       ),
     )
   }
-  let klass = ClassValue::{ name, bases: [], dict }
+  let klass = ClassValue::{ name, bases: [], dict, }
   cache.val = Some(klass)
   klass
 }

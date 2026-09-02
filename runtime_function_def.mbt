@@ -39,7 +39,7 @@ fn make_function_from_template_with_env(
   let inherited = merge_cell_closures(current_closure_env(), extra_cells)
   let closure = merge_cell_closures(locals, inherited)
   let globals_marker = Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
+    class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [], },
     dict: globals,
   })
   closure.push(("$__mpython_globals__", globals_marker))

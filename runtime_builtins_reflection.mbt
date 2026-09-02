@@ -2,13 +2,13 @@
 /// Reflection/object-model builtins (iter/next/property/bool/repr/callable/type/etc).
 
 ///|
-let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N }
+let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N, }
 
 ///|
 // `id()` needs stable object identity, especially for cycle detection in the
 // stdlib (e.g. pprint's recursion tracking). We don't have direct pointer->int
 // casts available, so we maintain small registries keyed by reference identity.
-let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [] }
+let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [], }
 
 ///|
 let id_registry_int_array : Ref[Array[(Array[Int], @bigint.BigInt)]] = {
@@ -728,7 +728,7 @@ fn make_property_instance(
   dict.push(("fset", fset))
   dict.push(("fdel", fdel))
   dict.push(("doc", doc))
-  Value::Instance(InstanceValue::{ class: klass, dict })
+  Value::Instance(InstanceValue::{ class: klass, dict, })
 }
 
 ///|
@@ -1170,7 +1170,7 @@ fn builtin_staticmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   let klass = builtin_class_from_name("staticmethod", builtins)
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -1245,7 +1245,7 @@ fn builtin_classmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   let klass = builtin_class_from_name("classmethod", builtins)
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -2362,7 +2362,7 @@ fn builtin_type_new(
   if get_named_value(class_dict, "hashvalue") is None {
     class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   }
-  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict, }
   // Track the metaclass used to construct this class (`type.__new__(mcls, ...)`)
   // so `type(C)` and `isinstance(C, mcls)` behave like CPython.
   match positional[0] {
@@ -2584,7 +2584,7 @@ fn builtin_type(
   if get_named_value(class_dict, "hashvalue") is None {
     class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   }
-  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict, }
   let _ = match class_mro(klass) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -4695,7 +4695,7 @@ fn builtin_super(
   dict.push(("__self_class__", Value::Class(self_class)))
   Ok(
     Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "super", bases: [], dict: [] },
+      class: ClassValue::{ name: "super", bases: [], dict: [], },
       dict,
     }),
   )
