@@ -34,7 +34,7 @@ let eval_function_with_kwargs_ref : Ref[
     Array[(String, Value)],
     MockIO,
   ) -> Result[Value, RuntimeError],
-] = { val: eval_function_with_kwargs_uninitialized }
+] = { val: eval_function_with_kwargs_uninitialized, }
 
 ///|
 fn eval_generator_with_kwargs_uninitialized(
@@ -69,7 +69,7 @@ let eval_generator_with_kwargs_ref : Ref[
     Array[(String, Value)],
     MockIO,
   ) -> Result[Value, RuntimeError],
-] = { val: eval_generator_with_kwargs_uninitialized }
+] = { val: eval_generator_with_kwargs_uninitialized, }
 
 ///|
 fn set_eval_function_with_kwargs_callback(
@@ -1315,7 +1315,7 @@ fn call_callable_with_env(
           _ => false
         }
         let package_name = if is_package { name } else { parent }
-        let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+        let module_class = ClassValue::{ name: "module", bases: [], dict: [], }
         let dict : Array[(String, Value)] = [
           ("hashvalue", Value::Int(fresh_object_hashvalue())),
           ("__name__", Value::Str(name)),
@@ -7095,7 +7095,7 @@ fn call_callable_with_env(
         dict.push(("__suppress_context__", Value::Bool(false)))
         dict.push(("message", message))
         dict.push(("exceptions", Value::List(exceptions)))
-        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict, })
         gc_register_instance(inst_value)
         return Ok(inst_value)
       }
@@ -7126,7 +7126,7 @@ fn call_callable_with_env(
         dict.push(("tb_lineno", tb_lineno))
         // MoonPython extension: keep a column value for PEP 657 helpers.
         dict.push(("tb_colno", Value::Int(1N)))
-        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict, })
         gc_register_instance(inst_value)
         return Ok(inst_value)
       }
@@ -7154,7 +7154,7 @@ fn call_callable_with_env(
         dict.push(("__package__", Value::None))
         dict.push(("__loader__", Value::None))
         dict.push(("__spec__", Value::None))
-        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict, })
         gc_register_instance(inst_value)
         return Ok(inst_value)
       }
@@ -7296,7 +7296,7 @@ fn call_callable_with_env(
           dict.push(("name_from", name_from_value))
           dict.push(("obj", obj_value))
         }
-        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict })
+        let inst_value = Value::Instance(InstanceValue::{ class: klass, dict, })
         gc_register_instance(inst_value)
         // Respect custom exception __init__ implementations (e.g. regrtest's
         // TestFailedWithDetails sets extra fields like `.errors`).

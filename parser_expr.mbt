@@ -9,11 +9,11 @@ priv struct ExprParser {
 }
 
 ///|
-let assign_temp_id_ref : Ref[Int] = { val: 0 }
+let assign_temp_id_ref : Ref[Int] = { val: 0, }
 
 ///|
 fn ExprParser::new(tokens : Array[Token]) -> ExprParser {
-  ExprParser::{ tokens, view: tokens[:] }
+  ExprParser::{ tokens, view: tokens[:], }
 }
 
 ///|
@@ -850,7 +850,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: true, targets, iter })
+        clauses.push(CompClause::{ is_async: true, targets, iter, })
         continue
       }
       [{ kind: For, .. }, .. rest] => {
@@ -914,7 +914,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: false, targets, iter })
+        clauses.push(CompClause::{ is_async: false, targets, iter, })
         continue
       }
       [{ kind: If, .. }, .. rest] => {

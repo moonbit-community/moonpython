@@ -10,7 +10,7 @@ priv enum BlockFlow {
 }
 
 ///|
-let active_exception_stack : Ref[Array[RuntimeError]] = { val: [] }
+let active_exception_stack : Ref[Array[RuntimeError]] = { val: [], }
 
 ///|
 
@@ -736,7 +736,7 @@ fn make_frame_value(frame : TracebackFrame, builtins_dict : Value) -> Value {
     (Value::Str("__mpython_locals__"), Value::None),
   ]
   let code_value = Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    class: ClassValue::{ name: "code", bases: [], dict: [], },
     dict: [
       ("co_filename", Value::Str(frame.filename)),
       ("co_name", Value::Str(frame.name)),
@@ -750,7 +750,7 @@ fn make_frame_value(frame : TracebackFrame, builtins_dict : Value) -> Value {
     ],
   })
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "frame", bases: [], dict: frame_class_dict },
+    class: ClassValue::{ name: "frame", bases: [], dict: frame_class_dict, },
     dict: [
       ("f_name", Value::Str(frame.name)),
       ("f_filename", Value::Str(frame.filename)),
@@ -815,7 +815,7 @@ fn make_traceback_value(
       builtins_dict,
     )
     return Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      class: ClassValue::{ name: "traceback", bases: [], dict: [], },
       dict: [
         ("tb_frame", frame_value),
         ("tb_lineno", Value::Int(1N)),
@@ -897,7 +897,7 @@ fn make_traceback_value(
     dict.push(("tb_lasti", Value::Int(@bigint.BigInt::from_int(tb_lasti))))
     dict.push(("tb_next", next_value))
     next_value = Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      class: ClassValue::{ name: "traceback", bases: [], dict: [], },
       dict,
     })
   }
@@ -1017,7 +1017,7 @@ fn make_traceback_value_with_env(
             set_named_value(inst.dict, "f_globals", Value::Dict(globals_pairs))
         }
         let tb_value = Value::Instance(InstanceValue::{
-          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          class: ClassValue::{ name: "traceback", bases: [], dict: [], },
           dict: [
             ("tb_frame", Value::Instance(inst)),
             ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
@@ -1031,7 +1031,7 @@ fn make_traceback_value_with_env(
       _ => {
         // Fallback: keep the original behavior.
         let tb_value = Value::Instance(InstanceValue::{
-          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          class: ClassValue::{ name: "traceback", bases: [], dict: [], },
           dict: [
             ("tb_frame", frame_value),
             ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
@@ -1401,7 +1401,7 @@ fn exception_value_from_runtime_error(
     globals : Array[(String, Value)],
   ) -> Value {
     let dict : Array[(String, Value)] = []
-    let inst = InstanceValue::{ class: klass, dict }
+    let inst = InstanceValue::{ class: klass, dict, }
     attach_exc_metadata(inst, positional, err, globals)
     Value::Instance(inst)
   }
@@ -1797,7 +1797,7 @@ fn eval_block_flow(
           globals,
           name,
           Value::Instance(InstanceValue::{
-            class: ClassValue::{ name: "TypeAlias", bases: [], dict: [] },
+            class: ClassValue::{ name: "TypeAlias", bases: [], dict: [], },
             dict: [
               ("__name__", Value::Str(name)),
               ("__value_func__", value_func),

@@ -150,7 +150,7 @@ fn builtin_tuple_new(
           ("hashvalue", Value::Int(fresh_object_hashvalue())),
           (tuple_storage_name, Value::Tuple(items)),
         ]
-        Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+        Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
       } else {
         Ok(Value::Tuple(items))
       }
@@ -221,7 +221,7 @@ fn builtin_slice_new(
     ("stop", stop),
     ("step", step),
   ]
-  Ok(Value::Instance(InstanceValue::{ class: cls, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: cls, dict, }))
 }
 
 ///|
@@ -258,7 +258,7 @@ fn builtin_slice(
   dict.push(("stop", stop))
   dict.push(("step", step))
   let klass = builtin_class_from_name("slice", builtins)
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -376,7 +376,7 @@ fn builtin_frozenset(
     ("hashvalue", Value::Int(fresh_object_hashvalue())),
     (set_storage_name, Value::Set(unique)),
   ]
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|

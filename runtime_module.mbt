@@ -2,7 +2,7 @@
 /// Minimal module objects + module loading for `import`.
 
 ///|
-let sys_modules_ref : Ref[Array[(Value, Value)]] = { val: [] }
+let sys_modules_ref : Ref[Array[(Value, Value)]] = { val: [], }
 
 ///|
 fn module_cache_get(name : String) -> Value? {
@@ -304,13 +304,13 @@ fn make_importlib_finder() -> Value {
       ),
     ],
   }
-  Value::Instance(InstanceValue::{ class: finder_class, dict: [] })
+  Value::Instance(InstanceValue::{ class: finder_class, dict: [], })
 }
 
 ///|
 fn make_module_instance(name : String, dict : Array[(String, Value)]) -> Value {
-  let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
-  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let module_class = ClassValue::{ name: "module", bases: [], dict: [], }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [], }
   // For builtin/host-provided modules we use a tiny placeholder loader so
   // `importlib.machinery.BuiltinImporter.find_spec(name)` implies a non-None
   // `module.__loader__` in the stdlib tests.
@@ -533,7 +533,7 @@ fn make_atexit_module() -> Value {
 }
 
 ///|
-let socket_socket_class_ref : Ref[ClassValue?] = { val: None }
+let socket_socket_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
 fn socket_socket_class(builtins : Array[(String, Value)]) -> ClassValue {
@@ -792,7 +792,7 @@ fn make_binascii_module(builtins : Array[(String, Value)]) -> Value {
       _ => ()
     }
   }
-  let error_class = ClassValue::{ name: "Error", bases: exc_base, dict: [] }
+  let error_class = ClassValue::{ name: "Error", bases: exc_base, dict: [], }
   let incomplete_class = ClassValue::{
     name: "Incomplete",
     bases: [Value::Class(error_class)],
@@ -838,7 +838,7 @@ fn make_asyncio_module() -> Value {
 }
 
 ///|
-let rlock_class_ref : Ref[ClassValue?] = { val: None }
+let rlock_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
 fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
@@ -925,7 +925,7 @@ fn thread_rlock_class(builtins : Array[(String, Value)]) -> ClassValue {
       }),
     ),
   ]
-  let klass = ClassValue::{ name: "RLock", bases, dict }
+  let klass = ClassValue::{ name: "RLock", bases, dict, }
   rlock_class_ref.val = Some(klass)
   klass
 }
@@ -939,7 +939,7 @@ fn make_thread_module(builtins : Array[(String, Value)]) -> Value {
       exc_bases.push(Value::Class(exception_class))
     _ => ()
   }
-  let error_class = ClassValue::{ name: "error", bases: exc_bases, dict: [] }
+  let error_class = ClassValue::{ name: "error", bases: exc_bases, dict: [], }
   make_module_instance("_thread", [
     ("get_ident", module_function_stub("_thread.get_ident")),
     ("allocate_lock", module_function_stub("_thread.allocate_lock")),
@@ -996,8 +996,8 @@ fn make_itertools_chain_factory() -> Value {
     ("__call__", module_function_stub("itertools.chain")),
     ("from_iterable", module_function_stub("itertools.chain.from_iterable")),
   ]
-  let klass = ClassValue::{ name: "chain_factory", bases: [], dict }
-  Value::Instance(InstanceValue::{ class: klass, dict: [] })
+  let klass = ClassValue::{ name: "chain_factory", bases: [], dict, }
+  Value::Instance(InstanceValue::{ class: klass, dict: [], })
 }
 
 ///|
@@ -1029,7 +1029,7 @@ fn make_pdb_module(builtins : Array[(String, Value)]) -> Value {
     Some(Value::Class(object_class)) => bases.push(Value::Class(object_class))
     _ => ()
   }
-  let pdb_class = ClassValue::{ name: "Pdb", bases, dict: [] }
+  let pdb_class = ClassValue::{ name: "Pdb", bases, dict: [], }
   make_module_instance("pdb", [
     ("set_trace", module_function_stub("pdb.set_trace")),
     ("Pdb", Value::Class(pdb_class)),
@@ -1052,7 +1052,7 @@ fn make_weakref_module(builtins : Array[(String, Value)]) -> Value {
     bases,
     dict: weakref_dict,
   }
-  let proxy_type_class = ClassValue::{ name: "ProxyType", bases, dict: [] }
+  let proxy_type_class = ClassValue::{ name: "ProxyType", bases, dict: [], }
   let callable_proxy_type_class = ClassValue::{
     name: "CallableProxyType",
     bases,
@@ -1110,7 +1110,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
     Value::Str("final"),
     Value::Int(0N),
   ])
-  let impl_class = ClassValue::{ name: "implementation", bases: [], dict: [] }
+  let impl_class = ClassValue::{ name: "implementation", bases: [], dict: [], }
   let impl_value = Value::Instance(InstanceValue::{
     class: impl_class,
     dict: [
@@ -1120,7 +1120,11 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       ("cache_tag", Value::Str("cpython-312")),
     ],
   })
-  let float_info_class = ClassValue::{ name: "float_info", bases: [], dict: [] }
+  let float_info_class = ClassValue::{
+    name: "float_info",
+    bases: [],
+    dict: [],
+  }
   let float_info_value = Value::Instance(InstanceValue::{
     class: float_info_class,
     dict: [
@@ -1137,7 +1141,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       ("rounds", Value::Int(1N)),
     ],
   })
-  let hash_info_class = ClassValue::{ name: "hash_info", bases: [], dict: [] }
+  let hash_info_class = ClassValue::{ name: "hash_info", bases: [], dict: [], }
   let hash_info_value = Value::Instance(InstanceValue::{
     class: hash_info_class,
     dict: [
@@ -1152,7 +1156,7 @@ fn make_sys_module(builtins : Array[(String, Value)], config : Config) -> Value 
       ("cutoff", Value::Int(0N)),
     ],
   })
-  let flags_class = ClassValue::{ name: "flags", bases: [], dict: [] }
+  let flags_class = ClassValue::{ name: "flags", bases: [], dict: [], }
   let flags_value = Value::Instance(InstanceValue::{
     class: flags_class,
     dict: [
@@ -1679,7 +1683,7 @@ fn make_python_module(
   } else {
     Value::None
   }
-  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [] }
+  let spec_class = ClassValue::{ name: "ModuleSpec", bases: [], dict: [], }
   // A tiny placeholder loader object so CPython's importlib bootstrap doesn't
   // treat file-backed modules as namespace packages (loader=None), which would
   // currently raise NotImplementedError during `_init_module_attrs`.
@@ -1733,7 +1737,7 @@ fn make_python_module(
     ("__spec__", spec_value),
     ("__doc__", doc_value),
   ]
-  let module_class = ClassValue::{ name: "module", bases: [], dict: [] }
+  let module_class = ClassValue::{ name: "module", bases: [], dict: [], }
   let module_value = Value::Instance(InstanceValue::{
     class: module_class,
     dict: module_globals,

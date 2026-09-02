@@ -470,7 +470,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -771,7 +771,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -948,7 +948,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -2796,7 +2796,7 @@ pub fn compile_stmts_to_bc_with_future(
   future_annotations : Bool,
 ) -> Result[BcCode, RuntimeError] {
   let b = BcBuilder::new(name, filename)
-  let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
+  let loop_stack : Ref[Array[LoopCtx]] = { val: [], }
   for stmt in body {
     match compile_stmt(stmt, b, None, loop_stack, 0, future_annotations) {
       Ok(_) => ()

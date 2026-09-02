@@ -16,12 +16,12 @@ priv struct AsyncGenExpState {
 }
 
 ///|
-let async_genexp_registry : Ref[Array[Ref[AsyncGenExpState]]] = { val: [] }
+let async_genexp_registry : Ref[Array[Ref[AsyncGenExpState]]] = { val: [], }
 
 ///|
 fn make_async_genexp_instance(id : Int) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "async_generator", bases: [], dict: [] },
+    class: ClassValue::{ name: "async_generator", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
   })
 }

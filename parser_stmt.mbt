@@ -2826,7 +2826,7 @@ fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
   } else {
     start + 1
   }
-  Span::{ start, end, line: line_index + 1, column: indent + 1 }
+  Span::{ start, end, line: line_index + 1, column: indent + 1, }
 }
 
 ///|
