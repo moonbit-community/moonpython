@@ -775,7 +775,7 @@ fn builtin_class_from_name(
       ),
     )
   }
-  ClassValue::{ name, bases, dict }
+  ClassValue::{ name, bases, dict, }
 }
 
 ///|
@@ -972,7 +972,7 @@ fn slice_ints_by_indices(
 
 ///|
 fn slice_string_by_indices(chars : Array[Char], indices : Array[Int]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for idx in indices {
     if idx >= 0 && idx < chars.length() {
       buf.write_char(chars[idx])
@@ -992,7 +992,7 @@ fn is_cell_value(value : Value) -> Bool {
 ///|
 fn cell_new(value : Value) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "cell", bases: [], dict: [] },
+    class: ClassValue::{ name: "cell", bases: [], dict: [], },
     dict: [
       ("hashvalue", Value::Int(fresh_object_hashvalue())),
       ("value", value),
@@ -1003,7 +1003,7 @@ fn cell_new(value : Value) -> Value {
 ///|
 fn cell_new_unbound() -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "cell", bases: [], dict: [] },
+    class: ClassValue::{ name: "cell", bases: [], dict: [], },
     dict: [("hashvalue", Value::Int(fresh_object_hashvalue()))],
   })
 }
@@ -1133,7 +1133,7 @@ fn capture_cell_closure(
 }
 
 ///|
-let closure_env_stack : Ref[Array[Array[(String, Value)]]] = { val: [] }
+let closure_env_stack : Ref[Array[Array[(String, Value)]]] = { val: [], }
 
 ///|
 fn push_closure_env(env : Array[(String, Value)]) -> Unit {
@@ -1162,7 +1162,7 @@ fn has_active_closure_env() -> Bool {
 }
 
 ///|
-let active_config_stack : Ref[Array[Config]] = { val: [] }
+let active_config_stack : Ref[Array[Config]] = { val: [], }
 
 ///|
 fn push_active_config(config : Config) -> Unit {
@@ -1187,13 +1187,13 @@ fn current_config() -> Config {
 }
 
 ///|
-let current_workdir_ref : Ref[String] = { val: "." }
+let current_workdir_ref : Ref[String] = { val: ".", }
 
 ///|
 // The working directory at interpreter start. We keep this stable so that
 // sys.path entries like "Lib" continue to resolve even if user code calls
 // os.chdir() (we track chdir virtually via `current_workdir_ref`).
-let initial_workdir_ref : Ref[String] = { val: "." }
+let initial_workdir_ref : Ref[String] = { val: ".", }
 
 ///|
 fn current_workdir() -> String {
@@ -1332,7 +1332,7 @@ priv struct ScopeDecls {
 }
 
 ///|
-let scope_decls_stack : Ref[Array[ScopeDecls]] = { val: [] }
+let scope_decls_stack : Ref[Array[ScopeDecls]] = { val: [], }
 
 ///|
 fn push_scope_decls_with_nonlocals(

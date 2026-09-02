@@ -116,7 +116,7 @@ fn builtin_platform_machine(
 }
 
 ///|
-let enum_auto_counter : Ref[Int] = { val: 0 }
+let enum_auto_counter : Ref[Int] = { val: 0, }
 
 ///|
 fn builtin_enum_auto(
@@ -146,7 +146,7 @@ fn builtin_enum_auto(
   ]
   Ok(
     Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "auto", bases: [], dict: [] },
+      class: ClassValue::{ name: "auto", bases: [], dict: [], },
       dict,
     }),
   )
@@ -649,7 +649,7 @@ fn builtin_socket_create_connection(
     ("connected", Value::Bool(true)),
     ("address", positional[0]),
   ]
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -1362,7 +1362,7 @@ fn builtin_time_strftime(
   }
 
   let chars = format.to_array()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
@@ -1462,7 +1462,7 @@ fn builtin_time_get_clock_info(
         ),
       )
   }
-  let info_class = ClassValue::{ name: "clock_info", bases: [], dict: [] }
+  let info_class = ClassValue::{ name: "clock_info", bases: [], dict: [], }
   Ok(
     Value::Instance(InstanceValue::{
       class: info_class,
@@ -1511,7 +1511,7 @@ fn builtin_string_formatter_parser(
   let out : Array[Value] = []
   let chars = text.to_array()
   let mut i = 0
-  let mut lit = StringBuilder::new()
+  let mut lit = StringBuilder()
   while i < chars.length() {
     let c = chars[i]
     if c == '{' {
@@ -1522,7 +1522,7 @@ fn builtin_string_formatter_parser(
       }
       // Flush literal then parse field.
       let literal_text = lit.to_string()
-      lit = StringBuilder::new()
+      lit = StringBuilder()
       let mut j = i + 1
       while j < chars.length() && chars[j] != '}' {
         j += 1
@@ -2109,7 +2109,7 @@ fn builtin_thread_rlock_at_fork_reinit(
 }
 
 ///|
-let weakref_registry : Ref[Array[Array[(String, Value)]]] = { val: [] }
+let weakref_registry : Ref[Array[Array[(String, Value)]]] = { val: [], }
 
 ///|
 fn make_weakref_instance(value : Value, klass_opt : ClassValue?) -> Value {
@@ -2124,9 +2124,9 @@ fn make_weakref_instance(value : Value, klass_opt : ClassValue?) -> Value {
   weakref_registry.val.push(dict)
   let klass = match klass_opt {
     Some(value) => value
-    None => ClassValue::{ name: "weakref", bases: [], dict: [] }
+    None => ClassValue::{ name: "weakref", bases: [], dict: [], }
   }
-  Value::Instance(InstanceValue::{ class: klass, dict })
+  Value::Instance(InstanceValue::{ class: klass, dict, })
 }
 
 ///|
@@ -2716,7 +2716,7 @@ fn builtin_struct_calcsize(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -2759,7 +2759,7 @@ fn builtin_struct_pack(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -2970,7 +2970,7 @@ fn builtin_struct_unpack(
     Value::Bytes(values)
     | Value::ByteArray(values)
     | Value::MemoryView(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for b in values {
         buf.write_char((b & 0xFF).to_char().unwrap())
       }
@@ -3279,10 +3279,10 @@ fn builtin_struct_struct_calcsize(
 }
 
 ///|
-let gc_enabled_ref : Ref[Bool] = { val: true }
+let gc_enabled_ref : Ref[Bool] = { val: true, }
 
 ///|
-let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10) }
+let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10), }
 
 ///|
 // Best-effort GC/finalization support.
@@ -3292,7 +3292,7 @@ let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10) }
 // `gc.collect()`. We approximate this by keeping a registry of created Python
 // instances (keyed by their `hashvalue`) and running a mark-and-sweep rooted at
 // the current Python environments and module graph.
-let gc_instance_registry : Ref[Array[Value]] = { val: [] }
+let gc_instance_registry : Ref[Array[Value]] = { val: [], }
 
 ///|
 fn gc_instance_id(value : Value) -> @bigint.BigInt? {
@@ -4997,7 +4997,7 @@ fn builtin_binascii_b2a_qp(
     col_ref.val = 0
   }
 
-  let col_ref : Ref[Int] = { val: 0 }
+  let col_ref : Ref[Int] = { val: 0, }
   let mut i = 0
   while i < bytes.length() {
     let b = bytes[i] & 0xFF
@@ -6014,7 +6014,7 @@ fn builtin_itertools_permutations(
     Value::Str(text) => {
       let out : Array[Value] = []
       for ch in text.to_array() {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         buf.write_char(ch)
         out.push(Value::Str(buf.to_string()))
       }
@@ -6119,7 +6119,7 @@ fn builtin_itertools_combinations(
     Value::Str(text) => {
       let out : Array[Value] = []
       for ch in text.to_array() {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         buf.write_char(ch)
         out.push(Value::Str(buf.to_string()))
       }
@@ -6241,7 +6241,7 @@ fn builtin_itertools_product(
       Value::Str(text) => {
         let out : Array[Value] = []
         for ch in text.to_array() {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           buf.write_char(ch)
           out.push(Value::Str(buf.to_string()))
         }

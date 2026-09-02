@@ -2,13 +2,13 @@
 /// Reflection/object-model builtins (iter/next/property/bool/repr/callable/type/etc).
 
 ///|
-let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N }
+let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N, }
 
 ///|
 // `id()` needs stable object identity, especially for cycle detection in the
 // stdlib (e.g. pprint's recursion tracking). We don't have direct pointer->int
 // casts available, so we maintain small registries keyed by reference identity.
-let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [] }
+let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [], }
 
 ///|
 let id_registry_int_array : Ref[Array[(Array[Int], @bigint.BigInt)]] = {
@@ -393,7 +393,7 @@ fn bigint_to_base_string(
     chars.push(digits.to_array()[d])
     n = n / b
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(sign)
   buf.write_string(prefix)
   for i = chars.length() - 1; i >= 0; i = i - 1 {
@@ -407,7 +407,7 @@ fn bigint_to_base_string(
 
 ///|
 fn escape_string_for_repr_with_quote(text : String, quote : Char) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for ch in text.to_array() {
     if ch == '\\' {
       buf.write_string("\\\\")
@@ -463,17 +463,17 @@ fn repr_fallback(value : Value) -> String {
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
     Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
     Value::List(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       write_joined(buf, values, "[", "]", false)
       buf.to_string()
     }
     Value::Tuple(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       write_joined(buf, values, "(", ")", true)
       buf.to_string()
     }
     Value::Dict(pairs) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('{')
       for i = 0; i < pairs.length(); i = i + 1 {
         if i > 0 {
@@ -490,7 +490,7 @@ fn repr_fallback(value : Value) -> String {
       if values.length() == 0 {
         "set()"
       } else {
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         write_joined(buf, values, "{", "}", false)
         buf.to_string()
       }
@@ -509,7 +509,7 @@ fn repr_fallback(value : Value) -> String {
                       if values.length() == 0 {
                         inst.class.name + "()"
                       } else {
-                        let buf = StringBuilder::new()
+                        let buf = StringBuilder()
                         buf.write_string(inst.class.name)
                         buf.write_char('(')
                         write_joined(buf, values, "{", "}", false)
@@ -728,7 +728,7 @@ fn make_property_instance(
   dict.push(("fset", fset))
   dict.push(("fdel", fdel))
   dict.push(("doc", doc))
-  Value::Instance(InstanceValue::{ class: klass, dict })
+  Value::Instance(InstanceValue::{ class: klass, dict, })
 }
 
 ///|
@@ -1170,7 +1170,7 @@ fn builtin_staticmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   let klass = builtin_class_from_name("staticmethod", builtins)
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -1245,7 +1245,7 @@ fn builtin_classmethod(
   let dict : Array[(String, Value)] = []
   dict.push(("func", positional[0]))
   let klass = builtin_class_from_name("classmethod", builtins)
-  Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+  Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
 }
 
 ///|
@@ -1584,7 +1584,7 @@ fn builtin_repr(
           }
           Ok(Value::Str(inst.class.name + "(" + part + ")"))
         } else {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           buf.write_string(inst.class.name)
           buf.write_char('(')
           for i = 0; i < args.length(); i = i + 1 {
@@ -2362,7 +2362,7 @@ fn builtin_type_new(
   if get_named_value(class_dict, "hashvalue") is None {
     class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   }
-  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict, }
   // Track the metaclass used to construct this class (`type.__new__(mcls, ...)`)
   // so `type(C)` and `isinstance(C, mcls)` behave like CPython.
   match positional[0] {
@@ -2584,7 +2584,7 @@ fn builtin_type(
   if get_named_value(class_dict, "hashvalue") is None {
     class_dict.push(("hashvalue", Value::Int(fresh_object_hashvalue())))
   }
-  let klass = ClassValue::{ name, bases: base_values, dict: class_dict }
+  let klass = ClassValue::{ name, bases: base_values, dict: class_dict, }
   let _ = match class_mro(klass) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -4338,7 +4338,8 @@ fn builtin_dir(
   let names : Array[String] = []
   fn push_name(names : Array[String], name : String) -> Unit {
     if name == "__class__" ||
-      name == "__mpython_metaclass__" ||
+      name == "hashvalue" ||
+      name.has_prefix("__mpython_") ||
       name == "__name__" ||
       name == "__qualname__" {
       // Hide internal or compatibility-only attributes from `dir()`.
@@ -4694,7 +4695,7 @@ fn builtin_super(
   dict.push(("__self_class__", Value::Class(self_class)))
   Ok(
     Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "super", bases: [], dict: [] },
+      class: ClassValue::{ name: "super", bases: [], dict: [], },
       dict,
     }),
   )

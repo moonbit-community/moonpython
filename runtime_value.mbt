@@ -53,7 +53,7 @@ fn not_callable_message(value : Value) -> String {
 }
 
 ///|
-let object_hash_counter : Ref[@bigint.BigInt] = { val: 1N }
+let object_hash_counter : Ref[@bigint.BigInt] = { val: 1N, }
 
 ///|
 fn fresh_object_hashvalue() -> @bigint.BigInt {
@@ -110,7 +110,7 @@ fn bytes_hex_digit(n : Int) -> Char {
 
 ///|
 fn bytes_hex_byte(value : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let hi = (value >> 4) & 0xF
   let lo = value & 0xF
   buf.write_char(bytes_hex_digit(hi))
@@ -120,7 +120,7 @@ fn bytes_hex_byte(value : Int) -> String {
 
 ///|
 fn bytes_repr(bytes : Array[Int]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("b'")
   for byte in bytes {
     let v = byte & 0xFF
@@ -235,7 +235,7 @@ fn value_to_string(value : Value) -> String {
     Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
     Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
     Value::List(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('[')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
@@ -247,7 +247,7 @@ fn value_to_string(value : Value) -> String {
       buf.to_string()
     }
     Value::Tuple(values) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('(')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {
@@ -262,7 +262,7 @@ fn value_to_string(value : Value) -> String {
       buf.to_string()
     }
     Value::Dict(pairs) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('{')
       for i = 0; i < pairs.length(); i = i + 1 {
         if i > 0 {
@@ -279,7 +279,7 @@ fn value_to_string(value : Value) -> String {
       if values.length() == 0 {
         return "set()"
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char('{')
       for i = 0; i < values.length(); i = i + 1 {
         if i > 0 {

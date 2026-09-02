@@ -1530,7 +1530,7 @@ pub fn bc_exec(
                     dict.push(("step", step))
                     let klass = builtin_class_from_name("slice", builtins)
                     stack.push(
-                      Value::Instance(InstanceValue::{ class: klass, dict }),
+                      Value::Instance(InstanceValue::{ class: klass, dict, }),
                     )
                     Ok(())
                   }
@@ -3741,6 +3741,37 @@ pub fn bc_exec(
             }
           Err(err) => Err(err)
         }
+      BcOp::MakeTypeAlias(name_idx) =>
+        match pop_stack(stack) {
+          Ok(value_func) =>
+            match value_func {
+              Value::Function(_) => {
+                let name = code.names[name_idx]
+                stack.push(
+                  Value::Instance(InstanceValue::{
+                    class: ClassValue::{
+                      name: "TypeAlias",
+                      bases: [],
+                      dict: [],
+                    },
+                    dict: [
+                      ("__name__", Value::Str(name)),
+                      ("__value_func__", value_func),
+                    ],
+                  }),
+                )
+                Ok(())
+              }
+              _ =>
+                Err(
+                  make_runtime_error(
+                    RuntimeErrorKind::Type,
+                    "bytecode vm: MakeTypeAlias expects function".to_string(),
+                  ),
+                )
+            }
+          Err(err) => Err(err)
+        }
       BcOp::MakeClass(template, name_idx, decorator_count) =>
         match pop_stack(stack) {
           Ok(keyword_specs_val) =>
@@ -3971,6 +4002,20 @@ pub fn bc_exec(
                             }
                           _ => ()
                         }
+                      }
+                      if get_scoped_value(locals, globals, "__class__")
+                        is Some(_) &&
+                        stmts_have_class_body_comprehension_name(
+                          body, "__class__",
+                        ) {
+                        return Err(
+                          make_runtime_error(
+                            RuntimeErrorKind::Runtime,
+                            "SystemError: compiler_lookup_arg(name='__class__') with reftype=1 failed in <module>; freevars of code " +
+                            class_name +
+                            ": ('__class__',)",
+                          ),
+                        )
                       }
                       let module_name_value = get_global_value(
                         globals, "__name__",
@@ -4606,7 +4651,12 @@ pub fn bc_exec(
             ),
           )
         }
-        match resolve_relative_module_name(module_name, globals) {
+        let resolved_result = if module_name.length() == 0 {
+          Ok(module_name)
+        } else {
+          resolve_relative_module_name(module_name, globals)
+        }
+        match resolved_result {
           Ok(resolved_name) => {
             if resolved_name == "__future__" {
               for item in names {

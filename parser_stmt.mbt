@@ -5,6 +5,7 @@
 ///|
 fn expr_has_async_comprehension(expr : Expr) -> Bool {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) => expr_has_async_comprehension(inner)
     Expr::ListComp(elt~, clauses~, filters~)
     | Expr::SetComp(elt~, clauses~, filters~) => {
       for clause in clauses {
@@ -313,8 +314,22 @@ fn expr_has_yield_or_await(expr : Expr) -> Bool {
 }
 
 ///|
+fn expr_has_named_expr(expr : Expr) -> Bool {
+  let targets : Array[String] = []
+  collect_named_expr_targets(expr, targets)
+  targets.length() > 0
+}
+
+///|
+fn expr_is_invalid_annotation_value(expr : Expr) -> Bool {
+  expr_has_yield_or_await(expr) || expr_has_named_expr(expr)
+}
+
+///|
 fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
   match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_illegal_await(inner, in_genexp)
     Expr::Await(_) => !in_genexp
     Expr::GenExp(elt~, clauses~, filters~) => {
       // `await` is permitted inside generator expressions (it makes the genexp
@@ -482,192 +497,1713 @@ fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
 }
 
 ///|
-fn target_has_illegal_await(target : Target) -> Bool {
-  match target {
-    Target::Tuple(items) | Target::List(items) => {
-      for item in items {
-        if target_has_illegal_await(item) {
-          return true
+fn expr_first_illegal_await_line(
+  expr : Expr,
+  in_genexp : Bool,
+  fallback_line : Int,
+) -> Int? {
+  match expr {
+    Expr::WithSpan(span~, expr=inner) =>
+      expr_first_illegal_await_line(inner, in_genexp, span.line)
+    Expr::Await(_) => if in_genexp { None } else { Some(fallback_line) }
+    Expr::GenExp(elt~, clauses~, filters~) => {
+      match expr_first_illegal_await_line(elt, true, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for clause in clauses {
+        match expr_first_illegal_await_line(clause.iter, true, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
         }
       }
-      false
+      for filter in filters {
+        match expr_first_illegal_await_line(filter, true, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
     }
-    Target::Starred(inner) => target_has_illegal_await(inner)
-    Target::Attribute(value~, attr~) => {
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      match expr_first_illegal_await_line(elt, in_genexp, fallback_line) {
+        Some(_) => return Some(fallback_line)
+        None => ()
+      }
+      for clause in clauses {
+        match
+          expr_first_illegal_await_line(clause.iter, in_genexp, fallback_line) {
+          Some(_) => return Some(fallback_line)
+          None => ()
+        }
+      }
+      for filter in filters {
+        match expr_first_illegal_await_line(filter, in_genexp, fallback_line) {
+          Some(_) => return Some(fallback_line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      match expr_first_illegal_await_line(key, in_genexp, fallback_line) {
+        Some(_) => return Some(fallback_line)
+        None => ()
+      }
+      match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+        Some(_) => return Some(fallback_line)
+        None => ()
+      }
+      for clause in clauses {
+        match
+          expr_first_illegal_await_line(clause.iter, in_genexp, fallback_line) {
+          Some(_) => return Some(fallback_line)
+          None => ()
+        }
+      }
+      for filter in filters {
+        match expr_first_illegal_await_line(filter, in_genexp, fallback_line) {
+          Some(_) => return Some(fallback_line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::List(items) | Expr::Tuple(items) | Expr::Set(items) => {
+      for item in items {
+        match expr_first_illegal_await_line(item, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::Dict(items) => {
+      for pair in items {
+        match expr_first_illegal_await_line(pair.0, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+        match expr_first_illegal_await_line(pair.1, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::Lambda(params~, defaults~, body~) => {
+      let _ = params
+      for default_value in defaults {
+        match
+          expr_first_illegal_await_line(default_value, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      expr_first_illegal_await_line(body, in_genexp, fallback_line)
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+      match expr_first_illegal_await_line(condition, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      match expr_first_illegal_await_line(then_expr, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(else_expr, in_genexp, fallback_line)
+    }
+    Expr::NamedExpr(name~, value~) => {
+      let _ = name
+      expr_first_illegal_await_line(value, in_genexp, fallback_line)
+    }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) =>
+          expr_first_illegal_await_line(value, in_genexp, fallback_line)
+        None => None
+      }
+    Expr::YieldFrom(value) =>
+      expr_first_illegal_await_line(value, in_genexp, fallback_line)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+            Some(line) => return Some(line)
+            None => ()
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+            Some(line) => return Some(line)
+            None => ()
+          }
+        None => ()
+      }
+      match step {
+        Some(value) =>
+          expr_first_illegal_await_line(value, in_genexp, fallback_line)
+        None => None
+      }
+    }
+    Expr::Attribute(value~, attr~) => {
       let _ = attr
-      expr_has_illegal_await(value, false)
+      expr_first_illegal_await_line(value, in_genexp, fallback_line)
     }
-    Target::Subscript(value~, index~) =>
-      expr_has_illegal_await(value, false) ||
-      expr_has_illegal_await(index, false)
-    _ => false
+    Expr::Subscript(value~, index~) => {
+      match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(index, in_genexp, fallback_line)
+    }
+    Expr::Call(callee~, args~) => {
+      match expr_first_illegal_await_line(callee, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for arg in args {
+        match expr_first_illegal_await_line(arg, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::Keyword(name~, value~) => {
+      let _ = name
+      expr_first_illegal_await_line(value, in_genexp, fallback_line)
+    }
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_first_illegal_await_line(value, in_genexp, fallback_line)
+    Expr::Unary(op~, expr~) => {
+      let _ = op
+      expr_first_illegal_await_line(expr, in_genexp, fallback_line)
+    }
+    Expr::Binary(op~, left~, right~) => {
+      let _ = op
+      match expr_first_illegal_await_line(left, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(right, in_genexp, fallback_line)
+    }
+    Expr::BoolOp(op~, values~) => {
+      let _ = op
+      for value in values {
+        match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Expr::Compare(left~, ops~, comparators~) => {
+      let _ = ops
+      match expr_first_illegal_await_line(left, in_genexp, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for value in comparators {
+        match expr_first_illegal_await_line(value, in_genexp, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    _ => None
   }
 }
 
 ///|
-fn stmt_has_illegal_await(stmt : Stmt) -> Bool {
+fn target_first_illegal_await_line(
+  target : Target,
+  fallback_line : Int,
+) -> Int? {
+  match target {
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        match target_first_illegal_await_line(item, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Target::Starred(inner) =>
+      target_first_illegal_await_line(inner, fallback_line)
+    Target::Attribute(value~, attr~) => {
+      let _ = attr
+      expr_first_illegal_await_line(value, false, fallback_line)
+    }
+    Target::Subscript(value~, index~) => {
+      match expr_first_illegal_await_line(value, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(index, false, fallback_line)
+    }
+    _ => None
+  }
+}
+
+///|
+fn stmt_first_illegal_await_line(stmt : Stmt, fallback_line : Int) -> Int? {
   match stmt {
-    Stmt::WithSpan(span=_, stmt=inner) => stmt_has_illegal_await(inner)
-    Stmt::ExprStmt(expr) => expr_has_illegal_await(expr, false)
-    Stmt::Assign(target~, value~) =>
-      target_has_illegal_await(target) || expr_has_illegal_await(value, false)
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_illegal_await_line(inner, span.line)
+    Stmt::ExprStmt(expr) =>
+      expr_first_illegal_await_line(expr, false, fallback_line)
+    Stmt::Assign(target~, value~) => {
+      match target_first_illegal_await_line(target, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(value, false, fallback_line)
+    }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      if target_has_illegal_await(target) ||
-        expr_has_illegal_await(annotation, false) {
-        return true
+      match target_first_illegal_await_line(target, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      match expr_first_illegal_await_line(annotation, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
       match value {
-        Some(v) => expr_has_illegal_await(v, false)
-        None => false
+        Some(v) => expr_first_illegal_await_line(v, false, fallback_line)
+        None => None
       }
     }
     Stmt::AugAssign(target~, op~, value~) => {
       let _ = op
-      target_has_illegal_await(target) || expr_has_illegal_await(value, false)
+      match target_first_illegal_await_line(target, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      expr_first_illegal_await_line(value, false, fallback_line)
     }
     Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) =>
       match expr_opt {
-        Some(v) => expr_has_illegal_await(v, false)
-        None => false
+        Some(v) => expr_first_illegal_await_line(v, false, fallback_line)
+        None => None
       }
-    Stmt::YieldFrom(expr) => expr_has_illegal_await(expr, false)
-    Stmt::Assert(condition~, message~) =>
-      if expr_has_illegal_await(condition, false) {
-        true
-      } else {
-        match message {
-          Some(v) => expr_has_illegal_await(v, false)
-          None => false
-        }
+    Stmt::YieldFrom(expr) =>
+      expr_first_illegal_await_line(expr, false, fallback_line)
+    Stmt::Assert(condition~, message~) => {
+      match expr_first_illegal_await_line(condition, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
+      match message {
+        Some(v) => expr_first_illegal_await_line(v, false, fallback_line)
+        None => None
+      }
+    }
     Stmt::Raise(exc~, cause~) => {
-      let exc_illegal = match exc {
-        Some(v) => expr_has_illegal_await(v, false)
-        None => false
+      match exc {
+        Some(v) =>
+          match expr_first_illegal_await_line(v, false, fallback_line) {
+            Some(line) => return Some(line)
+            None => ()
+          }
+        None => ()
       }
-      if exc_illegal {
-        true
-      } else {
-        match cause {
-          Some(v) => expr_has_illegal_await(v, false)
-          None => false
-        }
+      match cause {
+        Some(v) => expr_first_illegal_await_line(v, false, fallback_line)
+        None => None
       }
     }
     Stmt::Del(targets) => {
-      for t in targets {
-        if target_has_illegal_await(t) {
-          return true
+      for target in targets {
+        match target_first_illegal_await_line(target, fallback_line) {
+          Some(line) => return Some(line)
+          None => ()
         }
       }
-      false
+      None
     }
     Stmt::With(context~, target~, body~)
     | Stmt::AsyncWith(context~, target~, body~) => {
       let _ = target
-      if expr_has_illegal_await(context, false) {
-        return true
+      match expr_first_illegal_await_line(context, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
-      }
-      false
+      stmts_first_illegal_await_line(body)
     }
     Stmt::If(condition~, body~, else_body~)
     | Stmt::While(condition~, body~, else_body~) => {
-      if expr_has_illegal_await(condition, false) {
-        return true
+      match expr_first_illegal_await_line(condition, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
+      match stmts_first_illegal_await_line(body) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in else_body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
-      }
-      false
+      stmts_first_illegal_await_line(else_body)
     }
     Stmt::For(target~, iter~, body~, else_body~)
     | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
-      if target_has_illegal_await(target) || expr_has_illegal_await(iter, false) {
-        return true
+      match target_first_illegal_await_line(target, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
+      match expr_first_illegal_await_line(iter, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in else_body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
+      match stmts_first_illegal_await_line(body) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      false
+      stmts_first_illegal_await_line(else_body)
     }
     Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-      for s in body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
+      match stmts_first_illegal_await_line(body) {
+        Some(line) => return Some(line)
+        None => ()
       }
       for handler in handlers {
         match handler.exc {
-          Some(v) => if expr_has_illegal_await(v, false) { return true }
+          Some(v) =>
+            match expr_first_illegal_await_line(v, false, fallback_line) {
+              Some(line) => return Some(line)
+              None => ()
+            }
           None => ()
         }
-        for s in handler.body {
-          if stmt_has_illegal_await(s) {
-            return true
-          }
+        match stmts_first_illegal_await_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
         }
       }
-      for s in else_body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
+      match stmts_first_illegal_await_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
       }
-      for s in finally_body {
-        if stmt_has_illegal_await(s) {
-          return true
-        }
-      }
-      false
+      stmts_first_illegal_await_line(finally_body)
     }
     Stmt::Match(subject~, cases~) => {
-      if expr_has_illegal_await(subject, false) {
-        return true
+      match expr_first_illegal_await_line(subject, false, fallback_line) {
+        Some(line) => return Some(line)
+        None => ()
       }
       for case in cases {
         match case.1 {
-          Some(v) => if expr_has_illegal_await(v, false) { return true }
+          Some(v) =>
+            match expr_first_illegal_await_line(v, false, fallback_line) {
+              Some(line) => return Some(line)
+              None => ()
+            }
           None => ()
         }
-        for s in case.2 {
-          if stmt_has_illegal_await(s) {
-            return true
-          }
+        match stmts_first_illegal_await_line(case.2) {
+          Some(line) => return Some(line)
+          None => ()
         }
       }
-      false
+      None
     }
-    _ => false
+    _ => None
   }
 }
 
 ///|
 fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int? {
   for stmt in stmts {
-    match stmt {
-      Stmt::WithSpan(span~, stmt=inner) =>
-        if stmt_has_illegal_await(inner) {
-          return Some(span.line)
+    match stmt_first_illegal_await_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn stmt_first_except_star_control_flow_line(
+  stmt : Stmt,
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_except_star_control_flow_line(inner, span.line)
+    Stmt::Break | Stmt::Continue | Stmt::Return(_) => Some(fallback_line)
+    Stmt::If(condition=_, body~, else_body~)
+    | Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(else_body)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(else_body)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_except_star_control_flow_line(body)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_except_star_control_flow_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_except_star_control_flow_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
         }
-      _ => if stmt_has_illegal_await(stmt) { return Some(1) }
+      }
+      match stmts_first_except_star_control_flow_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_except_star_control_flow_line(finally_body)
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case in cases {
+        match stmts_first_except_star_control_flow_line(case.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_except_star_control_flow_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn stmt_first_invalid_control_flow_line(
+  stmt : Stmt,
+  fallback_line : Int,
+  in_function : Bool,
+  loop_depth : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_control_flow_line(
+        inner,
+        span.line,
+        in_function,
+        loop_depth,
+      )
+    Stmt::Return(_) | Stmt::Yield(_) | Stmt::YieldFrom(_) =>
+      if in_function {
+        None
+      } else {
+        Some(fallback_line)
+      }
+    Stmt::Break | Stmt::Continue =>
+      if loop_depth > 0 {
+        None
+      } else {
+        Some(fallback_line)
+      }
+    Stmt::If(condition=_, body~, else_body~) => {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::While(condition=_, body~, else_body~) => {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth + 1) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(else_body, in_function, loop_depth)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_invalid_control_flow_line(body, in_function, loop_depth)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match
+        stmts_first_invalid_control_flow_line(body, in_function, loop_depth) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match
+          stmts_first_invalid_control_flow_line(
+            handler.body,
+            in_function,
+            loop_depth,
+          ) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match
+        stmts_first_invalid_control_flow_line(
+          else_body, in_function, loop_depth,
+        ) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_control_flow_line(
+        finally_body, in_function, loop_depth,
+      )
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case in cases {
+        match
+          stmts_first_invalid_control_flow_line(case.2, in_function, loop_depth) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(body~, ..) =>
+      stmts_first_invalid_control_flow_line(body, true, 0)
+    Stmt::Class(body~, ..) =>
+      stmts_first_invalid_control_flow_line(body, false, 0)
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_control_flow_line(
+  stmts : Array[Stmt],
+  in_function : Bool,
+  loop_depth : Int,
+) -> Int? {
+  for stmt in stmts {
+    match
+      stmt_first_invalid_control_flow_line(stmt, 1, in_function, loop_depth) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn collect_target_names_for_global_check(
+  target : Target,
+  names : Array[String],
+) -> Unit {
+  match target {
+    Target::Name(name) => append_unique_name(names, name)
+    Target::Tuple(items) | Target::List(items) =>
+      for item in items {
+        collect_target_names_for_global_check(item, names)
+      }
+    Target::Starred(inner) =>
+      collect_target_names_for_global_check(inner, names)
+    _ => ()
+  }
+}
+
+///|
+fn collect_expr_names_for_global_check(
+  expr : Expr,
+  names : Array[String],
+) -> Unit {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      collect_expr_names_for_global_check(inner, names)
+    Expr::Name(name) => append_unique_name(names, name)
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) =>
+      for item in items {
+        collect_expr_names_for_global_check(item, names)
+      }
+    Expr::Dict(items) =>
+      for item in items {
+        collect_expr_names_for_global_check(item.0, names)
+        collect_expr_names_for_global_check(item.1, names)
+      }
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      collect_expr_names_for_global_check(elt, names)
+      for clause in clauses {
+        collect_expr_names_for_global_check(clause.iter, names)
+      }
+      for filter in filters {
+        collect_expr_names_for_global_check(filter, names)
+      }
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      collect_expr_names_for_global_check(key, names)
+      collect_expr_names_for_global_check(value, names)
+      for clause in clauses {
+        collect_expr_names_for_global_check(clause.iter, names)
+      }
+      for filter in filters {
+        collect_expr_names_for_global_check(filter, names)
+      }
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) => {
+      collect_expr_names_for_global_check(condition, names)
+      collect_expr_names_for_global_check(then_expr, names)
+      collect_expr_names_for_global_check(else_expr, names)
+    }
+    Expr::NamedExpr(name~, value~) => {
+      append_unique_name(names, name)
+      collect_expr_names_for_global_check(value, names)
+    }
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+      match end {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+      match step {
+        Some(value) => collect_expr_names_for_global_check(value, names)
+        None => ()
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Subscript(value~, index~) => {
+      collect_expr_names_for_global_check(value, names)
+      collect_expr_names_for_global_check(index, names)
+    }
+    Expr::Call(callee~, args~) => {
+      collect_expr_names_for_global_check(callee, names)
+      for arg in args {
+        collect_expr_names_for_global_check(arg, names)
+      }
+    }
+    Expr::Keyword(name=_, value~) =>
+      collect_expr_names_for_global_check(value, names)
+    Expr::Unary(op=_, expr~) => collect_expr_names_for_global_check(expr, names)
+    Expr::Binary(op=_, left~, right~) => {
+      collect_expr_names_for_global_check(left, names)
+      collect_expr_names_for_global_check(right, names)
+    }
+    Expr::BoolOp(op=_, values~) =>
+      for value in values {
+        collect_expr_names_for_global_check(value, names)
+      }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      collect_expr_names_for_global_check(left, names)
+      for comparator in comparators {
+        collect_expr_names_for_global_check(comparator, names)
+      }
+    }
+    Expr::Lambda(params=_, defaults~, body~) => {
+      for default_value in defaults {
+        collect_expr_names_for_global_check(default_value, names)
+      }
+      collect_expr_names_for_global_check(body, names)
+    }
+    _ => ()
+  }
+}
+
+///|
+fn params_have_global_check_name(params : Array[String], name : String) -> Bool {
+  for param in params {
+    match normalize_param_name_for_compare(param) {
+      Some(param_name) => if param_name == name { return true }
+      None => ()
+    }
+  }
+  false
+}
+
+///|
+fn stmt_first_invalid_global_line(
+  stmt : Stmt,
+  params : Array[String],
+  seen_names : Array[String],
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_global_line(inner, params, seen_names, span.line)
+    Stmt::Global(names) => {
+      for name in names {
+        if params_have_global_check_name(params, name) ||
+          name_in_list(seen_names, name) {
+          return Some(fallback_line)
+        }
+      }
+      None
+    }
+    Stmt::ExprStmt(expr) => {
+      collect_expr_names_for_global_check(expr, seen_names)
+      None
+    }
+    Stmt::Assign(target~, value~) => {
+      collect_expr_names_for_global_check(value, seen_names)
+      collect_target_names_for_global_check(target, seen_names)
+      None
+    }
+    Stmt::AnnAssign(target~, annotation~, value~) => {
+      collect_target_names_for_global_check(target, seen_names)
+      collect_expr_names_for_global_check(annotation, seen_names)
+      match value {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::AugAssign(target~, op=_, value~) => {
+      collect_target_names_for_global_check(target, seen_names)
+      collect_expr_names_for_global_check(value, seen_names)
+      None
+    }
+    Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) => {
+      match expr_opt {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::YieldFrom(expr) => {
+      collect_expr_names_for_global_check(expr, seen_names)
+      None
+    }
+    Stmt::Assert(condition~, message~) => {
+      collect_expr_names_for_global_check(condition, seen_names)
+      match message {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::Raise(exc~, cause~) => {
+      match exc {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      match cause {
+        Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+        None => ()
+      }
+      None
+    }
+    Stmt::Del(targets) => {
+      for target in targets {
+        collect_target_names_for_global_check(target, seen_names)
+      }
+      None
+    }
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      collect_expr_names_for_global_check(condition, seen_names)
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(else_body, params, seen_names)
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      collect_expr_names_for_global_check(iter, seen_names)
+      collect_target_names_for_global_check(target, seen_names)
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(else_body, params, seen_names)
+    }
+    Stmt::With(context~, target~, body~)
+    | Stmt::AsyncWith(context~, target~, body~) => {
+      collect_expr_names_for_global_check(context, seen_names)
+      match target {
+        Some(name) => append_unique_name(seen_names, name)
+        None => ()
+      }
+      stmts_first_invalid_global_line(body, params, seen_names)
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_invalid_global_line(body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+          None => ()
+        }
+        match handler.name {
+          Some(name) => append_unique_name(seen_names, name)
+          None => ()
+        }
+        match
+          stmts_first_invalid_global_line(handler.body, params, seen_names) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_invalid_global_line(else_body, params, seen_names) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_global_line(finally_body, params, seen_names)
+    }
+    Stmt::Match(subject~, cases~) => {
+      collect_expr_names_for_global_check(subject, seen_names)
+      for case in cases {
+        match case.1 {
+          Some(expr) => collect_expr_names_for_global_check(expr, seen_names)
+          None => ()
+        }
+        match stmts_first_invalid_global_line(case.2, params, seen_names) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(name~, ..) | Stmt::Class(name~, ..) => {
+      append_unique_name(seen_names, name)
+      None
+    }
+    Stmt::Import(module_name~, alias_name~) => {
+      match alias_name {
+        Some(name) => append_unique_name(seen_names, name)
+        None => append_unique_name(seen_names, module_name)
+      }
+      None
+    }
+    Stmt::FromImport(module_name=_, names~) => {
+      for item in names {
+        match item.1 {
+          Some(import_alias) => append_unique_name(seen_names, import_alias)
+          None => append_unique_name(seen_names, item.0)
+        }
+      }
+      None
+    }
+    Stmt::Nonlocal(names) => {
+      for name in names {
+        if params_have_global_check_name(params, name) {
+          return Some(fallback_line)
+        }
+        append_unique_name(seen_names, name)
+      }
+      None
+    }
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_global_line(
+  stmts : Array[Stmt],
+  params : Array[String],
+  seen_names : Array[String],
+) -> Int? {
+  for stmt in stmts {
+    match stmt_first_invalid_global_line(stmt, params, seen_names, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn function_body_first_invalid_global_line(
+  body : Array[Stmt],
+  params : Array[String],
+) -> Int? {
+  let seen_names : Array[String] = []
+  stmts_first_invalid_global_line(body, params, seen_names)
+}
+
+///|
+fn expr_has_class_body_comprehension_walrus(expr : Expr) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_class_body_comprehension_walrus(inner)
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      let targets : Array[String] = []
+      collect_named_expr_targets(elt, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.iter, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+      targets.length() > 0
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      let targets : Array[String] = []
+      collect_named_expr_targets(key, targets)
+      collect_named_expr_targets(value, targets)
+      for clause in clauses {
+        collect_named_expr_targets(clause.iter, targets)
+      }
+      for filter in filters {
+        collect_named_expr_targets(filter, targets)
+      }
+      targets.length() > 0
+    }
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_walrus(item) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_walrus(item.0) ||
+          expr_has_class_body_comprehension_walrus(item.1) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_class_body_comprehension_walrus(condition) ||
+      expr_has_class_body_comprehension_walrus(then_expr) ||
+      expr_has_class_body_comprehension_walrus(else_expr)
+    Expr::NamedExpr(name=_, value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_has_class_body_comprehension_walrus(value)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_has_class_body_comprehension_walrus(value) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_has_class_body_comprehension_walrus(value) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_has_class_body_comprehension_walrus(value)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_walrus(value) ||
+      expr_has_class_body_comprehension_walrus(index)
+    Expr::Call(callee~, args~) => {
+      if expr_has_class_body_comprehension_walrus(callee) {
+        return true
+      }
+      for arg in args {
+        if expr_has_class_body_comprehension_walrus(arg) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Expr::Unary(op=_, expr~) => expr_has_class_body_comprehension_walrus(expr)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_has_class_body_comprehension_walrus(left) ||
+      expr_has_class_body_comprehension_walrus(right)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_has_class_body_comprehension_walrus(value) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_has_class_body_comprehension_walrus(left) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_has_class_body_comprehension_walrus(cmp) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body=_) => {
+      for default_value in defaults {
+        if expr_has_class_body_comprehension_walrus(default_value) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn target_has_class_body_comprehension_walrus(target : Target) -> Bool {
+  match target {
+    Target::Tuple(items) | Target::List(items) => {
+      for item in items {
+        if target_has_class_body_comprehension_walrus(item) {
+          return true
+        }
+      }
+      false
+    }
+    Target::Starred(inner) => target_has_class_body_comprehension_walrus(inner)
+    Target::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_walrus(value)
+    Target::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_walrus(value) ||
+      expr_has_class_body_comprehension_walrus(index)
+    _ => false
+  }
+}
+
+///|
+fn stmt_first_invalid_class_body_line(stmt : Stmt, fallback_line : Int) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_invalid_class_body_line(inner, span.line)
+    Stmt::Nonlocal(_) => Some(fallback_line)
+    Stmt::ExprStmt(expr) =>
+      if expr_has_class_body_comprehension_walrus(expr) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Assign(target~, value~) =>
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(value) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::AnnAssign(target~, annotation~, value~) => {
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(annotation) {
+        return Some(fallback_line)
+      }
+      match value {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::AugAssign(target~, op=_, value~) =>
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(value) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Return(expr_opt) | Stmt::Yield(expr_opt) =>
+      match expr_opt {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    Stmt::YieldFrom(expr) =>
+      if expr_has_class_body_comprehension_walrus(expr) {
+        Some(fallback_line)
+      } else {
+        None
+      }
+    Stmt::Assert(condition~, message~) => {
+      if expr_has_class_body_comprehension_walrus(condition) {
+        return Some(fallback_line)
+      }
+      match message {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::Raise(exc~, cause~) => {
+      match exc {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            return Some(fallback_line)
+          }
+        None => ()
+      }
+      match cause {
+        Some(expr) =>
+          if expr_has_class_body_comprehension_walrus(expr) {
+            Some(fallback_line)
+          } else {
+            None
+          }
+        None => None
+      }
+    }
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_class_body_comprehension_walrus(condition) {
+        return Some(fallback_line)
+      }
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(else_body)
+    }
+    Stmt::For(target~, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
+      if target_has_class_body_comprehension_walrus(target) ||
+        expr_has_class_body_comprehension_walrus(iter) {
+        return Some(fallback_line)
+      }
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(else_body)
+    }
+    Stmt::With(context~, target=_, body~)
+    | Stmt::AsyncWith(context~, target=_, body~) => {
+      if expr_has_class_body_comprehension_walrus(context) {
+        return Some(fallback_line)
+      }
+      stmts_first_invalid_class_body_line(body)
+    }
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_invalid_class_body_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_walrus(expr) {
+              return Some(fallback_line)
+            }
+          None => ()
+        }
+        match stmts_first_invalid_class_body_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_invalid_class_body_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_invalid_class_body_line(finally_body)
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_class_body_comprehension_walrus(subject) {
+        return Some(fallback_line)
+      }
+      for case in cases {
+        match case.1 {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_walrus(expr) {
+              return Some(fallback_line)
+            }
+          None => ()
+        }
+        match stmts_first_invalid_class_body_line(case.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(..) | Stmt::Class(..) => None
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_invalid_class_body_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_invalid_class_body_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn expr_contains_name_for_class_comp(expr : Expr, wanted : String) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_contains_name_for_class_comp(inner, wanted)
+    Expr::Name(name) => name == wanted
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_contains_name_for_class_comp(item, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_contains_name_for_class_comp(item.0, wanted) ||
+          expr_contains_name_for_class_comp(item.1, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_contains_name_for_class_comp(condition, wanted) ||
+      expr_contains_name_for_class_comp(then_expr, wanted) ||
+      expr_contains_name_for_class_comp(else_expr, wanted)
+    Expr::NamedExpr(name~, value~) =>
+      name == wanted || expr_contains_name_for_class_comp(value, wanted)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_contains_name_for_class_comp(value, wanted)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_contains_name_for_class_comp(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_contains_name_for_class_comp(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_contains_name_for_class_comp(value, wanted)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Subscript(value~, index~) =>
+      expr_contains_name_for_class_comp(value, wanted) ||
+      expr_contains_name_for_class_comp(index, wanted)
+    Expr::Call(callee~, args~) => {
+      if expr_contains_name_for_class_comp(callee, wanted) {
+        return true
+      }
+      for arg in args {
+        if expr_contains_name_for_class_comp(arg, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_contains_name_for_class_comp(value, wanted)
+    Expr::Unary(op=_, expr~) => expr_contains_name_for_class_comp(expr, wanted)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_contains_name_for_class_comp(left, wanted) ||
+      expr_contains_name_for_class_comp(right, wanted)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_contains_name_for_class_comp(value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_contains_name_for_class_comp(left, wanted) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_contains_name_for_class_comp(cmp, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body~) => {
+      for default_value in defaults {
+        if expr_contains_name_for_class_comp(default_value, wanted) {
+          return true
+        }
+      }
+      expr_contains_name_for_class_comp(body, wanted)
+    }
+    _ => false
+  }
+}
+
+///|
+fn expr_has_class_body_comprehension_name(expr : Expr, wanted : String) -> Bool {
+  match expr {
+    Expr::WithSpan(span=_, expr=inner) =>
+      expr_has_class_body_comprehension_name(inner, wanted)
+    Expr::ListComp(elt~, clauses~, filters~)
+    | Expr::GenExp(elt~, clauses~, filters~)
+    | Expr::SetComp(elt~, clauses~, filters~) => {
+      if expr_contains_name_for_class_comp(elt, wanted) {
+        return true
+      }
+      for clause in clauses {
+        if expr_contains_name_for_class_comp(clause.iter, wanted) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_contains_name_for_class_comp(filter, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::DictComp(key~, value~, clauses~, filters~) => {
+      if expr_contains_name_for_class_comp(key, wanted) ||
+        expr_contains_name_for_class_comp(value, wanted) {
+        return true
+      }
+      for clause in clauses {
+        if expr_contains_name_for_class_comp(clause.iter, wanted) {
+          return true
+        }
+      }
+      for filter in filters {
+        if expr_contains_name_for_class_comp(filter, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Tuple(items) | Expr::List(items) | Expr::Set(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_name(item, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Dict(items) => {
+      for item in items {
+        if expr_has_class_body_comprehension_name(item.0, wanted) ||
+          expr_has_class_body_comprehension_name(item.1, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::IfExpr(condition~, then_expr~, else_expr~) =>
+      expr_has_class_body_comprehension_name(condition, wanted) ||
+      expr_has_class_body_comprehension_name(then_expr, wanted) ||
+      expr_has_class_body_comprehension_name(else_expr, wanted)
+    Expr::NamedExpr(name=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Yield(expr_opt) =>
+      match expr_opt {
+        Some(value) => expr_has_class_body_comprehension_name(value, wanted)
+        None => false
+      }
+    Expr::YieldFrom(value) | Expr::Await(value) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Slice(start~, end~, step~) => {
+      match start {
+        Some(value) =>
+          if expr_has_class_body_comprehension_name(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match end {
+        Some(value) =>
+          if expr_has_class_body_comprehension_name(value, wanted) {
+            return true
+          }
+        None => ()
+      }
+      match step {
+        Some(value) => expr_has_class_body_comprehension_name(value, wanted)
+        None => false
+      }
+    }
+    Expr::Attribute(value~, attr=_) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Subscript(value~, index~) =>
+      expr_has_class_body_comprehension_name(value, wanted) ||
+      expr_has_class_body_comprehension_name(index, wanted)
+    Expr::Call(callee~, args~) => {
+      if expr_has_class_body_comprehension_name(callee, wanted) {
+        return true
+      }
+      for arg in args {
+        if expr_has_class_body_comprehension_name(arg, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Keyword(name=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Starred(value~) | Expr::DoubleStarred(value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Expr::Unary(op=_, expr~) =>
+      expr_has_class_body_comprehension_name(expr, wanted)
+    Expr::Binary(op=_, left~, right~) =>
+      expr_has_class_body_comprehension_name(left, wanted) ||
+      expr_has_class_body_comprehension_name(right, wanted)
+    Expr::BoolOp(op=_, values~) => {
+      for value in values {
+        if expr_has_class_body_comprehension_name(value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Compare(left~, ops=_, comparators~) => {
+      if expr_has_class_body_comprehension_name(left, wanted) {
+        return true
+      }
+      for cmp in comparators {
+        if expr_has_class_body_comprehension_name(cmp, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Expr::Lambda(params=_, defaults~, body=_) => {
+      for default_value in defaults {
+        if expr_has_class_body_comprehension_name(default_value, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
+  }
+}
+
+///|
+fn stmt_has_class_body_comprehension_name(stmt : Stmt, wanted : String) -> Bool {
+  match stmt {
+    Stmt::WithSpan(span=_, stmt=inner) =>
+      stmt_has_class_body_comprehension_name(inner, wanted)
+    Stmt::ExprStmt(expr) => expr_has_class_body_comprehension_name(expr, wanted)
+    Stmt::Assign(target=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Stmt::AnnAssign(target=_, annotation~, value~) => {
+      if expr_has_class_body_comprehension_name(annotation, wanted) {
+        return true
+      }
+      match value {
+        Some(expr) => expr_has_class_body_comprehension_name(expr, wanted)
+        None => false
+      }
+    }
+    Stmt::AugAssign(target=_, op=_, value~) =>
+      expr_has_class_body_comprehension_name(value, wanted)
+    Stmt::If(condition~, body~, else_body~)
+    | Stmt::While(condition~, body~, else_body~) => {
+      if expr_has_class_body_comprehension_name(condition, wanted) {
+        return true
+      }
+      stmts_have_class_body_comprehension_name(body, wanted) ||
+      stmts_have_class_body_comprehension_name(else_body, wanted)
+    }
+    Stmt::For(target=_, iter~, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter~, body~, else_body~) =>
+      expr_has_class_body_comprehension_name(iter, wanted) ||
+      stmts_have_class_body_comprehension_name(body, wanted) ||
+      stmts_have_class_body_comprehension_name(else_body, wanted)
+    Stmt::With(context~, target=_, body~)
+    | Stmt::AsyncWith(context~, target=_, body~) =>
+      expr_has_class_body_comprehension_name(context, wanted) ||
+      stmts_have_class_body_comprehension_name(body, wanted)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      if stmts_have_class_body_comprehension_name(body, wanted) {
+        return true
+      }
+      for handler in handlers {
+        match handler.exc {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_name(expr, wanted) {
+              return true
+            }
+          None => ()
+        }
+        if stmts_have_class_body_comprehension_name(handler.body, wanted) {
+          return true
+        }
+      }
+      stmts_have_class_body_comprehension_name(else_body, wanted) ||
+      stmts_have_class_body_comprehension_name(finally_body, wanted)
+    }
+    Stmt::Match(subject~, cases~) => {
+      if expr_has_class_body_comprehension_name(subject, wanted) {
+        return true
+      }
+      for case in cases {
+        match case.1 {
+          Some(expr) =>
+            if expr_has_class_body_comprehension_name(expr, wanted) {
+              return true
+            }
+          None => ()
+        }
+        if stmts_have_class_body_comprehension_name(case.2, wanted) {
+          return true
+        }
+      }
+      false
+    }
+    Stmt::Function(..) | Stmt::Class(..) => false
+    _ => false
+  }
+}
+
+///|
+fn stmts_have_class_body_comprehension_name(
+  stmts : Array[Stmt],
+  wanted : String,
+) -> Bool {
+  for stmt in stmts {
+    if stmt_has_class_body_comprehension_name(stmt, wanted) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn stmt_first_function_import_star_line(
+  stmt : Stmt,
+  fallback_line : Int,
+) -> Int? {
+  match stmt {
+    Stmt::WithSpan(span~, stmt=inner) =>
+      stmt_first_function_import_star_line(inner, span.line)
+    Stmt::FromImport(module_name=_, names~) => {
+      for item in names {
+        if item.0 == "*" {
+          return Some(fallback_line)
+        }
+      }
+      None
+    }
+    Stmt::If(condition=_, body~, else_body~)
+    | Stmt::While(condition=_, body~, else_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(else_body)
+    }
+    Stmt::For(target=_, iter=_, body~, else_body~)
+    | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(else_body)
+    }
+    Stmt::With(context=_, target=_, body~)
+    | Stmt::AsyncWith(context=_, target=_, body~) =>
+      stmts_first_function_import_star_line(body)
+    Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
+      match stmts_first_function_import_star_line(body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      for handler in handlers {
+        match stmts_first_function_import_star_line(handler.body) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      match stmts_first_function_import_star_line(else_body) {
+        Some(line) => return Some(line)
+        None => ()
+      }
+      stmts_first_function_import_star_line(finally_body)
+    }
+    Stmt::Match(subject=_, cases~) => {
+      for case_item in cases {
+        match stmts_first_function_import_star_line(case_item.2) {
+          Some(line) => return Some(line)
+          None => ()
+        }
+      }
+      None
+    }
+    Stmt::Function(..) | Stmt::Class(..) => None
+    _ => None
+  }
+}
+
+///|
+fn stmts_first_function_import_star_line(stmts : Array[Stmt]) -> Int? {
+  for stmt in stmts {
+    match stmt_first_function_import_star_line(stmt, 1) {
+      Some(line) => return Some(line)
+      None => ()
     }
   }
   None
@@ -1119,6 +2655,14 @@ fn target_from_expr(expr : Expr, token : Token) -> Result[Target, ParseError] {
 }
 
 ///|
+fn target_allows_annotation(target : Target) -> Bool {
+  match target {
+    Target::Name(_) | Target::Attribute(_) | Target::Subscript(_) => true
+    _ => false
+  }
+}
+
+///|
 /// Parse assignment targets from a token slice. This is more permissive than
 /// expression parsing: it supports `a, *rest = ...` where `*rest` is only valid
 /// in assignment target context.
@@ -1139,6 +2683,19 @@ fn target_from_assignment_tokens(
   // `tokens` are expected to include an Eof at the end (see assignment parsing below).
   let body_end = if tokens.length() > 0 { tokens.length() - 1 } else { 0 }
   let body = slice_tokens(tokens, 0, body_end)
+  if body.length() > 0 && body[0].kind == LBrace {
+    for token in body {
+      if token.kind == For || token.kind == Async {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+    }
+  }
   let mut has_top_comma = false
   let mut depth = 0
   for t in body {
@@ -1269,7 +2826,7 @@ fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
   } else {
     start + 1
   }
-  Span::{ start, end, line: line_index + 1, column: indent + 1 }
+  Span::{ start, end, line: line_index + 1, column: indent + 1, }
 }
 
 ///|
@@ -1322,6 +2879,65 @@ fn parse_simple_statement(
     return finalize_simple_statement(
       stmts, allow_async_comprehensions, span, base_offset,
     )
+  }
+  if trimmed.has_prefix("[") && trimmed.contains("\n") {
+    let parts : Array[String] = []
+    for part in trimmed.split("\n") {
+      parts.push(part.trim(chars=" \t").to_owned())
+    }
+    if parts.length() >= 3 &&
+      parts[0] == "[" &&
+      parts[1].length() > 0 &&
+      !parts[1].contains(",") &&
+      parts[2].length() > 0 &&
+      !parts[2].has_prefix("]") &&
+      !parts[2].contains(",") {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: base_offset,
+          end: base_offset + 1,
+          line: line_index + 2,
+          column: 1,
+        }),
+      )
+    }
+  }
+  match find_top_level_char(trimmed, '=') {
+    Some(eq_pos) => {
+      let chars = trimmed.to_array()
+      let prev = if eq_pos > 0 { chars[eq_pos - 1] } else { '\u{0}' }
+      let next = if eq_pos + 1 < chars.length() {
+        chars[eq_pos + 1]
+      } else {
+        '\u{0}'
+      }
+      let plain_assign = prev != '=' &&
+        prev != '<' &&
+        prev != '>' &&
+        prev != '!' &&
+        prev != ':' &&
+        next != '='
+      if plain_assign && trimmed.has_prefix("{") {
+        let left_text = substring(trimmed, 0, eq_pos).to_string()
+        if left_text.contains(" for ") || left_text.contains("\nfor ") {
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: base_offset,
+                end: base_offset + 1,
+                line: line_index + 1,
+                column: 1,
+              },
+            ),
+          )
+        }
+      }
+    }
+    None => ()
   }
   if trimmed == "..." {
     stmts.push(Stmt::Pass)
@@ -1611,13 +3227,6 @@ fn parse_simple_statement(
     let mut module_name = parts[1]
     if module_name == "." {
       module_name = ""
-    }
-    if module_name == "__future__" {
-      // Treat future imports as no-ops so CPython's stdlib/tests can parse.
-      // (We currently do not implement future feature toggles.)
-      return finalize_simple_statement(
-        stmts, allow_async_comprehensions, span, base_offset,
-      )
     }
     if module_name == ".__future__" {
       if parts.length() >= 4 {
@@ -2087,35 +3696,9 @@ fn parse_simple_statement(
         Ok(value) => value
         Err(err) => return Err(err)
       }
-      match expr {
-        Expr::WithSpan(span=_, expr=inner) =>
-          match inner {
-            Expr::Name(name) => targets.push(Target::Name(name))
-            Expr::Attribute(value~, attr~) =>
-              targets.push(Target::Attribute(value~, attr~))
-            Expr::Subscript(value~, index~) =>
-              targets.push(Target::Subscript(value~, index~))
-            _ =>
-              return Err(
-                make_parse_error(
-                  ParseErrorKind::Syntax,
-                  "invalid syntax".to_string(),
-                  {
-                    kind: Eof,
-                    start: base_offset,
-                    end: base_offset + 1,
-                    line: line_index + 1,
-                    column: 1,
-                  },
-                ),
-              )
-          }
-        Expr::Name(name) => targets.push(Target::Name(name))
-        Expr::Attribute(value~, attr~) =>
-          targets.push(Target::Attribute(value~, attr~))
-        Expr::Subscript(value~, index~) =>
-          targets.push(Target::Subscript(value~, index~))
-        _ =>
+      let target = match target_from_expr(expr, tokens[0]) {
+        Ok(value) => value
+        Err(_) =>
           return Err(
             make_parse_error(
               ParseErrorKind::Syntax,
@@ -2130,6 +3713,7 @@ fn parse_simple_statement(
             ),
           )
       }
+      targets.push(target)
     }
     stmts.push(Stmt::Del(targets))
     return finalize_simple_statement(
@@ -2138,9 +3722,25 @@ fn parse_simple_statement(
   }
   if has_keyword_prefix(trimmed, "async") {
     // Treat async constructs as no-ops so spec-generated blocks can parse.
-    stmts.push(Stmt::Pass)
-    return finalize_simple_statement(
-      stmts, allow_async_comprehensions, span, base_offset,
+    let rest = substring(trimmed, 5, trimmed.length())
+      .trim(chars=" \t")
+      .to_owned()
+    if has_keyword_prefix(rest, "def") ||
+      has_keyword_prefix(rest, "for") ||
+      has_keyword_prefix(rest, "with") {
+      stmts.push(Stmt::Pass)
+      return finalize_simple_statement(
+        stmts, allow_async_comprehensions, span, base_offset,
+      )
+    }
+    return Err(
+      make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+        kind: Eof,
+        start: base_offset,
+        end: base_offset + 1,
+        line: line_index + 1,
+        column: 1,
+      }),
     )
   }
   if has_keyword_prefix(trimmed, "type") &&
@@ -2235,10 +3835,23 @@ fn parse_simple_statement(
                 )
               _ => ()
             }
-            let annotation_text = substring(
-                trimmed,
-                colon_pos + 1,
-                trimmed.length(),
+            if !target_allows_annotation(target) {
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  {
+                    kind: Eof,
+                    start: base_offset,
+                    end: base_offset + 1,
+                    line: line_index + 1,
+                    column: 1,
+                  },
+                ),
+              )
+            }
+            let annotation_text = replace_newlines_with_spaces(
+                substring(trimmed, colon_pos + 1, trimmed.length()),
               )
               .trim(chars=" \t")
               .to_owned()
@@ -2257,42 +3870,45 @@ fn parse_simple_statement(
                 ),
               )
             }
-            let tokens = match
+            let annotation_expr = match
               tokenize_expr(
                 annotation_text,
                 line_index + 1,
                 base_offset + colon_pos + 1,
                 base_offset + colon_pos + 1 - line_start_offset + 1,
               ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let annotation_expr = match parse_tokens_expr(tokens) {
-              Ok(value) => value
-              Err(err) => {
-                let keep_location = err.message.has_prefix("ValueError:") ||
-                  err.message == "unmatched ')'" ||
-                  err.message == "unmatched ']'" ||
-                  err.message == "unmatched '}'" ||
-                  err.message.contains("closing parenthesis") ||
-                  err.message.contains("was never closed")
-                if keep_location {
-                  return Err(err)
+              Ok(tokens) =>
+                match parse_tokens_expr(tokens) {
+                  Ok(value) => value
+                  Err(_) =>
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        {
+                          kind: Eof,
+                          start: base_offset,
+                          end: base_offset + 1,
+                          line: line_index + 1,
+                          column: 1,
+                        },
+                      ),
+                    )
                 }
+              Err(_) =>
                 return Err(
                   make_parse_error(
                     ParseErrorKind::Syntax,
                     "invalid syntax".to_string(),
                     {
                       kind: Eof,
-                      start: base_offset + colon_pos,
-                      end: base_offset + colon_pos + 1,
+                      start: base_offset,
+                      end: base_offset + 1,
                       line: line_index + 1,
-                      column: colon_pos + 1,
+                      column: 1,
                     },
                   ),
                 )
-              }
             }
             stmts.push(
               Stmt::AnnAssign(target~, annotation=annotation_expr, value=None),
@@ -2357,10 +3973,23 @@ fn parse_simple_statement(
                       )
                     _ => ()
                   }
-                  let annotation_text = substring(
-                      trimmed,
-                      colon_pos + 1,
-                      eq_pos,
+                  if !target_allows_annotation(target) {
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        {
+                          kind: Eof,
+                          start: base_offset,
+                          end: base_offset + 1,
+                          line: line_index + 1,
+                          column: 1,
+                        },
+                      ),
+                    )
+                  }
+                  let annotation_text = replace_newlines_with_spaces(
+                      substring(trimmed, colon_pos + 1, eq_pos),
                     )
                     .trim(chars=" \t")
                     .to_owned()
@@ -2379,19 +4008,19 @@ fn parse_simple_statement(
                       ),
                     )
                   }
-                  let ann_tokens = match
+                  let ann_expr = match
                     tokenize_expr(
                       annotation_text,
                       line_index + 1,
                       base_offset + colon_pos + 1,
                       base_offset + colon_pos + 1 - line_start_offset + 1,
                     ) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
-                  }
-                  let ann_expr = match parse_tokens_expr(ann_tokens) {
-                    Ok(value) => value
-                    Err(err) => return Err(err)
+                    Ok(tokens) =>
+                      match parse_tokens_expr(tokens) {
+                        Ok(value) => value
+                        Err(_) => Expr::Literal(Literal::None)
+                      }
+                    Err(_) => Expr::Literal(Literal::None)
                   }
                   let mut value_text = substring(
                       trimmed,

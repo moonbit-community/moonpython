@@ -1868,10 +1868,10 @@ priv struct PosixFdEntry {
 }
 
 ///|
-let posix_next_fd : Ref[Int] = { val: 3 }
+let posix_next_fd : Ref[Int] = { val: 3, }
 
 ///|
-let posix_fd_table : Ref[Array[(Int, PosixFdEntry)]] = { val: [] }
+let posix_fd_table : Ref[Array[(Int, PosixFdEntry)]] = { val: [], }
 
 ///|
 priv struct PosixPathTimes {
@@ -1881,10 +1881,10 @@ priv struct PosixPathTimes {
 }
 
 ///|
-let posix_next_time : Ref[Int] = { val: 1 }
+let posix_next_time : Ref[Int] = { val: 1, }
 
 ///|
-let posix_path_times : Ref[Array[(String, PosixPathTimes)]] = { val: [] }
+let posix_path_times : Ref[Array[(String, PosixPathTimes)]] = { val: [], }
 
 ///|
 fn posix_now_tick() -> Int {
@@ -1909,7 +1909,7 @@ fn posix_times_get_or_init(path : String) -> PosixPathTimes {
     Some(i) => posix_path_times.val[i].1
     None => {
       let now = posix_now_tick()
-      let times = PosixPathTimes::{ atime: now, mtime: now, ctime: now }
+      let times = PosixPathTimes::{ atime: now, mtime: now, ctime: now, }
       posix_path_times.val.push((path, times))
       times
     }
@@ -2215,7 +2215,7 @@ fn builtin_mpython_posix_open(
     posix_times_touch_modify(path)
   }
   posix_fd_table.val.push(
-    (fd, PosixFdEntry::{ path, buffer, pos, dirty, appending }),
+    (fd, PosixFdEntry::{ path, buffer, pos, dirty, appending, }),
   )
   Ok(Value::Int(@bigint.BigInt::from_int(fd)))
 }

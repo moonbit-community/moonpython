@@ -439,13 +439,16 @@ test "e2e/builtin_enumerate" {
 ///|
 test "e2e/builtin_zip" {
   let source =
-    #|print(len(zip()))
     #|print(",".join([str(a) + ":" + str(b) for a, b in zip([1, 2], [3, 4, 5])]))
     #|print(",".join([a + b for a, b in zip("ab", "XY")]))
-    #|triples = zip([1, 2], [3], [4, 5, 6])
+    #|triples = list(zip([1, 2], [3], [4, 5, 6]))
     #|print(len(triples))
     #|print(triples[0][0], triples[0][1], triples[0][2])
-  inspect(e2e_stdout([], source), content="0\n1:3,2:4\naX,bY\n1\n1 3 4\n")
+  inspect(e2e_stdout([], source), content="1:3,2:4\naX,bY\n1\n1 3 4\n")
+  inspect(
+    test_exec_error("len(zip())"),
+    content="TypeError: object has no len()",
+  )
   inspect(
     test_exec_error("zip(1)"),
     content="TypeError: object is not iterable",
@@ -589,7 +592,7 @@ test "e2e/builtin_more_cpython" {
     #|print(callable(print), callable(1))
     #|print(isinstance(1, int), isinstance(True, int), isinstance(True, bool), isinstance([], list))
     #|print(type(1), type("a"), type([1]))
-    #|print(id(7), id(True))
+    #|print(id(7) == id(7), id(True) == id(True), id(7) != id(True))
     #|print(hash("ab"))
     #|class C:
     #|  pass
@@ -603,7 +606,7 @@ test "e2e/builtin_more_cpython" {
     e2e_stdout([], source),
     content=(
       #|False False True False True
-      #|"a\"b"
+      #|'a"b'
       #|3 2.5
       #|1 2 -1
       #|8 0.5
@@ -614,9 +617,9 @@ test "e2e/builtin_more_cpython" {
       #|True False
       #|True True True True
       #|<class 'int'> <class 'str'> <class 'list'>
-      #|7 1
+      #|True True True
       #|12805
-      #|__eq__,__hash__,__init__,__init_subclass__,__module__,__ne__,__new__,__str__,hashvalue,x
+      #|__eq__,__hash__,__init__,__init_subclass__,__module__,__ne__,__new__,__str__,x
       #|a,b
       #|__eq__,__hash__,__init__,__init_subclass__,__module__,__ne__,__new__,__str__
       #|

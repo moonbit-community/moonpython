@@ -225,6 +225,9 @@ fn parse_class_stmt(
       ),
     )
   }
+  if is_async_await_reserved_name(name) {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
+  }
   let body_text = strip_inline_comment(
       substring(line_text, colon_pos.unwrap() + 1, line_text.length()).to_string(),
     )
@@ -258,6 +261,14 @@ fn parse_class_stmt(
       for stmt in parsed {
         body.push(stmt)
       }
+    }
+    match stmts_first_illegal_await_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
+    match stmts_first_invalid_class_body_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
     }
     stmts.push(
       wrap_stmt_for_line(
@@ -294,6 +305,14 @@ fn parse_class_stmt(
   let body = match parser.parse_block(next_indent) {
     Ok(value) => value
     Err(err) => return Err(err)
+  }
+  match stmts_first_illegal_await_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
+  match stmts_first_invalid_class_body_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
   }
   stmts.push(
     wrap_stmt_for_line(
@@ -389,6 +408,9 @@ fn parse_def_stmt(
       )
     }
   }
+  if is_async_await_reserved_name(name) {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
+  }
   let name_end = match paren_span {
     Some(span) => span.0
     None => 0
@@ -402,6 +424,8 @@ fn parse_def_stmt(
   let mut default_seen = false
   let mut kw_only = false
   let mut seen_posonly_marker = false
+  let mut seen_bare_star = false
+  let mut bare_star_has_kwonly_name = false
   let params_chars = params_text.to_array()
   let mut param_start = 0
   let mut idx = 0
@@ -409,6 +433,23 @@ fn parse_def_stmt(
   let mut escaped = false
   let mut depth = 0
   let param_base = current_indent + 4 + name_end + 1
+  fn is_valid_param_name(text : String) -> Bool {
+    if text.length() == 0 {
+      return false
+    }
+    if text == "None" || text == "True" || text == "False" {
+      return false
+    }
+    let chars = text.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      let c = chars[i]
+      if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+        return false
+      }
+    }
+    true
+  }
+
   fn consume_param_segment(end_idx : Int) -> Result[Unit, ParseError] {
     let raw_param = substring(params_text, param_start, end_idx)
     let mut leading = 0
@@ -496,6 +537,30 @@ fn parse_def_stmt(
       return Ok(())
     }
     if name == "*" {
+      if seen_bare_star || kw_only {
+        let token = {
+          kind: Eof,
+          start: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading,
+          end: parser.offsets[parser.index] +
+          param_base +
+          param_start +
+          leading +
+          1,
+          line: parser.index + 1,
+          column: param_base + param_start + leading + 1,
+        }
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            token,
+          ),
+        )
+      }
+      seen_bare_star = true
       kw_only = true
       params.push("*")
       name = ""
@@ -513,6 +578,41 @@ fn parse_def_stmt(
       return Ok(())
     }
     let param_offset = param_start + leading
+    if seen_bare_star && star_count == 2 && !bare_star_has_kwonly_name {
+      let token = {
+        kind: Eof,
+        start: parser.offsets[parser.index] + param_base + param_offset,
+        end: parser.offsets[parser.index] + param_base + param_offset + 1,
+        line: parser.index + 1,
+        column: param_base + param_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
+    if is_async_await_reserved_name(name) {
+      return Err(parser.invalid_syntax_at_line(parser.index + 1))
+    }
+    if !is_valid_param_name(name) {
+      let token = {
+        kind: Eof,
+        start: parser.offsets[parser.index] + param_base + param_offset,
+        end: parser.offsets[parser.index] + param_base + param_offset + 1,
+        line: parser.index + 1,
+        column: param_base + param_offset + 1,
+      }
+      return Err(
+        make_parse_error(
+          ParseErrorKind::Syntax,
+          "invalid syntax".to_string(),
+          token,
+        ),
+      )
+    }
     for existing in seen {
       if existing == name {
         let token = {
@@ -610,6 +710,9 @@ fn parse_def_stmt(
             Ok(value) => value
             Err(err) => return Err(err)
           }
+          if expr_has_illegal_await(expr, false) {
+            return Err(parser.invalid_syntax_at_line(parser.index + 1))
+          }
           defaults.push(expr)
         }
         None => ()
@@ -664,14 +767,17 @@ fn parse_def_stmt(
           1 +
           ann_leading +
           1
-        let tokens = match
+        let expr = match
           tokenize_expr(ann_text, parser.index + 1, ann_offset, ann_column) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+          Ok(tokens) =>
+            match parse_tokens_expr(tokens) {
+              Ok(value) => value
+              Err(_) => Expr::Literal(Literal::None)
+            }
+          Err(_) => Expr::Literal(Literal::None)
         }
-        let expr = match parse_tokens_expr(tokens) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        if expr_is_invalid_annotation_value(expr) {
+          return Err(parser.invalid_syntax_at_line(parser.index + 1))
         }
         annotations.push((name, expr))
       }
@@ -685,6 +791,9 @@ fn parse_def_stmt(
       encoded = "**" + name
     } else if has_default {
       encoded = name + "="
+    }
+    if seen_bare_star && star_count == 0 {
+      bare_star_has_kwonly_name = true
     }
     params.push(encoded)
     Ok(())
@@ -724,6 +833,9 @@ fn parse_def_stmt(
     Ok(_) => ()
     Err(err) => return Err(err)
   }
+  if seen_bare_star && !bare_star_has_kwonly_name {
+    return Err(parser.invalid_syntax_at_line(parser.index + 1))
+  }
   let return_slice = substring(
     header,
     close_pos.unwrap() + 1,
@@ -759,14 +871,17 @@ fn parse_def_stmt(
         2 +
         ret_leading +
         1
-      let tokens = match
+      let expr = match
         tokenize_expr(ret_text, parser.index + 1, ret_offset, ret_column) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+        Ok(tokens) =>
+          match parse_tokens_expr(tokens) {
+            Ok(value) => value
+            Err(_) => Expr::Literal(Literal::None)
+          }
+        Err(_) => Expr::Literal(Literal::None)
       }
-      let expr = match parse_tokens_expr(tokens) {
-        Ok(value) => value
-        Err(err) => return Err(err)
+      if expr_is_invalid_annotation_value(expr) {
+        return Err(parser.invalid_syntax_at_line(parser.index + 1))
       }
       return_annotation = Some(expr)
     }
@@ -822,6 +937,10 @@ fn parse_def_stmt(
       for stmt in parsed {
         body.push(stmt)
       }
+    }
+    match function_body_first_invalid_global_line(body, params) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
     }
     for stmt in body {
       match stmt {
@@ -896,6 +1015,12 @@ fn parse_def_stmt(
             }
           }
         _ => ()
+      }
+    }
+    if !is_async_def {
+      match stmts_first_illegal_await_line(body) {
+        Some(line) => return Err(parser.invalid_syntax_at_line(line))
+        None => ()
       }
     }
     let mut is_generator = false
@@ -1019,6 +1144,62 @@ fn parse_def_stmt(
     parser.async_depth = prev_async_depth
     (parsed, false)
   } else {
+    let mut idx = parser.index
+    let mut continuation_start : Int? = None
+    let mut continuation_text = "".to_string()
+    while idx < parser.lines.length() {
+      let body_line = parser.lines[idx]
+      let trimmed = body_line.trim(chars=" \t").to_owned()
+      if trimmed.length() == 0 || trimmed.has_prefix("#") {
+        idx += 1
+        continue
+      }
+      let body_indent = count_indent(body_line)
+      if body_indent < next_indent {
+        break
+      }
+      if trimmed.has_prefix("def ") ||
+        trimmed.has_prefix("async def ") ||
+        trimmed.has_prefix("class ") {
+        let def_indent = body_indent
+        idx += 1
+        while idx < parser.lines.length() {
+          let next_line = parser.lines[idx]
+          let next_trimmed = next_line.trim(chars=" \t").to_owned()
+          if next_trimmed.length() == 0 || next_trimmed.has_prefix("#") {
+            idx += 1
+            continue
+          }
+          if count_indent(next_line) <= def_indent {
+            break
+          }
+          idx += 1
+        }
+        continue
+      }
+      if line_has_async_for_keyword(trimmed) {
+        let line = match continuation_start {
+          Some(line) => line
+          None => idx + 1
+        }
+        return Err(parser.invalid_syntax_at_line(line))
+      }
+      match continuation_start {
+        Some(_) => {
+          continuation_text = continuation_text + "\n" + trimmed
+          if bracket_balance(continuation_text) == 0 {
+            continuation_start = None
+            continuation_text = "".to_string()
+          }
+        }
+        None =>
+          if bracket_balance(trimmed) > 0 {
+            continuation_start = Some(idx + 1)
+            continuation_text = trimmed
+          }
+      }
+      idx += 1
+    }
     let prev_async_depth = parser.async_depth
     parser.async_depth = 0
     parser.func_depth += 1
@@ -1034,15 +1215,35 @@ fn parse_def_stmt(
     parser.async_depth = prev_async_depth
     (parsed, false)
   }
-  let has_yield_ref : Ref[Bool] = { val: false }
-  let has_yield_from_ref : Ref[Bool] = { val: false }
-  let has_return_value_ref : Ref[Bool] = { val: false }
+  let has_yield_ref : Ref[Bool] = { val: false, }
+  let has_yield_from_ref : Ref[Bool] = { val: false, }
+  let has_return_value_ref : Ref[Bool] = { val: false, }
+  if !is_async_def {
+    for stmt in body {
+      match stmt {
+        Stmt::WithSpan(span~, stmt=inner) =>
+          if stmt_has_async_comprehension(inner) {
+            return Err(parser.invalid_syntax_at_line(span.line))
+          }
+        _ =>
+          if stmt_has_async_comprehension(stmt) {
+            return Err(parser.invalid_syntax_at_line(parser.index + 1))
+          }
+      }
+    }
+    match stmts_first_illegal_await_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
+  }
   fn scan_expr_for_yield(
     expr : Expr,
     has_yield_ref : Ref[Bool],
     has_yield_from_ref : Ref[Bool],
   ) -> Unit {
     match expr {
+      Expr::WithSpan(span=_, expr=inner) =>
+        scan_expr_for_yield(inner, has_yield_ref, has_yield_from_ref)
       Expr::Yield(value) => {
         has_yield_ref.val = true
         match value {
@@ -1449,6 +1650,14 @@ fn parse_def_stmt(
         idx += 1
       }
     }
+  }
+  match function_body_first_invalid_global_line(body, params) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
+  match stmts_first_function_import_star_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
   }
   for stmt in body {
     match stmt {

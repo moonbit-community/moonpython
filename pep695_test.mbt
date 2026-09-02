@@ -3,7 +3,7 @@
 
 ///|
 fn join_strings(items : Array[String]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < items.length(); i = i + 1 {
     if i > 0 {
       buf.write_string(", ")

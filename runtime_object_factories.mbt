@@ -2,7 +2,7 @@
 /// Object factories for dict views, code, and type aliases.
 
 ///|
-let env_registry_counter : Ref[@bigint.BigInt] = { val: 1N }
+let env_registry_counter : Ref[@bigint.BigInt] = { val: 1N, }
 
 ///|
 let env_registry : Ref[Array[(@bigint.BigInt, Array[(String, Value)])]] = {
@@ -28,7 +28,7 @@ fn lookup_env_mapping(id : @bigint.BigInt) -> Array[(String, Value)]? {
 }
 
 ///|
-let module_globals_dict_class_ref : Ref[ClassValue?] = { val: None }
+let module_globals_dict_class_ref : Ref[ClassValue?] = { val: None, }
 
 ///|
 fn module_globals_dict_class() -> ClassValue {
@@ -194,7 +194,7 @@ fn module_globals_dict_class() -> ClassValue {
       }),
     ),
   ]
-  let klass = ClassValue::{ name: "module_globals_dict", bases: [], dict }
+  let klass = ClassValue::{ name: "module_globals_dict", bases: [], dict, }
   module_globals_dict_class_ref.val = Some(klass)
   klass
 }
@@ -252,7 +252,7 @@ fn make_dict_view_class(name : String) -> ClassValue {
       }),
     ),
   )
-  ClassValue::{ name, bases: [], dict }
+  ClassValue::{ name, bases: [], dict, }
 }
 
 ///|
@@ -279,7 +279,7 @@ fn make_code_instance_with_meta(
     var_tuple.push(Value::Str(v))
   }
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    class: ClassValue::{ name: "code", bases: [], dict: [], },
     dict: [
       ("co_flags", Value::Int(flags)),
       ("co_filename", Value::Str(filename)),
@@ -299,6 +299,17 @@ fn make_code_instance_with_meta(
       ("co_varnames", Value::Tuple(var_tuple)),
       ("co_freevars", Value::Tuple([])),
       ("co_cellvars", Value::Tuple([])),
+      (
+        "__mpython_co_positions",
+        Value::List([
+          Value::Tuple([
+            Value::Int(firstlineno),
+            Value::Int(firstlineno),
+            Value::Int(0N),
+            Value::Int(0N),
+          ]),
+        ]),
+      ),
     ],
   })
 }
@@ -320,7 +331,7 @@ fn make_code_instance(flags : @bigint.BigInt) -> Value {
 ///|
 fn make_generic_alias(origin : Value, args : Array[Value]) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "GenericAlias", bases: [], dict: [] },
+    class: ClassValue::{ name: "GenericAlias", bases: [], dict: [], },
     dict: [("__origin__", origin), ("__args__", Value::Tuple(args))],
   })
 }
@@ -328,7 +339,7 @@ fn make_generic_alias(origin : Value, args : Array[Value]) -> Value {
 ///|
 fn make_union_type(args : Array[Value]) -> Value {
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "UnionType", bases: [], dict: [] },
+    class: ClassValue::{ name: "UnionType", bases: [], dict: [], },
     dict: [("__args__", Value::Tuple(args))],
   })
 }

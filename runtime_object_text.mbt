@@ -290,7 +290,7 @@ fn format_string_with_args(
   io : MockIO,
 ) -> Result[String, RuntimeError] {
   let chars = text.to_array()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut auto_index = 0
   let mut i = 0
   while i < chars.length() {
@@ -409,7 +409,7 @@ fn format_string_with_args(
       fn repr_string(value : Value) -> String {
         match value {
           Value::Str(text) => {
-            let buf = StringBuilder::new()
+            let buf = StringBuilder()
             for c in text.to_array() {
               if c == '\\' {
                 buf.write_string("\\\\")

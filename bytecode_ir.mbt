@@ -161,6 +161,10 @@ pub(all) enum BcOp {
   // `template` is a `Value::Function` whose body is the class suite.
   MakeClass(Int, Int, Int) // template const idx, class name idx, decorator count
 
+  // Type aliases.
+  // Stack: [value_thunk_function] -> [type_alias_instance]
+  MakeTypeAlias(Int) // names[idx]
+
   // Annotations.
   // Pops annotation value and stores it into __annotations__[name] (creating dict if needed).
   StoreAnnotation(Int) // names[idx]
@@ -370,6 +374,8 @@ fn bc_op_repr(op : BcOp) -> String {
       ", " +
       decorator_count.to_string() +
       ")"
+    BcOp::MakeTypeAlias(name_idx) =>
+      "MakeTypeAlias(" + name_idx.to_string() + ")"
     BcOp::StoreAnnotation(i) => "StoreAnnotation(" + i.to_string() + ")"
     BcOp::AugAssignName(i, op) =>
       "AugAssignName(" + i.to_string() + ", " + binary_repr(op) + ")"
@@ -394,7 +400,7 @@ fn bc_op_repr(op : BcOp) -> String {
 
 ///|
 pub fn bc_disassemble(code : BcCode) -> String {
-  let b = StringBuilder::new()
+  let b = StringBuilder()
   b.write_string("BcCode(" + code.name + ")\n")
   for i = 0; i < code.ops.length(); i = i + 1 {
     let op = code.ops[i]

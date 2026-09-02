@@ -119,7 +119,7 @@ fn unexpected_token_error(token : Token) -> ParseError {
 
 ///|
 fn substring_chars(chars : Array[Char], start : Int, end : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let safe_start = if start < 0 { 0 } else { start }
   let safe_end = if end > chars.length() { chars.length() } else { end }
   if safe_end <= safe_start {
@@ -190,7 +190,7 @@ fn is_alnum(c : Char) -> Bool {
 
 ///|
 fn strip_underscores(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in text.to_array() {
     if c != '_' {
       buf.write_char(c)
@@ -330,7 +330,7 @@ fn slice_tokens(tokens : Array[Token], start : Int, end : Int) -> Array[Token] {
 
 ///|
 fn char_to_string(c : Char) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_char(c)
   buf.to_string()
 }
@@ -475,7 +475,7 @@ fn parse_string_literal(
     chars[start + 1] == quote &&
     chars[start + 2] == quote
   let mut i = if triple { start + 3 } else { start + 1 }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut invalid_escape = false
   let mut brace_depth = 0
   let mut expr_quote : Char? = None

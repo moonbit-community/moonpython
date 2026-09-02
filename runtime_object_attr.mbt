@@ -381,6 +381,20 @@ fn get_attr_raw_from_value(
         // `obj.__dict__["x"] = 1` reflect as instance attributes.
         return Ok(make_module_globals_dict_instance(inst.dict))
       }
+      if inst.class.name == "TypeAlias" && attr == "__value__" {
+        match get_named_value(inst.dict, "__value_func__") {
+          Some(value_func) =>
+            return call_callable_with_env(
+              value_func,
+              [],
+              [],
+              globals,
+              builtins,
+              io,
+            )
+          None => ()
+        }
+      }
       let direct = get_named_value(inst.dict, attr)
       if direct is Some(value) {
         return Ok(value)
@@ -1244,14 +1258,17 @@ fn get_attr_raw_from_value(
       }
       if attr == "__hash__" {
         return Ok(
-          Value::Function(FunctionValue::{
-            name: "__hash__",
-            params: [],
-            defaults: [],
-            body: [],
-            is_generator: false,
-            is_async: false,
-            closure: [],
+          Value::BoundMethod(BoundMethodValue::{
+            function: FunctionValue::{
+              name: "__hash__",
+              params: ["self"],
+              defaults: [],
+              body: [],
+              is_generator: false,
+              is_async: false,
+              closure: [],
+            },
+            self: target,
           }),
         )
       }
@@ -3330,11 +3347,23 @@ fn get_attr_raw_from_value(
               other => other
             }
           }
+          fn unwrap_expr(node : Expr) -> Expr {
+            match node {
+              Expr::WithSpan(span~, expr~) => {
+                let _ = span
+                unwrap_expr(expr)
+              }
+              other => other
+            }
+          }
 
           if func.body.length() > 0 {
             match unwrap_stmt(func.body[0]) {
-              Stmt::ExprStmt(Expr::Literal(Literal::Str(text))) =>
-                Ok(Value::Str(text))
+              Stmt::ExprStmt(expr) =>
+                match unwrap_expr(expr) {
+                  Expr::Literal(Literal::Str(text)) => Ok(Value::Str(text))
+                  _ => Ok(Value::None)
+                }
               _ => Ok(Value::None)
             }
           } else {

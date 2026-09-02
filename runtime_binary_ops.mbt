@@ -406,7 +406,7 @@ fn eval_binary_op_values(
           if count <= 0N {
             Ok(Value::Str(""))
           } else {
-            let buf = StringBuilder::new()
+            let buf = StringBuilder()
             let count_i = match bigint_to_int_checked(count) {
               Ok(v) => v
               Err(err) => return Err(err)
@@ -1207,7 +1207,7 @@ fn eval_binary_op_values(
                   ("hashvalue", Value::Int(fresh_object_hashvalue())),
                   (set_storage_name, Value::Set(values)),
                 ]
-                Ok(Value::Instance(InstanceValue::{ class: klass, dict }))
+                Ok(Value::Instance(InstanceValue::{ class: klass, dict, }))
               } else {
                 Ok(Value::Set(values))
               }

@@ -8,6 +8,7 @@ priv struct LineParser {
   offsets : Array[Int]
   mut func_depth : Int
   mut async_depth : Int
+  mut block_depth : Int
   mut last_dedent_from : Int?
 }
 
@@ -29,11 +30,26 @@ fn LineParser::new(source : String) -> LineParser {
     offsets,
     func_depth: 0,
     async_depth: 0,
+    block_depth: 0,
     last_dedent_from: None,
   }
 }
 
 ///|
+fn LineParser::invalid_syntax_at_line(
+  self : LineParser,
+  line : Int,
+) -> ParseError {
+  let line_index = if line <= 0 { 0 } else { line - 1 }
+  let base = self.offsets[line_index]
+  make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+    kind: Eof,
+    start: base,
+    end: base + 1,
+    line,
+    column: 1,
+  })
+}
 
 ///|
 fn LineParser::peek_next_indent(self : LineParser) -> Int {

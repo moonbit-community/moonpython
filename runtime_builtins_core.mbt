@@ -112,7 +112,7 @@ fn builtin_print(
         )
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < positional.length(); i = i + 1 {
     if i > 0 {
       buf.write_string(sep)
@@ -1144,11 +1144,23 @@ fn builtin_sorted(
               | (_, Value::Int(_) | Value::Float(_) | Value::Bool(_)) => {
                 let (_, left_num) = match number_value(a) {
                   Ok(v) => v
-                  Err(err) => return Err(err)
+                  Err(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sorted() cannot compare values".to_string(),
+                      ),
+                    )
                 }
                 let (_, right_num) = match number_value(b) {
                   Ok(v) => v
-                  Err(err) => return Err(err)
+                  Err(_) =>
+                    return Err(
+                      make_runtime_error(
+                        RuntimeErrorKind::Type,
+                        "sorted() cannot compare values".to_string(),
+                      ),
+                    )
                 }
                 Ok(left_num < right_num)
               }

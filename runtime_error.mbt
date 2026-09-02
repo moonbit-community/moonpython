@@ -65,13 +65,13 @@ fn runtime_error_exc(
 }
 
 ///|
-let active_frame_stack : Ref[Array[TracebackFrame]] = { val: [] }
+let active_frame_stack : Ref[Array[TracebackFrame]] = { val: [], }
 
 ///|
-let active_frame_env_stack : Ref[Array[TracebackEnv]] = { val: [] }
+let active_frame_env_stack : Ref[Array[TracebackEnv]] = { val: [], }
 
 ///|
-let active_span_stack : Ref[Array[Span]] = { val: [] }
+let active_span_stack : Ref[Array[Span]] = { val: [], }
 
 ///|
 fn snapshot_frame_env_stack() -> Array[TracebackEnv] {
@@ -92,7 +92,7 @@ fn set_traceback_frame_env(
     return
   }
   let idx = active_frame_env_stack.val.length() - 1
-  active_frame_env_stack.val[idx] = TracebackEnv::{ locals, globals }
+  active_frame_env_stack.val[idx] = TracebackEnv::{ locals, globals, }
 }
 
 ///|
@@ -211,7 +211,7 @@ fn push_traceback_frame(name : String, filename : String) -> Unit {
     column: 1,
     end_column: 0,
   })
-  active_frame_env_stack.val.push(TracebackEnv::{ locals: [], globals: [] })
+  active_frame_env_stack.val.push(TracebackEnv::{ locals: [], globals: [], })
 }
 
 ///|
@@ -347,7 +347,7 @@ pub fn format_runtime_error_with_traceback(
   if limit == 0 || error.traceback.length() == 0 {
     return format_runtime_error(error)
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("Traceback (most recent call last):\n")
   let start = if error.traceback.length() > limit {
     error.traceback.length() - limit

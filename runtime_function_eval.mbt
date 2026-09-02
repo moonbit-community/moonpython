@@ -361,7 +361,7 @@ fn bind_function_args_with_kwargs(
     }
   }
   if missing_pos.length() > 0 {
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     buf.write_string(func.name)
     buf.write_string("() missing ")
     buf.write_string(missing_pos.length().to_string())
@@ -393,7 +393,7 @@ fn bind_function_args_with_kwargs(
     }
   }
   if missing_kw.length() > 0 {
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     buf.write_string(func.name)
     buf.write_string("() missing ")
     buf.write_string(missing_kw.length().to_string())
@@ -493,7 +493,7 @@ fn eval_generator_with_kwargs(
 }
 
 ///|
-let runtime_callbacks_ready : Ref[Bool] = { val: false }
+let runtime_callbacks_ready : Ref[Bool] = { val: false, }
 
 ///|
 fn ensure_runtime_callbacks_ready() -> Unit {

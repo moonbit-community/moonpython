@@ -18,6 +18,13 @@ fn literal_to_value(lit : Literal) -> Value {
 }
 
 ///|
+fn emit_pep695_typing_import(b : BcBuilder, span : Span?) -> Unit {
+  let mod_idx = b.add_const(Value::Str("typing"))
+  let _ = b.emit(BcOp::ImportName(mod_idx, -1), span)
+  let _ = b.emit(BcOp::PopTop, span)
+}
+
+///|
 priv struct LoopCtx {
   has_iter : Bool
   break_jumps : Array[Int]
@@ -394,6 +401,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::List([]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
 
       // Build the innermost statement: res.append(elt)
       let append_stmt = Stmt::ExprStmt(
@@ -439,7 +470,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -463,8 +494,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         // When targets are "_" or unpacking, bind into a temp and then assign.
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
@@ -509,7 +540,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<listcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -518,7 +552,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::GenExp(elt~, clauses~, filters~) => {
@@ -663,6 +708,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::Call(callee=Expr::Name("set"), args=[]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
       let add_stmt = Stmt::ExprStmt(
         Expr::Call(
           callee=Expr::Attribute(value=Expr::Name(res_name), attr="add"),
@@ -702,7 +771,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -726,8 +795,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
           Target::Name(clause.targets[0])
@@ -771,7 +840,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<setcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -780,7 +852,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
@@ -804,6 +887,30 @@ fn compile_expr(
         target=Target::Name(res_name),
         value=Expr::Dict([]),
       )
+      let first_iter_param : String? = if clauses.length() > 0 {
+        Some("__mpy_comp_iter$" + b.code.ops.length().to_string())
+      } else {
+        None
+      }
+      let comp_clauses : Array[CompClause] = []
+      match first_iter_param {
+        Some(name) => {
+          comp_clauses.push(CompClause::{
+            is_async: clauses[0].is_async,
+            targets: clauses[0].targets,
+            iter: Expr::Name(name),
+          })
+          for i = 1; i < clauses.length(); i = i + 1 {
+            comp_clauses.push(clauses[i])
+          }
+        }
+        None => ()
+      }
+      let body_clauses = if clauses.length() > 0 {
+        comp_clauses
+      } else {
+        clauses
+      }
       let set_stmt = Stmt::Assign(
         target=Target::Subscript(value=Expr::Name(res_name), index=key),
         value~,
@@ -841,7 +948,7 @@ fn compile_expr(
         } else {
           let handler_span = match span {
             Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1 }
+            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
           }
           let handler = ExceptHandler::{
             span: handler_span,
@@ -865,8 +972,8 @@ fn compile_expr(
         }
       }
 
-      for i = clauses.length() - 1; i >= 0; i = i - 1 {
-        let clause = clauses[i]
+      for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
+        let clause = body_clauses[i]
         let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
         let loop_target : Target = if direct {
           Target::Name(clause.targets[0])
@@ -910,7 +1017,10 @@ fn compile_expr(
       func_body.push(Stmt::Return(Some(Expr::Name(res_name))))
       let template = FunctionValue::{
         name: "<dictcomp>".to_string(),
-        params: [],
+        params: match first_iter_param {
+          Some(name) => [name]
+          None => []
+        },
         defaults: [],
         body: func_body,
         is_generator: false,
@@ -919,7 +1029,18 @@ fn compile_expr(
       }
       let template_idx = b.add_const(Value::Function(template))
       let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
-      let _ = b.emit(BcOp::CallFunction(0), span)
+      match first_iter_param {
+        Some(_) => {
+          match compile_expr(clauses[0].iter, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let _ = b.emit(BcOp::CallFunction(1), span)
+        }
+        None => {
+          let _ = b.emit(BcOp::CallFunction(0), span)
+        }
+      }
       Ok(())
     }
     Expr::List(items) => {
@@ -1694,8 +1815,8 @@ fn compile_stmt(
     }
     Stmt::Assign(target~, value~) => {
       // Match CPython/MicroPython evaluation order:
-      // - For attribute/subscript targets, evaluate the target object (and index)
-      //   before evaluating the RHS.
+      // - Evaluate the RHS first, then assign into the target from left to
+      //   right. `compile_target_store` consumes the already-stacked value.
       let rhs = value
       match target {
         Target::Name(_) => {
@@ -1712,34 +1833,12 @@ fn compile_stmt(
           }
           compile_target_store(target, b, span)
         }
-        Target::Attribute(value~, attr~) => {
-          match compile_expr(value, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
+        Target::Attribute(_) | Target::Subscript(_) => {
           match compile_expr(rhs, b, span) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
-          let idx = b.intern_name(attr)
-          let _ = b.emit(BcOp::StoreAttr(idx), span)
-          Ok(())
-        }
-        Target::Subscript(value~, index~) => {
-          match compile_expr(value, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          match compile_expr(index, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          match compile_expr(rhs, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          let _ = b.emit(BcOp::StoreSubscr, span)
-          Ok(())
+          compile_target_store(target, b, span)
         }
         _ =>
           Err(
@@ -1751,17 +1850,7 @@ fn compile_stmt(
       }
     }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      match target {
-        Target::Name(name) => {
-          match compile_expr(annotation, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          let name_idx = b.intern_name(name)
-          let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
-        }
-        _ => ()
-      }
+      let _ = annotation
       match value {
         Some(expr) =>
           match
@@ -1782,10 +1871,19 @@ fn compile_stmt(
     }
     Stmt::TypeAlias(name~, type_params~, value~) => {
       let _ = type_params
-      let _ = value
-      let idx = b.add_const(Value::None)
-      let _ = b.emit(BcOp::LoadConst(idx), span)
+      let template = FunctionValue::{
+        name: "<type_alias:" + name + ">",
+        params: [],
+        defaults: [],
+        body: [Stmt::Return(Some(value))],
+        is_generator: false,
+        is_async: false,
+        closure: [],
+      }
+      let template_idx = b.add_const(Value::Function(template))
+      let _ = b.emit(BcOp::MakeFunction(template_idx, 0, 0), span)
       let name_idx = b.intern_name(name)
+      let _ = b.emit(BcOp::MakeTypeAlias(name_idx), span)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
     }
@@ -2316,7 +2414,6 @@ fn compile_stmt(
       Ok(())
     }
     Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
-      let _ = type_params
       // Keep evaluation order aligned with CPython:
       // decorator expressions first, then base/keyword expressions, then class creation.
       for dec_expr in decorators {
@@ -2324,6 +2421,9 @@ fn compile_stmt(
           Ok(_) => ()
           Err(err) => return Err(err)
         }
+      }
+      if type_params.length() > 0 {
+        emit_pep695_typing_import(b, span)
       }
       for base in bases {
         match base {
@@ -2458,52 +2558,10 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
-      let mut ann_tmp_idx : Int? = None
-      let has_annotations = annotations.length() > 0 ||
-        return_annotation is Some(_)
-      let eval_annotations = has_annotations &&
-        !future_annotations &&
-        type_params.length() == 0
-      if eval_annotations {
-        let tmp_name = "$__mpy_fn_annotations$" +
-          b.code.ops.length().to_string()
-        let tmp_idx = b.intern_name(tmp_name)
-        ann_tmp_idx = Some(tmp_idx)
-        let mut pairs = 0
-        for pair in annotations {
-          let key = pair.0
-          let expr = pair.1
-          let key_idx = b.add_const(Value::Str(key))
-          let _ = b.emit(BcOp::LoadConst(key_idx), span)
-          let ann_span : Span? = match expr_span(expr) {
-            Some(s) => Some(s)
-            None => span
-          }
-          match compile_expr(expr, b, ann_span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          pairs = pairs + 1
-        }
-        match return_annotation {
-          Some(expr) => {
-            let key_idx = b.add_const(Value::Str("return".to_string()))
-            let _ = b.emit(BcOp::LoadConst(key_idx), span)
-            let ann_span : Span? = match expr_span(expr) {
-              Some(s) => Some(s)
-              None => span
-            }
-            match compile_expr(expr, b, ann_span) {
-              Ok(_) => ()
-              Err(err) => return Err(err)
-            }
-            pairs = pairs + 1
-          }
-          None => ()
-        }
-        let _ = b.emit(BcOp::BuildMap(pairs), span)
-        let _ = b.emit(BcOp::StoreName(tmp_idx), span)
-      }
+      let _ = type_params
+      let _ = annotations
+      let _ = return_annotation
+      let _ = future_annotations
       let template = FunctionValue::{
         name,
         params,
@@ -2527,16 +2585,6 @@ fn compile_stmt(
           span
         },
       )
-      match ann_tmp_idx {
-        Some(tmp_idx) => {
-          let ann_attr_idx = b.intern_name("__annotations__")
-          let _ = b.emit(BcOp::DupTop, span)
-          let _ = b.emit(BcOp::LoadName(tmp_idx), span)
-          let _ = b.emit(BcOp::StoreAttr(ann_attr_idx), span)
-          let _ = b.emit(BcOp::DeleteName(tmp_idx), span)
-        }
-        None => ()
-      }
       let name_idx = b.intern_name(name)
       let _ = b.emit(BcOp::StoreName(name_idx), span)
       Ok(())
@@ -2748,7 +2796,7 @@ pub fn compile_stmts_to_bc_with_future(
   future_annotations : Bool,
 ) -> Result[BcCode, RuntimeError] {
   let b = BcBuilder::new(name, filename)
-  let loop_stack : Ref[Array[LoopCtx]] = { val: [] }
+  let loop_stack : Ref[Array[LoopCtx]] = { val: [], }
   for stmt in body {
     match compile_stmt(stmt, b, None, loop_stack, 0, future_annotations) {
       Ok(_) => ()

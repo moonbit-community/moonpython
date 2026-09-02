@@ -10,7 +10,7 @@ priv enum BlockFlow {
 }
 
 ///|
-let active_exception_stack : Ref[Array[RuntimeError]] = { val: [] }
+let active_exception_stack : Ref[Array[RuntimeError]] = { val: [], }
 
 ///|
 
@@ -75,6 +75,56 @@ fn is_base_exception_class(klass : ClassValue) -> Result[Bool, RuntimeError] {
     }
   }
   Ok(false)
+}
+
+///|
+fn runtime_error_type_matches_handler_name(
+  err_type : String,
+  handler_name : String,
+) -> Bool {
+  if err_type == handler_name {
+    return true
+  }
+  match handler_name {
+    "BaseException" => true
+    "Exception" =>
+      err_type != "BaseException" &&
+      err_type != "BaseExceptionGroup" &&
+      err_type != "SystemExit" &&
+      err_type != "KeyboardInterrupt" &&
+      err_type != "GeneratorExit"
+    "ArithmeticError" =>
+      err_type == "ZeroDivisionError" ||
+      err_type == "OverflowError" ||
+      err_type == "FloatingPointError"
+    "LookupError" => err_type == "IndexError" || err_type == "KeyError"
+    "NameError" => err_type == "UnboundLocalError"
+    "ValueError" =>
+      err_type == "UnicodeError" ||
+      err_type == "UnicodeDecodeError" ||
+      err_type == "UnicodeEncodeError" ||
+      err_type == "UnicodeTranslateError"
+    "OSError" =>
+      err_type == "BlockingIOError" ||
+      err_type == "ChildProcessError" ||
+      err_type == "ConnectionError" ||
+      err_type == "BrokenPipeError" ||
+      err_type == "ConnectionAbortedError" ||
+      err_type == "ConnectionRefusedError" ||
+      err_type == "ConnectionResetError" ||
+      err_type == "InterruptedError" ||
+      err_type == "ProcessLookupError" ||
+      err_type == "TimeoutError" ||
+      err_type == "FileNotFoundError" ||
+      err_type == "FileExistsError" ||
+      err_type == "PermissionError" ||
+      err_type == "IsADirectoryError" ||
+      err_type == "NotADirectoryError"
+    "ImportError" => err_type == "ModuleNotFoundError"
+    "RuntimeError" => err_type == "RecursionError"
+    "SyntaxError" => err_type == "IndentationError" || err_type == "TabError"
+    _ => false
+  }
 }
 
 ///|
@@ -181,7 +231,13 @@ fn exception_matches_handler(
       }
       Ok(false)
     }
-    _ => Ok(handler_class.name == err.exc_type)
+    _ =>
+      Ok(
+        runtime_error_type_matches_handler_name(
+          err.exc_type,
+          handler_class.name,
+        ),
+      )
   }
 }
 
@@ -606,6 +662,8 @@ fn runtime_error_from_exception_instance(inst : InstanceValue) -> RuntimeError {
     RuntimeErrorKind::Runtime =>
       if message.length() > 0 {
         inst.class.name + ": " + message
+      } else if inst.class.name == "Exception" {
+        inst.class.name + ": "
       } else {
         inst.class.name
       }
@@ -678,7 +736,7 @@ fn make_frame_value(frame : TracebackFrame, builtins_dict : Value) -> Value {
     (Value::Str("__mpython_locals__"), Value::None),
   ]
   let code_value = Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "code", bases: [], dict: [] },
+    class: ClassValue::{ name: "code", bases: [], dict: [], },
     dict: [
       ("co_filename", Value::Str(frame.filename)),
       ("co_name", Value::Str(frame.name)),
@@ -692,7 +750,7 @@ fn make_frame_value(frame : TracebackFrame, builtins_dict : Value) -> Value {
     ],
   })
   Value::Instance(InstanceValue::{
-    class: ClassValue::{ name: "frame", bases: [], dict: frame_class_dict },
+    class: ClassValue::{ name: "frame", bases: [], dict: frame_class_dict, },
     dict: [
       ("f_name", Value::Str(frame.name)),
       ("f_filename", Value::Str(frame.filename)),
@@ -757,7 +815,7 @@ fn make_traceback_value(
       builtins_dict,
     )
     return Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      class: ClassValue::{ name: "traceback", bases: [], dict: [], },
       dict: [
         ("tb_frame", frame_value),
         ("tb_lineno", Value::Int(1N)),
@@ -839,7 +897,7 @@ fn make_traceback_value(
     dict.push(("tb_lasti", Value::Int(@bigint.BigInt::from_int(tb_lasti))))
     dict.push(("tb_next", next_value))
     next_value = Value::Instance(InstanceValue::{
-      class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+      class: ClassValue::{ name: "traceback", bases: [], dict: [], },
       dict,
     })
   }
@@ -959,7 +1017,7 @@ fn make_traceback_value_with_env(
             set_named_value(inst.dict, "f_globals", Value::Dict(globals_pairs))
         }
         let tb_value = Value::Instance(InstanceValue::{
-          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          class: ClassValue::{ name: "traceback", bases: [], dict: [], },
           dict: [
             ("tb_frame", Value::Instance(inst)),
             ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
@@ -973,7 +1031,7 @@ fn make_traceback_value_with_env(
       _ => {
         // Fallback: keep the original behavior.
         let tb_value = Value::Instance(InstanceValue::{
-          class: ClassValue::{ name: "traceback", bases: [], dict: [] },
+          class: ClassValue::{ name: "traceback", bases: [], dict: [], },
           dict: [
             ("tb_frame", frame_value),
             ("tb_lineno", Value::Int(@bigint.BigInt::from_int(frame.line))),
@@ -1201,7 +1259,7 @@ fn exception_value_from_runtime_error(
       if end < 0 || end < start {
         return None
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for k = start; k < end; k = k + 1 {
         buf.write_char(chars[k])
       }
@@ -1310,7 +1368,7 @@ fn exception_value_from_runtime_error(
                         }
                       }
                       if end2 > start2 {
-                        let buf = StringBuilder::new()
+                        let buf = StringBuilder()
                         for k = start2; k < end2; k = k + 1 {
                           buf.write_char(chars[k])
                         }
@@ -1343,7 +1401,7 @@ fn exception_value_from_runtime_error(
     globals : Array[(String, Value)],
   ) -> Value {
     let dict : Array[(String, Value)] = []
-    let inst = InstanceValue::{ class: klass, dict }
+    let inst = InstanceValue::{ class: klass, dict, }
     attach_exc_metadata(inst, positional, err, globals)
     Value::Instance(inst)
   }
@@ -1453,42 +1511,9 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AnnAssign(target~, annotation~, value~) => {
+        let _ = annotation
         match target {
-          Target::Name(name) => {
-            // Only simple-name annotations contribute to __annotations__.
-            // For attribute/subscript targets (e.g. `self.x: T = ...`), CPython
-            // does not evaluate/store the annotation at runtime.
-            let ann_value = match
-              eval_expr_with_env(annotation, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let pairs = match
-              get_scoped_value(locals, globals, "__annotations__") {
-              Some(Value::Dict(pairs)) => pairs
-              Some(_) =>
-                return Err(
-                  make_runtime_error(
-                    RuntimeErrorKind::Type,
-                    "__annotations__ must be a dict".to_string(),
-                  ),
-                )
-              None => {
-                let pairs : Array[(Value, Value)] = []
-                set_scoped_value(
-                  locals,
-                  globals,
-                  "__annotations__",
-                  Value::Dict(pairs),
-                )
-                pairs
-              }
-            }
-            let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
+          Target::Name(_) => ()
           _ => ()
         }
         match value {
@@ -1745,8 +1770,40 @@ fn eval_block_flow(
       }
       Stmt::TypeAlias(name~, type_params~, value~) => {
         let _ = type_params
-        let _ = value
-        set_scoped_value(locals, globals, name, Value::None)
+        let template = FunctionValue::{
+          name: "<type_alias:" + name + ">",
+          params: [],
+          defaults: [],
+          body: [Stmt::Return(Some(value))],
+          is_generator: false,
+          is_async: false,
+          closure: [],
+        }
+        let value_func = match
+          make_function_from_template_with_env(
+            template,
+            [],
+            [],
+            locals,
+            globals,
+            builtins,
+            io,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        set_scoped_value(
+          locals,
+          globals,
+          name,
+          Value::Instance(InstanceValue::{
+            class: ClassValue::{ name: "TypeAlias", bases: [], dict: [], },
+            dict: [
+              ("__name__", Value::Str(name)),
+              ("__value_func__", value_func),
+            ],
+          }),
+        )
         last = Value::None
       }
       Stmt::Return(expr) => {
@@ -1798,46 +1855,8 @@ fn eval_block_flow(
           }
           default_values.push(value)
         }
-        let ann_pairs : Array[(Value, Value)] = []
-        let future_on = match
-          get_global_value(globals, "__mpython_future_annotations__") {
-          Some(Value::Bool(true)) => true
-          _ => false
-        }
-        if !future_on {
-          for ann in annotations {
-            let key = ann.0
-            let expr = ann.1
-            let value = match
-              eval_expr_with_env(expr, locals, globals, builtins, io) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-            let _ = match dict_set_item(ann_pairs, Value::Str(key), value) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
-          match return_annotation {
-            Some(expr) => {
-              let value = match
-                eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-              let _ = match
-                dict_set_item(
-                  ann_pairs,
-                  Value::Str("return".to_string()),
-                  value,
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-            }
-            None => ()
-          }
-        }
+        let _ = annotations
+        let _ = return_annotation
         let template = FunctionValue::{
           name,
           params,
@@ -1854,23 +1873,6 @@ fn eval_block_flow(
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
-        }
-        if ann_pairs.length() > 0 {
-          match defined {
-            Value::Function(func) => {
-              let pairs = function_attr_dict(func)
-              let _ = match
-                dict_set_item(
-                  pairs,
-                  Value::Str("__annotations__".to_string()),
-                  Value::Dict(ann_pairs),
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-            }
-            _ => ()
-          }
         }
         set_scoped_value(locals, globals, name, defined)
         last = Value::None
@@ -2087,10 +2089,13 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::FromImport(module_name~, names~) => {
-        let resolved_name = match
-          resolve_relative_module_name(module_name, globals) {
-          Ok(v) => v
-          Err(err) => return Err(err)
+        let resolved_name = if module_name.length() == 0 {
+          module_name
+        } else {
+          match resolve_relative_module_name(module_name, globals) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
         }
         if resolved_name == "__future__" {
           for item in names {
@@ -2824,6 +2829,17 @@ fn eval_block_flow(
               }
             _ => ()
           }
+        }
+        if get_scoped_value(locals, globals, "__class__") is Some(_) &&
+          stmts_have_class_body_comprehension_name(body, "__class__") {
+          return Err(
+            make_runtime_error(
+              RuntimeErrorKind::Runtime,
+              "SystemError: compiler_lookup_arg(name='__class__') with reftype=1 failed in <module>; freevars of code " +
+              name +
+              ": ('__class__',)",
+            ),
+          )
         }
         let module_name_value = get_global_value(globals, "__name__")
         if module_name_value is None {

@@ -30,7 +30,7 @@ test "traceback/format_includes_frames" {
     content=(
       #|Traceback (most recent call last):
       #|  File "<module>", line 5, column 1, in <module>
-      #|  File "<module>", line 4, column 3, in wrap
+      #|  File "<module>", line 4, column 10, in wrap
       #|  File "<module>", line 2, column 3, in boom
       #|ZeroDivisionError: division by zero
     ),

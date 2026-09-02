@@ -687,7 +687,7 @@ fn eval_expr_with_env(
       }
       let closure = capture_cell_closure(locals)
       let globals_marker = Value::Instance(InstanceValue::{
-        class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [] },
+        class: ClassValue::{ name: "__mpython_globals__", bases: [], dict: [], },
         dict: globals,
       })
       closure.push(("$__mpython_globals__", globals_marker))
@@ -1608,7 +1608,7 @@ fn eval_expr_with_env(
                       ),
                     )
                 }
-                let buf = StringBuilder::new()
+                let buf = StringBuilder()
                 let mut first = true
                 while true {
                   match

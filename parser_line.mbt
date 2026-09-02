@@ -1529,6 +1529,9 @@ fn LineParser::parse_block(
       continue
     }
     if line_text.has_prefix("while ") {
+      if self.block_depth >= 20 {
+        return Err(self.invalid_syntax_at_line(self.index + 1))
+      }
       let colon_pos = find_top_level_colon(line_text)
       if colon_pos is None {
         let token = {
@@ -1623,7 +1626,10 @@ fn LineParser::parse_block(
             ),
           )
         }
-        body = match self.parse_block(next_indent) {
+        self.block_depth += 1
+        let parsed_body = self.parse_block(next_indent)
+        self.block_depth -= 1
+        body = match parsed_body {
           Ok(value) => value
           Err(err) => return Err(err)
         }
@@ -2030,6 +2036,20 @@ fn LineParser::parse_block(
           }
           let mut exc_expr_opt : Expr? = None
           let mut name_opt : String? = None
+          fn is_simple_except_alias(text : String) -> Bool {
+            if text.length() == 0 {
+              return false
+            }
+            let chars = text.to_array()
+            for i = 0; i < chars.length(); i = i + 1 {
+              let c = chars[i]
+              if !(is_alnum(c) || c == '_') || (i == 0 && is_digit(c)) {
+                return false
+              }
+            }
+            true
+          }
+
           if header_text.length() > 0 {
             let parts : Array[String] = []
             for part in header_text.split(" as ") {
@@ -2059,6 +2079,11 @@ fn LineParser::parse_block(
             if parts.length() > 1 {
               let raw_name = parts[1].trim(chars=" \t").to_owned()
               if raw_name.length() > 0 {
+                if !is_simple_except_alias(raw_name) {
+                  return Err(
+                    self.invalid_syntax_at_line(header_start_index + 1),
+                  )
+                }
                 name_opt = Some(raw_name)
               }
             }
@@ -2145,6 +2170,12 @@ fn LineParser::parse_block(
             end,
             line: header_start_index + 1,
             column: current_indent + 1,
+          }
+          if is_star {
+            match stmts_first_except_star_control_flow_line(handler_body) {
+              Some(line) => return Err(self.invalid_syntax_at_line(line))
+              None => ()
+            }
           }
           handlers.push(ExceptHandler::{
             span: header_span,
@@ -2661,20 +2692,9 @@ fn LineParser::parse_block(
       ),
     )
   }
-  if self.async_depth == 0 {
+  if self.async_depth == 0 && indent == 0 {
     match stmts_first_illegal_await_line(stmts) {
-      Some(line) => {
-        let line_index = if line <= 0 { 0 } else { line - 1 }
-        let base = self.offsets[line_index]
-        let token = { kind: Eof, start: base, end: base + 1, line, column: 1 }
-        return Err(
-          make_parse_error(
-            ParseErrorKind::Syntax,
-            "invalid syntax".to_string(),
-            token,
-          ),
-        )
-      }
+      Some(line) => return Err(self.invalid_syntax_at_line(line))
       None => ()
     }
   }

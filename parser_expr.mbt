@@ -9,11 +9,11 @@ priv struct ExprParser {
 }
 
 ///|
-let assign_temp_id_ref : Ref[Int] = { val: 0 }
+let assign_temp_id_ref : Ref[Int] = { val: 0, }
 
 ///|
 fn ExprParser::new(tokens : Array[Token]) -> ExprParser {
-  ExprParser::{ tokens, view: tokens[:] }
+  ExprParser::{ tokens, view: tokens[:], }
 }
 
 ///|
@@ -850,7 +850,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: true, targets, iter })
+        clauses.push(CompClause::{ is_async: true, targets, iter, })
         continue
       }
       [{ kind: For, .. }, .. rest] => {
@@ -914,7 +914,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: false, targets, iter })
+        clauses.push(CompClause::{ is_async: false, targets, iter, })
         continue
       }
       [{ kind: If, .. }, .. rest] => {
@@ -1256,13 +1256,32 @@ fn ExprParser::parse_comp_targets(
     }
     LParen => {
       let open_target = self.advance()
-      self.parse_comp_target_group(
-        RParen,
-        open_target,
-        "'(' was never closed".to_string(),
-        walrus_targets,
-        has_previous_clause,
-      )
+      let targets = match
+        self.parse_comp_target_group(
+          RParen,
+          open_target,
+          "'(' was never closed".to_string(),
+          walrus_targets,
+          has_previous_clause,
+        ) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if self.current().kind != Comma && self.current().kind != In {
+        let _ = match
+          self.skip_comp_target_until(
+            In,
+            In,
+            open,
+            unclosed_message.to_string(),
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        Ok(["_"])
+      } else {
+        Ok(targets)
+      }
     }
     LBracket =>
       if self.looks_like_destructuring_list() {
@@ -1482,6 +1501,9 @@ fn validate_comprehension_walrus(
     collect_named_expr_targets(expr, walrus_targets)
   }
   for name in walrus_targets {
+    if name.has_prefix("__") && !name.has_suffix("__") {
+      continue
+    }
     for b in bound {
       if name == b {
         return Err(
@@ -1674,6 +1696,15 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     }
     Await => {
       let _ = self.advance()
+      if self.current().kind == Await {
+        return Err(
+          make_parse_error(
+            ParseErrorKind::Syntax,
+            "invalid syntax".to_string(),
+            self.current(),
+          ),
+        )
+      }
       let expr = match self.parse_primary() {
         Ok(value) => value
         Err(err) => return Err(err)
@@ -2073,6 +2104,29 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                   ParseErrorKind::Syntax,
                   "closing parenthesis '}' does not match opening parenthesis '['".to_string(),
                   self.current(),
+                ),
+              )
+            }
+            if self.current().kind != RBracket {
+              let err_line = match expr_span(first) {
+                Some(span) => span.line
+                None => open.line
+              }
+              let err_start = match expr_span(first) {
+                Some(span) => span.start
+                None => open.start
+              }
+              return Err(
+                make_parse_error(
+                  ParseErrorKind::Syntax,
+                  "invalid syntax".to_string(),
+                  {
+                    kind: Eof,
+                    start: err_start,
+                    end: err_start + 1,
+                    line: err_line,
+                    column: 1,
+                  },
                 ),
               )
             }
@@ -2554,6 +2608,23 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                   args.push(Expr::GenExp(elt=first, clauses~, filters~))
                 } else {
                   args.push(first)
+                }
+                let current_idx = self.index()
+                let next_kind = if current_idx + 1 < self.tokens.length() {
+                  self.tokens[current_idx + 1].kind
+                } else {
+                  Eof
+                }
+                match (self.current().kind, next_kind) {
+                  (Ident(_), Assign) =>
+                    return Err(
+                      make_parse_error(
+                        ParseErrorKind::Syntax,
+                        "invalid syntax".to_string(),
+                        token,
+                      ),
+                    )
+                  _ => ()
                 }
               }
             }

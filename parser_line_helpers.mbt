@@ -335,6 +335,11 @@ fn parse_type_param_header(
 }
 
 ///|
+fn is_async_await_reserved_name(name : String) -> Bool {
+  name == "async" || name == "await"
+}
+
+///|
 fn split_statements(line : String) -> Array[(String, Int)] {
   let segments : Array[(String, Int)] = []
   let chars = line.to_array()
@@ -430,14 +435,14 @@ fn bracket_balance(line : String) -> Int {
           // lexically inside a quoted literal. Treat them as bracket balance
           // so we can join physical lines like:
           //   f"abc{a # comment }\n+ 3}"
-          if i + 1 < chars.length() && chars[i + 1] == '{' {
+          if fexpr_depth == 0 && i + 1 < chars.length() && chars[i + 1] == '{' {
             i += 2
             continue
           }
           fexpr_depth += 1
           balance += 1
         } else if in_fstring && c == '}' {
-          if i + 1 < chars.length() && chars[i + 1] == '}' {
+          if fexpr_depth == 0 && i + 1 < chars.length() && chars[i + 1] == '}' {
             i += 2
             continue
           }
@@ -925,7 +930,7 @@ fn find_top_level_char(text : String, target : Char) -> Int? {
 ///|
 fn strip_inline_comment(text : String) -> String {
   let chars = text.to_array()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   let mut quote : Char? = None
   let mut triple : Char? = None
@@ -1261,7 +1266,7 @@ fn replace_newlines_with_spaces(text : String) -> String {
     }
     i += 1
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for ch in out {
     buf.write_char(ch)
   }
@@ -1306,6 +1311,57 @@ fn has_trailing_line_continuation(text : String) -> Bool {
 }
 
 ///|
+fn line_has_backslash_comment(text : String) -> Bool {
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) => {
+        if escape {
+          escape = false
+          i += 1
+          continue
+        }
+        if c == '\\' {
+          escape = true
+          i += 1
+          continue
+        }
+        if c == q {
+          quote = None
+        }
+        i += 1
+        continue
+      }
+      None => ()
+    }
+    if c == '#' {
+      return false
+    }
+    if c == '\'' || c == '"' {
+      quote = Some(c)
+      escape = false
+      i += 1
+      continue
+    }
+    if c == '\\' {
+      let mut j = i + 1
+      while j < chars.length() && (chars[j] == ' ' || chars[j] == '\t') {
+        j += 1
+      }
+      if j < chars.length() && chars[j] == '#' {
+        return true
+      }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
 /// Return whether `text` ends inside a non-triple-quoted string literal and the
 /// last character is a backslash (i.e. `\\` followed by a physical newline in
 /// source, used as a line continuation inside the string literal).
@@ -1341,6 +1397,46 @@ fn has_unclosed_string_line_continuation(text : String) -> Bool {
     i += 1
   }
   quote is Some(_) && escape
+}
+
+///|
+fn first_unclosed_single_line_string_column(text : String) -> Int? {
+  let chars = text.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut quote_column = 0
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          // Ignore triple-quoted strings: those are handled separately.
+          if i + 2 < chars.length() && chars[i + 1] == c && chars[i + 2] == c {
+            i += 3
+            continue
+          }
+          quote = Some(c)
+          quote_column = i + 1
+          escape = false
+        } else if c == '#' {
+          break
+        }
+    }
+    i += 1
+  }
+  match quote {
+    Some(_) => Some(quote_column)
+    None => None
+  }
 }
 
 ///|
@@ -1384,6 +1480,47 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
     }
     if current_indent > 0 && !allow_indented && !saw_syntax_error {
       return Ok(())
+    }
+    if current_indent == 0 && trimmed.has_prefix("(?") {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: offsets[index],
+          end: offsets[index] + 1,
+          line: index + 1,
+          column: 1,
+        }),
+      )
+    }
+    if line_has_backslash_comment(raw_line) {
+      return Err(
+        make_parse_error(ParseErrorKind::Syntax, "invalid syntax".to_string(), {
+          kind: Eof,
+          start: offsets[index],
+          end: offsets[index] + 1,
+          line: index + 1,
+          column: 1,
+        }),
+      )
+    }
+    if saw_syntax_error {
+      match first_unclosed_single_line_string_column(raw_line) {
+        Some(column) =>
+          return Err(
+            make_parse_error(
+              ParseErrorKind::Syntax,
+              "invalid syntax".to_string(),
+              {
+                kind: Eof,
+                start: offsets[index] + current_indent + column - 1,
+                end: offsets[index] + current_indent + column,
+                line: index + 1,
+                column,
+              },
+            ),
+          )
+        None => ()
+      }
     }
     let mut next_index = index + 1
     let mut line_text = raw_line
@@ -1759,6 +1896,59 @@ fn line_has_await_keyword(line : String) -> Bool {
               !is_ascii_ident_char(chars[after_pos])
             if before_ok && after_ok {
               return true
+            }
+          }
+        }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
+fn line_has_async_for_keyword(line : String) -> Bool {
+  let chars = line.to_array()
+  let mut i = 0
+  let mut quote : Char? = None
+  let mut escape = false
+  while i < chars.length() {
+    let c = chars[i]
+    match quote {
+      Some(q) =>
+        if escape {
+          escape = false
+        } else if c == '\\' {
+          escape = true
+        } else if c == q {
+          quote = None
+        }
+      None =>
+        if c == '\'' || c == '"' {
+          quote = Some(c)
+          escape = false
+        } else if c == '#' {
+          break
+        } else if c == 'a' && i + 4 < chars.length() {
+          if chars[i + 1] == 's' &&
+            chars[i + 2] == 'y' &&
+            chars[i + 3] == 'n' &&
+            chars[i + 4] == 'c' {
+            let before_ok = i == 0 || !is_ascii_ident_char(chars[i - 1])
+            let mut j = i + 5
+            while j < chars.length() && (chars[j] == ' ' || chars[j] == '\t') {
+              j += 1
+            }
+            if before_ok &&
+              j + 2 < chars.length() &&
+              chars[j] == 'f' &&
+              chars[j + 1] == 'o' &&
+              chars[j + 2] == 'r' {
+              let after_pos = j + 3
+              let after_ok = after_pos >= chars.length() ||
+                !is_ascii_ident_char(chars[after_pos])
+              if after_ok {
+                return true
+              }
             }
           }
         }
