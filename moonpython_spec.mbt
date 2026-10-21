@@ -15,6 +15,9 @@ pub(all) struct Span {
 } derive(ToJson)
 
 ///|
+pub extend Span with ToJson::{to_json}
+
+///|
 /// Literal values that appear in source code
 pub enum Literal {
   None
@@ -27,6 +30,9 @@ pub enum Literal {
 } derive(ToJson)
 
 ///|
+pub extend Literal with ToJson::{to_json}
+
+///|
 /// Unary operators
 pub enum UnaryOp {
   Pos
@@ -34,6 +40,9 @@ pub enum UnaryOp {
   Not
   Invert
 } derive(ToJson)
+
+///|
+pub extend UnaryOp with ToJson::{to_json}
 
 ///|
 /// Binary operators
@@ -54,11 +63,17 @@ pub enum BinaryOp {
 } derive(ToJson)
 
 ///|
+pub extend BinaryOp with ToJson::{to_json}
+
+///|
 /// Boolean operators
 pub enum BoolOp {
   And
   Or
 } derive(ToJson)
+
+///|
+pub extend BoolOp with ToJson::{to_json}
 
 ///|
 /// Comparison operators
@@ -76,12 +91,18 @@ pub enum CompareOp {
 } derive(ToJson)
 
 ///|
+pub extend CompareOp with ToJson::{to_json}
+
+///|
 /// A comprehension clause: `for <targets> in <iter>` (optionally `async for`).
 pub struct CompClause {
   is_async : Bool
   targets : Array[String]
   iter : Expr
 } derive(ToJson)
+
+///|
+pub extend CompClause with ToJson::{to_json}
 
 ///|
 /// Expression nodes
@@ -123,6 +144,9 @@ pub enum Expr {
 } derive(ToJson)
 
 ///|
+pub extend Expr with ToJson::{to_json}
+
+///|
 /// Assignment targets
 pub enum Target {
   Name(String)
@@ -132,6 +156,9 @@ pub enum Target {
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
 } derive(ToJson)
+
+///|
+pub extend Target with ToJson::{to_json}
 
 ///|
 /// Match statement patterns (minimal)
@@ -144,6 +171,9 @@ pub enum Pattern {
 } derive(ToJson)
 
 ///|
+pub extend Pattern with ToJson::{to_json}
+
+///|
 /// Try/except handler (supports except*)
 pub struct ExceptHandler {
   span : Span
@@ -152,6 +182,9 @@ pub struct ExceptHandler {
   name : String?
   body : Array[Stmt]
 } derive(ToJson)
+
+///|
+pub extend ExceptHandler with ToJson::{to_json}
 
 ///|
 /// Statement nodes
@@ -221,10 +254,16 @@ pub enum Stmt {
 } derive(ToJson)
 
 ///|
+pub extend Stmt with ToJson::{to_json}
+
+///|
 /// Parsed module
 pub struct Module {
   body : Array[Stmt]
 } derive(ToJson)
+
+///|
+pub extend Module with ToJson::{to_json}
 
 ///|
 /// Parse error categories
@@ -236,12 +275,18 @@ pub(all) enum ParseErrorKind {
 } derive(ToJson)
 
 ///|
+pub extend ParseErrorKind with ToJson::{to_json}
+
+///|
 /// Parse error details
 pub(all) struct ParseError {
   kind : ParseErrorKind
   message : String
   span : Span
 } derive(ToJson)
+
+///|
+pub extend ParseError with ToJson::{to_json}
 
 ///|
 /// Runtime error categories
@@ -255,6 +300,9 @@ pub(all) enum RuntimeErrorKind {
   NotImplemented
   Runtime
 } derive(ToJson)
+
+///|
+pub extend RuntimeErrorKind with ToJson::{to_json}
 
 ///|
 /// Runtime error details
@@ -273,6 +321,9 @@ pub(all) struct RuntimeError {
 } derive(ToJson)
 
 ///|
+pub extend RuntimeError with ToJson::{to_json}
+
+///|
 /// Traceback frame data captured at runtime
 pub(all) struct TracebackFrame {
   name : String
@@ -283,6 +334,9 @@ pub(all) struct TracebackFrame {
 } derive(ToJson)
 
 ///|
+pub extend TracebackFrame with ToJson::{to_json}
+
+///|
 /// Best-effort environment snapshot for a traceback frame.
 ///
 /// This is captured at raise-time so traceback formatting (e.g. suggestions in
@@ -291,6 +345,9 @@ pub(all) struct TracebackEnv {
   locals : Array[(String, Value)]
   globals : Array[(String, Value)]
 } derive(ToJson)
+
+///|
+pub extend TracebackEnv with ToJson::{to_json}
 
 ///|
 /// Wrap RuntimeError as an error type for use with `raise`
@@ -305,6 +362,9 @@ pub struct TestResult {
   failed : Int32
   errors : Array[String]
 } derive(ToJson)
+
+///|
+pub extend TestResult with ToJson::{to_json}
 
 ///|
 /// Interpreter configuration
@@ -333,6 +393,9 @@ pub struct Config {
 } derive(ToJson)
 
 ///|
+pub extend Config with ToJson::{to_json}
+
+///|
 /// Runtime values
 pub struct FunctionValue {
   name : String
@@ -345,6 +408,9 @@ pub struct FunctionValue {
 } derive(ToJson)
 
 ///|
+pub extend FunctionValue with ToJson::{to_json}
+
+///|
 /// A Python class object (minimal)
 ///
 /// `dict` is the class namespace holding methods and attributes.
@@ -355,6 +421,9 @@ pub struct ClassValue {
 } derive(ToJson)
 
 ///|
+pub extend ClassValue with ToJson::{to_json}
+
+///|
 /// A Python instance object (minimal)
 pub struct InstanceValue {
   class : ClassValue
@@ -362,11 +431,17 @@ pub struct InstanceValue {
 } derive(ToJson)
 
 ///|
+pub extend InstanceValue with ToJson::{to_json}
+
+///|
 /// A bound method (minimal descriptor result)
 pub struct BoundMethodValue {
   function : FunctionValue
   self : Value
 } derive(ToJson)
+
+///|
+pub extend BoundMethodValue with ToJson::{to_json}
 
 ///|
 /// Runtime values available to user code
@@ -391,6 +466,9 @@ pub enum Value {
 } derive(ToJson)
 
 ///|
+pub extend Value with ToJson::{to_json}
+
+///|
 /// Results produced after executing code
 pub struct RunResult {
   value : Value
@@ -398,6 +476,9 @@ pub struct RunResult {
   stderr : String
   globals : Array[(String, Value)]
 } derive(ToJson)
+
+///|
+pub extend RunResult with ToJson::{to_json}
 
 ///|
 /// In-memory IO buffers for testing

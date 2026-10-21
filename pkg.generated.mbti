@@ -165,28 +165,33 @@ pub enum BinaryOp {
   BitXor
   BitOr
 } derive(ToJson)
+pub fn BinaryOp::to_json(Self) -> Json
 
 pub enum BoolOp {
   And
   Or
 } derive(ToJson)
+pub fn BoolOp::to_json(Self) -> Json
 
 pub struct BoundMethodValue {
   function : FunctionValue
   self : Value
 } derive(ToJson)
+pub fn BoundMethodValue::to_json(Self) -> Json
 
 pub struct ClassValue {
   name : String
   bases : Array[Value]
   dict : Array[(String, Value)]
 } derive(ToJson)
+pub fn ClassValue::to_json(Self) -> Json
 
 pub struct CompClause {
   is_async : Bool
   targets : Array[String]
   iter : Expr
 } derive(ToJson)
+pub fn CompClause::to_json(Self) -> Json
 
 pub enum CompareOp {
   Eq
@@ -200,6 +205,7 @@ pub enum CompareOp {
   Is
   IsNot
 } derive(ToJson)
+pub fn CompareOp::to_json(Self) -> Json
 
 pub struct Config {
   max_recursion : Int32
@@ -213,6 +219,7 @@ pub struct Config {
 } derive(ToJson)
 pub fn Config::default() -> Self
 pub fn Config::for_cli(Array[String], String?, Array[String]) -> Self
+pub fn Config::to_json(Self) -> Json
 pub fn Config::with_bytecode_strict(Self, Bool) -> Self
 
 pub struct ExceptHandler {
@@ -222,6 +229,7 @@ pub struct ExceptHandler {
   name : String?
   body : Array[Stmt]
 } derive(ToJson)
+pub fn ExceptHandler::to_json(Self) -> Json
 
 pub enum Expr {
   Literal(Literal)
@@ -254,6 +262,7 @@ pub enum Expr {
   Compare(left~ : Expr, ops~ : Array[CompareOp], comparators~ : Array[Expr])
   WithSpan(span~ : Span, expr~ : Expr)
 } derive(ToJson)
+pub fn Expr::to_json(Self) -> Json
 
 pub struct FunctionValue {
   name : String
@@ -264,6 +273,7 @@ pub struct FunctionValue {
   is_async : Bool
   closure : Array[(String, Value)]
 } derive(ToJson)
+pub fn FunctionValue::to_json(Self) -> Json
 
 pub(all) struct GenExpSpec {
   elt : Expr
@@ -275,6 +285,7 @@ pub struct InstanceValue {
   class : ClassValue
   dict : Array[(String, Value)]
 } derive(ToJson)
+pub fn InstanceValue::to_json(Self) -> Json
 
 pub struct Interpreter {
   config : Config
@@ -306,6 +317,7 @@ pub enum Literal {
   Str(String)
   Bytes(Array[Int32])
 } derive(ToJson)
+pub fn Literal::to_json(Self) -> Json
 
 pub struct MockIO {
   stdin : Array[String]
@@ -323,12 +335,14 @@ pub fn MockIO::write_stdout(Self, String) -> Unit
 pub struct Module {
   body : Array[Stmt]
 } derive(ToJson)
+pub fn Module::to_json(Self) -> Json
 
 pub(all) struct ParseError {
   kind : ParseErrorKind
   message : String
   span : Span
 } derive(ToJson)
+pub fn ParseError::to_json(Self) -> Json
 
 pub(all) enum ParseErrorKind {
   Syntax
@@ -336,6 +350,7 @@ pub(all) enum ParseErrorKind {
   UnexpectedToken
   UnexpectedEof
 } derive(ToJson)
+pub fn ParseErrorKind::to_json(Self) -> Json
 
 pub enum Pattern {
   Wildcard
@@ -344,6 +359,7 @@ pub enum Pattern {
   TypeCapture(type_name~ : String, name~ : String)
   Tuple(Array[Pattern])
 } derive(ToJson)
+pub fn Pattern::to_json(Self) -> Json
 
 pub struct RunResult {
   value : Value
@@ -351,6 +367,7 @@ pub struct RunResult {
   stderr : String
   globals : Array[(String, Value)]
 } derive(ToJson)
+pub fn RunResult::to_json(Self) -> Json
 
 pub(all) struct RuntimeError {
   kind : RuntimeErrorKind
@@ -365,6 +382,7 @@ pub(all) struct RuntimeError {
   exc_context : Value?
   exc_suppress_context : Bool
 } derive(ToJson)
+pub fn RuntimeError::to_json(Self) -> Json
 
 pub(all) enum RuntimeErrorKind {
   Name
@@ -376,6 +394,7 @@ pub(all) enum RuntimeErrorKind {
   NotImplemented
   Runtime
 } derive(ToJson)
+pub fn RuntimeErrorKind::to_json(Self) -> Json
 
 pub(all) struct Span {
   start : Int32
@@ -383,6 +402,7 @@ pub(all) struct Span {
   line : Int32
   column : Int32
 } derive(ToJson)
+pub fn Span::to_json(Self) -> Json
 
 pub enum Stmt {
   ExprStmt(Expr)
@@ -415,6 +435,7 @@ pub enum Stmt {
   Class(name~ : String, decorators~ : Array[Expr], type_params~ : Array[String], bases~ : Array[Expr], keywords~ : Array[(String, Expr)], body~ : Array[Stmt])
   WithSpan(span~ : Span, stmt~ : Stmt)
 } derive(ToJson)
+pub fn Stmt::to_json(Self) -> Json
 
 pub enum Target {
   Name(String)
@@ -424,17 +445,20 @@ pub enum Target {
   Attribute(value~ : Expr, attr~ : String)
   Subscript(value~ : Expr, index~ : Expr)
 } derive(ToJson)
+pub fn Target::to_json(Self) -> Json
 
 pub struct TestResult {
   passed : Int32
   failed : Int32
   errors : Array[String]
 } derive(ToJson)
+pub fn TestResult::to_json(Self) -> Json
 
 pub(all) struct TracebackEnv {
   locals : Array[(String, Value)]
   globals : Array[(String, Value)]
 } derive(ToJson)
+pub fn TracebackEnv::to_json(Self) -> Json
 
 pub(all) struct TracebackFrame {
   name : String
@@ -443,6 +467,7 @@ pub(all) struct TracebackFrame {
   column : Int32
   end_column : Int32
 } derive(ToJson)
+pub fn TracebackFrame::to_json(Self) -> Json
 
 pub enum UnaryOp {
   Pos
@@ -450,6 +475,7 @@ pub enum UnaryOp {
   Not
   Invert
 } derive(ToJson)
+pub fn UnaryOp::to_json(Self) -> Json
 
 pub enum Value {
   None
@@ -470,6 +496,7 @@ pub enum Value {
   Instance(InstanceValue)
   BoundMethod(BoundMethodValue)
 } derive(ToJson)
+pub fn Value::to_json(Self) -> Json
 
 // Type aliases
 
