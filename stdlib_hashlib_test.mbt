@@ -3,8 +3,8 @@
 
 ///|
 test "stdlib/hashlib_sha2_shims" {
-  let config = Config::for_cli(["Lib"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import hashlib
     #|h = hashlib.sha224(b"")
@@ -26,6 +26,7 @@ test "stdlib/hashlib_sha2_shims" {
         content="sha224",
       )
     }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }

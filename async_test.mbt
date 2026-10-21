@@ -3,9 +3,9 @@
 
 ///|
 fn run_stdout_allow_imports(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 

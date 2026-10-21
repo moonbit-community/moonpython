@@ -1,10 +1,13 @@
 import {
   "moonbitlang/core/hashset",
   "moonbitlang/core/env",
-  "moonbitlang/core/json",
   "moonbitlang/core/math",
   "moonbitlang/core/string",
   "moonbitlang/x/fs",
   "moonbitlang/x/path",
   "moonbitlang/core/bigint",
 }
+
+import {
+  "moonbitlang/core/json",
+} for "test"

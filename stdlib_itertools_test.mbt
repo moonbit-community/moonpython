@@ -3,8 +3,8 @@
 
 ///|
 test "stdlib/itertools_cycle_basic" {
-  let config = Config::for_cli(["Lib"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import itertools
     #|it = itertools.cycle([1, 2])
@@ -17,6 +17,7 @@ test "stdlib/itertools_cycle_basic" {
       }
       inspect(out, content="[1, 2, 1, 2, 1]")
     }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }

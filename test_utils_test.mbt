@@ -2,7 +2,10 @@
 /// Helpers shared by black-box tests.
 
 ///|
-fn test_get_global(globals : Array[(String, Value)], name : String) -> Value? {
+fn test_get_global(
+  globals : Array[(String, @moonpython.Value)],
+  name : String,
+) -> @moonpython.Value? {
   for pair in globals {
     if pair.0 == name {
       return Some(pair.1)
@@ -73,18 +76,20 @@ fn complex_to_string(real : Double, imag : Double) -> String {
 }
 
 ///|
-fn test_value_repr(value : Value) -> String {
+fn test_value_repr(value : @moonpython.Value) -> String {
   match value {
-    Value::None => "None"
-    Value::Bool(v) => if v { "True" } else { "False" }
-    Value::Int(v) => v.to_string()
-    Value::Float(v) => v.to_string()
-    Value::Complex(real, imag) => complex_to_string(real, imag)
-    Value::Str(v) => v
-    Value::Bytes(values) => bytes_repr(values)
-    Value::ByteArray(values) => "bytearray(" + bytes_repr(values) + ")"
-    Value::MemoryView(values) => "memoryview(" + bytes_repr(values) + ")"
-    Value::List(values) => {
+    @moonpython.Value::None => "None"
+    @moonpython.Value::Bool(v) => if v { "True" } else { "False" }
+    @moonpython.Value::Int(v) => v.to_string()
+    @moonpython.Value::Float(v) => v.to_string()
+    @moonpython.Value::Complex(real, imag) => complex_to_string(real, imag)
+    @moonpython.Value::Str(v) => v
+    @moonpython.Value::Bytes(values) => bytes_repr(values)
+    @moonpython.Value::ByteArray(values) =>
+      "bytearray(" + bytes_repr(values) + ")"
+    @moonpython.Value::MemoryView(values) =>
+      "memoryview(" + bytes_repr(values) + ")"
+    @moonpython.Value::List(values) => {
       let buf = StringBuilder()
       buf.write_char('[')
       for i = 0; i < values.length(); i = i + 1 {
@@ -96,32 +101,32 @@ fn test_value_repr(value : Value) -> String {
       buf.write_char(']')
       buf.to_string()
     }
-    Value::Tuple(_) => "<tuple>"
-    Value::Dict(_) => "<dict>"
-    Value::Set(_) => "<set>"
-    Value::Function(func) => "<function " + func.name + ">"
-    Value::Class(klass) => "<class '" + klass.name + "'>"
-    Value::Instance(inst) => "<" + inst.class.name + " object>"
-    Value::BoundMethod(_) => "<bound method>"
+    @moonpython.Value::Tuple(_) => "<tuple>"
+    @moonpython.Value::Dict(_) => "<dict>"
+    @moonpython.Value::Set(_) => "<set>"
+    @moonpython.Value::Function(func) => "<function " + func.name + ">"
+    @moonpython.Value::Class(klass) => "<class '" + klass.name + "'>"
+    @moonpython.Value::Instance(inst) => "<" + inst.class.name + " object>"
+    @moonpython.Value::BoundMethod(_) => "<bound method>"
   }
 }
 
 ///|
 fn test_exec_global(source : String, name : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(run) =>
       match test_get_global(run.globals, name) {
         Some(value) => test_value_repr(value)
         None => "<missing>"
       }
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
 ///|
 fn test_exec_error(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(_) => "ok"
-    Err(err) => format_runtime_error(err)
+    Err(err) => @moonpython.format_runtime_error(err)
   }
 }

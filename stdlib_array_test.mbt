@@ -3,8 +3,8 @@
 
 ///|
 test "stdlib/array_module_import_and_basic_api" {
-  let config = Config::for_cli(["Lib"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import array
     #|a = array.array("i", [1, 2, 3])
@@ -23,14 +23,15 @@ test "stdlib/array_module_import_and_basic_api" {
       inspect(n, content="3")
       inspect(itemsize, content="4")
     }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }
 
 ///|
 test "stdlib/array_reconstructor_exists" {
-  let config = Config::for_cli(["Lib"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import array
     #|a = array._array_reconstructor(array.array, "i", 0, [4, 5])
@@ -43,6 +44,7 @@ test "stdlib/array_reconstructor_exists" {
       }
       inspect(out, content="[4, 5]")
     }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }

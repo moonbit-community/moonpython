@@ -3,10 +3,13 @@
 
 ///|
 fn run_stdout_complex(source : String) -> String {
-  let io = MockIO::new([])
-  match Interpreter::with_io(Config::default(), io).exec_source(source) {
+  let io = @moonpython.MockIO::new([])
+  match
+    @moonpython.Interpreter::with_io(@moonpython.Config::default(), io).exec_source(
+      source,
+    ) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 

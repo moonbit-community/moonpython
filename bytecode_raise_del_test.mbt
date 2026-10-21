@@ -3,22 +3,25 @@
 
 ///|
 fn bc_run_stdout(source : String) -> String {
-  let io = MockIO::new([])
-  match Interpreter::with_io(Config::default(), io).exec_source(source) {
+  let io = @moonpython.MockIO::new([])
+  match
+    @moonpython.Interpreter::with_io(@moonpython.Config::default(), io).exec_source(
+      source,
+    ) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
 ///|
 fn bc_compile_ok(source : String) -> String {
-  let program = match parse(source) {
+  let program = match @moonpython.parse(source) {
     Ok(v) => v
-    Err(err) => return "ERR: " + format_parse_error(err)
+    Err(err) => return "ERR: " + @moonpython.format_parse_error(err)
   }
-  match compile_module_to_bc(program, "<test>".to_string()) {
+  match @moonpython.compile_module_to_bc(program, "<test>".to_string()) {
     Ok(_) => "ok"
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 

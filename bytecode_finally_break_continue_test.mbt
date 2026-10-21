@@ -3,9 +3,9 @@
 
 ///|
 fn bc_finally_run_stdout(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
