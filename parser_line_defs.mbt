@@ -8,9 +8,9 @@ fn parse_class_stmt(
   pending_decorators : Array[Expr],
   pending_decorator_token : Token?,
   line_text : String,
-  line_index : Int,
-  current_indent : Int,
-  next_index : Int,
+  line_index : Int32,
+  current_indent : Int32,
+  next_index : Int32,
 ) -> Result[(Bool, Array[Expr], Token?), ParseError] {
   if !line_text.has_prefix("class ") {
     return Ok((false, pending_decorators, pending_decorator_token))
@@ -325,9 +325,9 @@ fn parse_def_stmt(
   pending_decorator_token : Token?,
   line_text_in : String,
   line : String,
-  line_index : Int,
-  current_indent : Int,
-  next_index : Int,
+  line_index : Int32,
+  current_indent : Int32,
+  next_index : Int32,
 ) -> Result[(Bool, Array[Expr], Token?), ParseError] {
   let mut line_text = line_text_in
   let mut is_async_def = false
@@ -442,7 +442,7 @@ fn parse_def_stmt(
     true
   }
 
-  fn consume_param_segment(end_idx : Int) -> Result[Unit, ParseError] {
+  fn consume_param_segment(end_idx : Int32) -> Result[Unit, ParseError] {
     let raw_param = substring(params_text, param_start, end_idx)
     let mut leading = 0
     let raw_chars = raw_param.to_array()
@@ -453,8 +453,8 @@ fn parse_def_stmt(
     if trimmed_param.length() == 0 {
       return Ok(())
     }
-    let mut colon_idx_opt : Int? = None
-    let mut eq_idx_opt : Int? = None
+    let mut colon_idx_opt : Int32? = None
+    let mut eq_idx_opt : Int32? = None
     let scan_chars = raw_param.to_array()
     let mut scan_depth = 0
     let mut scan_quote : Char? = None

@@ -11,7 +11,7 @@ priv struct AsyncGenExpState {
   builtins : Array[(String, Value)]
   io : MockIO
   iters : Array[Value?]
-  mut depth : Int
+  mut depth : Int32
   mut done : Bool
 }
 
@@ -19,7 +19,7 @@ priv struct AsyncGenExpState {
 let async_genexp_registry : Ref[Array[Ref[AsyncGenExpState]]] = { val: [], }
 
 ///|
-fn make_async_genexp_instance(id : Int) -> Value {
+fn make_async_genexp_instance(id : Int32) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "async_generator", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
@@ -29,7 +29,7 @@ fn make_async_genexp_instance(id : Int) -> Value {
 ///|
 fn async_genexp_id_from_instance(
   inst : InstanceValue,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {

@@ -11,7 +11,7 @@ pub fn bc_disassemble(BcCode) -> String
 
 pub fn bc_exec(BcCode, Array[(String, Value)], Array[(String, Value)], Array[(String, Value)], MockIO) -> Result[Value, RuntimeError]
 
-pub fn bc_patch_jump(BcCode, Int, Int) -> Unit
+pub fn bc_patch_jump(BcCode, Int32, Int32) -> Unit
 
 pub fn compile_module_to_bc(Module, String) -> Result[BcCode, RuntimeError]
 
@@ -27,7 +27,7 @@ pub fn format_parse_error(ParseError) -> String
 
 pub fn format_runtime_error(RuntimeError) -> String
 
-pub fn format_runtime_error_with_traceback(RuntimeError, Int) -> String
+pub fn format_runtime_error_with_traceback(RuntimeError, Int32) -> String
 
 pub fn parse(String) -> Result[Module, ParseError]
 
@@ -42,11 +42,11 @@ pub suberror MpythonError {
 pub(all) struct BcBuilder {
   code : BcCode
 }
-pub fn BcBuilder::add_const(Self, Value) -> Int
-pub fn BcBuilder::add_genexp(Self, GenExpSpec) -> Int
-pub fn BcBuilder::add_pattern(Self, Pattern) -> Int
-pub fn BcBuilder::emit(Self, BcOp, Span?) -> Int
-pub fn BcBuilder::intern_name(Self, String) -> Int
+pub fn BcBuilder::add_const(Self, Value) -> Int32
+pub fn BcBuilder::add_genexp(Self, GenExpSpec) -> Int32
+pub fn BcBuilder::add_pattern(Self, Pattern) -> Int32
+pub fn BcBuilder::emit(Self, BcOp, Span?) -> Int32
+pub fn BcBuilder::intern_name(Self, String) -> Int32
 pub fn BcBuilder::new(String, String) -> Self
 
 pub(all) struct BcCode {
@@ -67,20 +67,20 @@ pub(all) enum BcOp {
   DupTop
   RotTwo
   RotThree
-  LoadConst(Int)
-  LoadName(Int)
-  StoreName(Int)
-  DeleteName(Int)
-  LoadAttr(Int)
-  StoreAttr(Int)
-  DeleteAttr(Int)
+  LoadConst(Int32)
+  LoadName(Int32)
+  StoreName(Int32)
+  DeleteName(Int32)
+  LoadAttr(Int32)
+  StoreAttr(Int32)
+  DeleteAttr(Int32)
   LoadSubscr
   StoreSubscr
   DeleteSubscr
-  BuildTuple(Int)
-  BuildList(Int)
-  BuildMap(Int)
-  BuildSet(Int)
+  BuildTuple(Int32)
+  BuildList(Int32)
+  BuildMap(Int32)
+  BuildSet(Int32)
   BuildSlice
   ListAppend
   ListExtend
@@ -91,23 +91,23 @@ pub(all) enum BcOp {
   KwListExtendFromDict
   ListToTuple
   EvalFString
-  UnpackSequence(Int)
-  UnpackEx(Int, Int)
+  UnpackSequence(Int32)
+  UnpackEx(Int32, Int32)
   GetIter
-  ForIter(Int)
+  ForIter(Int32)
   Unary(UnaryOp)
   Binary(BinaryOp)
   Compare(CompareOp)
-  Jump(Int)
-  JumpIfFalse(Int)
-  JumpIfTrue(Int)
-  JumpIfFalseOrPop(Int)
-  JumpIfTrueOrPop(Int)
-  UnwindJump(Int, Int)
-  SetupExcept(Int)
-  SetupFinally(Int)
+  Jump(Int32)
+  JumpIfFalse(Int32)
+  JumpIfTrue(Int32)
+  JumpIfFalseOrPop(Int32)
+  JumpIfTrueOrPop(Int32)
+  UnwindJump(Int32, Int32)
+  SetupExcept(Int32)
+  SetupFinally(Int32)
   PopExcept
-  EnterFinally(Int)
+  EnterFinally(Int32)
   EndExcept
   EndFinally
   CheckExceptionMatch
@@ -128,23 +128,23 @@ pub(all) enum BcOp {
   AssertFail
   AssertFailNone
   Await
-  MatchPattern(Int)
+  MatchPattern(Int32)
   MatchBind
   MatchRestore
-  GenExpNew(Int, Int, Int)
-  AsyncGenExpNew(Int, Int, Int)
-  CallFunction(Int)
-  CallFunctionKw(Int)
+  GenExpNew(Int32, Int32, Int32)
+  AsyncGenExpNew(Int32, Int32, Int32)
+  CallFunction(Int32)
+  CallFunctionKw(Int32)
   CallFunctionVar
-  MakeFunction(Int, Int, Int)
-  MakeClass(Int, Int, Int)
-  MakeTypeAlias(Int)
-  StoreAnnotation(Int)
-  AugAssignName(Int, BinaryOp)
-  AugAssignAttr(Int, BinaryOp)
+  MakeFunction(Int32, Int32, Int32)
+  MakeClass(Int32, Int32, Int32)
+  MakeTypeAlias(Int32)
+  StoreAnnotation(Int32)
+  AugAssignName(Int32, BinaryOp)
+  AugAssignAttr(Int32, BinaryOp)
   AugAssignSubscr(BinaryOp)
-  ImportName(Int, Int)
-  FromImport(Int, Int, Int)
+  ImportName(Int32, Int32)
+  FromImport(Int32, Int32, Int32)
   CheckInFunctionScope(String)
   CheckInCoroutineScope(String)
   ReturnValue
@@ -202,8 +202,8 @@ pub enum CompareOp {
 } derive(ToJson)
 
 pub struct Config {
-  max_recursion : Int
-  traceback_limit : Int
+  max_recursion : Int32
+  traceback_limit : Int32
   track_spans : Bool
   bytecode_strict : Bool
   allow_filesystem_imports : Bool
@@ -304,12 +304,12 @@ pub enum Literal {
   Float(Double)
   Complex(Double, Double)
   Str(String)
-  Bytes(Array[Int])
+  Bytes(Array[Int32])
 } derive(ToJson)
 
 pub struct MockIO {
   stdin : Array[String]
-  stdin_pos : @ref.Ref[Int]
+  stdin_pos : @ref.Ref[Int32]
   stdout : StringBuilder
   stderr : StringBuilder
 }
@@ -378,10 +378,10 @@ pub(all) enum RuntimeErrorKind {
 } derive(ToJson)
 
 pub(all) struct Span {
-  start : Int
-  end : Int
-  line : Int
-  column : Int
+  start : Int32
+  end : Int32
+  line : Int32
+  column : Int32
 } derive(ToJson)
 
 pub enum Stmt {
@@ -426,8 +426,8 @@ pub enum Target {
 } derive(ToJson)
 
 pub struct TestResult {
-  passed : Int
-  failed : Int
+  passed : Int32
+  failed : Int32
   errors : Array[String]
 } derive(ToJson)
 
@@ -439,9 +439,9 @@ pub(all) struct TracebackEnv {
 pub(all) struct TracebackFrame {
   name : String
   filename : String
-  line : Int
-  column : Int
-  end_column : Int
+  line : Int32
+  column : Int32
+  end_column : Int32
 } derive(ToJson)
 
 pub enum UnaryOp {
@@ -458,9 +458,9 @@ pub enum Value {
   Float(Double)
   Complex(Double, Double)
   Str(String)
-  Bytes(Array[Int])
-  ByteArray(Array[Int])
-  MemoryView(Array[Int])
+  Bytes(Array[Int32])
+  ByteArray(Array[Int32])
+  MemoryView(Array[Int32])
   List(Array[Value])
   Tuple(Array[Value])
   Dict(Array[(Value, Value)])

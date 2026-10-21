@@ -1,5 +1,5 @@
 ///|
-fn bytes_hex_digit(n : Int) -> Char {
+fn bytes_hex_digit(n : Int32) -> Char {
   if n < 10 {
     ('0'.to_int() + n).to_char().unwrap()
   } else {
@@ -8,7 +8,7 @@ fn bytes_hex_digit(n : Int) -> Char {
 }
 
 ///|
-fn bytes_hex_byte(value : Int) -> String {
+fn bytes_hex_byte(value : Int32) -> String {
   let buf = StringBuilder()
   let hi = (value >> 4) & 0xF
   let lo = value & 0xF
@@ -18,7 +18,7 @@ fn bytes_hex_byte(value : Int) -> String {
 }
 
 ///|
-fn bytes_repr(values : Array[Int]) -> String {
+fn bytes_repr(values : Array[Int32]) -> String {
   let buf = StringBuilder()
   buf.write_string("b'")
   for byte in values {

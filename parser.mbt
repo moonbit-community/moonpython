@@ -16,8 +16,8 @@ pub fn parse(source : String) -> Result[Module, ParseError] {
   let mut line_start = 0
   let mut quote : Char? = None
   let mut escape = false
-  let bracket_stack : Array[(Char, Int, Int, Int)] = []
-  let mut unclosed_open : (Char, Int, Int, Int)? = None
+  let bracket_stack : Array[(Char, Int32, Int32, Int32)] = []
+  let mut unclosed_open : (Char, Int32, Int32, Int32)? = None
   while i < chars.length() {
     let c = chars[i]
     match quote {

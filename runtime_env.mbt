@@ -779,7 +779,7 @@ fn builtin_class_from_name(
 }
 
 ///|
-fn normalize_index(index : Int, length : Int) -> Int {
+fn normalize_index(index : Int32, length : Int32) -> Int32 {
   if index < 0 {
     length + index
   } else {
@@ -788,7 +788,10 @@ fn normalize_index(index : Int, length : Int) -> Int {
 }
 
 ///|
-fn index_from_value(value : Value, default : Int) -> Result[Int, RuntimeError] {
+fn index_from_value(
+  value : Value,
+  default : Int32,
+) -> Result[Int32, RuntimeError] {
   match value {
     Value::None => Ok(default)
     Value::Int(v) => bigint_to_int_checked(v)
@@ -802,7 +805,7 @@ fn index_from_value(value : Value, default : Int) -> Result[Int, RuntimeError] {
 }
 
 ///|
-fn maybe_index_from_value(value : Value) -> Result[Int?, RuntimeError] {
+fn maybe_index_from_value(value : Value) -> Result[Int32?, RuntimeError] {
   match value {
     Value::None => Ok(None)
     _ =>
@@ -814,7 +817,7 @@ fn maybe_index_from_value(value : Value) -> Result[Int?, RuntimeError] {
 }
 
 ///|
-fn step_from_value(value : Value) -> Result[Int, RuntimeError] {
+fn step_from_value(value : Value) -> Result[Int32, RuntimeError] {
   match value {
     Value::None => Ok(1)
     _ => index_from_value(value, 1)
@@ -823,11 +826,11 @@ fn step_from_value(value : Value) -> Result[Int, RuntimeError] {
 
 ///|
 fn slice_params_from_values(
-  length : Int,
+  length : Int32,
   start_value : Value,
   end_value : Value,
   step_value : Value,
-) -> Result[(Int, Int, Int), RuntimeError] {
+) -> Result[(Int32, Int32, Int32), RuntimeError] {
   let step = match step_from_value(step_value) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -912,11 +915,11 @@ fn slice_params_from_values(
 
 ///|
 fn slice_indices_from_values(
-  length : Int,
+  length : Int32,
   start_value : Value,
   end_value : Value,
   step_value : Value,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   if length <= 0 {
     return Ok([])
   }
@@ -925,7 +928,7 @@ fn slice_indices_from_values(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   if step > 0 {
     let mut i = start
     while i < end {
@@ -945,7 +948,7 @@ fn slice_indices_from_values(
 ///|
 fn slice_values_by_indices(
   values : Array[Value],
-  indices : Array[Int],
+  indices : Array[Int32],
 ) -> Array[Value] {
   let out : Array[Value] = []
   for idx in indices {
@@ -958,10 +961,10 @@ fn slice_values_by_indices(
 
 ///|
 fn slice_ints_by_indices(
-  values : Array[Int],
-  indices : Array[Int],
-) -> Array[Int] {
-  let out : Array[Int] = []
+  values : Array[Int32],
+  indices : Array[Int32],
+) -> Array[Int32] {
+  let out : Array[Int32] = []
   for idx in indices {
     if idx >= 0 && idx < values.length() {
       out.push(values[idx])
@@ -971,7 +974,10 @@ fn slice_ints_by_indices(
 }
 
 ///|
-fn slice_string_by_indices(chars : Array[Char], indices : Array[Int]) -> String {
+fn slice_string_by_indices(
+  chars : Array[Char],
+  indices : Array[Int32],
+) -> String {
   let buf = StringBuilder()
   for idx in indices {
     if idx >= 0 && idx < chars.length() {

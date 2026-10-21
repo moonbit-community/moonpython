@@ -100,7 +100,7 @@ fn lookup_instance_field(
 }
 
 ///|
-fn bytes_hex_digit(n : Int) -> Char {
+fn bytes_hex_digit(n : Int32) -> Char {
   if n < 10 {
     ('0'.to_int() + n).to_char().unwrap()
   } else {
@@ -109,7 +109,7 @@ fn bytes_hex_digit(n : Int) -> Char {
 }
 
 ///|
-fn bytes_hex_byte(value : Int) -> String {
+fn bytes_hex_byte(value : Int32) -> String {
   let buf = StringBuilder()
   let hi = (value >> 4) & 0xF
   let lo = value & 0xF
@@ -119,7 +119,7 @@ fn bytes_hex_byte(value : Int) -> String {
 }
 
 ///|
-fn bytes_repr(bytes : Array[Int]) -> String {
+fn bytes_repr(bytes : Array[Int32]) -> String {
   let buf = StringBuilder()
   buf.write_string("b'")
   for byte in bytes {
@@ -155,7 +155,7 @@ fn hash_string(text : String) -> Int64 {
 }
 
 ///|
-fn hash_bytes(values : Array[Int]) -> Int64 {
+fn hash_bytes(values : Array[Int32]) -> Int64 {
   let mut h : Int64 = 0L
   for value in values {
     h = h * 131L + value.to_int64()
@@ -375,7 +375,7 @@ fn value_to_string(value : Value) -> String {
 }
 
 ///|
-fn find_top_level_format_colon(inner : String) -> Int? {
+fn find_top_level_format_colon(inner : String) -> Int32? {
   let chars = inner.to_array()
   let mut depth_paren = 0
   let mut depth_bracket = 0
@@ -444,7 +444,7 @@ fn find_top_level_format_colon(inner : String) -> Int? {
 }
 
 ///|
-fn find_fstring_expr_close(after_open : String) -> Int? {
+fn find_fstring_expr_close(after_open : String) -> Int32? {
   let chars = after_open.to_array()
   let mut depth_brace = 0
   let mut quote : Char? = None
@@ -489,7 +489,7 @@ fn find_fstring_expr_close(after_open : String) -> Int? {
 }
 
 ///|
-fn find_top_level_fstring_conversion_bang(text : String) -> Int? {
+fn find_top_level_fstring_conversion_bang(text : String) -> Int32? {
   let chars = text.to_array()
   let mut depth_paren = 0
   let mut depth_bracket = 0
@@ -563,7 +563,7 @@ fn find_top_level_fstring_conversion_bang(text : String) -> Int? {
 }
 
 ///|
-fn find_top_level_fstring_debug_equal(text : String) -> Int? {
+fn find_top_level_fstring_debug_equal(text : String) -> Int32? {
   let chars = text.to_array()
   let mut depth_paren = 0
   let mut depth_bracket = 0
@@ -1015,7 +1015,7 @@ fn ensure_hashable(value : Value) -> Result[Unit, RuntimeError] {
 fn dict_find_index(
   pairs : Array[(Value, Value)],
   key : Value,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   let _ = match ensure_hashable(key) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1067,7 +1067,7 @@ fn dict_delete_key(
 fn set_find_index(
   values : Array[Value],
   item : Value,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   let _ = match ensure_hashable(item) {
     Ok(v) => v
     Err(err) => return Err(err)
@@ -1117,9 +1117,9 @@ fn set_remove_item(
 }
 
 ///|
-fn bigint_to_int_checked(v : @bigint.BigInt) -> Result[Int, RuntimeError] {
-  let min : Int = -0x80000000
-  let max : Int = 0x7fffffff
+fn bigint_to_int_checked(v : @bigint.BigInt) -> Result[Int32, RuntimeError] {
+  let min : Int32 = -0x80000000
+  let max : Int32 = 0x7fffffff
   if v.compare_int(min) < 0 || v.compare_int(max) > 0 {
     Err(
       make_runtime_error(

@@ -12,7 +12,7 @@ pub fn BcBuilder::new(name : String, filename : String) -> BcBuilder {
 }
 
 ///|
-pub fn BcBuilder::emit(self : BcBuilder, op : BcOp, span : Span?) -> Int {
+pub fn BcBuilder::emit(self : BcBuilder, op : BcOp, span : Span?) -> Int32 {
   let pc = self.code.ops.length()
   self.code.ops.push(op)
   self.code.spans.push(span)
@@ -20,7 +20,7 @@ pub fn BcBuilder::emit(self : BcBuilder, op : BcOp, span : Span?) -> Int {
 }
 
 ///|
-pub fn BcBuilder::intern_name(self : BcBuilder, name : String) -> Int {
+pub fn BcBuilder::intern_name(self : BcBuilder, name : String) -> Int32 {
   for i = 0; i < self.code.names.length(); i = i + 1 {
     if self.code.names[i] == name {
       return i
@@ -32,28 +32,28 @@ pub fn BcBuilder::intern_name(self : BcBuilder, name : String) -> Int {
 }
 
 ///|
-pub fn BcBuilder::add_pattern(self : BcBuilder, pattern : Pattern) -> Int {
+pub fn BcBuilder::add_pattern(self : BcBuilder, pattern : Pattern) -> Int32 {
   let idx = self.code.patterns.length()
   self.code.patterns.push(pattern)
   idx
 }
 
 ///|
-pub fn BcBuilder::add_genexp(self : BcBuilder, spec : GenExpSpec) -> Int {
+pub fn BcBuilder::add_genexp(self : BcBuilder, spec : GenExpSpec) -> Int32 {
   let idx = self.code.genexps.length()
   self.code.genexps.push(spec)
   idx
 }
 
 ///|
-pub fn BcBuilder::add_const(self : BcBuilder, value : Value) -> Int {
+pub fn BcBuilder::add_const(self : BcBuilder, value : Value) -> Int32 {
   let idx = self.code.consts.length()
   self.code.consts.push(value)
   idx
 }
 
 ///|
-pub fn bc_patch_jump(code : BcCode, pc : Int, target : Int) -> Unit {
+pub fn bc_patch_jump(code : BcCode, pc : Int32, target : Int32) -> Unit {
   match code.ops[pc] {
     BcOp::Jump(_) => code.ops[pc] = BcOp::Jump(target)
     BcOp::JumpIfFalse(_) => code.ops[pc] = BcOp::JumpIfFalse(target)

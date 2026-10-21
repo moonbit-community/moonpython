@@ -1196,7 +1196,7 @@ fn eval_expr_with_env(
               }
               fn index_list(
                 values : Array[Value],
-                idx : Int,
+                idx : Int32,
               ) -> Result[Value, RuntimeError] {
                 let norm = normalize_index(idx, values.length())
                 if norm >= 0 && norm < values.length() {

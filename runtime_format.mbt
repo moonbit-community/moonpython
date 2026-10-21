@@ -15,7 +15,7 @@ fn stringify_value_with_env(
 }
 
 ///|
-fn hex_digit(n : Int) -> Char {
+fn hex_digit(n : Int32) -> Char {
   if n < 10 {
     ('0'.to_int() + n).to_char().unwrap()
   } else {
@@ -24,7 +24,7 @@ fn hex_digit(n : Int) -> Char {
 }
 
 ///|
-fn hex_width(codepoint : Int, width : Int) -> String {
+fn hex_width(codepoint : Int32, width : Int32) -> String {
   let buf = StringBuilder()
   let mut i = 0
   while i < width {
@@ -158,7 +158,7 @@ fn format_string_width(
 }
 
 ///|
-fn parse_decimal_int(text : String) -> Int {
+fn parse_decimal_int(text : String) -> Int32 {
   let chars = text.to_array()
   let mut n = 0
   for c in chars {
@@ -172,7 +172,7 @@ fn parse_decimal_int(text : String) -> Int {
 ///|
 fn fstring_int_to_base_string(
   value : @bigint.BigInt,
-  base : Int,
+  base : Int32,
   uppercase : Bool,
 ) -> String {
   if value == 0N {
@@ -472,8 +472,8 @@ fn eval_fstring_text(
 
 ///|
 fn bytes_subsequence_contains(
-  haystack : Array[Int],
-  needle : Array[Int],
+  haystack : Array[Int32],
+  needle : Array[Int32],
 ) -> Bool {
   if needle.length() == 0 {
     return true
@@ -502,7 +502,7 @@ fn bytes_subsequence_contains(
 }
 
 ///|
-fn bytes_contains(haystack : Array[Int], needle : Value) -> Bool {
+fn bytes_contains(haystack : Array[Int32], needle : Value) -> Bool {
   match needle {
     Value::Int(v) => {
       let idx = match bigint_to_int_checked(v) {
@@ -557,7 +557,7 @@ fn to_complex(value : Value) -> Result[(Double, Double), RuntimeError] {
 }
 
 ///|
-fn pad_left(text : String, width : Int, pad_char : Char) -> String {
+fn pad_left(text : String, width : Int32, pad_char : Char) -> String {
   if width <= text.length() {
     text
   } else {
@@ -572,7 +572,7 @@ fn pad_left(text : String, width : Int, pad_char : Char) -> String {
 }
 
 ///|
-fn pad_right(text : String, width : Int, pad_char : Char) -> String {
+fn pad_right(text : String, width : Int32, pad_char : Char) -> String {
   if width <= text.length() {
     text
   } else {
@@ -587,7 +587,7 @@ fn pad_right(text : String, width : Int, pad_char : Char) -> String {
 }
 
 ///|
-fn pad_numeric(text : String, width : Int, zero_pad : Bool) -> String {
+fn pad_numeric(text : String, width : Int32, zero_pad : Bool) -> String {
   if !zero_pad {
     return pad_left(text, width, ' ')
   }
@@ -691,7 +691,7 @@ fn round_float_to_int64(value : Double) -> Int64 {
 }
 
 ///|
-fn format_float_fixed(value : Double, precision : Int) -> String {
+fn format_float_fixed(value : Double, precision : Int32) -> String {
   // Minimal fixed-point formatting for `%f` used throughout the CPython stdlib.
   // Only intended for small precisions (e.g. `%.3f`).
   if precision <= 0 {
@@ -721,7 +721,7 @@ fn format_float_fixed(value : Double, precision : Int) -> String {
 ///|
 fn format_float_value(
   value : Value,
-  precision_opt : Int?,
+  precision_opt : Int32?,
 ) -> Result[String, RuntimeError] {
   let precision = match precision_opt {
     Some(p) => p
@@ -825,7 +825,7 @@ fn format_percent_string(
         ),
       )
     }
-    fn star_int_value(name : String, v : Value) -> Result[Int, RuntimeError] {
+    fn star_int_value(name : String, v : Value) -> Result[Int32, RuntimeError] {
       match v {
         Value::Int(b) => Ok(b.to_int64().to_int())
         Value::Bool(b) => Ok(if b { 1 } else { 0 })
@@ -886,7 +886,7 @@ fn format_percent_string(
       }
     }
     // Optional precision: `%.3f`
-    let mut precision : Int? = None
+    let mut precision : Int32? = None
     if j < chars.length() && chars[j] == '.' {
       j = j + 1
       if j < chars.length() && chars[j] == '*' {
@@ -1044,7 +1044,7 @@ fn format_percent_string(
                 ),
               )
             }
-            Ok(char_to_string(Int::unsafe_to_char(code.to_int64().to_int())))
+            Ok(char_to_string(Int32::unsafe_to_char(code.to_int64().to_int())))
           }
         }
       'd' | 'i' => format_decimal_value(arg)

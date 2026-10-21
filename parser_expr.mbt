@@ -9,7 +9,7 @@ priv struct ExprParser {
 }
 
 ///|
-let assign_temp_id_ref : Ref[Int] = { val: 0, }
+let assign_temp_id_ref : Ref[Int32] = { val: 0, }
 
 ///|
 fn ExprParser::new(tokens : Array[Token]) -> ExprParser {
@@ -27,7 +27,7 @@ fn ExprParser::update_view(self : ExprParser, view : ArrayView[Token]) -> Unit {
 }
 
 ///|
-fn ExprParser::index(self : ExprParser) -> Int {
+fn ExprParser::index(self : ExprParser) -> Int32 {
   self.tokens.length() - self.view.length()
 }
 
@@ -1501,8 +1501,8 @@ fn validate_comprehension_walrus(
 fn bytes_from_string_literal(
   value : String,
   token : Token,
-) -> Result[Array[Int], ParseError] {
-  let out : Array[Int] = []
+) -> Result[Array[Int32], ParseError] {
+  let out : Array[Int32] = []
   for ch in value.to_array() {
     let code = ch.to_int()
     if code > 255 {
@@ -1592,7 +1592,7 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
     BytesLit(value) => {
       let token = self.current()
       let _ = self.advance()
-      let merged : Array[Int] = []
+      let merged : Array[Int32] = []
       let first = match bytes_from_string_literal(value, token) {
         Ok(v) => v
         Err(err) => return Err(err)

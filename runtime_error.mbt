@@ -342,7 +342,7 @@ pub fn format_runtime_error(error : RuntimeError) -> String {
 ///|
 pub fn format_runtime_error_with_traceback(
   error : RuntimeError,
-  limit : Int,
+  limit : Int32,
 ) -> String {
   if limit == 0 || error.traceback.length() == 0 {
     return format_runtime_error(error)

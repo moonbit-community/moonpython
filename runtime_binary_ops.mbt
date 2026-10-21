@@ -81,7 +81,7 @@ fn eval_binary_op_values(
         }
         (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + b))
         (Value::Bytes(a), Value::Bytes(b)) => {
-          let merged : Array[Int] = []
+          let merged : Array[Int32] = []
           for item in a {
             merged.push(item)
           }
@@ -91,7 +91,7 @@ fn eval_binary_op_values(
           Ok(Value::Bytes(merged))
         }
         (Value::ByteArray(a), Value::ByteArray(b)) => {
-          let merged : Array[Int] = []
+          let merged : Array[Int32] = []
           for item in a {
             merged.push(item)
           }
@@ -102,7 +102,7 @@ fn eval_binary_op_values(
         }
         (Value::ByteArray(a), Value::Bytes(b))
         | (Value::ByteArray(a), Value::MemoryView(b)) => {
-          let merged : Array[Int] = []
+          let merged : Array[Int32] = []
           for item in a {
             merged.push(item)
           }
@@ -425,7 +425,7 @@ fn eval_binary_op_values(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-            let out : Array[Int] = []
+            let out : Array[Int32] = []
             for i = 0; i < count_i; i = i + 1 {
               for byte in bytes {
                 out.push(byte)
@@ -442,7 +442,7 @@ fn eval_binary_op_values(
               Ok(v) => v
               Err(err) => return Err(err)
             }
-            let out : Array[Int] = []
+            let out : Array[Int32] = []
             for i = 0; i < count_i; i = i + 1 {
               for byte in bytes {
                 out.push(byte)

@@ -6037,7 +6037,7 @@ fn call_callable_with_env(
                     ),
                   )
                 }
-                let strip_chars : Array[Int] = match positional.length() {
+                let strip_chars : Array[Int32] = match positional.length() {
                   0 => [9, 10, 11, 12, 13, 32]
                   _ =>
                     match positional[0] {
@@ -6054,7 +6054,7 @@ fn call_callable_with_env(
                         )
                     }
                 }
-                fn in_strip_set(ch : Int, chars : Array[Int]) -> Bool {
+                fn in_strip_set(ch : Int32, chars : Array[Int32]) -> Bool {
                   for c in chars {
                     if c == ch {
                       return true
@@ -6071,7 +6071,7 @@ fn call_callable_with_env(
                 while end > start && in_strip_set(values[end - 1], strip_chars) {
                   end = end - 1
                 }
-                let out : Array[Int] = []
+                let out : Array[Int32] = []
                 for i = start; i < end; i = i + 1 {
                   out.push(values[i])
                 }
@@ -6088,7 +6088,7 @@ fn call_callable_with_env(
                 }
                 fn needle_bytes(
                   value : Value,
-                ) -> Result[Array[Int], RuntimeError] {
+                ) -> Result[Array[Int32], RuntimeError] {
                   match value {
                     Value::Bytes(v)
                     | Value::ByteArray(v)
@@ -6200,7 +6200,7 @@ fn call_callable_with_env(
                 }
                 fn needle_bytes(
                   value : Value,
-                ) -> Result[Array[Int], RuntimeError] {
+                ) -> Result[Array[Int32], RuntimeError] {
                   match value {
                     Value::Bytes(v)
                     | Value::ByteArray(v)
@@ -6400,7 +6400,7 @@ fn call_callable_with_env(
                 }
                 fn prefix_bytes(
                   value : Value,
-                ) -> Result[Array[Int], RuntimeError] {
+                ) -> Result[Array[Int32], RuntimeError] {
                   match value {
                     Value::Bytes(v)
                     | Value::ByteArray(v)
@@ -6415,7 +6415,7 @@ fn call_callable_with_env(
                   }
                 }
 
-                let prefixes : Array[Array[Int]] = []
+                let prefixes : Array[Array[Int32]] = []
                 match positional[0] {
                   Value::Tuple(items) =>
                     for item in items {
@@ -6504,7 +6504,7 @@ fn call_callable_with_env(
                 }
                 fn suffix_bytes(
                   value : Value,
-                ) -> Result[Array[Int], RuntimeError] {
+                ) -> Result[Array[Int32], RuntimeError] {
                   match value {
                     Value::Bytes(v)
                     | Value::ByteArray(v)
@@ -6519,7 +6519,7 @@ fn call_callable_with_env(
                   }
                 }
 
-                let suffixes : Array[Array[Int]] = []
+                let suffixes : Array[Array[Int32]] = []
                 match positional[0] {
                   Value::Tuple(items) =>
                     for item in items {
@@ -6652,7 +6652,7 @@ fn call_callable_with_env(
                 }
                 fn prefix_bytes(
                   value : Value,
-                ) -> Result[Array[Int], RuntimeError] {
+                ) -> Result[Array[Int32], RuntimeError] {
                   match value {
                     Value::Bytes(v)
                     | Value::ByteArray(v)
@@ -6667,7 +6667,7 @@ fn call_callable_with_env(
                   }
                 }
 
-                let prefixes : Array[Array[Int]] = []
+                let prefixes : Array[Array[Int32]] = []
                 match positional[0] {
                   Value::Tuple(items) =>
                     for item in items {
@@ -6858,7 +6858,7 @@ fn call_callable_with_env(
                     ),
                   )
                 } else {
-                  let out : Array[Int] = []
+                  let out : Array[Int32] = []
                   for item in values {
                     out.push(item)
                   }

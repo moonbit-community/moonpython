@@ -11,7 +11,7 @@ let abc_cache_token_ref : Ref[@bigint.BigInt] = { val: 0N, }
 let id_registry_string : Ref[Array[(String, @bigint.BigInt)]] = { val: [], }
 
 ///|
-let id_registry_int_array : Ref[Array[(Array[Int], @bigint.BigInt)]] = {
+let id_registry_int_array : Ref[Array[(Array[Int32], @bigint.BigInt)]] = {
   val: [],
 }
 
@@ -38,7 +38,7 @@ fn id_for_string(value : String) -> @bigint.BigInt {
 }
 
 ///|
-fn id_for_int_array(value : Array[Int]) -> @bigint.BigInt {
+fn id_for_int_array(value : Array[Int32]) -> @bigint.BigInt {
   for pair in id_registry_int_array.val {
     if physical_equal(pair.0, value) {
       return pair.1
@@ -364,7 +364,7 @@ fn builtin_sys_getframe(
 ///|
 fn bigint_to_base_string(
   value_in : @bigint.BigInt,
-  base : Int,
+  base : Int32,
   prefix : String,
 ) -> String {
   // NOTE: BigInt already provides `to_string()` for decimal.
@@ -554,8 +554,8 @@ fn repr_fallback(value : Value) -> String {
 fn levenshtein_distance_fast(
   a_in : String,
   b_in : String,
-  max_cost : Int,
-) -> Int {
+  max_cost : Int32,
+) -> Int32 {
   let move_cost = 2
   let case_cost = 1
   let max_size = 40
@@ -610,7 +610,7 @@ fn levenshtein_distance_fast(
   if (lb - la) * move_cost > max_cost {
     return max_cost + 1
   }
-  fn ascii_lower(ch : Char) -> Int {
+  fn ascii_lower(ch : Char) -> Int32 {
     let n = ch.to_int()
     if n >= 'A'.to_int() && n <= 'Z'.to_int() {
       n + 32
@@ -619,7 +619,7 @@ fn levenshtein_distance_fast(
     }
   }
 
-  fn subst_cost(ch_a : Char, ch_b : Char) -> Int {
+  fn subst_cost(ch_a : Char, ch_b : Char) -> Int32 {
     if ch_a == ch_b {
       0
     } else if ascii_lower(ch_a) == ascii_lower(ch_b) {
@@ -629,7 +629,7 @@ fn levenshtein_distance_fast(
     }
   }
 
-  let row : Array[Int] = []
+  let row : Array[Int32] = []
   for i = 1; i <= la; i = i + 1 {
     row.push(move_cost * i)
   }
@@ -4198,7 +4198,7 @@ fn builtin_dir(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  fn str_lex_cmp(a : String, b : String) -> Int {
+  fn str_lex_cmp(a : String, b : String) -> Int32 {
     if a == b {
       return 0
     }
@@ -4224,13 +4224,13 @@ fn builtin_dir(
   }
 
   fn lex_sort_strings_in_place(items : Array[String]) -> Unit {
-    fn swap(items : Array[String], i : Int, j : Int) -> Unit {
+    fn swap(items : Array[String], i : Int32, j : Int32) -> Unit {
       let tmp = items[i]
       items[i] = items[j]
       items[j] = tmp
     }
 
-    fn sort_range(items : Array[String], lo : Int, hi : Int) -> Unit {
+    fn sort_range(items : Array[String], lo : Int32, hi : Int32) -> Unit {
       if lo >= hi {
         return
       }
