@@ -3,17 +3,17 @@
 
 ///|
 fn run_traceback(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(_) => "ok"
-    Err(err) => format_runtime_error_with_traceback(err, 10)
+    Err(err) => @moonpython.format_runtime_error_with_traceback(err, 10)
   }
 }
 
 ///|
 fn run_stdout_traceback(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 

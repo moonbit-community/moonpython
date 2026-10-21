@@ -5,16 +5,18 @@
 fn e2e_run(
   stdin : Array[String],
   source : String,
-) -> Result[RunResult, RuntimeError] {
-  let io = MockIO::new(stdin)
-  Interpreter::with_io(Config::default(), io).exec_source(source)
+) -> Result[@moonpython.RunResult, @moonpython.RuntimeError] {
+  let io = @moonpython.MockIO::new(stdin)
+  @moonpython.Interpreter::with_io(@moonpython.Config::default(), io).exec_source(
+    source,
+  )
 }
 
 ///|
 fn e2e_stdout(stdin : Array[String], source : String) -> String {
   match e2e_run(stdin, source) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
@@ -26,7 +28,7 @@ fn e2e_global(stdin : Array[String], source : String, name : String) -> String {
         Some(value) => test_value_repr(value)
         None => "<missing>"
       }
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
@@ -1015,9 +1017,9 @@ test "e2e/augassign_name_and_subscript" {
 
 ///|
 fn parse_ok(source : String) -> String {
-  match parse(source) {
+  match @moonpython.parse(source) {
     Ok(_) => "ok"
-    Err(err) => format_parse_error(err)
+    Err(err) => @moonpython.format_parse_error(err)
   }
 }
 

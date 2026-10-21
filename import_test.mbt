@@ -3,18 +3,21 @@
 
 ///|
 fn run_stdout_import(source : String) -> String {
-  let io = MockIO::new([])
-  match Interpreter::with_io(Config::default(), io).exec_source(source) {
+  let io = @moonpython.MockIO::new([])
+  match
+    @moonpython.Interpreter::with_io(@moonpython.Config::default(), io).exec_source(
+      source,
+    ) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 
 ///|
 fn run_stdout_import_fs(source : String) -> String {
-  match Interpreter::new().exec_source(source) {
+  match @moonpython.Interpreter::new().exec_source(source) {
     Ok(run) => run.stdout
-    Err(err) => "ERR: " + format_runtime_error(err)
+    Err(err) => "ERR: " + @moonpython.format_runtime_error(err)
   }
 }
 

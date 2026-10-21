@@ -1,8 +1,8 @@
 ///|
 fn parser_triple_quote_status(expr_source : String) -> String {
-  match parse_expr(expr_source) {
+  match @moonpython.parse_expr(expr_source) {
     Ok(_) => "ok"
-    Err(err) => "ERR: " + format_parse_error(err)
+    Err(err) => "ERR: " + @moonpython.format_parse_error(err)
   }
 }
 

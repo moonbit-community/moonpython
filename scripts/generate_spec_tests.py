@@ -55,7 +55,7 @@ LICENSE_HEADER = """// =========================================================
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
 
-fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Unit raise {
+fn assert_run(result : Result[@moonpython.RunResult, @moonpython.RuntimeError], expected : String) -> Unit raise {
   let json = @json.parse(expected) catch { _ => fail("invalid json") }
   match json {
     Array(items) => {
@@ -84,7 +84,7 @@ fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Un
                   _ => fail("invalid expectation")
                 }
               }
-              Err(err) => fail(format_runtime_error(err))
+              Err(err) => fail(@moonpython.format_runtime_error(err))
             }
           } else if tag == "err" {
             if items.length() != 2 {
@@ -96,7 +96,7 @@ fn assert_run(result : Result[RunResult, RuntimeError], expected : String) -> Un
               Err(err) =>
                 match payload {
                   String(message) =>
-                    inspect(format_runtime_error(err), content=message)
+                    inspect(@moonpython.format_runtime_error(err), content=message)
                   _ => fail("invalid error payload")
                 }
             }
@@ -299,7 +299,7 @@ def render_expr_test(case_id: int, expr: str, expected_json: Any) -> str:
         "///|\n"
         f"test \"generated/expr/{case_id:04d}\" {{\n"
         f"{source_literal}\n"
-        "  let result = Interpreter::new_spec().eval_source(source)\n"
+        "  let result = @moonpython.Interpreter::new_spec().eval_source(source)\n"
         f"  let expected = {expected}\n"
         "  assert_run(result, expected)\n"
         "}\n\n"
@@ -314,7 +314,7 @@ def render_program_test(case_id: int, lines: List[str], expected_json: Any) -> s
         "///|\n"
         f"test \"generated/program/{case_id:04d}\" {{\n"
         f"{source_literal}\n"
-        "  let result = Interpreter::new_spec().exec_source(source)\n"
+        "  let result = @moonpython.Interpreter::new_spec().exec_source(source)\n"
         f"  let expected = {expected}\n"
         "  assert_run(result, expected)\n"
         "}\n\n"

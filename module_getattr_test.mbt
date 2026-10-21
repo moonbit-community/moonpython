@@ -3,8 +3,8 @@
 
 ///|
 test "module/__getattr__ is used for missing attributes" {
-  let config = Config::for_cli(["Lib", "testdata"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib", "testdata"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import mod_getattr
     #|v = mod_getattr.y
@@ -14,6 +14,7 @@ test "module/__getattr__ is used for missing attributes" {
         Some(value) => inspect(test_value_repr(value), content="2")
         None => fail("missing v")
       }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }

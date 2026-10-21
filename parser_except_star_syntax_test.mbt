@@ -1,8 +1,8 @@
 ///|
 fn parser_except_star_status(source : String) -> String {
-  match parse(source) {
+  match @moonpython.parse(source) {
     Ok(_) => "ok"
-    Err(err) => "ERR: " + format_parse_error(err)
+    Err(err) => "ERR: " + @moonpython.format_parse_error(err)
   }
 }
 

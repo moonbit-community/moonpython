@@ -3,7 +3,7 @@
 
 ///|
 fn parse_error_summary(source : String) -> String {
-  match parse(source) {
+  match @moonpython.parse(source) {
     Ok(_) => "ok"
     Err(err) =>
       err.message +

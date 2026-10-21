@@ -2,10 +2,12 @@
 /// Regression tests for comprehension unpacking error semantics under bytecode.
 
 ///|
-fn bc4_find_listcomp_template(code : BcCode) -> FunctionValue? {
+fn bc4_find_listcomp_template(
+  code : @moonpython.BcCode,
+) -> @moonpython.FunctionValue? {
   for c in code.consts {
     match c {
-      Value::Function(func) =>
+      @moonpython.Value::Function(func) =>
         if func.name == "<listcomp>" {
           return Some(func)
         }
@@ -18,17 +20,18 @@ fn bc4_find_listcomp_template(code : BcCode) -> FunctionValue? {
 ///|
 test "bytecode/listcomp_unpack_mismatch_errors_as_typeerror" {
   let source = "[a for a, b, c in [(1, 2)]]"
-  let program = match parse(source) {
+  let program = match @moonpython.parse(source) {
     Ok(v) => v
     Err(err) => {
-      inspect(format_parse_error(err))
+      inspect(@moonpython.format_parse_error(err))
       panic()
     }
   }
-  let code = match compile_module_to_bc(program, "<test>".to_string()) {
+  let code = match
+    @moonpython.compile_module_to_bc(program, "<test>".to_string()) {
     Ok(v) => v
     Err(err) => {
-      inspect(format_runtime_error(err))
+      inspect(@moonpython.format_runtime_error(err))
       panic()
     }
   }
@@ -36,10 +39,14 @@ test "bytecode/listcomp_unpack_mismatch_errors_as_typeerror" {
   inspect(template_opt is Some(_), content="true")
   let template = template_opt.unwrap()
   let inner_code = match
-    compile_stmts_to_bc(template.body, template.name, "<test>".to_string()) {
+    @moonpython.compile_stmts_to_bc(
+      template.body,
+      template.name,
+      "<test>".to_string(),
+    ) {
     Ok(v) => v
     Err(err) => {
-      inspect(format_runtime_error(err))
+      inspect(@moonpython.format_runtime_error(err))
       panic()
     }
   }
@@ -51,18 +58,21 @@ test "bytecode/listcomp_unpack_mismatch_errors_as_typeerror" {
   for op in inner_code.ops {
     if pop_pc < 0 {
       match op {
-        BcOp::PopExcept => pop_pc = i
+        @moonpython.BcOp::PopExcept => pop_pc = i
         _ => ()
       }
     }
     match op {
-      BcOp::SetupExcept(_) => {
+      @moonpython.BcOp::SetupExcept(_) => {
         has_setup_except = true
         if setup_pc < 0 {
           setup_pc = i
         }
       }
-      BcOp::UnpackSequence(n) => if n == 3 && unpack_pc < 0 { unpack_pc = i }
+      @moonpython.BcOp::UnpackSequence(n) =>
+        if n == 3 && unpack_pc < 0 {
+          unpack_pc = i
+        }
       _ => ()
     }
     if has_setup_except && pop_pc >= 0 && unpack_pc >= 0 {

@@ -14,14 +14,14 @@ fn join_strings(items : Array[String]) -> String {
 }
 
 ///|
-fn stmt_summary(stmt : Stmt) -> String {
+fn stmt_summary(stmt : @moonpython.Stmt) -> String {
   match stmt {
-    Stmt::WithSpan(span=_, stmt=inner) => stmt_summary(inner)
-    Stmt::TypeAlias(name~, type_params~, value~) => {
+    @moonpython.Stmt::WithSpan(span=_, stmt=inner) => stmt_summary(inner)
+    @moonpython.Stmt::TypeAlias(name~, type_params~, value~) => {
       let _ = value
       "TypeAlias:" + name + "[" + join_strings(type_params) + "]"
     }
-    Stmt::Function(
+    @moonpython.Stmt::Function(
       name~,
       decorators~,
       type_params~,
@@ -43,7 +43,14 @@ fn stmt_summary(stmt : Stmt) -> String {
       let _ = is_async
       "Function:" + name + "[" + join_strings(type_params) + "]"
     }
-    Stmt::Class(name~, decorators~, type_params~, bases~, keywords~, body~) => {
+    @moonpython.Stmt::Class(
+      name~,
+      decorators~,
+      type_params~,
+      bases~,
+      keywords~,
+      body~
+    ) => {
       let _ = decorators
       let _ = bases
       let _ = keywords
@@ -60,7 +67,7 @@ test "pep695/parse_type_params" {
     #|type Alias[T, U: int, V = str] = dict[T, U]
     #|def func[T, *Ts, **P](x, y): pass
     #|class Box[T](Base): pass
-  let summary = match parse(source) {
+  let summary = match @moonpython.parse(source) {
     Ok(parsed_module) => {
       let parts : Array[String] = []
       for stmt in parsed_module.body {
@@ -68,7 +75,7 @@ test "pep695/parse_type_params" {
       }
       join_strings(parts)
     }
-    Err(err) => "ERR: " + format_parse_error(err)
+    Err(err) => "ERR: " + @moonpython.format_parse_error(err)
   }
   inspect(
     summary,

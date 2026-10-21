@@ -3,8 +3,8 @@
 
 ///|
 test "stdlib/time_get_clock_info" {
-  let config = Config::for_cli(["Lib"], None, [""])
-  let interp = Interpreter::with_config(config)
+  let config = @moonpython.Config::for_cli(["Lib"], None, [""])
+  let interp = @moonpython.Interpreter::with_config(config)
   let source =
     #|import time
     #|impl = time.get_clock_info("time").implementation
@@ -22,6 +22,7 @@ test "stdlib/time_get_clock_info" {
       inspect(impl_value, content="moonpython")
       inspect(mono, content="True")
     }
-    Err(err) => fail("unexpected error: " + format_runtime_error(err))
+    Err(err) =>
+      fail("unexpected error: " + @moonpython.format_runtime_error(err))
   }
 }
