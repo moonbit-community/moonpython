@@ -3,7 +3,7 @@
 ///
 
 ///|
-fn count_indent(line : String) -> Int {
+fn count_indent(line : String) -> Int32 {
   let chars = line.to_array()
   let mut count = 0
   for c in chars {
@@ -17,7 +17,7 @@ fn count_indent(line : String) -> Int {
 }
 
 ///|
-fn has_triple_quote_after(line : String, quote : Char, start : Int) -> Bool {
+fn has_triple_quote_after(line : String, quote : Char, start : Int32) -> Bool {
   let chars = line.to_array()
   let mut idx = if start < 0 { 0 } else { start }
   while idx + 2 < chars.length() {
@@ -30,7 +30,7 @@ fn has_triple_quote_after(line : String, quote : Char, start : Int) -> Bool {
 }
 
 ///|
-fn find_triple_quote(line : String) -> (Char, Int)? {
+fn find_triple_quote(line : String) -> (Char, Int32)? {
   let chars = line.to_array()
   let mut idx = 0
   let mut quote : Char? = None
@@ -176,14 +176,14 @@ fn split_top_level_commas(text : String) -> Array[String] {
 }
 
 ///|
-fn find_top_level_paren_span(text : String) -> (Int, Int)? {
+fn find_top_level_paren_span(text : String) -> (Int32, Int32)? {
   let chars = text.to_array()
   let mut quote : Char? = None
   let mut escaped = false
   let mut square_depth = 0
   let mut curly_depth = 0
   let mut paren_depth = 0
-  let mut open : Int? = None
+  let mut open : Int32? = None
   for i = 0; i < chars.length(); i = i + 1 {
     let c = chars[i]
     match quote {
@@ -243,7 +243,7 @@ fn parse_type_param_header(
   let mut depth = 0
   let mut quote : Char? = None
   let mut escaped = false
-  let mut close : Int? = None
+  let mut close : Int32? = None
   let mut i = 0
   while i < chars.length() {
     let c = chars[i]
@@ -340,8 +340,8 @@ fn is_async_await_reserved_name(name : String) -> Bool {
 }
 
 ///|
-fn split_statements(line : String) -> Array[(String, Int)] {
-  let segments : Array[(String, Int)] = []
+fn split_statements(line : String) -> Array[(String, Int32)] {
+  let segments : Array[(String, Int32)] = []
   let chars = line.to_array()
   let mut start = 0
   let mut i = 0
@@ -398,7 +398,7 @@ fn split_statements(line : String) -> Array[(String, Int)] {
 }
 
 ///|
-fn bracket_balance(line : String) -> Int {
+fn bracket_balance(line : String) -> Int32 {
   let chars = line.to_array()
   let mut balance = 0
   let mut quote : Char? = None
@@ -567,7 +567,7 @@ fn has_top_level_comma(text : String) -> Bool {
 }
 
 ///|
-fn find_top_level_colon(text : String) -> Int? {
+fn find_top_level_colon(text : String) -> Int32? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
@@ -636,7 +636,7 @@ fn find_top_level_colon(text : String) -> Int? {
 }
 
 ///|
-fn find_top_level_as_pos(text : String) -> Int? {
+fn find_top_level_as_pos(text : String) -> Int32? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
@@ -745,7 +745,7 @@ fn strip_wrapping_parens(text : String) -> String {
 }
 
 ///|
-fn find_top_level_augassign(text : String) -> (Int, String)? {
+fn find_top_level_augassign(text : String) -> (Int32, String)? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
@@ -856,7 +856,7 @@ fn find_top_level_augassign(text : String) -> (Int, String)? {
 ///|
 /// Find the first top-level occurrence of a character, ignoring any nested
 /// (), [], {}, and string literals (single/double/triple quoted).
-fn find_top_level_char(text : String, target : Char) -> Int? {
+fn find_top_level_char(text : String, target : Char) -> Int32? {
   let chars = text.to_array()
   let mut depth = 0
   let mut quote : Char? = None
@@ -1400,7 +1400,7 @@ fn has_unclosed_string_line_continuation(text : String) -> Bool {
 }
 
 ///|
-fn first_unclosed_single_line_string_column(text : String) -> Int? {
+fn first_unclosed_single_line_string_column(text : String) -> Int32? {
   let chars = text.to_array()
   let mut i = 0
   let mut quote : Char? = None
@@ -1445,7 +1445,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
   for line in source.split("\n") {
     lines.push(line.to_owned())
   }
-  let offsets : Array[Int] = []
+  let offsets : Array[Int32] = []
   let mut offset = 0
   for line in lines {
     offsets.push(offset)
@@ -1682,7 +1682,7 @@ fn scan_source_lexical_errors(source : String) -> Result[Unit, ParseError] {
 }
 
 ///|
-fn first_bracket_mismatch_line(source : String) -> Int? {
+fn first_bracket_mismatch_line(source : String) -> Int32? {
   let chars = source.to_array()
   let stack : Array[Char] = []
   let mut i = 0
@@ -1978,7 +1978,7 @@ fn has_bare_assign(text : String) -> Bool {
 }
 
 ///|
-fn find_top_level_from(text : String) -> Int? {
+fn find_top_level_from(text : String) -> Int32? {
   fn is_space_char(c : Char) -> Bool {
     c == ' ' || c == '\t' || c == '\n' || c == '\r'
   }
@@ -2028,7 +2028,7 @@ fn find_top_level_from(text : String) -> Int? {
 }
 
 ///|
-fn find_top_level_import(text : String) -> Int? {
+fn find_top_level_import(text : String) -> Int32? {
   fn is_space_char(c : Char) -> Bool {
     c == ' ' || c == '\t' || c == '\n' || c == '\r'
   }

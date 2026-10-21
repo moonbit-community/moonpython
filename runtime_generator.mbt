@@ -3,7 +3,7 @@
 
 ///|
 priv enum GenFrame {
-  Block(body~ : Array[Stmt], index~ : Int, loop_depth~ : Int)
+  Block(body~ : Array[Stmt], index~ : Int32, loop_depth~ : Int32)
   // Marker pushed when yielding to the caller. Needed so `throw()` can raise
   // into the suspended generator at the yield point (contextlib.contextmanager).
   AfterYield
@@ -15,7 +15,7 @@ priv enum GenFrame {
     else_body~ : Array[Stmt],
     broke~ : Bool,
     done~ : Bool,
-    loop_depth~ : Int
+    loop_depth~ : Int32
   )
   While(
     condition~ : Expr,
@@ -23,7 +23,7 @@ priv enum GenFrame {
     else_body~ : Array[Stmt],
     broke~ : Bool,
     done~ : Bool,
-    loop_depth~ : Int
+    loop_depth~ : Int32
   )
   YieldFrom(iterator~ : Value)
   WithExit(exit~ : Value)
@@ -31,10 +31,10 @@ priv enum GenFrame {
     handlers~ : Array[ExceptHandler],
     else_body~ : Array[Stmt],
     finally_body~ : Array[Stmt],
-    phase~ : Int,
+    phase~ : Int32,
     pending~ : RuntimeError?,
     handler_active~ : Bool,
-    loop_depth~ : Int
+    loop_depth~ : Int32
   )
 }
 
@@ -59,7 +59,7 @@ priv struct GeneratorState {
 let generator_registry : Ref[Array[Ref[GeneratorState]]] = { val: [], }
 
 ///|
-fn make_generator_instance(id : Int) -> Value {
+fn make_generator_instance(id : Int32) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "generator", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
@@ -67,7 +67,7 @@ fn make_generator_instance(id : Int) -> Value {
 }
 
 ///|
-fn make_async_generator_instance(id : Int) -> Value {
+fn make_async_generator_instance(id : Int32) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "async_generator", bases: [], dict: [], },
     dict: [("gen_id", Value::Int(@bigint.BigInt::from_int(id)))],
@@ -77,7 +77,7 @@ fn make_async_generator_instance(id : Int) -> Value {
 ///|
 fn generator_id_from_instance(
   inst : InstanceValue,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {
@@ -92,7 +92,7 @@ fn generator_id_from_instance(
 ///|
 fn async_generator_id_from_instance(
   inst : InstanceValue,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   match get_named_value(inst.dict, "gen_id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {
@@ -375,7 +375,7 @@ fn generator_unwind_to_loop(
 fn generator_step_statement(
   stmt : Stmt,
   state : Ref[GeneratorState],
-  loop_depth : Int,
+  loop_depth : Int32,
 ) -> Result[Value?, RuntimeError] {
   match stmt {
     Stmt::WithSpan(span~, stmt~) => {
@@ -1409,7 +1409,7 @@ fn generator_dispatch_error(
   let current = err
   while true {
     // Find the innermost cleanup frame (`with` exit or `try`).
-    let mut cleanup_index : Int? = None
+    let mut cleanup_index : Int32? = None
     let mut i = state.val.frames.length()
     while i > 0 {
       i = i - 1

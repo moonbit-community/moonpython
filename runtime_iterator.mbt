@@ -508,7 +508,7 @@ fn iterator_next(
           }
         } else {
           let items : Array[Value] = []
-          let mut stop_index : Int? = None
+          let mut stop_index : Int32? = None
           for i = 0; i < iterators.length(); i = i + 1 {
             match iterator_next(iterators[i], None, globals, builtins, io) {
               Ok(v) => items.push(v)

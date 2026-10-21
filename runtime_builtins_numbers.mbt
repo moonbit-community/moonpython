@@ -2,7 +2,7 @@
 /// Numeric builtins (int/float/complex + abs/round/pow/divmod/chr/ord/bin/oct/hex).
 
 ///|
-fn int_parse_digit(ch : Char) -> Int? {
+fn int_parse_digit(ch : Char) -> Int32? {
   if ch.is_ascii_digit() {
     Some(ch.to_int() - '0'.to_int())
   } else if ch.is_ascii_lowercase() {
@@ -40,7 +40,7 @@ fn int_text_from_value(value : Value) -> Result[String, RuntimeError] {
 ///|
 fn parse_bigint_from_string(
   text : String,
-  base_in : Int,
+  base_in : Int32,
 ) -> Result[@bigint.BigInt, RuntimeError] {
   let trimmed = text.trim().to_owned()
   let chars = trimmed.to_array()
@@ -816,7 +816,7 @@ fn builtin_int_to_bytes(
       )
     }
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut v = unsigned_value
   i = 0
   while i < length {
@@ -830,7 +830,7 @@ fn builtin_int_to_bytes(
     i += 1
   }
   if byteorder == "big" {
-    let ordered : Array[Int] = []
+    let ordered : Array[Int32] = []
     let mut j = out.length() - 1
     while j >= 0 {
       ordered.push(out[j])
@@ -1576,7 +1576,7 @@ fn builtin_round(
       ),
     )
   }
-  let mut ndigits_opt : Int? = None
+  let mut ndigits_opt : Int32? = None
   if positional.length() == 2 {
     ndigits_opt = match positional[1] {
       Value::Int(v) => Some(v.to_int())
@@ -1891,7 +1891,7 @@ fn builtin_chr(
   }
   Ok(
     Value::Str(
-      char_to_string(Int::unsafe_to_char(codepoint.to_int64().to_int())),
+      char_to_string(Int32::unsafe_to_char(codepoint.to_int64().to_int())),
     ),
   )
 }

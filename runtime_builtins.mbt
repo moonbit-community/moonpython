@@ -69,7 +69,7 @@ fn missing_required_argument_error(
 }
 
 ///|
-fn too_many_arguments_error(name : String, given : Int) -> RuntimeError {
+fn too_many_arguments_error(name : String, given : Int32) -> RuntimeError {
   make_runtime_error(
     RuntimeErrorKind::Type,
     name + "() takes at most 3 arguments (" + given.to_string() + " given)",
@@ -383,7 +383,7 @@ fn sort_kind_for_sorted(value : Value) -> SortKind? {
 }
 
 ///|
-fn cmp_string_for_sorted(a : String, b : String) -> Int {
+fn cmp_string_for_sorted(a : String, b : String) -> Int32 {
   let aa = a.to_array()
   let bb = b.to_array()
   let mut i = 0
@@ -411,7 +411,7 @@ fn cmp_string_for_sorted(a : String, b : String) -> Int {
 fn cmp_value_for_sorted_dynamic(
   a : Value,
   b : Value,
-) -> Result[Int, RuntimeError] {
+) -> Result[Int32, RuntimeError] {
   match (sort_kind_for_sorted(a), sort_kind_for_sorted(b)) {
     (Some(kind_a), Some(kind_b)) =>
       if kind_a == kind_b {
@@ -428,7 +428,7 @@ fn cmp_value_for_sorted(
   kind : SortKind,
   a : Value,
   b : Value,
-) -> Result[Int, RuntimeError] {
+) -> Result[Int32, RuntimeError] {
   match kind {
     SortKind::Number => {
       let (_, an) = match number_value(a) {

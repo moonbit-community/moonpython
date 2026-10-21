@@ -501,7 +501,7 @@ fn builtin_max(
       }
     }
     Value::Bytes(best_bytes) => {
-      fn cmp_bytes_for_sorted(a : Array[Int], b : Array[Int]) -> Int {
+      fn cmp_bytes_for_sorted(a : Array[Int32], b : Array[Int32]) -> Int32 {
         let n = if a.length() < b.length() { a.length() } else { b.length() }
         for i = 0; i < n; i = i + 1 {
           let ai = a[i]
@@ -635,7 +635,7 @@ fn builtin_min(
       }
     }
     Value::Bytes(best_bytes) => {
-      fn cmp_bytes_for_sorted(a : Array[Int], b : Array[Int]) -> Int {
+      fn cmp_bytes_for_sorted(a : Array[Int32], b : Array[Int32]) -> Int32 {
         let n = if a.length() < b.length() { a.length() } else { b.length() }
         for i = 0; i < n; i = i + 1 {
           let ai = a[i]

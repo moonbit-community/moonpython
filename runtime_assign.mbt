@@ -87,7 +87,7 @@ fn assign_target_with_env(
         Err(err) => return Err(err)
       }
       // Extended iterable unpacking (PEP 3132): a, *rest, b = iterable
-      let mut star_index : Int? = None
+      let mut star_index : Int32? = None
       for i = 0; i < targets.length(); i = i + 1 {
         match targets[i] {
           Target::Starred(_) =>

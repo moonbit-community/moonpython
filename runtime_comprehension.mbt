@@ -231,7 +231,7 @@ fn bind_comp_targets(
 
 ///|
 fn eval_list_comp_walk(
-  index : Int,
+  index : Int32,
   elt : Expr,
   clauses : Array[CompClause],
   filters : Array[Expr],
@@ -354,7 +354,7 @@ fn eval_list_comp_walk(
 
 ///|
 fn eval_dict_comp_walk(
-  index : Int,
+  index : Int32,
   key : Expr,
   value : Expr,
   clauses : Array[CompClause],

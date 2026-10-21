@@ -315,7 +315,7 @@ fn format_string_with_args(
       }
       let field = substring(text, i + 1, close)
       let field_chars = field.to_array()
-      let mut colon : Int? = None
+      let mut colon : Int32? = None
       for j = 0; j < field_chars.length(); j = j + 1 {
         if field_chars[j] == ':' {
           colon = Some(j)
@@ -329,7 +329,7 @@ fn format_string_with_args(
       }
       let head_trimmed = head.trim(chars=" \t").to_owned()
       let head_chars = head_trimmed.to_array()
-      let mut bang : Int? = None
+      let mut bang : Int32? = None
       for j = 0; j < head_chars.length(); j = j + 1 {
         if head_chars[j] == '!' {
           bang = Some(j)

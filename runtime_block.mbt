@@ -831,8 +831,8 @@ fn make_traceback_value(
     let frame_value = make_frame_value(frame, builtins_dict)
     let is_deepest = i == frames.length() - 1
     let mut tb_lasti = -1
-    let mut col0_opt : Int? = None
-    let mut end0_opt : Int? = None
+    let mut col0_opt : Int32? = None
+    let mut end0_opt : Int32? = None
     if frame.end_column > 0 {
       let mut col0 = frame.column - 1
       if col0 < 0 {
@@ -924,8 +924,8 @@ fn make_traceback_value_with_env(
     let frame_value = make_frame_value(frame, builtins_dict)
     let is_deepest = i == frames.length() - 1
     let mut tb_lasti = -1
-    let mut col0_opt : Int? = None
-    let mut end0_opt : Int? = None
+    let mut col0_opt : Int32? = None
+    let mut end0_opt : Int32? = None
     if frame.end_column > 0 {
       let mut col0 = frame.column - 1
       if col0 < 0 {
@@ -1461,7 +1461,7 @@ fn eval_block_flow(
   builtins : Array[(String, Value)],
   io : MockIO,
   config : Config,
-  loop_depth : Int,
+  loop_depth : Int32,
 ) -> Result[BlockFlow, RuntimeError] {
   let mut last = Value::None
   for stmt in body {
@@ -1754,7 +1754,7 @@ fn eval_block_flow(
                   Ok(value) => value
                   Err(err) => return Err(err)
                 }
-                let mut found : Int? = None
+                let mut found : Int32? = None
                 for i = 0; i < pairs.length(); i = i + 1 {
                   if eq_value(pairs[i].0, index_value) {
                     found = Some(i)

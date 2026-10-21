@@ -8,10 +8,10 @@
 ///|
 /// Source span for errors and diagnostics
 pub(all) struct Span {
-  start : Int
-  end : Int
-  line : Int
-  column : Int
+  start : Int32
+  end : Int32
+  line : Int32
+  column : Int32
 } derive(ToJson)
 
 ///|
@@ -23,7 +23,7 @@ pub enum Literal {
   Float(Double)
   Complex(Double, Double)
   Str(String)
-  Bytes(Array[Int])
+  Bytes(Array[Int32])
 } derive(ToJson)
 
 ///|
@@ -277,9 +277,9 @@ pub(all) struct RuntimeError {
 pub(all) struct TracebackFrame {
   name : String
   filename : String
-  line : Int
-  column : Int
-  end_column : Int
+  line : Int32
+  column : Int32
+  end_column : Int32
 } derive(ToJson)
 
 ///|
@@ -301,16 +301,16 @@ pub suberror MpythonError {
 ///|
 /// Test result from running a test directory
 pub struct TestResult {
-  passed : Int
-  failed : Int
+  passed : Int32
+  failed : Int32
   errors : Array[String]
 } derive(ToJson)
 
 ///|
 /// Interpreter configuration
 pub struct Config {
-  max_recursion : Int
-  traceback_limit : Int
+  max_recursion : Int32
+  traceback_limit : Int32
   track_spans : Bool
   /// When `true`, bytecode compilation failures (NotImplemented) are surfaced
   /// as errors instead of falling back to the legacy AST evaluator.
@@ -377,9 +377,9 @@ pub enum Value {
   Float(Double)
   Complex(Double, Double)
   Str(String)
-  Bytes(Array[Int])
-  ByteArray(Array[Int])
-  MemoryView(Array[Int])
+  Bytes(Array[Int32])
+  ByteArray(Array[Int32])
+  MemoryView(Array[Int32])
   List(Array[Value])
   Tuple(Array[Value])
   Dict(Array[(Value, Value)])
@@ -403,7 +403,7 @@ pub struct RunResult {
 /// In-memory IO buffers for testing
 pub struct MockIO {
   stdin : Array[String]
-  stdin_pos : Ref[Int]
+  stdin_pos : Ref[Int32]
   stdout : StringBuilder
   stderr : StringBuilder
 }
@@ -588,7 +588,7 @@ pub fn format_runtime_error(error : RuntimeError) -> String {
 #declaration_only
 pub fn format_runtime_error_with_traceback(
   error : RuntimeError,
-  limit : Int,
+  limit : Int32,
 ) -> String {
   ...
 }

@@ -27,9 +27,9 @@ fn emit_pep695_typing_import(b : BcBuilder, span : Span?) -> Unit {
 ///|
 priv struct LoopCtx {
   has_iter : Bool
-  break_jumps : Array[Int]
-  continue_jumps : Array[Int]
-  finally_depth : Int
+  break_jumps : Array[Int32]
+  continue_jumps : Array[Int32]
+  finally_depth : Int32
 }
 
 ///|
@@ -119,7 +119,7 @@ fn compile_expr(
         Ok(_) => ()
         Err(err) => return Err(err)
       }
-      let jumps : Array[Int] = []
+      let jumps : Array[Int32] = []
       for i = 1; i < values.length(); i = i + 1 {
         let j = match op {
           BoolOp::And => b.emit(BcOp::JumpIfFalseOrPop(-1), span)
@@ -197,7 +197,7 @@ fn compile_expr(
         let _ = b.emit(BcOp::Compare(ops[0]), span)
         return Ok(())
       }
-      let fail_jumps : Array[Int] = []
+      let fail_jumps : Array[Int32] = []
       for i = 0; i < ops.length(); i = i + 1 {
         let op = ops[i]
         if i < ops.length() - 1 {
@@ -1300,7 +1300,7 @@ fn compile_target_store(
       Ok(())
     }
     Target::Tuple(items) | Target::List(items) => {
-      let mut star_idx : Int? = None
+      let mut star_idx : Int32? = None
       for i = 0; i < items.length(); i = i + 1 {
         match items[i] {
           Target::Starred(_) =>
@@ -1420,7 +1420,7 @@ fn compile_try_except_else(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
-  finally_depth : Int,
+  finally_depth : Int32,
   future_annotations : Bool,
 ) -> Result[Unit, RuntimeError] {
   fn caretless_span(span : Span?) -> Span? {
@@ -1441,7 +1441,7 @@ fn compile_try_except_else(
 
   fn validate_except_star_body(
     body : Array[Stmt],
-    loop_depth : Int,
+    loop_depth : Int32,
     in_nested_def : Bool,
   ) -> Result[Unit, RuntimeError] {
     for stmt in body {
@@ -1666,9 +1666,9 @@ fn compile_try_except_else(
     let _ = b.emit(BcOp::EnsureExceptionGroup, star_span)
     let _ = b.emit(BcOp::ExceptStarInit, star_span)
   }
-  let handler_done_jumps : Array[Int] = []
+  let handler_done_jumps : Array[Int32] = []
   if has_star {
-    let star_done_jumps : Array[Int] = []
+    let star_done_jumps : Array[Int32] = []
     for i = 0; i < handlers.length(); i = i + 1 {
       let handler = handlers[i]
       let handler_span = caretless_span(Some(handler.span))
@@ -1730,8 +1730,8 @@ fn compile_try_except_else(
   } else {
     for i = 0; i < handlers.length(); i = i + 1 {
       let handler = handlers[i]
-      let next_handler_jump : Int? = match handler.exc {
-        None => (None : Int?)
+      let next_handler_jump : Int32? = match handler.exc {
+        None => (None : Int32?)
         Some(exc_expr) => {
           match compile_expr(exc_expr, b, span) {
             Ok(_) => ()
@@ -1791,7 +1791,7 @@ fn compile_stmt(
   b : BcBuilder,
   span : Span?,
   loop_stack : Ref[Array[LoopCtx]],
-  finally_depth : Int,
+  finally_depth : Int32,
   future_annotations : Bool,
 ) -> Result[Unit, RuntimeError] {
   match stmt {
@@ -2237,7 +2237,7 @@ fn compile_stmt(
       let subj_name = "__mpy_match_subj$" + b.code.ops.length().to_string()
       let subj_idx = b.intern_name(subj_name)
       let _ = b.emit(BcOp::StoreName(subj_idx), span)
-      let end_jumps : Array[Int] = []
+      let end_jumps : Array[Int32] = []
       for case in cases {
         let pattern = case.0
         let guard_opt = case.1
@@ -2254,7 +2254,7 @@ fn compile_stmt(
 
         // Match: bind names and evaluate optional guard.
         let _ = b.emit(BcOp::MatchBind, span)
-        let mut j_guard_fail : Int? = None
+        let mut j_guard_fail : Int32? = None
         match guard_opt {
           Some(guard_expr) => {
             match compile_expr(guard_expr, b, span) {
@@ -2568,7 +2568,7 @@ fn compile_stmt(
           Err(err) => return Err(err)
         }
       }
-      let mut ann_tmp_idx : Int? = None
+      let mut ann_tmp_idx : Int32? = None
       let has_annotations = annotations.length() > 0 ||
         return_annotation is Some(_)
       let eval_annotations = has_annotations &&

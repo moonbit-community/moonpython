@@ -77,10 +77,10 @@ priv enum TokenKind {
 ///|
 priv struct Token {
   kind : TokenKind
-  start : Int
-  end : Int
-  line : Int
-  column : Int
+  start : Int32
+  end : Int32
+  line : Int32
+  column : Int32
 }
 
 ///|
@@ -118,7 +118,7 @@ fn unexpected_token_error(token : Token) -> ParseError {
 }
 
 ///|
-fn substring_chars(chars : Array[Char], start : Int, end : Int) -> String {
+fn substring_chars(chars : Array[Char], start : Int32, end : Int32) -> String {
   let buf = StringBuilder()
   let safe_start = if start < 0 { 0 } else { start }
   let safe_end = if end > chars.length() { chars.length() } else { end }
@@ -132,12 +132,12 @@ fn substring_chars(chars : Array[Char], start : Int, end : Int) -> String {
 }
 
 ///|
-fn substring(source : String, start : Int, end : Int) -> String {
+fn substring(source : String, start : Int32, end : Int32) -> String {
   substring_chars(source.to_array(), start, end)
 }
 
 ///|
-fn find_char(source : String, target : Char) -> Int? {
+fn find_char(source : String, target : Char) -> Int32? {
   let chars = source.to_array()
   for i = 0; i < chars.length(); i = i + 1 {
     if chars[i] == target {
@@ -148,7 +148,7 @@ fn find_char(source : String, target : Char) -> Int? {
 }
 
 ///|
-fn find_last_char(source : String, target : Char) -> Int? {
+fn find_last_char(source : String, target : Char) -> Int32? {
   let chars = source.to_array()
   let mut idx = chars.length() - 1
   while idx >= 0 {
@@ -200,7 +200,7 @@ fn strip_underscores(text : String) -> String {
 }
 
 ///|
-fn digit_value(c : Char) -> Int? {
+fn digit_value(c : Char) -> Int32? {
   if c >= '0' && c <= '9' {
     Some(c.to_int() - 48)
   } else if c >= 'a' && c <= 'f' {
@@ -255,7 +255,7 @@ fn parse_int_literal(text : String) -> @bigint.BigInt {
 }
 
 ///|
-fn pow10(exp : Int) -> Double {
+fn pow10(exp : Int32) -> Double {
   let mut result = 1.0
   let count = if exp < 0 { -exp } else { exp }
   for i = 0; i < count; i = i + 1 {
@@ -275,7 +275,7 @@ fn parse_float_literal(text : String) -> Double {
   let mut value = 0.0
   let mut seen_dot = false
   let mut factor = 0.1
-  let mut exp_index : Int? = None
+  let mut exp_index : Int32? = None
   for i = 0; i < chars.length(); i = i + 1 {
     let c = chars[i]
     if c == 'e' || c == 'E' {
@@ -320,7 +320,11 @@ fn parse_float_literal(text : String) -> Double {
 }
 
 ///|
-fn slice_tokens(tokens : Array[Token], start : Int, end : Int) -> Array[Token] {
+fn slice_tokens(
+  tokens : Array[Token],
+  start : Int32,
+  end : Int32,
+) -> Array[Token] {
   let result : Array[Token] = []
   for i = start; i < end; i = i + 1 {
     result.push(tokens[i])
@@ -338,9 +342,9 @@ fn char_to_string(c : Char) -> String {
 ///|
 fn parse_hex_sequence(
   chars : Array[Char],
-  start : Int,
-  count : Int,
-) -> (Int, Int)? {
+  start : Int32,
+  count : Int32,
+) -> (Int32, Int32)? {
   let mut value = 0
   let mut idx = start
   for i = 0; i < count; i = i + 1 {
@@ -359,14 +363,14 @@ fn parse_hex_sequence(
 }
 
 ///|
-fn is_valid_codepoint(value : Int) -> Bool {
+fn is_valid_codepoint(value : Int32) -> Bool {
   // CPython allows surrogate code points in string literals (e.g. "\uDC80"),
   // but still rejects values outside the Unicode range.
   value >= 0 && value <= 0x10FFFF
 }
 
 ///|
-fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
+fn parse_escape(chars : Array[Char], pos : Int32) -> (String, Int32, Bool) {
   if pos >= chars.length() {
     return ("\\", pos, true)
   }
@@ -385,7 +389,7 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
     'x' => {
       let seq = parse_hex_sequence(chars, pos + 1, 2)
       if seq is Some((value, next)) {
-        (char_to_string(Int::unsafe_to_char(value)), next, true)
+        (char_to_string(Int32::unsafe_to_char(value)), next, true)
       } else {
         ("\\x", pos + 1, true)
       }
@@ -394,7 +398,7 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
       let seq = parse_hex_sequence(chars, pos + 1, 4)
       if seq is Some((value, next)) {
         if is_valid_codepoint(value) {
-          (char_to_string(Int::unsafe_to_char(value)), next, true)
+          (char_to_string(Int32::unsafe_to_char(value)), next, true)
         } else {
           (substring_chars(chars, pos - 1, next), next, false)
         }
@@ -406,7 +410,7 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
       let seq = parse_hex_sequence(chars, pos + 1, 8)
       if seq is Some((value, next)) {
         if is_valid_codepoint(value) {
-          (char_to_string(Int::unsafe_to_char(value)), next, true)
+          (char_to_string(Int32::unsafe_to_char(value)), next, true)
         } else {
           (substring_chars(chars, pos - 1, next), next, false)
         }
@@ -426,7 +430,7 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
             break
           }
         }
-        (char_to_string(Int::unsafe_to_char(value)), idx, true)
+        (char_to_string(Int32::unsafe_to_char(value)), idx, true)
       } else {
         ("\\" + c.to_string(), pos + 1, true)
       }
@@ -434,7 +438,7 @@ fn parse_escape(chars : Array[Char], pos : Int) -> (String, Int, Bool) {
 }
 
 ///|
-fn raw_quote_escaped(chars : Array[Char], pos : Int) -> Bool {
+fn raw_quote_escaped(chars : Array[Char], pos : Int32) -> Bool {
   if pos == 0 {
     return false
   }
@@ -450,7 +454,7 @@ fn raw_quote_escaped(chars : Array[Char], pos : Int) -> Bool {
 ///|
 fn has_unescaped_quote_ahead(
   chars : Array[Char],
-  start : Int,
+  start : Int32,
   quote : Char,
 ) -> Bool {
   let mut i = start
@@ -466,10 +470,10 @@ fn has_unescaped_quote_ahead(
 ///|
 fn parse_string_literal(
   chars : Array[Char],
-  start : Int,
+  start : Int32,
   raw : Bool,
   fstring : Bool,
-) -> (String, Int, Bool, Bool) {
+) -> (String, Int32, Bool, Bool) {
   let quote = chars[start]
   let triple = start + 2 < chars.length() &&
     chars[start + 1] == quote &&
@@ -610,11 +614,11 @@ fn fstring_has_empty_expr(text : String) -> Bool {
 ///|
 fn tokenize_expr(
   source : String,
-  line : Int,
-  base_offset : Int,
-  base_column : Int,
+  line : Int32,
+  base_offset : Int32,
+  base_column : Int32,
 ) -> Result[Array[Token], ParseError] {
-  fn column_at(pos : Int, line_start : Int, base_column : Int) -> Int {
+  fn column_at(pos : Int32, line_start : Int32, base_column : Int32) -> Int32 {
     let col_base = if line_start == 0 { base_column } else { 1 }
     pos - line_start + col_base
   }
@@ -891,7 +895,7 @@ fn tokenize_expr(
               break
             }
             let mut exp_index = i + 1
-            let mut sign_pos : Int? = None
+            let mut sign_pos : Int32? = None
             if exp_index < len &&
               (chars[exp_index] == '+' || chars[exp_index] == '-') {
               sign_pos = Some(exp_index)

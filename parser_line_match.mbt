@@ -6,9 +6,9 @@ fn parse_match_stmt(
   parser : LineParser,
   stmts : Array[Stmt],
   line_text : String,
-  line_index : Int,
-  current_indent : Int,
-  next_index : Int,
+  line_index : Int32,
+  current_indent : Int32,
+  next_index : Int32,
 ) -> Result[Bool, ParseError] {
   if !line_text.has_prefix("match ") && !line_text.has_prefix("match(") {
     return Ok(false)

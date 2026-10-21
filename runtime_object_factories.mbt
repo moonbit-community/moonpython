@@ -269,9 +269,9 @@ fn make_code_instance_with_meta(
   filename : String,
   name : String,
   firstlineno : @bigint.BigInt,
-  argcount : Int,
-  posonlyargcount : Int,
-  kwonlyargcount : Int,
+  argcount : Int32,
+  posonlyargcount : Int32,
+  kwonlyargcount : Int32,
   varnames : Array[String],
 ) -> Value {
   let var_tuple : Array[Value] = []

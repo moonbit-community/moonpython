@@ -666,8 +666,8 @@ fn builtin_sys_setrecursionlimit(
 }
 
 ///|
-fn copy_ints(values : Array[Int]) -> Array[Int] {
-  let out : Array[Int] = []
+fn copy_ints(values : Array[Int32]) -> Array[Int32] {
+  let out : Array[Int32] = []
   for value in values {
     out.push(value)
   }
@@ -675,8 +675,8 @@ fn copy_ints(values : Array[Int]) -> Array[Int] {
 }
 
 ///|
-fn encode_string_utf8(text : String) -> Array[Int] {
-  let out : Array[Int] = []
+fn encode_string_utf8(text : String) -> Array[Int32] {
+  let out : Array[Int32] = []
   for ch in text.to_array() {
     let code = ch.to_int()
     if code <= 0x7F {
@@ -702,14 +702,14 @@ fn encode_string_utf8(text : String) -> Array[Int] {
 let surrogateescape_pua_base = 0xF0000
 
 ///|
-fn surrogateescape_char_from_byte(b : Int) -> Char {
+fn surrogateescape_char_from_byte(b : Int32) -> Char {
   // MoonBit strings cannot represent surrogate code points (U+DCxx),
   // so we use a private-use marker range to round-trip surrogateescape.
   (surrogateescape_pua_base + (b & 0xFF)).to_char().unwrap()
 }
 
 ///|
-fn surrogateescape_byte_from_char(ch : Char) -> Int? {
+fn surrogateescape_byte_from_char(ch : Char) -> Int32? {
   let code = ch.to_int()
   if code >= surrogateescape_pua_base && code < surrogateescape_pua_base + 256 {
     Some(code - surrogateescape_pua_base)
@@ -719,11 +719,14 @@ fn surrogateescape_byte_from_char(ch : Char) -> Int? {
 }
 
 ///|
-fn encode_string_utf8_with_errors(text : String, errors : String) -> Array[Int] {
+fn encode_string_utf8_with_errors(
+  text : String,
+  errors : String,
+) -> Array[Int32] {
   if errors != "surrogateescape" {
     return encode_string_utf8(text)
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for ch in text.to_array() {
     match surrogateescape_byte_from_char(ch) {
       Some(b) => out.push(b)
@@ -751,8 +754,8 @@ fn encode_string_utf8_with_errors(text : String, errors : String) -> Array[Int] 
 }
 
 ///|
-fn encode_string_ascii(text : String) -> Result[Array[Int], RuntimeError] {
-  let out : Array[Int] = []
+fn encode_string_ascii(text : String) -> Result[Array[Int32], RuntimeError] {
+  let out : Array[Int32] = []
   for ch in text.to_array() {
     let code = ch.to_int()
     if code > 0x7F {
@@ -773,7 +776,7 @@ fn encode_string_ascii_with_errors(
   name : String,
   text : String,
   errors : String,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   let _ = name
   if errors == "strict" {
     return encode_string_ascii(text)
@@ -788,7 +791,7 @@ fn encode_string_ascii_with_errors(
       ),
     )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for ch in text.to_array() {
     match surrogateescape_byte_from_char(ch) {
       Some(b) => out.push(b)
@@ -827,7 +830,7 @@ fn encode_string_with_encoding(
   text : String,
   encoding_value : Value,
   errors_value : Value?,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   fn normalize_encoding_name(raw : String) -> String {
     // CPython normalizes encoding names case-insensitively and treats "_" as "-".
     let lower = raw.to_lower()
@@ -898,7 +901,7 @@ fn encode_string_with_encoding(
         ),
       )
     }
-    let out : Array[Int] = []
+    let out : Array[Int32] = []
     for ch in text {
       let code = ch.to_int()
       if code <= 0xFF {
@@ -918,7 +921,7 @@ fn encode_string_with_encoding(
     }
     Ok(out)
   } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
-    fn push_hex(out : Array[Int], value : Int, width : Int) -> Unit {
+    fn push_hex(out : Array[Int32], value : Int32, width : Int32) -> Unit {
       let mut shift = (width - 1) * 4
       while shift >= 0 {
         let digit = (value >> shift) & 0xF
@@ -928,7 +931,7 @@ fn encode_string_with_encoding(
       }
     }
 
-    let out : Array[Int] = []
+    let out : Array[Int32] = []
     for ch in text {
       let code = ch.to_int()
       if code <= 0xFF {
@@ -957,7 +960,7 @@ fn encode_string_with_encoding(
 ///|
 fn decode_bytes_utf8(
   name : String,
-  bytes : Array[Int],
+  bytes : Array[Int32],
   errors : String,
 ) -> Result[String, RuntimeError] {
   let _ = name
@@ -1069,7 +1072,7 @@ fn decode_bytes_utf8(
 ///|
 fn decode_bytes_ascii(
   name : String,
-  bytes : Array[Int],
+  bytes : Array[Int32],
   errors : String,
 ) -> Result[String, RuntimeError] {
   let _ = name
@@ -1103,7 +1106,7 @@ fn decode_bytes_ascii(
 ///|
 fn decode_bytes_latin1(
   name : String,
-  bytes : Array[Int],
+  bytes : Array[Int32],
   errors : String,
 ) -> Result[String, RuntimeError] {
   let _ = name
@@ -1119,7 +1122,7 @@ fn decode_bytes_latin1(
 ///|
 fn decode_bytes_with_encoding(
   name : String,
-  bytes : Array[Int],
+  bytes : Array[Int32],
   encoding_value : Value,
   errors_value : Value?,
 ) -> Result[String, RuntimeError] {
@@ -1209,7 +1212,7 @@ fn decode_bytes_with_encoding(
     decode_bytes_latin1(name, bytes, errors)
   } else if encoding == "raw-unicode-escape" || encoding == "raw_unicode_escape" {
     let _ = errors
-    fn hex_value(b : Int) -> Int? {
+    fn hex_value(b : Int32) -> Int32? {
       if b >= 0x30 && b <= 0x39 {
         Some(b - 0x30)
       } else if b >= 0x41 && b <= 0x46 {
@@ -1221,7 +1224,7 @@ fn decode_bytes_with_encoding(
       }
     }
 
-    fn parse_hex(bytes : Array[Int], start : Int, count : Int) -> Int? {
+    fn parse_hex(bytes : Array[Int32], start : Int32, count : Int32) -> Int32? {
       if start + count > bytes.length() {
         return None
       }
@@ -1297,7 +1300,7 @@ fn decode_bytes_with_encoding(
 }
 
 ///|
-fn byte_from_value(name : String, value : Value) -> Result[Int, RuntimeError] {
+fn byte_from_value(name : String, value : Value) -> Result[Int32, RuntimeError] {
   match value {
     Value::Int(v) => {
       let int_val = match bigint_to_int_checked(v) {
@@ -1333,13 +1336,13 @@ fn bytes_from_iterable(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   let iterator_value = match
     iter_value_to_iterator(value, globals, builtins, io) {
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   while true {
     match iterator_next(iterator_value, None, globals, builtins, io) {
       Ok(item) => {
@@ -1364,7 +1367,7 @@ fn bytes_from_iterable(
 fn bytes_from_count(
   name : String,
   count : @bigint.BigInt,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   let _ = name
   if count < 0N {
     return Err(
@@ -1378,7 +1381,7 @@ fn bytes_from_count(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for i = 0; i < count_i; i = i + 1 {
     out.push(0)
   }
@@ -1386,7 +1389,7 @@ fn bytes_from_count(
 }
 
 ///|
-fn hex_digit_value(ch : Char) -> Int? {
+fn hex_digit_value(ch : Char) -> Int32? {
   let code = ch.to_int()
   if code >= '0'.to_int() && code <= '9'.to_int() {
     Some(code - '0'.to_int())
@@ -1400,8 +1403,8 @@ fn hex_digit_value(ch : Char) -> Int? {
 }
 
 ///|
-fn bytes_fromhex_parse(text : String) -> Result[Array[Int], RuntimeError] {
-  let out : Array[Int] = []
+fn bytes_fromhex_parse(text : String) -> Result[Array[Int32], RuntimeError] {
+  let out : Array[Int32] = []
   let chars = text.to_array()
   let mut have_hi = false
   let mut hi = 0
@@ -1606,7 +1609,7 @@ fn builtin_bytes_fromhex(
 fn bytes_like_ints_for_translate(
   name : String,
   value : Value,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   match value {
     Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) =>
       Ok(bytes)
@@ -1628,7 +1631,7 @@ fn bytes_like_ints_for_translate(
           Some(Value::List(values)) => values
           _ => []
         }
-        let out : Array[Int] = []
+        let out : Array[Int32] = []
         for v in data {
           let int_val = match v {
             Value::Int(bi) =>
@@ -1710,7 +1713,7 @@ fn builtin_bytes_maketrans(
       ),
     )
   }
-  let table : Array[Int] = []
+  let table : Array[Int32] = []
   for i = 0; i < 256; i = i + 1 {
     table.push(i)
   }
@@ -1774,7 +1777,7 @@ fn builtin_bytes_translate(
       ),
     )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for byte in src {
     let b = byte & 0xFF
     out.push(table[b])
@@ -1815,7 +1818,7 @@ fn builtin_bytes_upper(
         ),
       )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for b in bytes {
     let v = b & 0xFF
     if v >= 'a'.to_int() && v <= 'z'.to_int() {
@@ -1903,7 +1906,7 @@ fn builtin_bytes_rstrip(
       break
     }
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for i = 0; i < end; i = i + 1 {
     out.push(bytes[i] & 0xFF)
   }
@@ -1948,7 +1951,7 @@ fn builtin_bytes_join(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut first = true
   while true {
     match iterator_next(iterator_value, None, globals, builtins, io) {
@@ -2019,7 +2022,7 @@ fn builtin_bytearray_upper(
         ),
       )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for b in bytes {
     let v = b & 0xFF
     if v >= 'a'.to_int() && v <= 'z'.to_int() {
@@ -2105,7 +2108,7 @@ fn builtin_bytearray_rstrip(
       break
     }
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for i = 0; i < end; i = i + 1 {
     out.push(bytes[i] & 0xFF)
   }
@@ -2161,7 +2164,7 @@ fn builtin_bytearray_translate(
       ),
     )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for byte in src {
     let b = byte & 0xFF
     out.push(table[b] & 0xFF)
@@ -2370,7 +2373,7 @@ fn builtin_bytearray_setitem(
     globals : Array[(String, Value)],
     builtins : Array[(String, Value)],
     io : MockIO,
-  ) -> Result[Array[Int], RuntimeError] {
+  ) -> Result[Array[Int32], RuntimeError] {
     match value {
       Value::Bytes(bytes)
       | Value::ByteArray(bytes)
@@ -2417,7 +2420,7 @@ fn builtin_bytearray_setitem(
             Err(err) => return Err(err)
           }
           let old_len = values.length()
-          let out : Array[Int] = []
+          let out : Array[Int32] = []
           for i = 0; i < start_idx; i = i + 1 {
             out.push(values[i] & 0xFF)
           }
@@ -2552,7 +2555,7 @@ fn builtin_bytearray_delitem(
             Err(err) => return Err(err)
           }
           let old_len = values.length()
-          let out : Array[Int] = []
+          let out : Array[Int32] = []
           for i = 0; i < start_idx; i = i + 1 {
             out.push(values[i] & 0xFF)
           }
@@ -2572,7 +2575,7 @@ fn builtin_bytearray_delitem(
           Ok(v) => v
           Err(err) => return Err(err)
         }
-        let idxs : Array[Int] = []
+        let idxs : Array[Int32] = []
         for j = 0; j < expected; j = j + 1 {
           let idx_big = range_element_at(
             istart,
@@ -2673,7 +2676,7 @@ fn builtin_memoryview(
           Some(Value::List(values)) => values
           _ => []
         }
-        let out : Array[Int] = []
+        let out : Array[Int32] = []
         for v in data {
           let b = match byte_from_value("memoryview", v) {
             Ok(b) => b

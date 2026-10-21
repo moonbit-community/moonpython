@@ -89,7 +89,7 @@ fn class_equal(a : ClassValue, b : ClassValue) -> Bool {
 fn class_in_list(
   list : Array[ClassValue],
   klass : ClassValue,
-  start : Int,
+  start : Int32,
 ) -> Bool {
   for i = start; i < list.length(); i = i + 1 {
     if class_equal(list[i], klass) {

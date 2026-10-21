@@ -116,7 +116,7 @@ fn builtin_platform_machine(
 }
 
 ///|
-let enum_auto_counter : Ref[Int] = { val: 0, }
+let enum_auto_counter : Ref[Int32] = { val: 0, }
 
 ///|
 fn builtin_enum_auto(
@@ -256,13 +256,13 @@ fn builtin_atexit_register(
 }
 
 ///|
-fn ensure_socket_buffer(dict : Array[(String, Value)]) -> Array[Int] {
+fn ensure_socket_buffer(dict : Array[(String, Value)]) -> Array[Int32] {
   match lookup_iterable_field(dict, "buffer") {
     Some(Value::ByteArray(buf)) => buf
     Some(Value::Bytes(buf)) => buf
     Some(Value::MemoryView(buf)) => buf
     _ => {
-      let buf : Array[Int] = []
+      let buf : Array[Int32] = []
       set_iterable_field(dict, "buffer", Value::ByteArray(buf))
       buf
     }
@@ -270,7 +270,7 @@ fn ensure_socket_buffer(dict : Array[(String, Value)]) -> Array[Int] {
 }
 
 ///|
-fn socket_bytes_from_value(value : Value) -> Result[Array[Int], RuntimeError] {
+fn socket_bytes_from_value(value : Value) -> Result[Array[Int32], RuntimeError] {
   match value {
     Value::Bytes(bytes) | Value::ByteArray(bytes) | Value::MemoryView(bytes) =>
       Ok(bytes)
@@ -1220,7 +1220,7 @@ fn builtin_time_gmtime(
   let hour = rem_i / 3600
   let minute = rem_i % 3600 / 60
   let second = rem_i % 60
-  fn is_leap_year(year : Int) -> Bool {
+  fn is_leap_year(year : Int32) -> Bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
   }
   // Howard Hinnant's civil_from_days algorithm (proleptic Gregorian).
@@ -1235,7 +1235,7 @@ fn builtin_time_gmtime(
   let month = mp + (if mp < 10 { 3 } else { -9 }) // [1, 12]
   year = year + (if month <= 2 { 1 } else { 0 })
   let mut yday = day
-  let month_lengths : Array[Int] = if is_leap_year(year) {
+  let month_lengths : Array[Int32] = if is_leap_year(year) {
     [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
   } else {
     [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -1351,7 +1351,7 @@ fn builtin_time_strftime(
     "", "January", "February", "March", "April", "May", "June", "July", "August",
     "September", "October", "November", "December",
   ]
-  fn two_digits(n : Int) -> String {
+  fn two_digits(n : Int32) -> String {
     if n < 0 {
       n.to_string()
     } else if n < 10 {
@@ -2460,7 +2460,7 @@ fn builtin_select_select(
 }
 
 ///|
-fn struct_field_size(code : Char, repeat : Int) -> (Int, Int)? {
+fn struct_field_size(code : Char, repeat : Int32) -> (Int32, Int32)? {
   let unit = match code {
     'x' => 1
     'c' => 1
@@ -2493,7 +2493,7 @@ fn struct_field_size(code : Char, repeat : Int) -> (Int, Int)? {
 }
 
 ///|
-fn struct_parse_format(fmt : String) -> Result[(Int, Int), RuntimeError] {
+fn struct_parse_format(fmt : String) -> Result[(Int32, Int32), RuntimeError] {
   let chars = fmt.to_array()
   let mut i = 0
   if chars.length() > 0 {
@@ -2544,7 +2544,7 @@ priv enum StructEndian {
 ///|
 fn struct_parse_format_detail(
   fmt : String,
-) -> Result[(StructEndian, Int, Int, Array[(Char, Int)]), RuntimeError] {
+) -> Result[(StructEndian, Int32, Int32, Array[(Char, Int32)]), RuntimeError] {
   let chars = fmt.to_array()
   let mut i = 0
   let mut endian = StructEndian::Little
@@ -2565,7 +2565,7 @@ fn struct_parse_format_detail(
   let mut fields = 0
   let mut repeat = 0
   let mut has_repeat = false
-  let tokens : Array[(Char, Int)] = []
+  let tokens : Array[(Char, Int32)] = []
   while i < chars.length() {
     let c = chars[i]
     if is_digit(c) {
@@ -2599,10 +2599,10 @@ fn struct_parse_format_detail(
 ///|
 fn struct_pack_int_bytes(
   value : @bigint.BigInt,
-  length : Int,
+  length : Int32,
   signed : Bool,
   endian : StructEndian,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   let mut modulus = 1N
   for _i = 0; _i < length; _i = _i + 1 {
     modulus = modulus * 256
@@ -2629,7 +2629,7 @@ fn struct_pack_int_bytes(
       ),
     )
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut v = unsigned_value
   for _i = 0; _i < length; _i = _i + 1 {
     let byte_val = v % 256N
@@ -2641,7 +2641,7 @@ fn struct_pack_int_bytes(
     v = v / 256N
   }
   if endian == StructEndian::Big {
-    let ordered : Array[Int] = []
+    let ordered : Array[Int32] = []
     let mut j = out.length() - 1
     while j >= 0 {
       ordered.push(out[j])
@@ -2654,9 +2654,9 @@ fn struct_pack_int_bytes(
 
 ///|
 fn struct_unpack_int_bytes(
-  buf : Array[Int],
-  offset : Int,
-  length : Int,
+  buf : Array[Int32],
+  offset : Int32,
+  length : Int32,
   signed : Bool,
   endian : StructEndian,
 ) -> @bigint.BigInt {
@@ -2788,7 +2788,7 @@ fn builtin_struct_pack(
     )
   }
   let mut arg_i = 1
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for token in tokens {
     let code = token.0
     let n = token.1
@@ -3017,7 +3017,7 @@ fn builtin_struct_unpack(
     match code {
       'x' => offset += n
       's' => {
-        let part : Array[Int] = []
+        let part : Array[Int32] = []
         for i = 0; i < n; i = i + 1 {
           part.push(buf[offset + i])
         }
@@ -3025,7 +3025,7 @@ fn builtin_struct_unpack(
         items.push(Value::Bytes(part))
       }
       'p' => {
-        let part : Array[Int] = []
+        let part : Array[Int32] = []
         if n == 0 {
           items.push(Value::Bytes(part))
         } else {
@@ -3282,7 +3282,7 @@ fn builtin_struct_struct_calcsize(
 let gc_enabled_ref : Ref[Bool] = { val: true, }
 
 ///|
-let gc_threshold_ref : Ref[(Int, Int, Int)] = { val: (700, 10, 10), }
+let gc_threshold_ref : Ref[(Int32, Int32, Int32)] = { val: (700, 10, 10), }
 
 ///|
 // Best-effort GC/finalization support.
@@ -3329,7 +3329,7 @@ fn gc_register_instance(value : Value) -> Unit {
 }
 
 ///|
-fn gc_id_to_mark_key(id : @bigint.BigInt) -> Int? {
+fn gc_id_to_mark_key(id : @bigint.BigInt) -> Int32? {
   // Only treat ids produced by `fresh_object_hashvalue()` as GC identities.
   // User code can freely assign an attribute named `hashvalue`; ignore values
   // outside the current internal counter range.
@@ -3341,7 +3341,7 @@ fn gc_id_to_mark_key(id : @bigint.BigInt) -> Int? {
 }
 
 ///|
-fn gc_marked_add(marked : @hashset.HashSet[Int], id : @bigint.BigInt) -> Bool {
+fn gc_marked_add(marked : @hashset.HashSet[Int32], id : @bigint.BigInt) -> Bool {
   match gc_id_to_mark_key(id) {
     Some(key) => marked.add_and_check(key)
     None => false
@@ -3350,7 +3350,7 @@ fn gc_marked_add(marked : @hashset.HashSet[Int], id : @bigint.BigInt) -> Bool {
 
 ///|
 fn gc_marked_contains(
-  marked : @hashset.HashSet[Int],
+  marked : @hashset.HashSet[Int32],
   id : @bigint.BigInt,
 ) -> Bool {
   match gc_id_to_mark_key(id) {
@@ -3373,7 +3373,7 @@ fn gc_class_id(value : Value) -> @bigint.BigInt? {
 }
 
 ///|
-fn gc_mark_value(value : Value, marked : @hashset.HashSet[Int]) -> Unit {
+fn gc_mark_value(value : Value, marked : @hashset.HashSet[Int32]) -> Unit {
   let todo : Array[Value] = [value]
   while todo.length() > 0 {
     let current = todo[todo.length() - 1]
@@ -3472,7 +3472,7 @@ fn gc_mark_value(value : Value, marked : @hashset.HashSet[Int]) -> Unit {
 ///|
 fn gc_mark_env(
   env : Array[(String, Value)],
-  marked : @hashset.HashSet[Int],
+  marked : @hashset.HashSet[Int32],
 ) -> Unit {
   for pair in env {
     gc_mark_value(pair.1, marked)
@@ -3580,7 +3580,7 @@ fn builtin_gc_collect(
     )
   }
   // Mark phase.
-  let marked : @hashset.HashSet[Int] = @hashset.HashSet([])
+  let marked : @hashset.HashSet[Int32] = @hashset.HashSet([])
   gc_mark_env(locals, marked)
   // Marking a full module globals table can be extremely expensive (e.g.
   // `test.support` imports a large portion of the stdlib). Keep `gc.collect()`
@@ -3808,7 +3808,7 @@ fn binascii_bytes_like(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   let _ = globals
   let _ = builtins
   let _ = io
@@ -3836,7 +3836,7 @@ fn binascii_bytes_like(
           Some(Value::List(values)) => values
           _ => []
         }
-        let out : Array[Int] = []
+        let out : Array[Int32] = []
         for v in data {
           let int_val = match v {
             Value::Int(bi) =>
@@ -3910,10 +3910,10 @@ fn binascii_a2b_input_bytes(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   match value {
     Value::Str(text) => {
-      let out : Array[Int] = []
+      let out : Array[Int32] = []
       for ch in text.to_array() {
         let code = ch.to_int()
         if code > 127 {
@@ -4046,11 +4046,11 @@ fn builtin_binascii_b2a_base64(
     Err(err) => return Err(err)
   }
   let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_array()
-  fn alpha_at(alpha : Array[Char], idx : Int) -> Int {
+  fn alpha_at(alpha : Array[Char], idx : Int32) -> Int32 {
     alpha[idx].to_int()
   }
 
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut i = 0
   while i < bytes.length() {
     let b0 = bytes[i] & 0xFF
@@ -4133,7 +4133,7 @@ fn builtin_binascii_a2b_base64(
     Err(err) => return Err(err)
   }
   // Map base64 sextets.
-  let table : Array[Int] = []
+  let table : Array[Int32] = []
   for _i = 0; _i < 256; _i = _i + 1 {
     table.push(-1)
   }
@@ -4152,7 +4152,7 @@ fn builtin_binascii_a2b_base64(
     Err(err)
   }
   let decode_error_invalid_length = fn(
-    n_data_chars : Int,
+    n_data_chars : Int32,
   ) -> Result[Value, RuntimeError] {
     let msg = "Invalid base64-encoded string: number of data characters (" +
       n_data_chars.to_string() +
@@ -4163,8 +4163,8 @@ fn builtin_binascii_a2b_base64(
     if raw.length() == 0 {
       return Ok(Value::Bytes([]))
     }
-    let out : Array[Int] = []
-    let mut quad : Array[Int] = []
+    let out : Array[Int32] = []
+    let mut quad : Array[Int32] = []
     let mut data_chars = 0
     let mut i = 0
     while i < raw.length() {
@@ -4223,7 +4223,7 @@ fn builtin_binascii_a2b_base64(
   } else {
     // Non-strict mode: ignore non-alphabet characters and be permissive about
     // stray '=' padding, matching CPython's legacy decoder behavior.
-    let filtered : Array[Int] = []
+    let filtered : Array[Int32] = []
     let mut n_data_chars = 0
     for b in raw {
       let c = b & 0xFF
@@ -4251,8 +4251,8 @@ fn builtin_binascii_a2b_base64(
       }
       return Err(err)
     }
-    let out : Array[Int] = []
-    let mut quad : Array[Int] = []
+    let out : Array[Int32] = []
+    let mut quad : Array[Int32] = []
     let mut idx = 0
     while idx < filtered.length() {
       let c = filtered[idx]
@@ -4352,11 +4352,11 @@ fn builtin_binascii_a2b_base64(
 
 ///|
 fn binascii_unhexlify_bytes(
-  bytes : Array[Int],
+  bytes : Array[Int32],
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Array[Int], RuntimeError] {
+) -> Result[Array[Int32], RuntimeError] {
   if bytes.length() % 2 != 0 {
     let err = match
       binascii_error_from_message(
@@ -4370,7 +4370,7 @@ fn binascii_unhexlify_bytes(
     }
     return Err(err)
   }
-  fn hex_value(v : Int) -> Int? {
+  fn hex_value(v : Int32) -> Int32? {
     if v >= '0'.to_int() && v <= '9'.to_int() {
       Some(v - '0'.to_int())
     } else if v >= 'a'.to_int() && v <= 'f'.to_int() {
@@ -4382,7 +4382,7 @@ fn binascii_unhexlify_bytes(
     }
   }
 
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut i = 0
   while i < bytes.length() {
     let hi = match hex_value(bytes[i]) {
@@ -4493,10 +4493,10 @@ fn builtin_binascii_hexlify(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  let sep_bytes : Array[Int] = match sep_value {
+  let sep_bytes : Array[Int32] = match sep_value {
     None | Some(Value::None) => []
     Some(Value::Str(text)) => {
-      let out : Array[Int] = []
+      let out : Array[Int32] = []
       for ch in text.to_array() {
         let code = ch.to_int()
         if code > 127 {
@@ -4555,7 +4555,7 @@ fn builtin_binascii_hexlify(
     )
   }
   let hex = "0123456789abcdef".to_array()
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   if sep_bytes.length() == 0 {
     for b in bytes {
       let v = b & 0xFF
@@ -4747,7 +4747,7 @@ fn builtin_binascii_a2b_qp(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  fn hex_value(v : Int) -> Int? {
+  fn hex_value(v : Int32) -> Int32? {
     if v >= '0'.to_int() && v <= '9'.to_int() {
       Some(v - '0'.to_int())
     } else if v >= 'a'.to_int() && v <= 'f'.to_int() {
@@ -4759,7 +4759,7 @@ fn builtin_binascii_a2b_qp(
     }
   }
 
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut i = 0
   while i < bytes.length() {
     let b = bytes[i] & 0xFF
@@ -4952,7 +4952,7 @@ fn builtin_binascii_b2a_qp(
     Ok(v) => v
     Err(err) => return Err(err)
   }
-  fn hex_upper(n : Int) -> Int {
+  fn hex_upper(n : Int32) -> Int32 {
     if n < 10 {
       '0'.to_int() + n
     } else {
@@ -4960,14 +4960,14 @@ fn builtin_binascii_b2a_qp(
     }
   }
 
-  fn emit_hex_escape(out : Array[Int], b : Int) -> Unit {
+  fn emit_hex_escape(out : Array[Int32], b : Int32) -> Unit {
     let v = b & 0xFF
     out.push('='.to_int())
     out.push(hex_upper((v >> 4) & 0xF))
     out.push(hex_upper(v & 0xF))
   }
 
-  fn uu_newline_bytes(bytes : Array[Int]) -> Array[Int] {
+  fn uu_newline_bytes(bytes : Array[Int32]) -> Array[Int32] {
     let mut has_crlf = false
     for i = 0; i + 1 < bytes.length(); i = i + 1 {
       if (bytes[i] & 0xFF) == '\r'.to_int() &&
@@ -4984,11 +4984,11 @@ fn builtin_binascii_b2a_qp(
   }
 
   let newline = uu_newline_bytes(bytes)
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   fn soft_break(
-    out : Array[Int],
-    newline : Array[Int],
-    col_ref : Ref[Int],
+    out : Array[Int32],
+    newline : Array[Int32],
+    col_ref : Ref[Int32],
   ) -> Unit {
     out.push('='.to_int())
     for b in newline {
@@ -4997,7 +4997,7 @@ fn builtin_binascii_b2a_qp(
     col_ref.val = 0
   }
 
-  let col_ref : Ref[Int] = { val: 0, }
+  let col_ref : Ref[Int32] = { val: 0, }
   let mut i = 0
   while i < bytes.length() {
     let b = bytes[i] & 0xFF
@@ -5021,7 +5021,7 @@ fn builtin_binascii_b2a_qp(
         continue
       }
     }
-    let chunk : Array[Int] = []
+    let chunk : Array[Int32] = []
 
     // Special cases for spaces and tabs.
     if b == ' '.to_int() || b == '\t'.to_int() {
@@ -5133,7 +5133,7 @@ fn builtin_binascii_b2a_uu(
     }
     return Err(err)
   }
-  fn uu_char(v : Int, backtick : Bool) -> Int {
+  fn uu_char(v : Int32, backtick : Bool) -> Int32 {
     let vv = v & 0x3F
     if vv == 0 && backtick {
       '`'.to_int()
@@ -5142,7 +5142,7 @@ fn builtin_binascii_b2a_uu(
     }
   }
 
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   out.push(uu_char(bytes.length(), backtick))
   let mut i = 0
   while i < bytes.length() {
@@ -5201,11 +5201,11 @@ fn builtin_binascii_a2b_uu(
   }
   let len_char = bytes[0] & 0xFF
   let n = (len_char - 32) & 0x3F
-  fn uu_val(c : Int) -> Int {
+  fn uu_val(c : Int32) -> Int32 {
     (c - 32) & 0x3F
   }
 
-  let encoded : Array[Int] = []
+  let encoded : Array[Int32] = []
   for i = 1; i < bytes.length(); i = i + 1 {
     let c = bytes[i] & 0xFF
     if c == '\n'.to_int() || c == '\r'.to_int() {
@@ -5227,7 +5227,7 @@ fn builtin_binascii_a2b_uu(
     return Err(err)
   }
   let groups = (n + 2) / 3
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   let mut idx = 0
   for _g = 0; _g < groups; _g = _g + 1 {
     let c0 = if idx < encoded.length() { uu_val(encoded[idx]) } else { 0 }
@@ -5255,7 +5255,7 @@ fn builtin_binascii_a2b_uu(
     idx = idx + 4
   }
   // Truncate to declared length.
-  let truncated : Array[Int] = []
+  let truncated : Array[Int32] = []
   for i2 = 0; i2 < out.length() && i2 < n; i2 = i2 + 1 {
     truncated.push(out[i2])
   }
@@ -5311,7 +5311,7 @@ fn builtin_binascii_crc_hqx(
       )
   }
   crc = crc & 0xFFFF
-  fn crc_step(crc : Int, b : Int) -> Int {
+  fn crc_step(crc : Int32, b : Int32) -> Int32 {
     let mut c = (crc ^ ((b & 0xFF) << 8)) & 0xFFFF
     for _i = 0; _i < 8; _i = _i + 1 {
       if (c & 0x8000) != 0 {
@@ -5919,7 +5919,7 @@ fn builtin_itertools_islice(
         Err(err) => return Err(err)
       }
   }
-  let stop_opt : Int? = match stop_value {
+  let stop_opt : Int32? = match stop_value {
     Value::None => None
     _ =>
       match index_from_value(stop_value, 0) {
@@ -6060,7 +6060,7 @@ fn builtin_itertools_permutations(
   if r > values.length() {
     return Ok(Value::List([]))
   }
-  fn build_permutations(values : Array[Value], r : Int) -> Array[Value] {
+  fn build_permutations(values : Array[Value], r : Int32) -> Array[Value] {
     if r == 0 {
       return [Value::Tuple([])]
     }
@@ -6163,8 +6163,8 @@ fn builtin_itertools_combinations(
   }
   fn build_combinations(
     values : Array[Value],
-    start : Int,
-    r : Int,
+    start : Int32,
+    r : Int32,
     prefix : Array[Value],
   ) -> Array[Value] {
     if r == 0 {
@@ -6342,7 +6342,7 @@ fn builtin_warnings_warn(
   }
   let message = positional[0]
   let mut category : Value = Value::None
-  let mut stacklevel : Int = 1
+  let mut stacklevel : Int32 = 1
   if positional.length() > 1 {
     category = positional[1]
   }

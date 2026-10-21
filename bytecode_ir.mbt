@@ -14,26 +14,26 @@ pub(all) enum BcOp {
   RotThree
 
   // Stack pushes.
-  LoadConst(Int) // consts[idx]
-  LoadName(Int) // names[idx]
+  LoadConst(Int32) // consts[idx]
+  LoadName(Int32) // names[idx]
 
   // Stack pops.
-  StoreName(Int) // names[idx]
-  DeleteName(Int) // names[idx]
+  StoreName(Int32) // names[idx]
+  DeleteName(Int32) // names[idx]
 
   // Attribute / subscript.
-  LoadAttr(Int) // names[idx]
-  StoreAttr(Int) // names[idx]
-  DeleteAttr(Int) // names[idx]
+  LoadAttr(Int32) // names[idx]
+  StoreAttr(Int32) // names[idx]
+  DeleteAttr(Int32) // names[idx]
   LoadSubscr
   StoreSubscr
   DeleteSubscr
 
   // Builders.
-  BuildTuple(Int) // count
-  BuildList(Int) // count
-  BuildMap(Int) // pair_count
-  BuildSet(Int) // count
+  BuildTuple(Int32) // count
+  BuildList(Int32) // count
+  BuildMap(Int32) // pair_count
+  BuildSet(Int32) // count
   BuildSlice // pops start, stop, step and pushes a slice instance
 
   // Collection mutation helpers (used for literal unpacking and call args).
@@ -60,12 +60,12 @@ pub(all) enum BcOp {
   EvalFString
 
   // Unpacking.
-  UnpackSequence(Int) // count; pops iterable and pushes items (reversed) for STORE
-  UnpackEx(Int, Int) // before, after; pops iterable and pushes items + list-rest (reversed) for STORE
+  UnpackSequence(Int32) // count; pops iterable and pushes items (reversed) for STORE
+  UnpackEx(Int32, Int32) // before, after; pops iterable and pushes items + list-rest (reversed) for STORE
 
   // Iteration (MicroPython-style).
   GetIter
-  ForIter(Int) // absolute pc to jump to on StopIteration; pops iterator on stop
+  ForIter(Int32) // absolute pc to jump to on StopIteration; pops iterator on stop
 
   // Operators.
   Unary(UnaryOp)
@@ -73,19 +73,19 @@ pub(all) enum BcOp {
   Compare(CompareOp)
 
   // Control flow.
-  Jump(Int) // absolute pc
-  JumpIfFalse(Int) // absolute pc; consumes TOS
-  JumpIfTrue(Int) // absolute pc; consumes TOS
-  JumpIfFalseOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
-  JumpIfTrueOrPop(Int) // absolute pc; keeps TOS on jump, else pops it
+  Jump(Int32) // absolute pc
+  JumpIfFalse(Int32) // absolute pc; consumes TOS
+  JumpIfTrue(Int32) // absolute pc; consumes TOS
+  JumpIfFalseOrPop(Int32) // absolute pc; keeps TOS on jump, else pops it
+  JumpIfTrueOrPop(Int32) // absolute pc; keeps TOS on jump, else pops it
   // Jump that unwinds `finally`/`with` handlers first (used by break/continue).
-  UnwindJump(Int, Int) // absolute pc; number of finally handlers to unwind
+  UnwindJump(Int32, Int32) // absolute pc; number of finally handlers to unwind
 
   // Exceptions.
-  SetupExcept(Int) // absolute pc for exception handler
-  SetupFinally(Int) // absolute pc for finally handler
+  SetupExcept(Int32) // absolute pc for exception handler
+  SetupFinally(Int32) // absolute pc for finally handler
   PopExcept
-  EnterFinally(Int) // jump to finally handler and mark it active
+  EnterFinally(Int32) // jump to finally handler and mark it active
   EndExcept
   EndFinally
   CheckExceptionMatch // pops handler type value; pushes bool
@@ -123,7 +123,7 @@ pub(all) enum BcOp {
   // - MatchPattern: pops subject; pushes either None (no match) or a list of (name, value) tuples.
   // - MatchBind: pops bindings list; binds names; pushes a restore token.
   // - MatchRestore: pops restore token; restores/deletes previous bindings.
-  MatchPattern(Int) // patterns[idx]
+  MatchPattern(Int32) // patterns[idx]
   MatchBind
   MatchRestore
 
@@ -134,15 +134,15 @@ pub(all) enum BcOp {
   //
   // `template` is a `Value::Function` whose body is the generator body for the genexp.
   // `target_names_const` is a Value::Tuple of Value::Str items.
-  GenExpNew(Int, Int, Int) // template const idx, iter_name names idx (or -1), target_names_const idx
+  GenExpNew(Int32, Int32, Int32) // template const idx, iter_name names idx (or -1), target_names_const idx
   // Like GenExpNew, but returns an async generator expression (created via `async_genexp_new`).
   // `spec` points to `code.genexps`.
-  AsyncGenExpNew(Int, Int, Int) // genexps[idx], iter_name names idx (or -1), target_names_const idx
+  AsyncGenExpNew(Int32, Int32, Int32) // genexps[idx], iter_name names idx (or -1), target_names_const idx
 
   // Calls.
-  CallFunction(Int) // positional arg count
+  CallFunction(Int32) // positional arg count
   // CALL_FUNCTION_KW-style: pushes keyword values then a tuple of keyword names.
-  CallFunctionKw(Int) // positional arg count
+  CallFunctionKw(Int32) // positional arg count
   // Varargs/kwargs call helper (used for *args/**kwargs support).
   // Stack: [callee, positional_list, keyword_pairs_list] -> [result]
   CallFunctionVar
@@ -152,34 +152,34 @@ pub(all) enum BcOp {
   //   [decorators..., defaults...] -> [defined_value]
   //
   // `template` is a `Value::Function` carrying name/params/body/flags.
-  MakeFunction(Int, Int, Int)
+  MakeFunction(Int32, Int32, Int32)
 
   // Class definitions.
   // Stack effect (top is right):
   //   [decorators..., base_specs, keyword_specs] -> [defined_value]
   //
   // `template` is a `Value::Function` whose body is the class suite.
-  MakeClass(Int, Int, Int) // template const idx, class name idx, decorator count
+  MakeClass(Int32, Int32, Int32) // template const idx, class name idx, decorator count
 
   // Type aliases.
   // Stack: [value_thunk_function] -> [type_alias_instance]
-  MakeTypeAlias(Int) // names[idx]
+  MakeTypeAlias(Int32) // names[idx]
 
   // Annotations.
   // Pops annotation value and stores it into __annotations__[name] (creating dict if needed).
-  StoreAnnotation(Int) // names[idx]
+  StoreAnnotation(Int32) // names[idx]
 
   // Augmented assignment.
   // Stack: [rhs] -> []
-  AugAssignName(Int, BinaryOp) // names[idx]
+  AugAssignName(Int32, BinaryOp) // names[idx]
   // Stack: [target, rhs] -> []
-  AugAssignAttr(Int, BinaryOp) // names[idx]
+  AugAssignAttr(Int32, BinaryOp) // names[idx]
   // Stack: [target, index, rhs] -> []
   AugAssignSubscr(BinaryOp)
 
   // Imports.
-  ImportName(Int, Int) // consts[module_name_str], names[alias_idx] or -1
-  FromImport(Int, Int, Int) // consts[module_name_str], consts[names_tuple], consts[aliases_tuple]
+  ImportName(Int32, Int32) // consts[module_name_str], names[alias_idx] or -1
+  FromImport(Int32, Int32, Int32) // consts[module_name_str], consts[names_tuple], consts[aliases_tuple]
 
   // Scope checks.
   CheckInFunctionScope(String) // error message when not in a function scope

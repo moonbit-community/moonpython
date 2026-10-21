@@ -725,7 +725,7 @@ fn builtin_breakpoint(
 fn file_unpack_state(
   target : Value,
   method_name : String,
-) -> Result[(InstanceValue, Bool, Value, Int), RuntimeError] {
+) -> Result[(InstanceValue, Bool, Value, Int32), RuntimeError] {
   let inst = match target {
     Value::Instance(inst) => inst
     _ =>
@@ -775,7 +775,7 @@ fn file_unpack_state(
 fn file_content_length(
   binary : Bool,
   content : Value,
-) -> Result[Int, RuntimeError] {
+) -> Result[Int32, RuntimeError] {
   match (binary, content) {
     (true, Value::Bytes(values)) => Ok(values.length())
     (false, Value::Str(text)) => Ok(text.length())
@@ -793,8 +793,8 @@ fn file_content_length(
 fn file_slice_content(
   binary : Bool,
   content : Value,
-  start : Int,
-  end : Int,
+  start : Int32,
+  end : Int32,
 ) -> Result[Value, RuntimeError] {
   if start >= end {
     if binary {
@@ -804,7 +804,7 @@ fn file_slice_content(
   }
   match (binary, content) {
     (true, Value::Bytes(values)) => {
-      let out : Array[Int] = []
+      let out : Array[Int32] = []
       let mut i = start
       while i < end {
         out.push(values[i])
@@ -827,9 +827,9 @@ fn file_slice_content(
 fn file_find_line_end(
   binary : Bool,
   content : Value,
-  start : Int,
-  limit : Int,
-) -> Result[Int, RuntimeError] {
+  start : Int32,
+  limit : Int32,
+) -> Result[Int32, RuntimeError] {
   match (binary, content) {
     (true, Value::Bytes(values)) => {
       let mut i = start
@@ -1616,9 +1616,9 @@ fn builtin_open(
       ),
     )
   }
-  fn read_bytes_ints(path : String) -> Array[Int]? {
+  fn read_bytes_ints(path : String) -> Array[Int32]? {
     let bytes = @fs.read_file_to_bytes(path) catch { _ => return None }
-    let out : Array[Int] = []
+    let out : Array[Int32] = []
     for b in bytes {
       out.push(b.to_int())
     }
@@ -1862,39 +1862,39 @@ fn builtin_open(
 priv struct PosixFdEntry {
   path : String
   buffer : Array[Byte]
-  pos : Int
+  pos : Int32
   dirty : Bool
   appending : Bool
 }
 
 ///|
-let posix_next_fd : Ref[Int] = { val: 3, }
+let posix_next_fd : Ref[Int32] = { val: 3, }
 
 ///|
-let posix_fd_table : Ref[Array[(Int, PosixFdEntry)]] = { val: [], }
+let posix_fd_table : Ref[Array[(Int32, PosixFdEntry)]] = { val: [], }
 
 ///|
 priv struct PosixPathTimes {
-  mut atime : Int
-  mut mtime : Int
-  mut ctime : Int
+  mut atime : Int32
+  mut mtime : Int32
+  mut ctime : Int32
 }
 
 ///|
-let posix_next_time : Ref[Int] = { val: 1, }
+let posix_next_time : Ref[Int32] = { val: 1, }
 
 ///|
 let posix_path_times : Ref[Array[(String, PosixPathTimes)]] = { val: [], }
 
 ///|
-fn posix_now_tick() -> Int {
+fn posix_now_tick() -> Int32 {
   let t = posix_next_time.val
   posix_next_time.val = t + 1
   t
 }
 
 ///|
-fn posix_times_find_idx(path : String) -> Int? {
+fn posix_times_find_idx(path : String) -> Int32? {
   for i = 0; i < posix_path_times.val.length(); i = i + 1 {
     if posix_path_times.val[i].0 == path {
       return Some(i)
@@ -1952,7 +1952,7 @@ fn posix_times_delete(path : String) -> Unit {
 }
 
 ///|
-fn posix_lookup_fd(fd : Int) -> PosixFdEntry? {
+fn posix_lookup_fd(fd : Int32) -> PosixFdEntry? {
   for pair in posix_fd_table.val {
     if pair.0 == fd {
       return Some(pair.1)
@@ -1964,7 +1964,7 @@ fn posix_lookup_fd(fd : Int) -> PosixFdEntry? {
 ///|
 fn make_posix_os_error(
   exc_type : String,
-  errno : Int,
+  errno : Int32,
   strerror : String,
   filename : String,
   globals : Array[(String, Value)],
@@ -2019,7 +2019,7 @@ fn make_posix_os_error(
 }
 
 ///|
-fn posix_update_fd(fd : Int, entry : PosixFdEntry) -> Unit {
+fn posix_update_fd(fd : Int32, entry : PosixFdEntry) -> Unit {
   for i = 0; i < posix_fd_table.val.length(); i = i + 1 {
     if posix_fd_table.val[i].0 == fd {
       posix_fd_table.val[i] = (fd, entry)
@@ -2030,7 +2030,7 @@ fn posix_update_fd(fd : Int, entry : PosixFdEntry) -> Unit {
 }
 
 ///|
-fn posix_remove_fd(fd : Int) -> PosixFdEntry? {
+fn posix_remove_fd(fd : Int32) -> PosixFdEntry? {
   for i = 0; i < posix_fd_table.val.length(); i = i + 1 {
     if posix_fd_table.val[i].0 == fd {
       let entry = posix_fd_table.val[i].1
@@ -2332,7 +2332,7 @@ fn builtin_mpython_posix_read(
   } else {
     start + n
   }
-  let out : Array[Int] = []
+  let out : Array[Int32] = []
   for i = start; i < end; i = i + 1 {
     out.push(entry.buffer[i].to_int())
   }
@@ -2818,7 +2818,7 @@ fn builtin_mpython_posix_utime(
     )
   }
   let now = posix_now_tick()
-  let parse_time = fn(value : Value) -> Result[Int, RuntimeError] {
+  let parse_time = fn(value : Value) -> Result[Int32, RuntimeError] {
     match value {
       Value::None => Ok(now)
       Value::Int(v) => Ok(v.to_int())

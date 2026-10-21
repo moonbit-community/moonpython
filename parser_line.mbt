@@ -10,7 +10,7 @@
 ///|
 fn LineParser::parse_block(
   self : LineParser,
-  indent : Int,
+  indent : Int32,
 ) -> Result[Array[Stmt], ParseError] {
   let stmts : Array[Stmt] = []
   let mut pending_decorators : Array[Expr] = []

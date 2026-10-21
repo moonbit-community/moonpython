@@ -4,12 +4,12 @@
 ///|
 priv struct LineParser {
   lines : Array[String]
-  mut index : Int
-  offsets : Array[Int]
-  mut func_depth : Int
-  mut async_depth : Int
-  mut block_depth : Int
-  mut last_dedent_from : Int?
+  mut index : Int32
+  offsets : Array[Int32]
+  mut func_depth : Int32
+  mut async_depth : Int32
+  mut block_depth : Int32
+  mut last_dedent_from : Int32?
 }
 
 ///|
@@ -18,7 +18,7 @@ fn LineParser::new(source : String) -> LineParser {
   for line in source.split("\n") {
     lines.push(line.to_owned())
   }
-  let offsets : Array[Int] = []
+  let offsets : Array[Int32] = []
   let mut offset = 0
   for line in lines {
     offsets.push(offset)
@@ -38,7 +38,7 @@ fn LineParser::new(source : String) -> LineParser {
 ///|
 fn LineParser::invalid_syntax_at_line(
   self : LineParser,
-  line : Int,
+  line : Int32,
 ) -> ParseError {
   let line_index = if line <= 0 { 0 } else { line - 1 }
   let base = self.offsets[line_index]
@@ -52,7 +52,7 @@ fn LineParser::invalid_syntax_at_line(
 }
 
 ///|
-fn LineParser::peek_next_indent(self : LineParser) -> Int {
+fn LineParser::peek_next_indent(self : LineParser) -> Int32 {
   let mut idx = self.index
   while idx < self.lines.length() {
     let line = self.lines[idx]
@@ -67,7 +67,7 @@ fn LineParser::peek_next_indent(self : LineParser) -> Int {
 }
 
 ///|
-fn LineParser::peek_next_significant_index(self : LineParser) -> Int? {
+fn LineParser::peek_next_significant_index(self : LineParser) -> Int32? {
   let mut idx = self.index
   while idx < self.lines.length() {
     let line = self.lines[idx]
@@ -82,7 +82,7 @@ fn LineParser::peek_next_significant_index(self : LineParser) -> Int? {
 }
 
 ///|
-fn LineParser::clamp_line_index(self : LineParser, idx : Int) -> Int {
+fn LineParser::clamp_line_index(self : LineParser, idx : Int32) -> Int32 {
   if idx < 0 {
     return 0
   }

@@ -8,7 +8,7 @@ fn compare_sequence_values(
   globals : Array[(String, Value)],
   builtins : Array[(String, Value)],
   io : MockIO,
-) -> Result[Int, RuntimeError] {
+) -> Result[Int32, RuntimeError] {
   let min_len = if left.length() < right.length() {
     left.length()
   } else {
@@ -42,7 +42,7 @@ fn compare_sequence_values(
 }
 
 ///|
-fn compare_bytes_like(left : Array[Int], right : Array[Int]) -> Int {
+fn compare_bytes_like(left : Array[Int32], right : Array[Int32]) -> Int32 {
   let min_len = if left.length() < right.length() {
     left.length()
   } else {

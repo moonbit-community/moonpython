@@ -6,16 +6,16 @@
 
 ///|
 priv enum VmBlockKind {
-  Except(Int)
+  Except(Int32)
   ExceptHandler
-  Finally(Int)
+  Finally(Int32)
   FinallyHandler
 }
 
 ///|
 priv struct VmBlock {
   kind : VmBlockKind
-  stack_height : Int
+  stack_height : Int32
   // Whether this block pushed an active exception onto `active_exception_stack`.
   pushed_exc : Bool
   // `except*` state (stored on the active ExceptHandler block).
@@ -83,7 +83,7 @@ fn pop_stack(stack : Array[Value]) -> Result[Value, RuntimeError] {
 }
 
 ///|
-fn pop_n(stack : Array[Value], n : Int) -> Result[Array[Value], RuntimeError] {
+fn pop_n(stack : Array[Value], n : Int32) -> Result[Array[Value], RuntimeError] {
   if n < 0 || stack.length() < n {
     return Err(
       make_runtime_error(
@@ -739,7 +739,7 @@ fn set_subscr_value(
             Err(err) => return Err(err)
           }
           if step_i == 1 {
-            let merged : Array[Int] = []
+            let merged : Array[Int32] = []
             for i = 0; i < start_i; i = i + 1 {
               merged.push(bytes[i])
             }
@@ -1032,7 +1032,7 @@ fn delete_subscr_value(
 ///|
 
 ///|
-fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int? {
+fn vm_unwind_return(stack : Array[Value], blocks : Array[VmBlock]) -> Int32? {
   while blocks.length() > 0 {
     let blk = blocks.remove(blocks.length() - 1)
     while stack.length() > blk.stack_height {
@@ -1209,10 +1209,10 @@ pub fn bc_exec(
   let blocks : Array[VmBlock] = []
   let mut pending_exc : RuntimeError? = None
   let mut pending_return : Value? = None
-  let mut pending_jump_target : Int? = None
+  let mut pending_jump_target : Int32? = None
   let mut pending_jump_count = 0
   let mut pc = 0
-  fn find_current_except_handler_block(blocks : Array[VmBlock]) -> Int? {
+  fn find_current_except_handler_block(blocks : Array[VmBlock]) -> Int32? {
     let mut i = blocks.length()
     while i > 0 {
       i = i - 1
@@ -1224,7 +1224,7 @@ pub fn bc_exec(
     None
   }
 
-  fn find_except_star_handler_block(blocks : Array[VmBlock]) -> Int? {
+  fn find_except_star_handler_block(blocks : Array[VmBlock]) -> Int32? {
     let mut i = blocks.length()
     while i > 0 {
       i = i - 1
@@ -4848,7 +4848,7 @@ pub fn bc_exec(
         pending_return = None
         pending_jump_target = None
         pending_jump_count = 0
-        let mut handler_pc : Int? = None
+        let mut handler_pc : Int32? = None
         let mut exc = err
         // If we are currently handling another exception (inside an except/finally
         // path), attach it as implicit context, mirroring CPython's behavior.

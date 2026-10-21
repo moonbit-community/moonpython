@@ -488,8 +488,8 @@ fn expr_has_illegal_await(expr : Expr, in_genexp : Bool) -> Bool {
 fn expr_first_illegal_await_line(
   expr : Expr,
   in_genexp : Bool,
-  fallback_line : Int,
-) -> Int? {
+  fallback_line : Int32,
+) -> Int32? {
   match expr {
     Expr::WithSpan(span~, expr=inner) =>
       expr_first_illegal_await_line(inner, in_genexp, span.line)
@@ -710,8 +710,8 @@ fn expr_first_illegal_await_line(
 ///|
 fn target_first_illegal_await_line(
   target : Target,
-  fallback_line : Int,
-) -> Int? {
+  fallback_line : Int32,
+) -> Int32? {
   match target {
     Target::Tuple(items) | Target::List(items) => {
       for item in items {
@@ -740,7 +740,7 @@ fn target_first_illegal_await_line(
 }
 
 ///|
-fn stmt_first_illegal_await_line(stmt : Stmt, fallback_line : Int) -> Int? {
+fn stmt_first_illegal_await_line(stmt : Stmt, fallback_line : Int32) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_illegal_await_line(inner, span.line)
@@ -903,7 +903,7 @@ fn stmt_first_illegal_await_line(stmt : Stmt, fallback_line : Int) -> Int? {
 }
 
 ///|
-fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int? {
+fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int32? {
   for stmt in stmts {
     match stmt_first_illegal_await_line(stmt, 1) {
       Some(line) => return Some(line)
@@ -916,8 +916,8 @@ fn stmts_first_illegal_await_line(stmts : Array[Stmt]) -> Int? {
 ///|
 fn stmt_first_except_star_control_flow_line(
   stmt : Stmt,
-  fallback_line : Int,
-) -> Int? {
+  fallback_line : Int32,
+) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_except_star_control_flow_line(inner, span.line)
@@ -972,7 +972,7 @@ fn stmt_first_except_star_control_flow_line(
 }
 
 ///|
-fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
+fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int32? {
   for stmt in stmts {
     match stmt_first_except_star_control_flow_line(stmt, 1) {
       Some(line) => return Some(line)
@@ -985,10 +985,10 @@ fn stmts_first_except_star_control_flow_line(stmts : Array[Stmt]) -> Int? {
 ///|
 fn stmt_first_invalid_control_flow_line(
   stmt : Stmt,
-  fallback_line : Int,
+  fallback_line : Int32,
   in_function : Bool,
-  loop_depth : Int,
-) -> Int? {
+  loop_depth : Int32,
+) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_invalid_control_flow_line(
@@ -1087,8 +1087,8 @@ fn stmt_first_invalid_control_flow_line(
 fn stmts_first_invalid_control_flow_line(
   stmts : Array[Stmt],
   in_function : Bool,
-  loop_depth : Int,
-) -> Int? {
+  loop_depth : Int32,
+) -> Int32? {
   for stmt in stmts {
     match
       stmt_first_invalid_control_flow_line(stmt, 1, in_function, loop_depth) {
@@ -1450,9 +1450,9 @@ fn stmts_have_class_body_comprehension_name(
 ///|
 fn stmt_first_param_nonlocal_line(
   stmt : Stmt,
-  fallback_line : Int,
+  fallback_line : Int32,
   params : Array[String],
-) -> Int? {
+) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_param_nonlocal_line(inner, span.line, params)
@@ -1521,7 +1521,10 @@ fn stmt_first_param_nonlocal_line(
 }
 
 ///|
-fn stmts_first_param_nonlocal_line(stmts : Array[Stmt], params : Array[String]) -> Int? {
+fn stmts_first_param_nonlocal_line(
+  stmts : Array[Stmt],
+  params : Array[String],
+) -> Int32? {
   for stmt in stmts {
     match stmt_first_param_nonlocal_line(stmt, 1, params) {
       Some(line) => return Some(line)
@@ -1534,8 +1537,8 @@ fn stmts_first_param_nonlocal_line(stmts : Array[Stmt], params : Array[String]) 
 ///|
 fn stmt_first_function_import_star_line(
   stmt : Stmt,
-  fallback_line : Int,
-) -> Int? {
+  fallback_line : Int32,
+) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
       stmt_first_function_import_star_line(inner, span.line)
@@ -1598,7 +1601,7 @@ fn stmt_first_function_import_star_line(
 }
 
 ///|
-fn stmts_first_function_import_star_line(stmts : Array[Stmt]) -> Int? {
+fn stmts_first_function_import_star_line(stmts : Array[Stmt]) -> Int32? {
   for stmt in stmts {
     match stmt_first_function_import_star_line(stmt, 1) {
       Some(line) => return Some(line)
@@ -1811,8 +1814,8 @@ fn stmts_have_async_comprehension(stmts : Array[Stmt]) -> Bool {
 ///|
 fn parse_pattern(
   text : String,
-  line_index : Int,
-  base_offset : Int,
+  line_index : Int32,
+  base_offset : Int32,
 ) -> Result[Pattern, ParseError] {
   let trimmed = text.trim(chars=" \t\n\r").to_owned()
   if trimmed.length() == 0 {
@@ -2195,7 +2198,7 @@ fn finalize_simple_statement(
   stmts : Array[Stmt],
   allow_async_comprehensions : Bool,
   span : Span,
-  base_offset : Int,
+  base_offset : Int32,
 ) -> Result[Array[Stmt], ParseError] {
   if !allow_async_comprehensions && stmts_have_async_comprehension(stmts) {
     return Err(
@@ -2216,7 +2219,11 @@ fn finalize_simple_statement(
 }
 
 ///|
-fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
+fn span_for_line(
+  offsets : Array[Int32],
+  line_index : Int32,
+  indent : Int32,
+) -> Span {
   let start = offsets[line_index] + indent
   // Best-effort: span covers the whole physical line (excluding the trailing '\n').
   // This is used for tracebacks/caret diagnostics (PEP 657 tests in Lib/test).
@@ -2230,9 +2237,9 @@ fn span_for_line(offsets : Array[Int], line_index : Int, indent : Int) -> Span {
 
 ///|
 fn wrap_stmt_for_line(
-  offsets : Array[Int],
-  line_index : Int,
-  indent : Int,
+  offsets : Array[Int32],
+  line_index : Int32,
+  indent : Int32,
   stmt : Stmt,
 ) -> Stmt {
   Stmt::WithSpan(span=span_for_line(offsets, line_index, indent), stmt~)
@@ -2241,9 +2248,9 @@ fn wrap_stmt_for_line(
 ///|
 fn parse_simple_statement(
   line_text : String,
-  line_index : Int,
-  line_start_offset : Int,
-  base_offset : Int,
+  line_index : Int32,
+  line_start_offset : Int32,
+  base_offset : Int32,
   allow_async_comprehensions : Bool,
 ) -> Result[Array[Stmt], ParseError] {
   // `line_text` may be a sliced inline statement (e.g. after `:` in a one-liner
@@ -2712,7 +2719,7 @@ fn parse_simple_statement(
       let mut quote : Char? = None
       let mut escaped = false
       let mut depth = 0
-      let mut eq_pos : Int? = None
+      let mut eq_pos : Int32? = None
       for i = 0; i < chars.length(); i = i + 1 {
         let c = chars[i]
         match quote {
@@ -2864,7 +2871,7 @@ fn parse_simple_statement(
         stmts, allow_async_comprehensions, span, base_offset,
       )
     }
-    let mut comma_index : Int? = None
+    let mut comma_index : Int32? = None
     let chars = rest.to_array()
     let mut depth = 0
     let mut quote : Char? = None
@@ -3584,7 +3591,7 @@ fn parse_simple_statement(
     Ok(value) => value
     Err(err) => return Err(err)
   }
-  let assign_positions : Array[Int] = []
+  let assign_positions : Array[Int32] = []
   let mut depth = 0
   let mut lambda_depth = 0
   for idx = 0; idx < tokens.length(); idx = idx + 1 {

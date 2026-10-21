@@ -21,7 +21,7 @@ priv struct CoroutineState {
 let coroutine_registry : Ref[Array[Ref[CoroutineState]]] = { val: [], }
 
 ///|
-let coroutine_active_depth : Ref[Int] = { val: 0, }
+let coroutine_active_depth : Ref[Int32] = { val: 0, }
 
 ///|
 pub fn coroutine_is_active() -> Bool {
@@ -39,7 +39,7 @@ fn coroutine_leave_context() -> Unit {
 }
 
 ///|
-fn make_coroutine_instance(id : Int) -> Value {
+fn make_coroutine_instance(id : Int32) -> Value {
   Value::Instance(InstanceValue::{
     class: ClassValue::{ name: "coroutine", bases: [], dict: [], },
     dict: [("id", Value::Int(@bigint.BigInt::from_int(id)))],
@@ -49,7 +49,7 @@ fn make_coroutine_instance(id : Int) -> Value {
 ///|
 fn coroutine_id_from_instance(
   inst : InstanceValue,
-) -> Result[Int?, RuntimeError] {
+) -> Result[Int32?, RuntimeError] {
   match get_named_value(inst.dict, "id") {
     Some(Value::Int(v)) =>
       match bigint_to_int_checked(v) {

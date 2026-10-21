@@ -82,7 +82,7 @@ fn module_rel_path(name : String) -> String {
 }
 
 ///|
-fn module_join_parts(parts : Array[String], count : Int) -> String {
+fn module_join_parts(parts : Array[String], count : Int32) -> String {
   if count <= 0 || parts.length() == 0 {
     "".to_string()
   } else {
@@ -1632,10 +1632,10 @@ fn make_python_module(
   builtins : Array[(String, Value)],
   io : MockIO,
   config : Config,
-  package_name? : String = "",
-  filename? : String = "<module>",
-  is_package? : Bool = false,
-  package_path? : String = "",
+  package_name~ : String = "",
+  filename~ : String = "<module>",
+  is_package~ : Bool = false,
+  package_path~ : String = "",
 ) -> Result[Value, RuntimeError] {
   let filename_abs = resolve_path_from_initial_cwd(filename)
   let package_path_abs = if is_package {
