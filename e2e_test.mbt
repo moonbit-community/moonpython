@@ -465,7 +465,7 @@ test "e2e/comprehension_unpack_n" {
   inspect(e2e_stdout([], source), content="135,246\n1\n")
   inspect(
     test_exec_error("[a for a, b, c in [(1, 2)]]"),
-    content="TypeError: cannot unpack",
+    content="ValueError: not enough values to unpack (expected 3)",
   )
 }
 

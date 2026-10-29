@@ -189,7 +189,9 @@ pub fn ClassValue::to_json(Self) -> Json
 pub struct CompClause {
   is_async : Bool
   targets : Array[String]
+  target : Target
   iter : Expr
+  filters : Array[Expr]
 } derive(ToJson)
 pub fn CompClause::to_json(Self) -> Json
 

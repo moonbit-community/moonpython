@@ -98,7 +98,9 @@ pub extend CompareOp with ToJson::{to_json}
 pub struct CompClause {
   is_async : Bool
   targets : Array[String]
+  target : Target
   iter : Expr
+  filters : Array[Expr]
 } derive(ToJson)
 
 ///|

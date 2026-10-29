@@ -71,6 +71,7 @@ priv enum TokenKind {
   Pass
   Break
   Continue
+  Invalid
   Eof
 } derive(Eq)
 
@@ -1375,14 +1376,9 @@ fn tokenize_expr(
           if i + 1 < len && chars[i + 1] == '=' {
             (NotEq, 2)
           } else {
-            let token = {
-              kind: Eof,
-              start: base_offset + start,
-              end: base_offset + start + 1,
-              line: current_line,
-              column: column_at(start, line_start, base_column),
-            }
-            return Err(unexpected_token_error(token))
+            // Preserve the invalid token so an earlier grammar error in the
+            // same expression is diagnosed before this later character.
+            (Invalid, 1)
           }
         _ => {
           let token = {

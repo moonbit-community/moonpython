@@ -8,6 +8,7 @@ Regenerate with:
 
 from __future__ import annotations
 
+import argparse
 import ast
 import builtins
 import contextlib
@@ -55,6 +56,18 @@ LICENSE_HEADER = """// =========================================================
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
 
+// Match format_error's structured "Type: message" serialization. Production
+// traceback formatting deliberately omits the delimiter for empty exceptions.
+fn format_spec_error(error : @moonpython.RuntimeError) -> String {
+  let formatted = @moonpython.format_runtime_error(error)
+  if error.exc_args.is_empty() && formatted == error.exc_type {
+    formatted + ": "
+  } else {
+    formatted
+  }
+}
+
+///|
 fn assert_run(result : Result[@moonpython.RunResult, @moonpython.RuntimeError], expected : String) -> Unit raise {
   let json = @json.parse(expected) catch { _ => fail("invalid json") }
   match json {
@@ -96,7 +109,7 @@ fn assert_run(result : Result[@moonpython.RunResult, @moonpython.RuntimeError], 
               Err(err) =>
                 match payload {
                   String(message) =>
-                    inspect(@moonpython.format_runtime_error(err), content=message)
+                    inspect(format_spec_error(err), content=message)
                   _ => fail("invalid error payload")
                 }
             }
@@ -923,5 +936,57 @@ def main() -> None:
     OUTPUT_FILE.write_text("".join(tests), encoding="utf-8")
 
 
+def refresh_existing_cases(case_ids: List[str]) -> None:
+    """Re-evaluate named existing snippets without rebuilding/reordering the pool.
+
+    This uses exactly the same oracle and serialization as full generation.
+    It is useful when diagnosing a stale expectation across Python releases.
+    The generated assertion header is refreshed from its template as well.
+    """
+    text = OUTPUT_FILE.read_text(encoding="utf-8")
+    requested = set(case_ids)
+    found = set()
+    pattern = re.compile(r'test "generated/(expr|program)/(\d+)" \{.*?\n\}', re.S)
+
+    def refresh(match: re.Match[str]) -> str:
+        kind, number = match.group(1), match.group(2)
+        case_id = f"{kind}/{number}"
+        block = match.group(0)
+        if case_id not in requested:
+            return block
+        found.add(case_id)
+        lines = [line[6:] for line in block.splitlines() if line.startswith("    #|")]
+        try:
+            if kind == "expr":
+                value, stdout, stderr = eval_expression("\n".join(lines))
+            else:
+                value, stdout, stderr = eval_program(lines)
+            expected = ["ok", value_to_json(value), stdout, stderr]
+        except EvalTimeout:
+            raise RuntimeError(f"reference timed out for {case_id}")
+        except Exception as err:
+            expected = ["err", format_error(err)]
+        serialized = escape_moonbit_string(json.dumps(expected))
+        replacement = f'  let expected = "{serialized}"'
+        block, count = re.subn(r'^  let expected = .*$', lambda _: replacement, block, flags=re.M)
+        if count != 1:
+            raise RuntimeError(f"expected one oracle value in {case_id}, found {count}")
+        print(f"Refreshed {case_id} with Python {sys.version.split()[0]}: {expected!r}")
+        return block
+
+    text = pattern.sub(refresh, text)
+    if found != requested:
+        raise ValueError(f"unknown cases: {sorted(requested - found)}")
+    first_test = text.index('///|\ntest "generated/')
+    OUTPUT_FILE.write_text(LICENSE_HEADER + text[first_test:], encoding="utf-8")
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--refresh-case", action="append", default=[], metavar="KIND/ID",
+                        help="re-evaluate an existing expr/NNNN or program/NNNN case and refresh the assertion header")
+    args = parser.parse_args()
+    if args.refresh_case:
+        refresh_existing_cases(args.refresh_case)
+    else:
+        main()

@@ -381,6 +381,7 @@ fn compile_expr(
       }
     }
     Expr::ListComp(elt~, clauses~, filters~) => {
+      let filters = unowned_comprehension_filters(clauses, filters)
       let mut has_async = false
       for clause in clauses {
         if clause.is_async {
@@ -412,6 +413,8 @@ fn compile_expr(
           comp_clauses.push(CompClause::{
             is_async: clauses[0].is_async,
             targets: clauses[0].targets,
+            target: clauses[0].target,
+            filters: clauses[0].filters,
             iter: Expr::Name(name),
           })
           for i = 1; i < clauses.length(); i = i + 1 {
@@ -443,84 +446,12 @@ fn compile_expr(
       }
 
       // Wrap nested `for` clauses from inside-out.
-      fn make_unpack_assign_stmt(
-        tmp : String,
-        targets : Array[String],
-      ) -> Stmt? {
-        if targets.length() == 1 && targets[0] == "_" {
-          return None
-        }
-        let items : Array[Target] = []
-        for t in targets {
-          if t == "_" {
-            // '_' is treated as a wildcard in MoonPython's comprehension semantics.
-            items.push(Target::Name("__mpy_comp_ignored$" + tmp))
-          } else {
-            items.push(Target::Name(t))
-          }
-        }
-        let target = if items.length() == 1 {
-          items[0]
-        } else {
-          Target::Tuple(items)
-        }
-        let assign = Stmt::Assign(target~, value=Expr::Name(tmp))
-        if items.length() == 1 {
-          Some(assign)
-        } else {
-          let handler_span = match span {
-            Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
-          }
-          let handler = ExceptHandler::{
-            span: handler_span,
-            is_star: false,
-            exc: None,
-            name: None,
-            body: [
-              Stmt::Raise(
-                exc=Some(
-                  Expr::Call(callee=Expr::Name("TypeError"), args=[
-                    Expr::Literal(Literal::Str("cannot unpack")),
-                  ]),
-                ),
-                cause=None,
-              ),
-            ],
-          }
-          Some(
-            Stmt::Try(body=[assign], handlers=[handler], else_body=[], finally_body=[]),
-          )
-        }
-      }
-
       for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
         let clause = body_clauses[i]
-        // When targets are "_" or unpacking, bind into a temp and then assign.
-        let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
-        let loop_target : Target = if direct {
-          Target::Name(clause.targets[0])
-        } else {
-          Target::Name(
-            "__mpy_comp_it$" +
-            b.code.ops.length().to_string() +
-            "$" +
-            i.to_string(),
-          )
-        }
-        let body : Array[Stmt] = []
-        if !direct {
-          let tmp = match loop_target {
-            Target::Name(n) => n
-            _ => "__mpy_comp_it$".to_string()
-          }
-          match make_unpack_assign_stmt(tmp, clause.targets) {
-            Some(assign_stmt) => body.push(assign_stmt)
-            None => ()
-          }
-        }
-        for s in inner {
-          body.push(s)
+        let loop_target = clause.target
+        let mut body = inner
+        for j = clause.filters.length() - 1; j >= 0; j = j - 1 {
+          body = [Stmt::If(condition=clause.filters[j], body~, else_body=[])]
         }
         inner = [
           if clause.is_async {
@@ -650,6 +581,8 @@ fn compile_expr(
         adjusted.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -686,6 +619,7 @@ fn compile_expr(
       }
     }
     Expr::SetComp(elt~, clauses~, filters~) => {
+      let filters = unowned_comprehension_filters(clauses, filters)
       let mut has_async = false
       for clause in clauses {
         if clause.is_async {
@@ -719,6 +653,8 @@ fn compile_expr(
           comp_clauses.push(CompClause::{
             is_async: clauses[0].is_async,
             targets: clauses[0].targets,
+            target: clauses[0].target,
+            filters: clauses[0].filters,
             iter: Expr::Name(name),
           })
           for i = 1; i < clauses.length(); i = i + 1 {
@@ -745,82 +681,12 @@ fn compile_expr(
           break
         }
       }
-      fn make_unpack_assign_stmt(
-        tmp : String,
-        targets : Array[String],
-      ) -> Stmt? {
-        if targets.length() == 1 && targets[0] == "_" {
-          return None
-        }
-        let items : Array[Target] = []
-        for t in targets {
-          if t == "_" {
-            items.push(Target::Name("__mpy_comp_ignored$" + tmp))
-          } else {
-            items.push(Target::Name(t))
-          }
-        }
-        let target = if items.length() == 1 {
-          items[0]
-        } else {
-          Target::Tuple(items)
-        }
-        let assign = Stmt::Assign(target~, value=Expr::Name(tmp))
-        if items.length() == 1 {
-          Some(assign)
-        } else {
-          let handler_span = match span {
-            Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
-          }
-          let handler = ExceptHandler::{
-            span: handler_span,
-            is_star: false,
-            exc: None,
-            name: None,
-            body: [
-              Stmt::Raise(
-                exc=Some(
-                  Expr::Call(callee=Expr::Name("TypeError"), args=[
-                    Expr::Literal(Literal::Str("cannot unpack")),
-                  ]),
-                ),
-                cause=None,
-              ),
-            ],
-          }
-          Some(
-            Stmt::Try(body=[assign], handlers=[handler], else_body=[], finally_body=[]),
-          )
-        }
-      }
-
       for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
         let clause = body_clauses[i]
-        let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
-        let loop_target : Target = if direct {
-          Target::Name(clause.targets[0])
-        } else {
-          Target::Name(
-            "__mpy_comp_it$" +
-            b.code.ops.length().to_string() +
-            "$" +
-            i.to_string(),
-          )
-        }
-        let body : Array[Stmt] = []
-        if !direct {
-          let tmp = match loop_target {
-            Target::Name(n) => n
-            _ => "__mpy_comp_it$".to_string()
-          }
-          match make_unpack_assign_stmt(tmp, clause.targets) {
-            Some(assign_stmt) => body.push(assign_stmt)
-            None => ()
-          }
-        }
-        for s in inner {
-          body.push(s)
+        let loop_target = clause.target
+        let mut body = inner
+        for j = clause.filters.length() - 1; j >= 0; j = j - 1 {
+          body = [Stmt::If(condition=clause.filters[j], body~, else_body=[])]
         }
         inner = [
           if clause.is_async {
@@ -867,6 +733,7 @@ fn compile_expr(
       Ok(())
     }
     Expr::DictComp(key~, value~, clauses~, filters~) => {
+      let filters = unowned_comprehension_filters(clauses, filters)
       let mut has_async = false
       for clause in clauses {
         if clause.is_async {
@@ -898,6 +765,8 @@ fn compile_expr(
           comp_clauses.push(CompClause::{
             is_async: clauses[0].is_async,
             targets: clauses[0].targets,
+            target: clauses[0].target,
+            filters: clauses[0].filters,
             iter: Expr::Name(name),
           })
           for i = 1; i < clauses.length(); i = i + 1 {
@@ -922,82 +791,12 @@ fn compile_expr(
           break
         }
       }
-      fn make_unpack_assign_stmt(
-        tmp : String,
-        targets : Array[String],
-      ) -> Stmt? {
-        if targets.length() == 1 && targets[0] == "_" {
-          return None
-        }
-        let items : Array[Target] = []
-        for t in targets {
-          if t == "_" {
-            items.push(Target::Name("__mpy_comp_ignored$" + tmp))
-          } else {
-            items.push(Target::Name(t))
-          }
-        }
-        let target = if items.length() == 1 {
-          items[0]
-        } else {
-          Target::Tuple(items)
-        }
-        let assign = Stmt::Assign(target~, value=Expr::Name(tmp))
-        if items.length() == 1 {
-          Some(assign)
-        } else {
-          let handler_span = match span {
-            Some(s) => s
-            None => Span::{ start: 0, end: 1, line: 1, column: 1, }
-          }
-          let handler = ExceptHandler::{
-            span: handler_span,
-            is_star: false,
-            exc: None,
-            name: None,
-            body: [
-              Stmt::Raise(
-                exc=Some(
-                  Expr::Call(callee=Expr::Name("TypeError"), args=[
-                    Expr::Literal(Literal::Str("cannot unpack")),
-                  ]),
-                ),
-                cause=None,
-              ),
-            ],
-          }
-          Some(
-            Stmt::Try(body=[assign], handlers=[handler], else_body=[], finally_body=[]),
-          )
-        }
-      }
-
       for i = body_clauses.length() - 1; i >= 0; i = i - 1 {
         let clause = body_clauses[i]
-        let direct = clause.targets.length() == 1 && clause.targets[0] != "_"
-        let loop_target : Target = if direct {
-          Target::Name(clause.targets[0])
-        } else {
-          Target::Name(
-            "__mpy_comp_it$" +
-            b.code.ops.length().to_string() +
-            "$" +
-            i.to_string(),
-          )
-        }
-        let body : Array[Stmt] = []
-        if !direct {
-          let tmp = match loop_target {
-            Target::Name(n) => n
-            _ => "__mpy_comp_it$".to_string()
-          }
-          match make_unpack_assign_stmt(tmp, clause.targets) {
-            Some(assign_stmt) => body.push(assign_stmt)
-            None => ()
-          }
-        }
-        for s in inner {
-          body.push(s)
+        let loop_target = clause.target
+        let mut body = inner
+        for j = clause.filters.length() - 1; j >= 0; j = j - 1 {
+          body = [Stmt::If(condition=clause.filters[j], body~, else_body=[])]
         }
         inner = [
           if clause.is_async {
@@ -1804,7 +1603,11 @@ fn compile_stmt(
         finally_depth,
         future_annotations,
       )
-    Stmt::Pass => Ok(())
+    Stmt::Pass => {
+      // Preserve the source location of an explicit pass for code introspection.
+      let _ = b.emit(BcOp::Nop, span)
+      Ok(())
+    }
     Stmt::ExprStmt(expr) => {
       match compile_expr(expr, b, span) {
         Ok(_) => ()
@@ -1868,7 +1671,7 @@ fn compile_stmt(
       }
       match target {
         Target::Name(name) => {
-          match compile_expr(annotation, b, span) {
+          match compile_annotation(annotation, b, span, future_annotations) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -2020,7 +1823,11 @@ fn compile_stmt(
     }
     Stmt::For(target~, iter~, body~, else_body~) => {
       match target {
-        Target::Name(_) | Target::Tuple(_) | Target::List(_) => ()
+        Target::Name(_)
+        | Target::Tuple(_)
+        | Target::List(_)
+        | Target::Attribute(..)
+        | Target::Subscript(..) => ()
         _ =>
           return Err(
             make_runtime_error(
@@ -2085,7 +1892,11 @@ fn compile_stmt(
     }
     Stmt::AsyncFor(target~, iter~, body~, else_body~) => {
       match target {
-        Target::Name(_) | Target::Tuple(_) | Target::List(_) => ()
+        Target::Name(_)
+        | Target::Tuple(_)
+        | Target::List(_)
+        | Target::Attribute(..)
+        | Target::Subscript(..) => ()
         _ =>
           return Err(
             make_runtime_error(
@@ -2572,8 +2383,7 @@ fn compile_stmt(
       let has_annotations = annotations.length() > 0 ||
         return_annotation is Some(_)
       let eval_annotations = has_annotations &&
-        !future_annotations &&
-        type_params.length() == 0
+        (future_annotations || type_params.length() == 0)
       if eval_annotations {
         let tmp_name = "$__mpy_fn_annotations$" +
           b.code.ops.length().to_string()
@@ -2589,7 +2399,7 @@ fn compile_stmt(
             Some(s) => Some(s)
             None => span
           }
-          match compile_expr(expr, b, ann_span) {
+          match compile_annotation(expr, b, ann_span, future_annotations) {
             Ok(_) => ()
             Err(err) => return Err(err)
           }
@@ -2603,7 +2413,7 @@ fn compile_stmt(
               Some(s) => Some(s)
               None => span
             }
-            match compile_expr(expr, b, ann_span) {
+            match compile_annotation(expr, b, ann_span, future_annotations) {
               Ok(_) => ()
               Err(err) => return Err(err)
             }
@@ -2857,6 +2667,16 @@ pub fn compile_stmts_to_bc_with_future(
   filename : String,
   future_annotations : Bool,
 ) -> Result[BcCode, RuntimeError] {
+  if future_annotations {
+    if future_annotation_error_line(body, 1) is Some(line) {
+      return Err(
+        make_runtime_error(
+          RuntimeErrorKind::Runtime,
+          "line " + line.to_string() + ":1 invalid syntax",
+        ),
+      )
+    }
+  }
   let b = BcBuilder::new(name, filename)
   let loop_stack : Ref[Array[LoopCtx]] = { val: [], }
   for stmt in body {

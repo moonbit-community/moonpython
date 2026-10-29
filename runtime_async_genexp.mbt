@@ -117,7 +117,7 @@ fn async_genexp_new(
     val: AsyncGenExpState::{
       elt,
       clauses,
-      filters,
+      filters: unowned_comprehension_filters(clauses, filters),
       locals,
       globals,
       builtins,
@@ -287,14 +287,30 @@ fn async_genexp_next(async_genexp_value : Value) -> Result[Value, RuntimeError] 
     match item_res {
       Ok(Some(item)) => {
         let _ = match
-          bind_comp_targets(
+          assign_target_with_env(
+            clause.target,
+            item,
             state.val.locals,
             state.val.globals,
-            clause.targets,
-            item,
+            state.val.builtins,
+            state.val.io,
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
+        }
+        let keep = match
+          eval_comp_filters(
+            clause.filters,
+            state.val.locals,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        if !keep {
+          continue
         }
         for i = depth + 1; i < n; i = i + 1 {
           state.val.iters[i] = None

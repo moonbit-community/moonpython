@@ -7,6 +7,12 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  MOON_WORK: "off"
+
 jobs:
   check:
     strategy:

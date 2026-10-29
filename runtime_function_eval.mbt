@@ -45,6 +45,7 @@ fn eval_function_with_kwargs(
     global_names,
     nonlocal_names,
   )
+  let body = local_annotation_statements(func.body)
   // Prefer the function's module filename (via its resolved globals) so that
   // tracebacks for stdlib functions don't get mislabeled with the caller file.
   let filename = match lookup_instance_field(active_globals, "__file__") {
@@ -55,7 +56,7 @@ fn eval_function_with_kwargs(
     if func.is_generator {
       return Ok(
         async_generator_new(
-          func.body,
+          body,
           locals,
           active_globals,
           builtins,
@@ -70,7 +71,7 @@ fn eval_function_with_kwargs(
     }
     return Ok(
       coroutine_new(
-        func.body,
+        body,
         locals,
         active_globals,
         builtins,
@@ -101,7 +102,7 @@ fn eval_function_with_kwargs(
   }
   let result = match
     compile_stmts_to_bc_with_future(
-      func.body,
+      body,
       func.name,
       filename,
       future_annotations,
@@ -458,11 +459,12 @@ fn eval_generator_with_kwargs(
     global_names,
     nonlocal_names,
   )
+  let body = local_annotation_statements(func.body)
   let filename = current_traceback_filename()
   if func.is_async {
     Ok(
       async_generator_new(
-        func.body,
+        body,
         locals,
         active_globals,
         builtins,
@@ -477,7 +479,7 @@ fn eval_generator_with_kwargs(
   } else {
     Ok(
       generator_new(
-        func.body,
+        body,
         locals,
         active_globals,
         builtins,

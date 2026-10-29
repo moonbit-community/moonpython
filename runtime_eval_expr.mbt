@@ -251,6 +251,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -354,6 +356,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -399,6 +403,8 @@ fn eval_expr_with_env(
       adjusted_clauses.push(CompClause::{
         is_async: false,
         targets: clauses[0].targets,
+        target: clauses[0].target,
+        filters: clauses[0].filters,
         iter: Expr::Name(iter_name),
       })
       for i = 1; i < clauses.length(); i = i + 1 {
@@ -450,6 +456,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -514,6 +522,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
