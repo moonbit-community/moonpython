@@ -1850,17 +1850,6 @@ fn compile_stmt(
       }
     }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      match target {
-        Target::Name(name) => {
-          match compile_expr(annotation, b, span) {
-            Ok(_) => ()
-            Err(err) => return Err(err)
-          }
-          let name_idx = b.intern_name(name)
-          let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
-        }
-        _ => ()
-      }
       match value {
         Some(expr) =>
           match
@@ -1876,6 +1865,17 @@ fn compile_stmt(
             Err(err) => return Err(err)
           }
         None => ()
+      }
+      match target {
+        Target::Name(name) => {
+          match compile_expr(annotation, b, span) {
+            Ok(_) => ()
+            Err(err) => return Err(err)
+          }
+          let name_idx = b.intern_name(name)
+          let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
+        }
+        _ => ()
       }
       Ok(())
     }

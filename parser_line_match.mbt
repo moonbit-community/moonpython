@@ -60,6 +60,7 @@ fn parse_match_stmt(
     )
   }
   let cases : Array[(Pattern, Expr?, Array[Stmt])] = []
+  let mut irrefutable_case : (Int32, Int32)? = None
   while parser.index < parser.lines.length() {
     let case_line = parser.lines[parser.index]
     let case_trimmed = case_line.trim(chars=" \t").to_owned()
@@ -146,10 +147,19 @@ fn parse_match_stmt(
         guard_text = Some(parts[1].trim(chars=" \t").to_owned())
       }
     }
+    if irrefutable_case is Some((case_index, case_offset)) {
+      return Err(pattern_syntax_error(case_index, case_offset))
+    }
     let base_offset = parser.offsets[parser.index] + case_indent + 4
     let pattern = match parse_pattern(pattern_text, parser.index, base_offset) {
       Ok(value) => value
       Err(err) => return Err(err)
+    }
+    if !pattern_bindings_unique(pattern, Set([])) {
+      return Err(pattern_syntax_error(parser.index, base_offset))
+    }
+    if guard_text is None && pattern_is_irrefutable(pattern) {
+      irrefutable_case = Some((parser.index, base_offset))
     }
     let mut guard_expr : Expr? = None
     match guard_text {

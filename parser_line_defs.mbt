@@ -927,7 +927,11 @@ fn parse_def_stmt(
         body.push(stmt)
       }
     }
-    match stmts_first_param_nonlocal_line(body, params) {
+    match scope_decl_after_use_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
+    match stmts_first_param_scope_decl_line(body, params) {
       Some(line) => return Err(parser.invalid_syntax_at_line(line))
       None => ()
     }
@@ -1572,7 +1576,11 @@ fn parse_def_stmt(
       }
     }
   }
-  match stmts_first_param_nonlocal_line(body, params) {
+  match scope_decl_after_use_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
+  match stmts_first_param_scope_decl_line(body, params) {
     Some(line) => return Err(parser.invalid_syntax_at_line(line))
     None => ()
   }

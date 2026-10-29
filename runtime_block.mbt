@@ -1509,6 +1509,23 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AnnAssign(target~, annotation~, value~) => {
+        match value {
+          Some(expr) => {
+            let eval_value = match
+              eval_expr_with_env(expr, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let _ = match
+              assign_target_with_env(
+                target, eval_value, locals, globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          }
+          None => ()
+        }
         match target {
           Target::Name(name) => {
             // Only simple-name annotations contribute to __annotations__.
@@ -1546,23 +1563,6 @@ fn eval_block_flow(
             }
           }
           _ => ()
-        }
-        match value {
-          Some(expr) => {
-            let eval_value = match
-              eval_expr_with_env(expr, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            let _ = match
-              assign_target_with_env(
-                target, eval_value, locals, globals, builtins, io,
-              ) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
-          None => ()
         }
         last = Value::None
       }
