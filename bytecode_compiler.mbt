@@ -538,9 +538,7 @@ fn compile_expr(
       let target_names : Array[Value] = []
       for clause in clauses {
         for name in clause.targets {
-          if name != "_" {
-            target_names.push(Value::Str(name))
-          }
+          target_names.push(Value::Str(name))
         }
       }
       let target_names_idx = b.add_const(Value::Tuple(target_names))
@@ -1667,7 +1665,14 @@ fn compile_stmt(
             Ok(_) => ()
             Err(err) => return Err(err)
           }
-        None => ()
+        None =>
+          for expr in target_expressions(target) {
+            match compile_expr(expr, b, span) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            let _ = b.emit(BcOp::PopTop, span)
+          }
       }
       match target {
         Target::Name(name) => {
@@ -1678,7 +1683,14 @@ fn compile_stmt(
           let name_idx = b.intern_name(name)
           let _ = b.emit(BcOp::StoreAnnotation(name_idx), span)
         }
-        _ => ()
+        _ =>
+          if !future_annotations {
+            match compile_expr(annotation, b, span) {
+              Ok(_) => ()
+              Err(err) => return Err(err)
+            }
+            let _ = b.emit(BcOp::PopTop, span)
+          }
       }
       Ok(())
     }

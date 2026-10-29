@@ -1506,3 +1506,27 @@ fn merge_cell_closures(
   }
   out
 }
+
+///|
+// Iteration variables belong to the comprehension, while free names and walrus
+// assignments retain the enclosing declarations. Capture this for suspended
+// async comprehensions as well as immediately evaluated comprehensions.
+fn comprehension_scope_decls(clauses : Array[CompClause]) -> ScopeDecls {
+  let names : Array[String] = []
+  for clause in clauses {
+    names.append(clause.targets)
+  }
+  scope_decls_without_bindings(names)
+}
+
+///|
+fn scope_decls_without_bindings(names : Array[String]) -> ScopeDecls {
+  if scope_decls_stack.val.is_empty() {
+    return ScopeDecls::{ globals: [], nonlocals: [], }
+  }
+  let enclosing = scope_decls_stack.val[scope_decls_stack.val.length() - 1]
+  ScopeDecls::{
+    globals: enclosing.globals.filter(fn(name) { !names.contains(name) }),
+    nonlocals: enclosing.nonlocals.filter(fn(name) { !names.contains(name) }),
+  }
+}

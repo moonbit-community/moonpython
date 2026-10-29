@@ -120,6 +120,7 @@ fn annotation_source(expr : Expr, precedence~ : Int32 = 0) -> String {
   let (text, level) = match expr {
     Expr::WithSpan(expr~, ..) => return annotation_source(expr, precedence~)
     Expr::Name(name) => (name, 16)
+    Expr::Literal(Literal::Float(value)) => (annotation_float_source(value), 16)
     Expr::Literal(literal) => (repr_fallback(literal_to_value(literal)), 16)
     Expr::Tuple(items) =>
       (
@@ -232,6 +233,7 @@ fn annotation_source(expr : Expr, precedence~ : Int32 = 0) -> String {
           } else {
             join(items) + (if items.length() == 1 { "," } else { "" })
           }
+        Expr::Starred(..) => annotation_source(index) + ","
         _ => annotation_source(index)
       }
       (annotation_source(value, precedence=16) + "[" + index + "]", 16)
@@ -448,4 +450,103 @@ fn annotation_fstring_content(text : String) -> (String, Bool) {
     i = close + 1
   }
   (out.to_string(), forbidden)
+}
+
+///|
+// Python's AST unparser uses float repr: scientific notation below 1e-4 and
+// from 1e16, a signed two-digit exponent, and a decimal point for integral floats.
+fn annotation_float_source(value : Double) -> String {
+  if value.is_pos_inf() {
+    return "1e309"
+  }
+  if value.is_neg_inf() {
+    return "-1e309"
+  }
+  let raw = value.to_string()
+  let negative = raw.has_prefix("-")
+  let unsigned = if negative { substring(raw, 1, raw.length()) } else { raw }
+  let parts = unsigned.split("e").to_array()
+  let mantissa = parts[0].to_owned()
+  let explicit_exp = if parts.length() == 2 {
+    @string.parse_int(parts[1]) catch {
+      _ => 0
+    }
+  } else {
+    0
+  }
+  let mut point = 0
+  let digits = StringBuilder()
+  let mut after_point = false
+  for ch in mantissa.to_array() {
+    if ch == '.' {
+      after_point = true
+    } else {
+      if !after_point {
+        point += 1
+      }
+      digits.write_char(ch)
+    }
+  }
+  let digits = digits.to_string()
+  let mut first = 0
+  while first < digits.length() && digits.to_array()[first] == '0' {
+    first += 1
+  }
+  let sign = if negative { "-" } else { "" }
+  if first == digits.length() {
+    return sign + "0.0"
+  }
+  let exponent = point + explicit_exp - first - 1
+  let mut last = digits.length()
+  while last > first + 1 && digits.to_array()[last - 1] == '0' {
+    last -= 1
+  }
+  let significant = substring(digits, first, last)
+  if exponent < -4 || exponent >= 16 {
+    let exp = exponent.abs().to_string()
+    sign +
+    substring(significant, 0, 1) +
+    (if significant.length() > 1 {
+      "." + substring(significant, 1, significant.length())
+    } else {
+      ""
+    }) +
+    "e" +
+    (if exponent < 0 { "-" } else { "+" }) +
+    (if exp.length() < 2 { "0" } else { "" }) +
+    exp
+  } else if explicit_exp == 0 {
+    raw + (if raw.contains(".") { "" } else { ".0" })
+  } else {
+    // Core currently prints this range in fixed notation. Keep conversion
+    // correct if its notation threshold changes.
+    let out = StringBuilder()
+    out.write_string(sign)
+    if exponent < 0 {
+      out.write_string("0.")
+      for i = 0; i < -exponent - 1; i = i + 1 {
+        out.write_char('0')
+      }
+      out.write_string(significant)
+    } else {
+      for i = 0; i <= exponent; i = i + 1 {
+        out.write_char(
+          if i < significant.length() {
+            significant.to_array()[i]
+          } else {
+            '0'
+          },
+        )
+      }
+      out.write_char('.')
+      if significant.length() > exponent + 1 {
+        out.write_string(
+          substring(significant, exponent + 1, significant.length()),
+        )
+      } else {
+        out.write_char('0')
+      }
+    }
+    out.to_string()
+  }
 }

@@ -1524,13 +1524,17 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
           }
-          None => ()
+          None =>
+            for expr in target_expressions(target) {
+              match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+            }
         }
         match target {
           Target::Name(name) => {
             // Only simple-name annotations contribute to __annotations__.
-            // For attribute/subscript targets (e.g. `self.x: T = ...`), CPython
-            // does not evaluate/store the annotation at runtime.
             let ann_value = match
               eval_annotation_with_env(
                 annotation, locals, globals, builtins, io,
@@ -1564,7 +1568,15 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
           }
-          _ => ()
+          _ =>
+            if !(get_global_value(globals, "__mpython_future_annotations__")
+              is Some(Value::Bool(true))) {
+              match
+                eval_expr_with_env(annotation, locals, globals, builtins, io) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+            }
         }
         last = Value::None
       }

@@ -1,5 +1,6 @@
 ///|
-// Local variable annotations determine bindings but have no runtime effect in
+// Local variable annotations determine bindings but their annotation expressions
+// have no runtime effect in
 // Python, with or without postponed annotations. Call only after collecting the
 // function's local names, and leave nested definition bodies in their own scope.
 fn local_annotation_statements(body : Array[Stmt]) -> Array[Stmt] {
@@ -10,7 +11,11 @@ fn local_annotation_statements(body : Array[Stmt]) -> Array[Stmt] {
       Stmt::AnnAssign(target~, value~, ..) =>
         match value {
           Some(value) => Stmt::Assign(target~, value~)
-          None => Stmt::Pass
+          None =>
+            match target_expressions(target) {
+              [] => Stmt::Pass
+              expressions => Stmt::ExprStmt(Expr::Tuple(expressions))
+            }
         }
       Stmt::If(condition~, body~, else_body~) =>
         Stmt::If(

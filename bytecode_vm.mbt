@@ -3303,13 +3303,14 @@ pub fn bc_exec(
                 }
                 match code.consts[target_names_const_idx] {
                   Value::Tuple(items) => {
+                    let target_names : Array[String] = []
                     let mut err_opt : RuntimeError? = None
                     for item in items {
                       match item {
-                        Value::Str(name) =>
-                          if name != "_" {
-                            ensure_local_cell(gen_locals, name, Value::None)
-                          }
+                        Value::Str(name) => {
+                          target_names.push(name)
+                          shadow_local_cell(gen_locals, name, Value::None)
+                        }
                         _ =>
                           err_opt = Some(
                             make_runtime_error(
@@ -3326,14 +3327,15 @@ pub fn bc_exec(
                       Some(e) => Err(e)
                       None => {
                         let filename = current_traceback_filename()
+                        let scope = scope_decls_without_bindings(target_names)
                         let gen = generator_new(
                           template.body,
                           gen_locals,
                           globals,
                           builtins,
                           io,
-                          [],
-                          [],
+                          scope.globals,
+                          scope.nonlocals,
                           current_closure_env(),
                           template.name,
                           filename,
@@ -3386,9 +3388,7 @@ pub fn bc_exec(
                 for item in items {
                   match item {
                     Value::Str(name) =>
-                      if name != "_" {
-                        ensure_local_cell(gen_locals, name, Value::None)
-                      }
+                      shadow_local_cell(gen_locals, name, Value::None)
                     _ =>
                       err_opt = Some(
                         make_runtime_error(

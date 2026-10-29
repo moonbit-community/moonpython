@@ -4,7 +4,8 @@
 fn expression_children(expr : Expr) -> Array[Expr] {
   let out : Array[Expr] = []
   match expr {
-    Expr::Literal(_) | Expr::Name(_) | Expr::FString(_) => ()
+    Expr::Literal(_) | Expr::Name(_) => ()
+    Expr::FString(text) => out.append(fstring_expression_children(text))
     Expr::WithSpan(expr~, ..)
     | Expr::NamedExpr(value=expr, ..)
     | Expr::YieldFrom(expr)
@@ -93,4 +94,55 @@ fn target_expressions(target : Target) -> Array[Expr] {
       out
     }
   }
+}
+
+///|
+// F-strings retain their source in the AST. Traverse replacement expressions and
+// nested format fields using the same scanners as evaluation.
+fn fstring_expression_children(text : String) -> Array[Expr] {
+  let out : Array[Expr] = []
+  let chars = text.to_array()
+  let mut i = 0
+  while i < chars.length() {
+    if (chars[i] == '{' || chars[i] == '}') &&
+      i + 1 < chars.length() &&
+      chars[i + 1] == chars[i] {
+      i += 2
+      continue
+    }
+    if chars[i] != '{' {
+      i += 1
+      continue
+    }
+    let close = match
+      find_fstring_expr_close(substring(text, i + 1, text.length())) {
+      Some(close) => i + 1 + close
+      None => break
+    }
+    let inner = substring(text, i + 1, close)
+    let (expr_and_conv, format) = match find_top_level_format_colon(inner) {
+      Some(pos) =>
+        (
+          substring(inner, 0, pos),
+          Some(substring(inner, pos + 1, inner.length())),
+        )
+      None => (inner, None)
+    }
+    let raw = match find_top_level_fstring_conversion_bang(expr_and_conv) {
+      Some(pos) => substring(expr_and_conv, 0, pos)
+      None => expr_and_conv
+    }
+    let expression = match find_top_level_fstring_debug_equal(raw) {
+      Some(pos) => substring(raw, 0, pos)
+      None => raw
+    }
+    if parse_expr(expression.trim(chars=" \t").to_owned()) is Ok(expr) {
+      out.push(expr)
+    }
+    if format is Some(format) {
+      out.append(fstring_expression_children(format))
+    }
+    i = close + 1
+  }
+  out
 }

@@ -138,3 +138,31 @@ test "annotation expression normalization includes generator calls and f strings
     }
   }
 }
+
+///|
+test "postponed float annotations use Python binary64 spelling" {
+  let source =
+    #|a: 1e-6
+    #|b: 1e20
+    #|c: 1e100
+    #|d: -0.0
+    #|e: tuple[*Ts]
+    #|f: 1.0
+    #|g: 0.0001
+    #|h: 1e-5
+    #|i: 1e15
+    #|j: 1e16
+    #|k: 1e999
+    #|print(__annotations__)
+    #|print(1e100 == float('1e100'))
+    #|print(1e-400 == 0, 1e-9999 == 0, 5e-324 > 0, 5e-324 == float('5e-324'))
+    #|print(1e999999999999999999999999999 > 1e308, 1e-999999999999999999999999999 == 0, 0e9999 == 0)
+  match @moonpython.Interpreter::new_spec().exec_source(source) {
+    Ok(run) =>
+      assert_eq(
+        run.stdout,
+        "{'a': '1e-06', 'b': '1e+20', 'c': '1e+100', 'd': '-0.0', 'e': 'tuple[*Ts,]', 'f': '1.0', 'g': '0.0001', 'h': '1e-05', 'i': '1000000000000000.0', 'j': '1e+16', 'k': '1e309'}\nTrue\nTrue True True True\nTrue True True\n",
+      )
+    Err(err) => fail(@moonpython.format_runtime_error(err))
+  }
+}
