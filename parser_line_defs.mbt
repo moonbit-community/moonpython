@@ -262,6 +262,9 @@ fn parse_class_stmt(
         body.push(stmt)
       }
     }
+    if class_scope_error_line(body, parser.func_depth > 0) is Some(line) {
+      return Err(parser.invalid_syntax_at_line(line))
+    }
     match stmts_first_illegal_await_line(body) {
       Some(line) => return Err(parser.invalid_syntax_at_line(line))
       None => ()
@@ -301,6 +304,9 @@ fn parse_class_stmt(
   let body = match parser.parse_block(next_indent) {
     Ok(value) => value
     Err(err) => return Err(err)
+  }
+  if class_scope_error_line(body, parser.func_depth > 0) is Some(line) {
+    return Err(parser.invalid_syntax_at_line(line))
   }
   match stmts_first_illegal_await_line(body) {
     Some(line) => return Err(parser.invalid_syntax_at_line(line))
@@ -764,9 +770,20 @@ fn parse_def_stmt(
           Ok(value) => value
           Err(err) => return Err(err)
         }
-        let expr = match parse_tokens_expr(tokens) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+        // PEP 646 permits an unpacked annotation on a variadic positional
+        // parameter: def f(*args: *Ts). It is not a general expression form.
+        let expr = if star_count == 1 &&
+          tokens.length() > 0 &&
+          tokens[0].kind == Star {
+          match parse_tokens_expr(tokens[1:].to_owned()) {
+            Ok(value) => Expr::Starred(value~)
+            Err(err) => return Err(err)
+          }
+        } else {
+          match parse_tokens_expr(tokens) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
         }
         if expr_has_illegal_await(expr, false) {
           return Err(parser.invalid_syntax_at_line(parser.index + 1))
@@ -927,7 +944,11 @@ fn parse_def_stmt(
         body.push(stmt)
       }
     }
-    match stmts_first_param_nonlocal_line(body, params) {
+    match scope_decl_after_use_line(body) {
+      Some(line) => return Err(parser.invalid_syntax_at_line(line))
+      None => ()
+    }
+    match stmts_first_param_scope_decl_line(body, params) {
       Some(line) => return Err(parser.invalid_syntax_at_line(line))
       None => ()
     }
@@ -1572,7 +1593,11 @@ fn parse_def_stmt(
       }
     }
   }
-  match stmts_first_param_nonlocal_line(body, params) {
+  match scope_decl_after_use_line(body) {
+    Some(line) => return Err(parser.invalid_syntax_at_line(line))
+    None => ()
+  }
+  match stmts_first_param_scope_decl_line(body, params) {
     Some(line) => return Err(parser.invalid_syntax_at_line(line))
     None => ()
   }

@@ -653,7 +653,15 @@ pub fn Interpreter::new_spec() -> Interpreter {
     let klass = builtin_class_from_name(type_name, builtins)
     set_named_value(builtins, type_name, Value::Class(klass))
   }
-  Interpreter::with_builtins(builtins, config)
+  let interpreter = Interpreter::with_builtins(builtins, config)
+  // The reference generator compiles snippets from a module with
+  // `from __future__ import annotations`; eval/exec inherit that flag.
+  set_named_value(
+    interpreter.globals,
+    "__mpython_future_annotations__",
+    Value::Bool(true),
+  )
+  interpreter
 }
 
 ///|
@@ -1459,7 +1467,16 @@ pub fn Interpreter::exec(
   set_traceback_frame_env(self.globals, self.globals)
   // Execute via the bytecode pipeline. If compilation fails, surface the error
   // directly so we don't silently fall back and hide bytecode compiler gaps.
-  let value_result = match compile_module_to_bc(program, filename) {
+  let future_annotations = stmts_have_future_annotations(program.body) ||
+    get_global_value(self.globals, "__mpython_future_annotations__")
+    is Some(Value::Bool(true))
+  let value_result = match
+    compile_stmts_to_bc_with_future(
+      program.body,
+      "<module>",
+      filename,
+      future_annotations,
+    ) {
     Ok(code) => {
       push_active_config(self.config)
       let out = bc_exec(

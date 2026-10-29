@@ -802,7 +802,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        let targets = match
+        let (targets, target) = match
           self.parse_comp_targets(
             open,
             unclosed_message.to_string(),
@@ -850,7 +850,13 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: true, targets, iter, })
+        clauses.push(CompClause::{
+          is_async: true,
+          targets,
+          target,
+          iter,
+          filters: [],
+        })
         continue
       }
       [{ kind: For, .. }, .. rest] => {
@@ -864,7 +870,7 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        let targets = match
+        let (targets, target) = match
           self.parse_comp_targets(
             open,
             unclosed_message.to_string(),
@@ -914,7 +920,13 @@ fn ExprParser::parse_comprehension_tail(
             ),
           )
         }
-        clauses.push(CompClause::{ is_async: false, targets, iter, })
+        clauses.push(CompClause::{
+          is_async: false,
+          targets,
+          target,
+          iter,
+          filters: [],
+        })
         continue
       }
       [{ kind: If, .. }, .. rest] => {
@@ -937,6 +949,7 @@ fn ExprParser::parse_comprehension_tail(
           Err(err) => return Err(err)
         }
         collect_named_expr_targets(cond, walrus_targets)
+        clauses[clauses.length() - 1].filters.push(cond)
         filters.push(cond)
         continue
       }
@@ -954,348 +967,70 @@ fn ExprParser::parse_comprehension_tail(
 }
 
 ///|
-fn ExprParser::skip_comp_target_until(
-  self : ExprParser,
-  stop1 : TokenKind,
-  stop2 : TokenKind,
-  open : Token,
-  unclosed_message : String,
-) -> Result[Unit, ParseError] {
-  let mut depth = 0
-  while true {
-    let token = self.current()
-    if token.kind == Eof {
-      return Err(
-        make_parse_error(ParseErrorKind::Syntax, unclosed_message, open),
-      )
-    }
-    if depth == 0 && (token.kind == stop1 || token.kind == stop2) {
-      break
-    }
-    match token.kind {
-      LParen | LBracket | LBrace => depth += 1
-      RParen | RBracket | RBrace => if depth > 0 { depth -= 1 }
-      _ => ()
-    }
-    let _ = self.advance()
-  }
-  Ok(())
-}
-
-///|
-fn ExprParser::parse_comp_target_group(
-  self : ExprParser,
-  close_kind : TokenKind,
-  open : Token,
-  unclosed_message : String,
-  walrus_targets : Array[String],
-  has_previous_clause : Bool,
-) -> Result[Array[String], ParseError] {
-  let targets : Array[String] = []
-  let mut element_start = self.index()
-  let mut depth = 0
-  while true {
-    let token = self.current()
-    if token.kind == Eof {
-      return Err(
-        make_parse_error(ParseErrorKind::Syntax, unclosed_message, open),
-      )
-    }
-    if depth == 0 && (token.kind == Comma || token.kind == close_kind) {
-      let element_end = self.index()
-      if element_end > element_start {
-        if element_end == element_start + 1 {
-          match self.tokens[element_start].kind {
-            Ident(name) => {
-              if has_previous_clause {
-                for existing in walrus_targets {
-                  if existing == name {
-                    return Err(
-                      make_parse_error(
-                        ParseErrorKind::Syntax,
-                        "comprehension inner loop cannot rebind assignment expression target '" +
-                        name +
-                        "'",
-                        self.tokens[element_start],
-                      ),
-                    )
-                  }
-                }
-              }
-              targets.push(name)
-            }
-            _ => targets.push("_")
-          }
-        } else if element_end == element_start + 2 &&
-          self.tokens[element_start].kind == Star &&
-          self.tokens[element_start + 1].kind is Ident(name) {
-          if has_previous_clause {
-            for existing in walrus_targets {
-              if existing == name {
-                return Err(
-                  make_parse_error(
-                    ParseErrorKind::Syntax,
-                    "comprehension inner loop cannot rebind assignment expression target '" +
-                    name +
-                    "'",
-                    self.tokens[element_start + 1],
-                  ),
-                )
-              }
-            }
-          }
-          targets.push(name)
-        } else {
-          targets.push("_")
-        }
-      }
-      if token.kind == Comma {
-        let _ = self.advance()
-        element_start = self.index()
-        continue
-      }
-      let _ = self.advance()
-      break
-    }
-    match token.kind {
-      LParen | LBracket | LBrace => depth += 1
-      RParen | RBracket | RBrace => if depth > 0 { depth -= 1 }
-      _ => ()
-    }
-    let _ = self.advance()
-  }
-  if targets.length() == 0 {
-    targets.push("_")
-  }
-  Ok(targets)
-}
-
-///|
-fn ExprParser::looks_like_destructuring_list(self : ExprParser) -> Bool {
-  if self.current().kind != LBracket {
-    return false
-  }
-  let mut idx = self.index() + 1
-  let mut depth = 1
-  let mut saw_for = false
-  while idx < self.tokens.length() {
-    let kind = self.tokens[idx].kind
-    match kind {
-      LParen | LBracket | LBrace => depth += 1
-      RParen | RBracket | RBrace => {
-        if depth > 0 {
-          depth -= 1
-        }
-        if depth == 0 {
-          break
-        }
-      }
-      For => if depth == 1 { saw_for = true }
-      _ => ()
-    }
-    if saw_for {
-      break
-    }
-    idx += 1
-  }
-  if saw_for || depth != 0 {
-    return false
-  }
-  if idx + 1 >= self.tokens.length() {
-    return false
-  }
-  match self.tokens[idx + 1].kind {
-    In | Comma => true
-    _ => false
-  }
-}
-
-///|
 fn ExprParser::parse_comp_targets(
   self : ExprParser,
   open : Token,
   unclosed_message : String,
   walrus_targets : Array[String],
   has_previous_clause : Bool,
-) -> Result[Array[String], ParseError] {
-  let token = self.current()
-  match token.kind {
-    Ident(name) => {
-      let targets : Array[String] = []
-      if has_previous_clause {
-        for existing in walrus_targets {
-          if existing == name {
-            return Err(
-              make_parse_error(
-                ParseErrorKind::Syntax,
-                "comprehension inner loop cannot rebind assignment expression target '" +
-                name +
-                "'",
-                token,
-              ),
-            )
-          }
-        }
-      }
-      targets.push(name)
-      let _ = self.advance()
-      if self.current().kind != Comma && self.current().kind != In {
-        // Comprehension targets can be general assignment targets (e.g. `x[0]`),
-        // but moonpython currently only tracks bound names. Skip unsupported
-        // target shapes and use a placeholder binding.
-        let _ = match
-          self.skip_comp_target_until(
-            Comma,
-            In,
-            open,
-            unclosed_message.to_string(),
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
-        }
-        return Ok(["_"])
-      }
-      while self.current().kind == Comma {
-        let _ = self.advance()
-        if self.current().kind == In {
-          break
-        }
-        if self.current().kind == Eof {
-          return Err(
-            make_parse_error(
-              ParseErrorKind::Syntax,
-              unclosed_message.to_string(),
-              open,
-            ),
-          )
-        }
-        let next_target = self.current()
-        match next_target.kind {
-          Ident(next_name) => {
-            if has_previous_clause {
-              for existing in walrus_targets {
-                if existing == next_name {
-                  return Err(
-                    make_parse_error(
-                      ParseErrorKind::Syntax,
-                      "comprehension inner loop cannot rebind assignment expression target '" +
-                      next_name +
-                      "'",
-                      next_target,
-                    ),
-                  )
-                }
-              }
-            }
-            targets.push(next_name)
-            let _ = self.advance()
-          }
-          LParen => {
-            let open_target = self.advance()
-            let group_targets = match
-              self.parse_comp_target_group(
-                RParen,
-                open_target,
-                "'(' was never closed".to_string(),
-                walrus_targets,
-                has_previous_clause,
-              ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            for t in group_targets {
-              targets.push(t)
-            }
-          }
-          LBracket =>
-            if self.looks_like_destructuring_list() {
-              let open_target = self.advance()
-              let group_targets = match
-                self.parse_comp_target_group(
-                  RBracket,
-                  open_target,
-                  "'[' was never closed".to_string(),
-                  walrus_targets,
-                  has_previous_clause,
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              for t in group_targets {
-                targets.push(t)
-              }
-            } else {
-              let _ = match
-                self.skip_comp_target_until(
-                  Comma,
-                  In,
-                  open,
-                  unclosed_message.to_string(),
-                ) {
-                Ok(value) => value
-                Err(err) => return Err(err)
-              }
-              targets.push("_")
-            }
-          _ => {
-            let _ = match
-              self.skip_comp_target_until(
-                Comma,
-                In,
-                open,
-                unclosed_message.to_string(),
-              ) {
-              Ok(value) => value
-              Err(err) => return Err(err)
-            }
-            targets.push("_")
-          }
-        }
-      }
-      Ok(targets)
+) -> Result[(Array[String], Target), ParseError] {
+  let start = self.index()
+  let mut depth = 0
+  while self.current().kind != Eof {
+    let kind = self.current().kind
+    if depth == 0 && kind == In {
+      break
     }
-    LParen => {
-      let open_target = self.advance()
-      self.parse_comp_target_group(
-        RParen,
-        open_target,
-        "'(' was never closed".to_string(),
-        walrus_targets,
-        has_previous_clause,
-      )
+    if kind == LParen || kind == LBracket || kind == LBrace {
+      depth += 1
     }
-    LBracket =>
-      if self.looks_like_destructuring_list() {
-        let open_target = self.advance()
-        self.parse_comp_target_group(
-          RBracket,
-          open_target,
-          "'[' was never closed".to_string(),
-          walrus_targets,
-          has_previous_clause,
-        )
-      } else {
-        let _ = match
-          self.skip_comp_target_until(
-            In,
-            In,
-            open,
-            unclosed_message.to_string(),
-          ) {
-          Ok(value) => value
-          Err(err) => return Err(err)
+    if kind == RParen || kind == RBracket || kind == RBrace {
+      if depth == 0 {
+        break
+      }
+      depth -= 1
+    }
+    let _ = self.advance()
+  }
+  let stop = self.current()
+  if stop.kind == Eof {
+    return Err(make_parse_error(ParseErrorKind::Syntax, unclosed_message, open))
+  }
+  let tokens = self.tokens[start:self.index()].to_owned()
+  tokens.push(Token::{
+    kind: Eof,
+    start: stop.start,
+    end: stop.start,
+    line: stop.line,
+    column: stop.column,
+  })
+  let target = match target_from_assignment_tokens(tokens, open) {
+    Ok(target) => target
+    Err(err) => return Err(err)
+  }
+  let names : Array[String] = []
+  fn collect(target : Target) -> Unit {
+    match target {
+      Target::Name(name) => names.push(name)
+      Target::Tuple(items) | Target::List(items) =>
+        for item in items {
+          collect(item)
         }
-        Ok(["_"])
-      }
-    _ => {
-      let _ = match
-        self.skip_comp_target_until(In, In, open, unclosed_message.to_string()) {
-        Ok(value) => value
-        Err(err) => return Err(err)
-      }
-      Ok(["_"])
+      Target::Starred(item) => collect(item)
+      _ => ()
     }
   }
+  collect(target)
+  if has_previous_clause {
+    for name in names {
+      if walrus_targets.contains(name) {
+        return Err(
+          make_parse_error(ParseErrorKind::Syntax, "invalid syntax", open),
+        )
+      }
+    }
+  }
+  Ok((names, target))
 }
 
 ///|
@@ -2147,6 +1882,22 @@ fn ExprParser::parse_primary(self : ExprParser) -> Result[Expr, ParseError] {
                   self.current(),
                 ),
               )
+            }
+            // Adjacent expressions in a list are missing a separator. Report
+            // the preceding expression, as CPython does, before later invalid
+            // tokens (which the lexer retains for grammar error precedence).
+            if self.current().kind is Ident(_) {
+              if expr_span(items[items.length() - 1]) is Some(span) {
+                return Err(
+                  make_parse_error(ParseErrorKind::Syntax, "invalid syntax", Token::{
+                    kind: Eof,
+                    start: span.start,
+                    end: span.end,
+                    line: span.line,
+                    column: span.column,
+                  }),
+                )
+              }
             }
             match self.expect(RBracket) {
               Ok(_) => ()

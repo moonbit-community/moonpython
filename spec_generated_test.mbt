@@ -6,6 +6,19 @@
 
 ///|
 /// MPython spec-driven tests generated from CPython evaluation
+
+// Match format_error's structured "Type: message" serialization. Production
+// traceback formatting deliberately omits the delimiter for empty exceptions.
+fn format_spec_error(error : @moonpython.RuntimeError) -> String {
+  let formatted = @moonpython.format_runtime_error(error)
+  if error.exc_args.is_empty() && formatted == error.exc_type {
+    formatted + ": "
+  } else {
+    formatted
+  }
+}
+
+///|
 fn assert_run(
   result : Result[@moonpython.RunResult, @moonpython.RuntimeError],
   expected : String,
@@ -50,10 +63,7 @@ fn assert_run(
               Err(err) =>
                 match payload {
                   String(message) =>
-                    inspect(
-                      @moonpython.format_runtime_error(err),
-                      content=message,
-                    )
+                    inspect(format_spec_error(err), content=message)
                   _ => fail("invalid error payload")
                 }
             }
@@ -23896,7 +23906,7 @@ test "generated/program/0690" {
     #|            def bar(self):
     #|                [[(__x:=2) for _ in range(2)] for __x in range(2)]
   let result = @moonpython.Interpreter::new_spec().exec_source(source)
-  let expected = "[\"err\", \"NameError: name '__name__' is not defined\"]"
+  let expected = "[\"err\", \"line 3:1 invalid syntax\"]"
   assert_run(result, expected)
 }
 

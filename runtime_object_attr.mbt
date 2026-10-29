@@ -3276,18 +3276,62 @@ fn get_attr_raw_from_value(
             _ => 1N
           }
           let argcount = posonlyargcount + pos_or_kw_count
-          Ok(
-            make_code_instance_with_meta(
-              flags,
-              co_filename,
-              func.name,
-              firstlineno,
-              argcount,
-              posonlyargcount,
-              kwonlyargcount,
-              varnames,
-            ),
+          let code_value = make_code_instance_with_meta(
+            flags,
+            co_filename,
+            func.name,
+            firstlineno,
+            argcount,
+            posonlyargcount,
+            kwonlyargcount,
+            varnames,
           )
+          let future = get_global_value(
+              resolve_function_globals(func, globals),
+              "__mpython_future_annotations__",
+            )
+            is Some(Value::Bool(true))
+          if code_value is Value::Instance(instance) {
+            match
+              compile_stmts_to_bc_with_future(
+                local_annotation_statements(func.body),
+                func.name,
+                co_filename,
+                future,
+              ) {
+              Ok(code) => {
+                let positions = code.spans.map(fn(span) {
+                  match span {
+                    Some(span) =>
+                      Value::Tuple([
+                        Value::Int(@bigint.BigInt::from_int(span.line)),
+                        Value::Int(@bigint.BigInt::from_int(span.line)),
+                        Value::Int(@bigint.BigInt::from_int(span.column - 1)),
+                        Value::Int(
+                          @bigint.BigInt::from_int(
+                            span.column - 1 + span.end - span.start,
+                          ),
+                        ),
+                      ])
+                    None =>
+                      Value::Tuple([
+                        Value::None,
+                        Value::None,
+                        Value::None,
+                        Value::None,
+                      ])
+                  }
+                })
+                set_named_value(
+                  instance.dict,
+                  "__mpython_co_positions",
+                  Value::List(positions),
+                )
+              }
+              Err(_) => ()
+            }
+          }
+          Ok(code_value)
         } else if attr == "__closure__" {
           let cells : Array[Value] = []
           for pair in func.closure {

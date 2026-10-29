@@ -1509,13 +1509,36 @@ fn eval_block_flow(
         last = Value::None
       }
       Stmt::AnnAssign(target~, annotation~, value~) => {
+        match value {
+          Some(expr) => {
+            let eval_value = match
+              eval_expr_with_env(expr, locals, globals, builtins, io) {
+              Ok(value) => value
+              Err(err) => return Err(err)
+            }
+            let _ = match
+              assign_target_with_env(
+                target, eval_value, locals, globals, builtins, io,
+              ) {
+              Ok(v) => v
+              Err(err) => return Err(err)
+            }
+          }
+          None =>
+            for expr in target_expressions(target) {
+              match eval_expr_with_env(expr, locals, globals, builtins, io) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
+            }
+        }
         match target {
           Target::Name(name) => {
             // Only simple-name annotations contribute to __annotations__.
-            // For attribute/subscript targets (e.g. `self.x: T = ...`), CPython
-            // does not evaluate/store the annotation at runtime.
             let ann_value = match
-              eval_expr_with_env(annotation, locals, globals, builtins, io) {
+              eval_annotation_with_env(
+                annotation, locals, globals, builtins, io,
+              ) {
               Ok(value) => value
               Err(err) => return Err(err)
             }
@@ -1545,24 +1568,15 @@ fn eval_block_flow(
               Err(err) => return Err(err)
             }
           }
-          _ => ()
-        }
-        match value {
-          Some(expr) => {
-            let eval_value = match
-              eval_expr_with_env(expr, locals, globals, builtins, io) {
-              Ok(value) => value
-              Err(err) => return Err(err)
+          _ =>
+            if !(get_global_value(globals, "__mpython_future_annotations__")
+              is Some(Value::Bool(true))) {
+              match
+                eval_expr_with_env(annotation, locals, globals, builtins, io) {
+                Ok(_) => ()
+                Err(err) => return Err(err)
+              }
             }
-            let _ = match
-              assign_target_with_env(
-                target, eval_value, locals, globals, builtins, io,
-              ) {
-              Ok(v) => v
-              Err(err) => return Err(err)
-            }
-          }
-          None => ()
         }
         last = Value::None
       }
@@ -1887,44 +1901,33 @@ fn eval_block_flow(
           default_values.push(value)
         }
         let ann_pairs : Array[(Value, Value)] = []
-        let future_on = match
-          get_global_value(globals, "__mpython_future_annotations__") {
-          Some(Value::Bool(true)) => true
-          _ => false
+        for ann in annotations {
+          let key = ann.0
+          let expr = ann.1
+          let value = match
+            eval_annotation_with_env(expr, locals, globals, builtins, io) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+          let _ = match dict_set_item(ann_pairs, Value::Str(key), value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
         }
-        if !future_on {
-          for ann in annotations {
-            let key = ann.0
-            let expr = ann.1
+        match return_annotation {
+          Some(expr) => {
             let value = match
-              eval_expr_with_env(expr, locals, globals, builtins, io) {
+              eval_annotation_with_env(expr, locals, globals, builtins, io) {
               Ok(v) => v
               Err(err) => return Err(err)
             }
-            let _ = match dict_set_item(ann_pairs, Value::Str(key), value) {
+            let _ = match
+              dict_set_item(ann_pairs, Value::Str("return".to_string()), value) {
               Ok(v) => v
               Err(err) => return Err(err)
             }
           }
-          match return_annotation {
-            Some(expr) => {
-              let value = match
-                eval_expr_with_env(expr, locals, globals, builtins, io) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-              let _ = match
-                dict_set_item(
-                  ann_pairs,
-                  Value::Str("return".to_string()),
-                  value,
-                ) {
-                Ok(v) => v
-                Err(err) => return Err(err)
-              }
-            }
-            None => ()
-          }
+          None => ()
         }
         let template = FunctionValue::{
           name,

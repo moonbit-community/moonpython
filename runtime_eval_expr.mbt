@@ -251,6 +251,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -264,16 +266,16 @@ fn eval_expr_with_env(
       }
       for clause in clauses {
         for name in clause.targets {
-          if name != "_" {
-            shadow_local_cell(comp_locals, name, Value::None)
-          }
+          shadow_local_cell(comp_locals, name, Value::None)
         }
       }
       let values : Array[Value] = []
-      let _ = match
-        eval_list_comp_walk(
-          0, elt, clauses, filters, comp_locals, globals, builtins, io, values,
-        ) {
+      scope_decls_stack.val.push(comprehension_scope_decls(clauses))
+      let result = eval_list_comp_walk(
+        0, elt, clauses, filters, comp_locals, globals, builtins, io, values,
+      )
+      pop_scope_decls()
+      match result {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
@@ -285,15 +287,14 @@ fn eval_expr_with_env(
       }
 
       let gen_locals = clone_locals(locals)
+      let scope = comprehension_scope_decls(clauses)
       let mut has_async_clause = false
       for clause in clauses {
         if clause.is_async {
           has_async_clause = true
         }
         for name in clause.targets {
-          if name != "_" {
-            ensure_local_cell(gen_locals, name, Value::None)
-          }
+          shadow_local_cell(gen_locals, name, Value::None)
         }
       }
       let mut has_await = expr_contains_await(elt)
@@ -354,6 +355,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -375,9 +378,9 @@ fn eval_expr_with_env(
             globals,
             builtins,
             io,
-            [],
-            [],
-            [],
+            scope.globals,
+            scope.nonlocals,
+            current_closure_env(),
             "<genexpr>".to_string(),
             filename,
           ),
@@ -399,6 +402,8 @@ fn eval_expr_with_env(
       adjusted_clauses.push(CompClause::{
         is_async: false,
         targets: clauses[0].targets,
+        target: clauses[0].target,
+        filters: clauses[0].filters,
         iter: Expr::Name(iter_name),
       })
       for i = 1; i < clauses.length(); i = i + 1 {
@@ -413,9 +418,9 @@ fn eval_expr_with_env(
           globals,
           builtins,
           io,
-          [],
-          [],
-          [],
+          scope.globals,
+          scope.nonlocals,
+          current_closure_env(),
           "<genexpr>".to_string(),
           filename,
         ),
@@ -450,6 +455,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -463,16 +470,16 @@ fn eval_expr_with_env(
       }
       for clause in clauses {
         for name in clause.targets {
-          if name != "_" {
-            shadow_local_cell(comp_locals, name, Value::None)
-          }
+          shadow_local_cell(comp_locals, name, Value::None)
         }
       }
       let values : Array[Value] = []
-      let _ = match
-        eval_list_comp_walk(
-          0, elt, clauses, filters, comp_locals, globals, builtins, io, values,
-        ) {
+      scope_decls_stack.val.push(comprehension_scope_decls(clauses))
+      let result = eval_list_comp_walk(
+        0, elt, clauses, filters, comp_locals, globals, builtins, io, values,
+      )
+      pop_scope_decls()
+      match result {
         Ok(_) => ()
         Err(err) => return Err(err)
       }
@@ -514,6 +521,8 @@ fn eval_expr_with_env(
         adjusted_clauses.push(CompClause::{
           is_async: clauses[0].is_async,
           targets: clauses[0].targets,
+          target: clauses[0].target,
+          filters: clauses[0].filters,
           iter: Expr::Name(iter_name),
         })
         for i = 1; i < clauses.length(); i = i + 1 {
@@ -527,16 +536,16 @@ fn eval_expr_with_env(
       }
       for clause in clauses {
         for name in clause.targets {
-          if name != "_" {
-            shadow_local_cell(comp_locals, name, Value::None)
-          }
+          shadow_local_cell(comp_locals, name, Value::None)
         }
       }
       let values : Array[(Value, Value)] = []
-      let _ = match
-        eval_dict_comp_walk(
-          0, key, value, clauses, filters, comp_locals, globals, builtins, io, values,
-        ) {
+      scope_decls_stack.val.push(comprehension_scope_decls(clauses))
+      let result = eval_dict_comp_walk(
+        0, key, value, clauses, filters, comp_locals, globals, builtins, io, values,
+      )
+      pop_scope_decls()
+      match result {
         Ok(_) => ()
         Err(err) => return Err(err)
       }

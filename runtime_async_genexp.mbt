@@ -4,6 +4,8 @@
 ///|
 priv struct AsyncGenExpState {
   elt : Expr
+  scope : ScopeDecls
+  closure : Array[(String, Value)]
   clauses : Array[CompClause]
   filters : Array[Expr]
   locals : Array[(String, Value)]
@@ -116,8 +118,10 @@ fn async_genexp_new(
   let state : Ref[AsyncGenExpState] = {
     val: AsyncGenExpState::{
       elt,
+      scope: comprehension_scope_decls(clauses),
+      closure: current_closure_env(),
       clauses,
-      filters,
+      filters: unowned_comprehension_filters(clauses, filters),
       locals,
       globals,
       builtins,
@@ -138,6 +142,18 @@ fn async_genexp_next(async_genexp_value : Value) -> Result[Value, RuntimeError] 
     Ok(v) => v
     Err(err) => return Err(err)
   }
+  push_closure_env(state.val.closure)
+  scope_decls_stack.val.push(state.val.scope)
+  let result = async_genexp_resume(state)
+  pop_scope_decls()
+  pop_closure_env()
+  result
+}
+
+///|
+fn async_genexp_resume(
+  state : Ref[AsyncGenExpState],
+) -> Result[Value, RuntimeError] {
   if state.val.done {
     return Err(stop_async_iteration())
   }
@@ -287,14 +303,30 @@ fn async_genexp_next(async_genexp_value : Value) -> Result[Value, RuntimeError] 
     match item_res {
       Ok(Some(item)) => {
         let _ = match
-          bind_comp_targets(
+          assign_target_with_env(
+            clause.target,
+            item,
             state.val.locals,
             state.val.globals,
-            clause.targets,
-            item,
+            state.val.builtins,
+            state.val.io,
           ) {
           Ok(v) => v
           Err(err) => return Err(err)
+        }
+        let keep = match
+          eval_comp_filters(
+            clause.filters,
+            state.val.locals,
+            state.val.globals,
+            state.val.builtins,
+            state.val.io,
+          ) {
+          Ok(value) => value
+          Err(err) => return Err(err)
+        }
+        if !keep {
+          continue
         }
         for i = depth + 1; i < n; i = i + 1 {
           state.val.iters[i] = None

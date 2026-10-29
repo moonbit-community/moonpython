@@ -193,43 +193,6 @@ fn eval_comp_filters(
 }
 
 ///|
-fn bind_comp_targets(
-  locals : Array[(String, Value)],
-  globals : Array[(String, Value)],
-  targets : Array[String],
-  item : Value,
-) -> Result[Unit, RuntimeError] {
-  let _ = globals
-  if targets.length() == 1 {
-    if targets[0] != "_" {
-      ensure_local_cell(locals, targets[0], Value::None)
-      set_local_value(locals, targets[0], item)
-    }
-    return Ok(())
-  }
-  let values = match item {
-    Value::Tuple(values) => values
-    Value::List(values) => values
-    _ =>
-      return Err(
-        make_runtime_error(RuntimeErrorKind::Type, "cannot unpack".to_string()),
-      )
-  }
-  if values.length() != targets.length() {
-    return Err(
-      make_runtime_error(RuntimeErrorKind::Type, "cannot unpack".to_string()),
-    )
-  }
-  for i = 0; i < targets.length(); i = i + 1 {
-    if targets[i] != "_" {
-      ensure_local_cell(locals, targets[i], Value::None)
-      set_local_value(locals, targets[i], values[i])
-    }
-  }
-  Ok(())
-}
-
-///|
 fn eval_list_comp_walk(
   index : Int32,
   elt : Expr,
@@ -242,7 +205,14 @@ fn eval_list_comp_walk(
   results : Array[Value],
 ) -> Result[Unit, RuntimeError] {
   if index >= clauses.length() {
-    let ok = match eval_comp_filters(filters, locals, globals, builtins, io) {
+    let ok = match
+      eval_comp_filters(
+        unowned_comprehension_filters(clauses, filters),
+        locals,
+        globals,
+        builtins,
+        io,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -292,9 +262,25 @@ fn eval_list_comp_walk(
             return Err(err)
           }
       }
-      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+      let _ = match
+        assign_target_with_env(
+          clause.target,
+          item,
+          locals,
+          globals,
+          builtins,
+          io,
+        ) {
         Ok(_) => ()
         Err(err) => return Err(err)
+      }
+      let keep = match
+        eval_comp_filters(clause.filters, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if !keep {
+        continue
       }
       let _ = match
         eval_list_comp_walk(
@@ -328,9 +314,25 @@ fn eval_list_comp_walk(
             return Err(err)
           }
       }
-      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+      let _ = match
+        assign_target_with_env(
+          clause.target,
+          item,
+          locals,
+          globals,
+          builtins,
+          io,
+        ) {
         Ok(_) => ()
         Err(err) => return Err(err)
+      }
+      let keep = match
+        eval_comp_filters(clause.filters, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if !keep {
+        continue
       }
       let _ = match
         eval_list_comp_walk(
@@ -366,7 +368,14 @@ fn eval_dict_comp_walk(
   results : Array[(Value, Value)],
 ) -> Result[Unit, RuntimeError] {
   if index >= clauses.length() {
-    let ok = match eval_comp_filters(filters, locals, globals, builtins, io) {
+    let ok = match
+      eval_comp_filters(
+        unowned_comprehension_filters(clauses, filters),
+        locals,
+        globals,
+        builtins,
+        io,
+      ) {
       Ok(value) => value
       Err(err) => return Err(err)
     }
@@ -423,9 +432,25 @@ fn eval_dict_comp_walk(
             return Err(err)
           }
       }
-      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+      let _ = match
+        assign_target_with_env(
+          clause.target,
+          item,
+          locals,
+          globals,
+          builtins,
+          io,
+        ) {
         Ok(_) => ()
         Err(err) => return Err(err)
+      }
+      let keep = match
+        eval_comp_filters(clause.filters, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if !keep {
+        continue
       }
       let _ = match
         eval_dict_comp_walk(
@@ -460,9 +485,25 @@ fn eval_dict_comp_walk(
             return Err(err)
           }
       }
-      let _ = match bind_comp_targets(locals, globals, clause.targets, item) {
+      let _ = match
+        assign_target_with_env(
+          clause.target,
+          item,
+          locals,
+          globals,
+          builtins,
+          io,
+        ) {
         Ok(_) => ()
         Err(err) => return Err(err)
+      }
+      let keep = match
+        eval_comp_filters(clause.filters, locals, globals, builtins, io) {
+        Ok(value) => value
+        Err(err) => return Err(err)
+      }
+      if !keep {
+        continue
       }
       let _ = match
         eval_dict_comp_walk(
@@ -483,4 +524,18 @@ fn eval_dict_comp_walk(
     }
   }
   Ok(())
+}
+
+///|
+// The flat filter view is retained for AST consumers and lexical validators;
+// execution uses per-clause filters to avoid moving side effects inward.
+fn unowned_comprehension_filters(
+  clauses : Array[CompClause],
+  filters : Array[Expr],
+) -> Array[Expr] {
+  if clauses.any(fn(clause) { !clause.filters.is_empty() }) {
+    []
+  } else {
+    filters
+  }
 }

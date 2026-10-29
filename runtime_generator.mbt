@@ -524,53 +524,6 @@ fn generator_step_statement(
       Ok(None)
     }
     Stmt::AnnAssign(target~, annotation~, value~) => {
-      match target {
-        Target::Name(name) => {
-          // Only simple-name annotations contribute to __annotations__. For
-          // attribute/subscript targets, ignore the annotation expression.
-          let ann_value = match
-            eval_expr_with_env(
-              annotation,
-              state.val.locals,
-              state.val.globals,
-              state.val.builtins,
-              state.val.io,
-            ) {
-            Ok(value) => value
-            Err(err) => return Err(err)
-          }
-          let pairs = match
-            get_scoped_value(
-              state.val.locals,
-              state.val.globals,
-              "__annotations__",
-            ) {
-            Some(Value::Dict(pairs)) => pairs
-            Some(_) =>
-              return Err(
-                make_runtime_error(
-                  RuntimeErrorKind::Type,
-                  "__annotations__ must be a dict".to_string(),
-                ),
-              )
-            None => {
-              let pairs : Array[(Value, Value)] = []
-              set_scoped_value(
-                state.val.locals,
-                state.val.globals,
-                "__annotations__",
-                Value::Dict(pairs),
-              )
-              pairs
-            }
-          }
-          let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
-            Ok(v) => v
-            Err(err) => return Err(err)
-          }
-        }
-        _ => ()
-      }
       match value {
         Some(value_expr) => {
           match value_expr {
@@ -648,10 +601,58 @@ fn generator_step_statement(
             Ok(v) => v
             Err(err) => return Err(err)
           }
-          Ok(None)
+          ()
         }
-        None => Ok(None)
+        None => ()
       }
+      match target {
+        Target::Name(name) => {
+          // Only simple-name annotations contribute to __annotations__. For
+          // attribute/subscript targets, ignore the annotation expression.
+          let ann_value = match
+            eval_expr_with_env(
+              annotation,
+              state.val.locals,
+              state.val.globals,
+              state.val.builtins,
+              state.val.io,
+            ) {
+            Ok(value) => value
+            Err(err) => return Err(err)
+          }
+          let pairs = match
+            get_scoped_value(
+              state.val.locals,
+              state.val.globals,
+              "__annotations__",
+            ) {
+            Some(Value::Dict(pairs)) => pairs
+            Some(_) =>
+              return Err(
+                make_runtime_error(
+                  RuntimeErrorKind::Type,
+                  "__annotations__ must be a dict".to_string(),
+                ),
+              )
+            None => {
+              let pairs : Array[(Value, Value)] = []
+              set_scoped_value(
+                state.val.locals,
+                state.val.globals,
+                "__annotations__",
+                Value::Dict(pairs),
+              )
+              pairs
+            }
+          }
+          let _ = match dict_set_item(pairs, Value::Str(name), ann_value) {
+            Ok(v) => v
+            Err(err) => return Err(err)
+          }
+        }
+        _ => ()
+      }
+      Ok(None)
     }
     Stmt::AugAssign(target~, op~, value~) => {
       let right_val = match

@@ -71,6 +71,7 @@ priv enum TokenKind {
   Pass
   Break
   Continue
+  Invalid
   Eof
 } derive(Eq)
 
@@ -255,68 +256,14 @@ fn parse_int_literal(text : String) -> @bigint.BigInt {
 }
 
 ///|
-fn pow10(exp : Int32) -> Double {
-  let mut result = 1.0
-  let count = if exp < 0 { -exp } else { exp }
-  for i = 0; i < count; i = i + 1 {
-    result = result * 10.0
-  }
-  if exp < 0 {
-    1.0 / result
-  } else {
-    result
-  }
-}
-
-///|
 fn parse_float_literal(text : String) -> Double {
+  // The lexer has already validated the decimal syntax. Core conversion rounds
+  // once to binary64; repeated decimal arithmetic can change the stored value.
   let cleaned = strip_underscores(text)
-  let chars = cleaned.to_array()
-  let mut value = 0.0
-  let mut seen_dot = false
-  let mut factor = 0.1
-  let mut exp_index : Int32? = None
-  for i = 0; i < chars.length(); i = i + 1 {
-    let c = chars[i]
-    if c == 'e' || c == 'E' {
-      exp_index = Some(i)
-      break
-    }
-    if c == '.' {
-      seen_dot = true
-    } else if is_digit(c) {
-      if seen_dot {
-        value = value + (c.to_int() - 48).to_double() * factor
-        factor = factor / 10.0
-      } else {
-        value = value * 10.0 + (c.to_int() - 48).to_double()
-      }
-    }
+  @string.parse_double(cleaned[:]) catch {
+    Failure("value out of range") => 1.0 / 0.0
+    _ => 0.0
   }
-  let mut exp = 0
-  if exp_index is Some(index) {
-    let mut pos = index + 1
-    let mut sign = 1
-    if pos < chars.length() {
-      if chars[pos] == '+' {
-        pos += 1
-      } else if chars[pos] == '-' {
-        sign = -1
-        pos += 1
-      }
-    }
-    let mut exp_value = 0
-    for i = pos; i < chars.length(); i = i + 1 {
-      let c = chars[i]
-      if is_digit(c) {
-        exp_value = exp_value * 10 + (c.to_int() - 48)
-      } else {
-        break
-      }
-    }
-    exp = exp_value * sign
-  }
-  value * pow10(exp)
 }
 
 ///|
@@ -1375,14 +1322,9 @@ fn tokenize_expr(
           if i + 1 < len && chars[i + 1] == '=' {
             (NotEq, 2)
           } else {
-            let token = {
-              kind: Eof,
-              start: base_offset + start,
-              end: base_offset + start + 1,
-              line: current_line,
-              column: column_at(start, line_start, base_column),
-            }
-            return Err(unexpected_token_error(token))
+            // Preserve the invalid token so an earlier grammar error in the
+            // same expression is diagnosed before this later character.
+            (Invalid, 1)
           }
         _ => {
           let token = {

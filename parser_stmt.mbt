@@ -1448,15 +1448,15 @@ fn stmts_have_class_body_comprehension_name(
 }
 
 ///|
-fn stmt_first_param_nonlocal_line(
+fn stmt_first_param_scope_decl_line(
   stmt : Stmt,
   fallback_line : Int32,
   params : Array[String],
 ) -> Int32? {
   match stmt {
     Stmt::WithSpan(span~, stmt=inner) =>
-      stmt_first_param_nonlocal_line(inner, span.line, params)
-    Stmt::Nonlocal(names) => {
+      stmt_first_param_scope_decl_line(inner, span.line, params)
+    Stmt::Nonlocal(names) | Stmt::Global(names) => {
       for name in names {
         for param in params {
           match normalize_param_name_for_compare(param) {
@@ -1472,43 +1472,43 @@ fn stmt_first_param_nonlocal_line(
     }
     Stmt::If(condition=_, body~, else_body~)
     | Stmt::While(condition=_, body~, else_body~) => {
-      match stmts_first_param_nonlocal_line(body, params) {
+      match stmts_first_param_scope_decl_line(body, params) {
         Some(line) => return Some(line)
         None => ()
       }
-      stmts_first_param_nonlocal_line(else_body, params)
+      stmts_first_param_scope_decl_line(else_body, params)
     }
     Stmt::For(target=_, iter=_, body~, else_body~)
     | Stmt::AsyncFor(target=_, iter=_, body~, else_body~) => {
-      match stmts_first_param_nonlocal_line(body, params) {
+      match stmts_first_param_scope_decl_line(body, params) {
         Some(line) => return Some(line)
         None => ()
       }
-      stmts_first_param_nonlocal_line(else_body, params)
+      stmts_first_param_scope_decl_line(else_body, params)
     }
     Stmt::With(context=_, target=_, body~)
     | Stmt::AsyncWith(context=_, target=_, body~) =>
-      stmts_first_param_nonlocal_line(body, params)
+      stmts_first_param_scope_decl_line(body, params)
     Stmt::Try(body~, handlers~, else_body~, finally_body~) => {
-      match stmts_first_param_nonlocal_line(body, params) {
+      match stmts_first_param_scope_decl_line(body, params) {
         Some(line) => return Some(line)
         None => ()
       }
       for handler in handlers {
-        match stmts_first_param_nonlocal_line(handler.body, params) {
+        match stmts_first_param_scope_decl_line(handler.body, params) {
           Some(line) => return Some(line)
           None => ()
         }
       }
-      match stmts_first_param_nonlocal_line(else_body, params) {
+      match stmts_first_param_scope_decl_line(else_body, params) {
         Some(line) => return Some(line)
         None => ()
       }
-      stmts_first_param_nonlocal_line(finally_body, params)
+      stmts_first_param_scope_decl_line(finally_body, params)
     }
     Stmt::Match(subject=_, cases~) => {
       for case_item in cases {
-        match stmts_first_param_nonlocal_line(case_item.2, params) {
+        match stmts_first_param_scope_decl_line(case_item.2, params) {
           Some(line) => return Some(line)
           None => ()
         }
@@ -1521,12 +1521,12 @@ fn stmt_first_param_nonlocal_line(
 }
 
 ///|
-fn stmts_first_param_nonlocal_line(
+fn stmts_first_param_scope_decl_line(
   stmts : Array[Stmt],
   params : Array[String],
 ) -> Int32? {
   for stmt in stmts {
-    match stmt_first_param_nonlocal_line(stmt, 1, params) {
+    match stmt_first_param_scope_decl_line(stmt, 1, params) {
       Some(line) => return Some(line)
       None => ()
     }
@@ -1829,6 +1829,9 @@ fn parse_pattern(
       }),
     )
   }
+  if trimmed == "{}" {
+    return Ok(Pattern::TypeCapture(type_name="dict", name="_"))
+  }
   if trimmed == "_" {
     return Ok(Pattern::Wildcard)
   }
@@ -1974,7 +1977,20 @@ fn parse_pattern(
   if valid_ident {
     return Ok(Pattern::Name(trimmed))
   }
-  Ok(Pattern::Wildcard)
+  // Unknown syntax must never silently become a catch-all pattern.
+  match tokenize_expr(trimmed, line_index + 1, base_offset, 1) {
+    Ok(tokens) =>
+      match parse_tokens_expr(tokens) {
+        Ok(expr) =>
+          match pattern_literal(expr) {
+            Some(value) => return Ok(Pattern::Literal(value))
+            None => ()
+          }
+        Err(_) => ()
+      }
+    Err(_) => ()
+  }
+  Err(pattern_syntax_error(line_index, base_offset))
 }
 
 ///|
@@ -2431,12 +2447,7 @@ fn parse_simple_statement(
         ),
       )
     }
-    if trimmed.contains(":") {
-      // Treat as a dict comprehension expression.
-      return finalize_simple_statement(
-        stmts, allow_async_comprehensions, span, base_offset,
-      )
-    } else if has_bare_assign(trimmed) {
+    if !trimmed.contains(":") && has_bare_assign(trimmed) {
       return Err(
         make_parse_error(
           ParseErrorKind::Syntax,

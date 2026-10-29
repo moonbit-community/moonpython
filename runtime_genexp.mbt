@@ -2,19 +2,6 @@
 /// Generator expression helpers.
 
 ///|
-fn genexp_targets_to_target(targets : Array[String]) -> Target {
-  if targets.length() == 1 {
-    Target::Name(targets[0])
-  } else {
-    let out : Array[Target] = []
-    for name in targets {
-      out.push(Target::Name(name))
-    }
-    Target::Tuple(out)
-  }
-}
-
-///|
 fn genexp_filters_to_condition(filters : Array[Expr]) -> Expr? {
   if filters.length() == 0 {
     None
@@ -31,6 +18,7 @@ fn genexp_to_generator_body(
   clauses : Array[CompClause],
   filters : Array[Expr],
 ) -> Array[Stmt] {
+  let filters = unowned_comprehension_filters(clauses, filters)
   let inner : Array[Stmt] = [Stmt::Yield(Some(elt))]
   let conditioned = match genexp_filters_to_condition(filters) {
     Some(cond) => [Stmt::If(condition=cond, body=inner, else_body=[])]
@@ -41,13 +29,11 @@ fn genexp_to_generator_body(
   while i > 0 {
     i = i - 1
     let clause = clauses[i]
+    for j = clause.filters.length() - 1; j >= 0; j = j - 1 {
+      body = [Stmt::If(condition=clause.filters[j], body~, else_body=[])]
+    }
     body = [
-      Stmt::For(
-        target=genexp_targets_to_target(clause.targets),
-        iter=clause.iter,
-        body~,
-        else_body=[],
-      ),
+      Stmt::For(target=clause.target, iter=clause.iter, body~, else_body=[]),
     ]
   }
   body

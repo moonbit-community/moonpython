@@ -254,6 +254,7 @@ fn collect_function_local_names(
   params : Array[String],
   global_names : Array[String],
   nonlocal_names : Array[String],
+  include_reads~ : Bool = false,
 ) -> Array[String] {
   let locals : Array[String] = []
   fn add_local(name : String) -> Unit {
@@ -288,6 +289,8 @@ fn collect_function_local_names(
 
   fn walk_expr(expr : Expr) -> Unit {
     match expr {
+      Expr::WithSpan(expr~, ..) => walk_expr(expr)
+      Expr::Name(name) => if include_reads { add_local(name) }
       Expr::NamedExpr(name~, value~) => {
         add_local(name)
         walk_expr(value)
@@ -306,6 +309,13 @@ fn collect_function_local_names(
       Expr::ListComp(elt~, clauses~, filters~)
       | Expr::GenExp(elt~, clauses~, filters~)
       | Expr::SetComp(elt~, clauses~, filters~) => {
+        if include_reads {
+          // Only the outer iterator is evaluated in the enclosing scope.
+          if clauses.length() > 0 {
+            walk_expr(clauses[0].iter)
+          }
+          return
+        }
         for clause in clauses {
           let _ = clause.targets
           walk_expr(clause.iter)
@@ -321,6 +331,12 @@ fn collect_function_local_names(
           walk_expr(pair.1)
         }
       Expr::DictComp(key~, value~, clauses~, filters~) => {
+        if include_reads {
+          if clauses.length() > 0 {
+            walk_expr(clauses[0].iter)
+          }
+          return
+        }
         for clause in clauses {
           let _ = clause.targets
           walk_expr(clause.iter)
